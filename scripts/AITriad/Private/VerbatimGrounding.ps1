@@ -45,10 +45,14 @@
 #
 # A WHOLE SEGMENT THAT IS NOT STORED (t/389#42 (3), #50, #88 (1)). Segments exist only where the model
 # wrote its own elision mark, so a segment is only ever left out at a mark of the model's. A segment may
-# be left out when it is not in the source as written (not found, or failing a rule above), when it is
-# shorter than 12 letters and so cannot be placed, or when it does not stand with the others as one
-# passage. What is stored must then still hold 0.9 of the whole quote's letters; if it does not, the
-# quote is dropped. Nothing is left out silently inside a segment: that is the unstored-word rule.
+# be left out when the source does not have it, when it is shorter than 12 letters and so cannot be
+# placed, or when it does not stand with the others as one passage. What is stored must then still hold
+# 0.9 of the whole quote's letters; if it does not, the quote is dropped.
+# A segment that IS in the source but not as the model wrote it (a changed or left-out word, a changed
+# capital, a word that cannot be stored) is never left out: it fails the whole quote (t/389#99). An
+# elision mark says the text left out was passage text, so a misquote left out at a mark would look
+# like an accurate partial quote. Nothing is left out silently inside a segment either: that is the
+# unstored-word rule.
 # Two segments stand as one passage only in source order, within 1,000 letters, with running prose
 # between them: no table row, no paragraph that starts a list or bibliography entry, at most one page
 # boundary (t/389#45, #47 (1)).
@@ -127,6 +131,8 @@ $script:VerbatimCaseRule = $true
 # CL t/389#97: a bracketed letter excuses a case change only when the SOURCE has the bracket. A bracket the model
 # added ("[F]uture" for the source's "future") does not. Audit scripts can set this to count the difference.
 $script:VerbatimModelBracketMarksCase = $false
+# CL t/389#99: in an elided quote, a segment that is in the source but not as the model wrote it fails the whole quote.
+$script:VerbatimRejectedSegmentFailsQuote = $true
 # CL t/389#74. Each can be switched off by an audit script.
 $script:VerbatimAlignExtras = $true          # a piece's letters are aligned to the quote's, so extra lines and the model's own digits are told apart
 $script:VerbatimSplitAtGluedSidebar = $true  # a sidebar word glued to the end of a line ("couldLaw") splits the piece there
@@ -1770,8 +1776,19 @@ function Resolve-VerbatimQuote {
         if ($PartLetters -lt $script:VerbatimMinRun) { continue }
         $R = Resolve-VerbatimSegment -Source $Source -Segment $Part -QuoteStart ([object]::ReferenceEquals($Part, $Parts[0]))
         if ($R.Coverage -gt $BestCoverage) { $BestCoverage = $R.Coverage }
-        # A segment that is not in the source as written is left out; the 0.9 share below decides the quote.
-        if ($R.Decision -eq 'dropped') { continue }
+        if ($R.Decision -eq 'dropped') {
+            # A segment that IS in the source but not as the model wrote it (a changed or left-out word, a
+            # changed capital, a word that cannot be stored) fails the whole quote (CL t/389#99). Leaving it
+            # out at the model's own mark would make a misquote look like an accurate partial quote: an
+            # elision mark says the text left out was passage text.
+            if ($script:VerbatimRejectedSegmentFailsQuote -and $R.PSObject.Properties['Rejected'] -and $R.Rejected) {
+                $script:VerbatimDiag.Add('elided quote: a segment is in the source but not as written')
+                $Dropped.Coverage = $BestCoverage
+                return $Dropped
+            }
+            # A segment the source does not have is left out; the 0.9 share below decides the quote.
+            continue
+        }
         # Where the segment is, for the elision rule below. A segment accepted as written was not placed yet.
         if ($null -eq $R.Start) {
             $At = Find-VerbatimSnap -Source $Source -Quote $R.Texts[0]
@@ -1873,10 +1890,25 @@ function Repair-SummaryKeyPointVerbatim {
             if ($null -eq $Source) { $Source = Get-VerbatimSource -Text $SnapshotText }
             $Kept = [System.Collections.Generic.List[string]]::new()
             foreach ($Quote in @($Raw)) {
-                if ($Quote -isnot [string] -or [string]::IsNullOrWhiteSpace($Quote)) { continue }
+                if ($null -eq $Quote -or ($Quote -is [string] -and [string]::IsNullOrWhiteSpace($Quote))) { continue }
+                if ($Quote -isnot [string]) {
+                    # Not a quote at all (a number, an object): nothing to ground. Dropped, and said so.
+                    $Result.Quotes++; $Result.Dropped++
+                    Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim entry dropped: it is a $($Quote.GetType().Name), not text (t/389)."
+                    continue
+                }
                 $Result.Quotes++
-                $R = Resolve-VerbatimQuote -Source $Source -Quote $Quote
                 $Preview = $Quote.Substring(0, [Math]::Min(100, $Quote.Length))
+                try {
+                    $R = Resolve-VerbatimQuote -Source $Source -Quote $Quote
+                }
+                catch {
+                    # One quote the matcher cannot decide must not fail the whole summary. It is dropped, not
+                    # kept: a quote that was not checked is not a grounded quote.
+                    $Result.Dropped++
+                    Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim dropped: the quote could not be checked against the snapshot ($($_.Exception.Message)) (t/389): $Preview"
+                    continue
+                }
                 foreach ($T in $R.Texts) { $Kept.Add($T) }
                 switch ($R.Decision) {
                     'exact' { }

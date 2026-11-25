@@ -974,6 +974,46 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             $Mark.Diag | Should -Contain 'damaged marks in the quote stored repaired'
         }
 
+        It 'in an elided quote, a segment the source has with a changed word fails the whole quote; a segment the source lacks is left out (CL t/389#99)' {
+            # A long first segment, so that it alone holds 0.9 of the quote and only the rule decides.
+            $A = 'Regulators in several countries have begun to ask for evaluation results before a model is released to the public, and the developers say that the tests they run today were never designed to support such a decision. The committee heard evidence from eleven laboratories over four days, and its report sets out what each of them measures, how often, and who is allowed to see the results. It recommends that the results be filed with the regulator within thirty days of each evaluation, and that a summary be published once the model is on sale'
+            $B = 'Auditors want access to the model weights before any public release'
+            $Src = "$A. $B. Later, the committee adopted the standard.`n"
+            # The second segment is in the source with one word changed ("total" for "model"). Left out at the
+            # model's mark, the rest would read as an accurate partial quote. The whole quote fails.
+            $Changed = & $script:Decide74 $Src "$A. [...] $($B -replace 'model', 'total')."
+            $Changed.Decision | Should -Be 'dropped'
+            $Changed.Diag | Should -Contain 'elided quote: a segment is in the source but not as written'
+            # A second segment the source does not have at all is left out, and the rest holds 0.9 of the quote.
+            $Absent = & $script:Decide74 $Src "$A. [...] Nobody objected at all."
+            $Absent.Decision | Should -Not -Be 'dropped'
+            @($Absent.Texts).Count | Should -Be 1
+            # Both segments as the source has them: kept as two quotes.
+            $Both = & $script:Decide74 $Src "$A. [...] $B."
+            $Both.Decision | Should -Not -Be 'dropped'
+            @($Both.Texts).Count | Should -Be 2
+        }
+
+        It 'one quote the matcher cannot decide is dropped with a WARN and does not fail the summary; a non-text entry is dropped with a WARN' {
+            $Src = "Regulators in several countries have begun to ask for evaluation results before a model is released.`n"
+            $Good = 'Regulators in several countries have begun to ask for evaluation results before a model is released.'
+            $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = @($Good, 'A quote the matcher will throw on, standing in for a defect.', 42) })
+            $Out = InModuleScope AITriad -Parameters @{ S = $Src; Sum = $Sum } {
+                param($S, $Sum)
+                Mock Resolve-VerbatimQuote -ParameterFilter { $Quote -like 'A quote the matcher will throw on*' } -MockWith { throw 'boom' }
+                $all = @(Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-throw' 3>&1)
+                [pscustomobject]@{
+                    R        = @($all | Where-Object { $_ -isnot [System.Management.Automation.WarningRecord] })[-1]
+                    Warnings = @($all | Where-Object { $_ -is [System.Management.Automation.WarningRecord] } | ForEach-Object { "$_" })
+                }
+            }
+            $Out.R.Quotes | Should -Be 3
+            $Out.R.Dropped | Should -Be 2
+            @($Sum.pov_summaries.accelerationist.key_points[0].verbatim) | Should -Be @($Good)
+            ($Out.Warnings -join "`n") | Should -Match 'could not be checked against the snapshot \(boom\)'
+            ($Out.Warnings -join "`n") | Should -Match 'verbatim entry dropped: it is a Int32, not text'
+        }
+
         It 'a letter the source has in brackets is a marked change; a case drop at a later segment''s start is counted apart' {
             $Src = "The court held that `"[i]ndividual citizens may have a hard time finding out who they should turn to`" in such cases. Later text follows here for the second part.`n"
             $R = & $script:Decide74 $Src 'The court held that Individual citizens may have a hard time finding out who they should turn to'
