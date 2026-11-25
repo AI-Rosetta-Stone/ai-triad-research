@@ -19,10 +19,15 @@ const root = path.resolve(here, '..', '..');
 const nodeRequire = createRequire(import.meta.url);
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
 
-/** The `script: |` block of the workflow's single github-script step, dedented. */
-function extractScript(workflowFile) {
+/**
+ * The `script: |` block of the workflow's github-script step, dedented. With `stepName`, the first
+ * `script: |` after the step of that name (ci.yml has many); without it, the first in the file.
+ */
+function extractScript(workflowFile, stepName = null) {
   const lines = readFileSync(path.join(root, '.github', 'workflows', workflowFile), 'utf8').split('\n');
-  const start = lines.findIndex((l) => /^\s*script:\s*\|\s*$/.test(l));
+  const from = stepName ? lines.findIndex((l) => l.trim() === `- name: ${stepName}`) : 0;
+  assert.ok(from >= 0, `${workflowFile}: no step named "${stepName}"`);
+  const start = lines.findIndex((l, i) => i >= from && /^\s*script:\s*\|\s*$/.test(l));
   assert.ok(start >= 0, `${workflowFile}: no "script: |" block`);
   const body = [];
   let indent = null;
@@ -47,7 +52,7 @@ function httpError(status) {
  * (params) => data, or an array of steps consumed in order (a number = throw that HTTP status,
  * anything else = return it as data; the last step repeats).
  */
-async function runWorkflow(workflowFile, api, { helperOnBase = true } = {}) {
+async function runWorkflow(workflowFile, api, { helperOnBase = true, step = null, env = {} } = {}) {
   const calls = {};
   const args = {}; // endpoint name -> params of every call, in order
   const log = { info: [], warning: [], error: [], failed: [] };
@@ -62,6 +67,7 @@ async function runWorkflow(workflowFile, api, { helperOnBase = true } = {}) {
       if (typeof spec === 'function') return { data: spec(params) };
       const step = spec[Math.min(calls[name] - 1, spec.length - 1)];
       if (typeof step === 'number') throw httpError(step);
+      if (step instanceof Error) throw step;
       return { data: step };
     };
     return fn;
@@ -92,17 +98,19 @@ async function runWorkflow(workflowFile, api, { helperOnBase = true } = {}) {
   };
   const context = {
     repo: { owner: 'o', repo: 'r' }, serverUrl: 'https://github.com', runId: 1,
-    payload: { pull_request: { number: 7 }, repository: { default_branch: 'main' } },
+    payload: { pull_request: { number: 7, base: { ref: 'main' } }, repository: { default_branch: 'main' } },
   };
   const fakeSetTimeout = (fn, ms) => { sleeps.push(ms); fn(); return 0; };
 
-  const prevWs = process.env.GITHUB_WORKSPACE;
+  const prev = { GITHUB_WORKSPACE: process.env.GITHUB_WORKSPACE };
+  for (const k of Object.keys(env)) prev[k] = process.env[k];
   process.env.GITHUB_WORKSPACE = root;
+  Object.assign(process.env, env);
   try {
-    const script = extractScript(workflowFile);
+    const script = extractScript(workflowFile, step);
     await new AsyncFunction('require', 'github', 'context', 'core', 'setTimeout', script)(fakeRequire, github, context, core, fakeSetTimeout);
   } finally {
-    if (prevWs === undefined) delete process.env.GITHUB_WORKSPACE; else process.env.GITHUB_WORKSPACE = prevWs;
+    for (const [k, v] of Object.entries(prev)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }
   return { calls, args, log, sleeps };
 }
@@ -298,4 +306,123 @@ test('t/562: merge-approval and the ci.yml merge-group t1 guard pass maxRateWait
   const ci = wf('ci.yml');
   assert.match(ci, /prefix: 't1-approval-guard \(merge_group\)',[\s\S]{0,400}?maxRateWaitMs: 15 \* 60 \* 1000,\s*\n\s*maxRateWaits: 1,/);
   assert.match(ci, /timeout-minutes: 25 {2}# same budget as consult-hold-guard\/joint-gv-guard above \(t\/562/);
+});
+
+// ---------------------------------------------------------------- t/238: cl-path-check.yml and ci.yml shared-input coverage
+
+/** A primary rate-limit 403 whose quota resets `inSecs` from now. */
+function rateLimited403(inSecs = 10) {
+  const e = httpError(403);
+  e.message = 'API rate limit exceeded for installation';
+  e.response = { headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + inSecs) } };
+  return e;
+}
+/** A permission 403 with quota left: a real denial. */
+function permission403() {
+  const e = httpError(403);
+  e.message = 'Resource not accessible by integration';
+  e.response = { headers: { 'x-ratelimit-remaining': '4321' } };
+  return e;
+}
+const bareGithubCalls = (workflowFile, step) => {
+  const code = extractScript(workflowFile, step).split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  return code.match(/await github\.[^\n]*/g) || [];
+};
+const prefixedWarns = (log, prefix, name) => log.warning.filter((w) => w.startsWith(`WARN ${prefix}: `) && w.includes(`${name} attempt`));
+
+function clPathApi(overrides = {}) {
+  return {
+    'pulls.get': [PR],
+    'pulls.listFiles': [[{ filename: 'docs/notes.md', status: 'modified' }]],
+    'issues.listComments': [[]],
+    'issues.createComment': [{}],
+    'issues.updateComment': [{}],
+    ...overrides,
+  };
+}
+const clVerdict = (log) => log.info.some((m) => m.startsWith('cl-path-check verdict:') || m.startsWith('cl-path-check: verdict skipped'));
+
+test('t/238 cl-path-check: every GitHub API call goes through retry(), and the helper comes from the base tip', () => {
+  assert.deepEqual(bareGithubCalls('cl-path-check.yml'), [], 'no GitHub call may bypass retry()');
+  assert.match(extractScript('cl-path-check.yml'), /git show \$\{helperSha\}:operations\/devops\/github-retry\.mjs/);
+});
+
+test('t/238 cl-path-check CONTROL: a healthy API evaluates with no retry WARN', async () => {
+  const { log, calls } = await runWorkflow('cl-path-check.yml', clPathApi());
+  assert.deepEqual(log.failed, [], `unexpected failure: ${log.failed} ${log.error}`);
+  assert.deepEqual(log.warning, []);
+  assert.equal(calls['pulls.get'], 1);
+  assert.ok(clVerdict(log), 'a verdict (or a bootstrap skip) was produced');
+});
+
+test('t/238 cl-path-check: a rate-limited 403 on pulls.get waits for the reset, then evaluates', async () => {
+  const { log, calls, sleeps } = await runWorkflow('cl-path-check.yml', clPathApi({ 'pulls.get': [rateLimited403(10), PR] }));
+  assert.deepEqual(log.failed, [], `unexpected failure: ${log.failed}`);
+  assert.equal(calls['pulls.get'], 2);
+  assert.match(prefixedWarns(log, 'cl-path-check', 'pulls.get')[0], /hit a rate limit \(HTTP 403\) -- waiting \d+ms for the reset/);
+  assert.equal(sleeps.length, 1);
+  assert.ok(sleeps[0] > 0 && sleeps[0] <= 30000, `waited ${sleeps[0]}ms, capped by MAX_RATE_WAIT_MS`);
+  assert.ok(clVerdict(log));
+});
+
+test('t/238 cl-path-check: a permission 403 is not retried and reads CANNOT EVALUATE', async () => {
+  const { log, calls, sleeps } = await runWorkflow('cl-path-check.yml', clPathApi({ 'pulls.get': [permission403()] }));
+  assert.equal(calls['pulls.get'], 1);
+  assert.deepEqual(sleeps, []);
+  assert.match(log.failed[0], /^CANNOT EVALUATE: Resource not accessible/);
+});
+
+test('t/238 cl-path-check: a persistent 503 fails closed after 3 attempts on the paginated listFiles', async () => {
+  const { log, calls } = await runWorkflow('cl-path-check.yml', clPathApi({ 'pulls.listFiles': [503] }));
+  assert.equal(calls['pulls.listFiles'], 3);
+  assert.match(log.failed[0], /^CANNOT EVALUATE: pulls\.listFiles failed after 3 attempt/);
+});
+
+test('t/238 cl-path-check bootstrap: helper absent from the base tip -> WARN, calls run once', async () => {
+  const { log, calls } = await runWorkflow('cl-path-check.yml', clPathApi({ 'pulls.get': [503, PR] }), { helperOnBase: false });
+  assert.ok(log.warning.some((w) => /^WARN cl-path-check: retry helper not loadable .* NOT retried/.test(w)));
+  assert.equal(calls['pulls.get'], 1);
+  assert.match(log.failed[0], /^CANNOT EVALUATE: HTTP 503/);
+});
+
+const COVERAGE_STEP = 'Evaluate shared-input coverage';
+const coverageEnv = { FILTER_OUTPUTS: JSON.stringify({}) };
+function coverageApi(overrides = {}) {
+  return {
+    'pulls.listFiles': [[{ filename: 'docs/notes.md', status: 'modified' }]],
+    'issues.listComments': [[]],
+    'issues.createComment': [{}],
+    'issues.updateComment': [{}],
+    ...overrides,
+  };
+}
+const coverageRan = (log) => log.info.some((m) => /^ci-shared-input-coverage: (\d+ under-covered|skipped \(bootstrap\))/.test(m));
+
+test('t/238 ci-shared-input-coverage: every GitHub API call goes through retry(), and the helper comes from the base tip', () => {
+  assert.deepEqual(bareGithubCalls('ci.yml', COVERAGE_STEP), [], 'no GitHub call may bypass retry()');
+  assert.match(extractScript('ci.yml', COVERAGE_STEP), /git show \$\{helperSha\}:operations\/devops\/github-retry\.mjs/);
+});
+
+test('t/238 ci-shared-input-coverage CONTROL: a healthy API evaluates with no retry WARN', async () => {
+  const { log, calls } = await runWorkflow('ci.yml', coverageApi(), { step: COVERAGE_STEP, env: coverageEnv });
+  assert.deepEqual(log.warning, [], `unexpected warnings: ${log.warning}`);
+  assert.equal(calls['pulls.listFiles'], 1);
+  assert.ok(coverageRan(log));
+});
+
+test('t/238 ci-shared-input-coverage: a rate-limited 403 on listFiles waits for the reset, then evaluates', async () => {
+  const files = [{ filename: 'docs/notes.md', status: 'modified' }];
+  const { log, calls, sleeps } = await runWorkflow('ci.yml', coverageApi({ 'pulls.listFiles': [rateLimited403(5), files] }), { step: COVERAGE_STEP, env: coverageEnv });
+  assert.equal(calls['pulls.listFiles'], 2);
+  assert.match(prefixedWarns(log, 'ci-shared-input-coverage', 'pulls.listFiles')[0], /hit a rate limit \(HTTP 403\)/);
+  assert.equal(sleeps.length, 1);
+  assert.ok(coverageRan(log));
+});
+
+test('t/238 ci-shared-input-coverage: a permission 403 is not retried; the crash is a WARN (advisory), never a pass', async () => {
+  const { log, calls, sleeps } = await runWorkflow('ci.yml', coverageApi({ 'pulls.listFiles': [permission403()] }), { step: COVERAGE_STEP, env: coverageEnv });
+  assert.equal(calls['pulls.listFiles'], 1);
+  assert.deepEqual(sleeps, []);
+  assert.ok(log.warning.some((w) => w.startsWith('ci-shared-input-coverage CRASHED:')));
+  assert.ok(!coverageRan(log), 'no coverage verdict after a crash');
 });

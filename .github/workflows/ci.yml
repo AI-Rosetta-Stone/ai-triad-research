@@ -132,11 +132,44 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_REF: ${{ github.base_ref }}
+        # t/238: this crashed bare on the 2026-11-10 13:04Z rate limit. Up to 3 attempts: a rate
+        # limit waits for the core reset (read from /rate_limit, which costs no quota), capped at
+        # 300 s; a 5xx/429 backs off 5 s, then 10 s; anything else (a permission 403, a 422) fails
+        # at once. Exhausted or capped fails the step, never a silent pass.
         run: |
-          gh api --method POST "repos/${REPO}/statuses/${HEAD_SHA}" \
-            -f state=success \
-            -f context="base-ref-record/ci.yml" \
-            -f description="${BASE_REF}"
+          set -uo pipefail
+          attempt=1
+          while :; do
+            if out=$(gh api --method POST "repos/${REPO}/statuses/${HEAD_SHA}" \
+                -f state=success \
+                -f context="base-ref-record/ci.yml" \
+                -f description="${BASE_REF}" 2>&1); then
+              echo "record-base-ref: posted base-ref-record/ci.yml=${BASE_REF} on ${HEAD_SHA} (attempt ${attempt})"
+              exit 0
+            fi
+            if [ "$attempt" -ge 3 ]; then
+              echo "::error::record-base-ref: could not post the status after ${attempt} attempts. Last error: ${out}"
+              exit 1
+            fi
+            if printf '%s' "$out" | grep -qi 'rate limit'; then
+              reset=$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || true)
+              now=$(date +%s)
+              if [[ "$reset" =~ ^[0-9]+$ ]] && [ "$reset" -gt "$now" ]; then wait=$(( reset - now + 2 )); else wait=30; fi
+              if [ "$wait" -gt 300 ]; then
+                echo "::error::record-base-ref: rate limited and the reset is ${wait}s away, past the 300s cap. Last error: ${out}"
+                exit 1
+              fi
+              echo "::warning::WARN record-base-ref: attempt ${attempt} hit a rate limit -- waiting ${wait}s for the reset"
+            elif printf '%s' "$out" | grep -Eq 'HTTP (5[0-9][0-9]|429)'; then
+              wait=$(( attempt * 5 ))
+              echo "::warning::WARN record-base-ref: attempt ${attempt} failed (${out}) -- retrying in ${wait}s"
+            else
+              echo "::error::record-base-ref: not retryable (permission or input error): ${out}"
+              exit 1
+            fi
+            sleep "$wait"
+            attempt=$(( attempt + 1 ))
+          done
 
   # ── changes: paths-filter that gates which code jobs run per PR ────────────
   # LOAD-BEARING for branch protection (t/1962). `ci-gate` (below) treats a
@@ -2098,7 +2131,7 @@ jobs:
       # t/4819: the shared GitHub 5xx/429 retry both workflows above load from the base tip, plus
       # end-to-end arms that run each workflow's real script against a mocked API.
       - name: github-retry helper + workflow retry suites
-        run: node --test operations/devops/github-retry.test.mjs operations/devops/github-retry-workflow.test.mjs
+        run: node --test operations/devops/github-retry.test.mjs operations/devops/github-retry-workflow.test.mjs operations/devops/record-base-ref-retry.test.mjs
 
       # t/314: the per-PR guards' inline rate-limit snapshot step stays identical to its canonical
       # copy, and its script records or WARNs without ever failing.
@@ -4181,13 +4214,38 @@ jobs:
             const prNumber = context.payload.pull_request.number;
             const MARKER = '<!-- ci-shared-input-coverage:verdict -->';
 
+            // BEGIN github-retry-loader (t/238, same loader as tier-check t/4819): every GitHub call
+            // below goes through retry(): a 5xx/429 or a rate-limited 403 is retried (the 403 waits for
+            // the reset, capped); anything else, including a permission 403, rethrows into the catch.
+            // The helper comes from the DEFAULT BRANCH'S LIVE TIP via git show, never the PR tree.
+            // Missing (bootstrap) or unloadable: calls run once, unretried, with a WARN.
+            let retry = (label, fn) => fn();
+            try {
+              const defaultBranch = context.payload.repository?.default_branch || 'main';
+              execSync(`git fetch origin ${JSON.stringify(defaultBranch)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperSha = execSync('git rev-parse FETCH_HEAD', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+              const helperText = execSync(`git show ${helperSha}:operations/devops/github-retry.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-shared-input-coverage-retry-'));
+              const helperPath = path.join(helperDir, 'github-retry.mjs');
+              fs.writeFileSync(helperPath, helperText);
+              const { withGitHubRetry } = await import(pathToFileURL(helperPath).href);
+              retry = (label, fn) => withGitHubRetry(label, fn, {
+                warn: (m) => core.warning(m),
+                sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+                prefix: 'ci-shared-input-coverage',
+              });
+            } catch (err) {
+              core.warning(`WARN ci-shared-input-coverage: retry helper not loadable from the default branch tip (${String(err && err.message ? err.message : err).split('\n')[0]}) -- GitHub calls in this run are NOT retried.`);
+            }
+            // END github-retry-loader
+
             async function postComment(body, { createIfAbsent } = { createIfAbsent: true }) {
-              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
+              const comments = await retry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
               const existing = comments.find((c) => c.body?.includes(MARKER));
               if (existing) {
-                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: `${MARKER}\n${body}` });
+                await retry('issues.updateComment', () => github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: `${MARKER}\n${body}` }));
               } else if (createIfAbsent) {
-                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: `${MARKER}\n${body}` });
+                await retry('issues.createComment', () => github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: `${MARKER}\n${body}` }));
               }
             }
 
@@ -4256,7 +4314,7 @@ jobs:
               const { evaluateCoverage, formatCoverageComment } = await import(pathToFileURL(predicatePath).href);
 
               const registry = JSON.parse(registryText);
-              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
+              const files = await retry('pulls.listFiles', () => github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 }));
               const changedPaths = files.map((f) => f.filename);
               const filterOutputs = JSON.parse(process.env.FILTER_OUTPUTS);
 
