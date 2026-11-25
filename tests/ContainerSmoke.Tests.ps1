@@ -88,4 +88,18 @@ Describe 'ci.yml test-container: the container smoke step (t/611)' -Tag 'devops'
         }
         $script:Ci | Should -Match 'docker logs container-smoke'
     }
+
+    It 'fronts the container with digest-pinned TLS (the hosted session cookie is Secure) and smokes https://localhost' {
+        $script:Ci | Should -Match 'caddy:\d+\.\d+\.\d+-alpine@sha256:[0-9a-f]{64}'
+        $script:Ci | Should -Match 'update-ca-certificates'
+        $script:Ci | Should -Match 'openssl x509 -noout -fingerprint -sha256'
+        $script:Ci | Should -Match 'header_up X-Forwarded-Proto https'
+        $script:Ci | Should -Match ([regex]::Escape('curl -fsS --max-time 5 -o /dev/null https://localhost/healthz'))
+        # Lead p/233#174 condition 2: never a cert-skip anywhere in the workflow.
+        $script:Ci | Should -Not -Match 'SkipCertificateCheck|NODE_TLS_REJECT_UNAUTHORIZED|curl[^\n]*\s-k\b|--insecure'
+        $script:Ci | Should -Match ([regex]::Escape('Invoke-ContainerSmoke.ps1 -BaseUrl https://localhost'))
+        # The reason TLS is needed: the app marks the anon session cookie Secure in production.
+        $src = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'taxonomy-editor' 'src' 'server' 'routes' 'anonSessionCreated.ts')
+        $src | Should -Match "NODE_ENV === 'production'.*'; Secure'"
+    }
 }
