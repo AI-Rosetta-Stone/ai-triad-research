@@ -38,6 +38,8 @@ import { getDataRoot } from '../config.js';
 import { readDataFile } from '../storage/readDataFile.js';
 import { greatestHitsPath } from '../../../../lib/debate/corpusCoverage.js';
 import * as fileIO from '../storage/fileIO.js';
+import { requireAdminOrOperator } from './adminGate.js';
+import { validateProposalFile } from './proposalSchema.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -389,10 +391,15 @@ export function registerSourcesRoutes(r: Router, _ctx: ServerCtx): void {
   });
 
   put('/api/proposals/:filename', async (req, res, body) => {
+    // t/641 (t/629): this commits to the root of the PUBLIC data repo, so it is admin or operator only, and the body
+    // must be a taxonomy-proposal file: known fields only (others dropped), capped lengths, no email addresses.
+    if (!requireAdminOrOperator(res)) return;
+    const checked = validateProposalFile(body);
+    if (!checked.ok) { error(res, `Invalid proposal file: ${checked.reason}`, 400); return; }
     const baseSha = requireBaseVersion(req, res);
     if (!baseSha) return;
     try {
-      const { version } = await fileIO.saveProposal(param(req, 'filename', '/api/proposals/:filename'), body, { baseSha });
+      const { version } = await fileIO.saveProposal(param(req, 'filename', '/api/proposals/:filename'), checked.value, { baseSha });
       if (version) res.setHeader('ETag', `"${version}"`);
       json(res, { saved: true });
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to save proposal', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }

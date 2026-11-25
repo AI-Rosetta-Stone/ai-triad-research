@@ -17,7 +17,6 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import os from 'os';
 import { createRequire } from 'module';
 import type { AIBackend } from '../config.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
@@ -188,11 +187,9 @@ class LocalFileKeyStore extends BaseKeyStore {
     return Buffer.concat([iv, cipher.getAuthTag(), encrypted]);
   }
 
-  private legacyDerivedKey(): Buffer {
-    return crypto.pbkdf2Sync(
-      os.hostname() + 'aitriad-server-key-v1', 'aitriad-server-key-v1', 100_000, 32, 'sha256',
-    );
-  }
+  // t/620 (Security, t/617): the v1 key derivation (PBKDF2 of os.hostname() plus a fixed constant) is gone. Anyone with
+  // the .enc file and the host name could decrypt a v1 file, and host names are low-entropy. A v1-only file is now
+  // refused, never decrypted; the user re-enters the key in Settings, which writes it under v2 material.
 
   private decrypt(filepath: string, key: Buffer): string {
     const combined = fs.readFileSync(filepath);
@@ -209,25 +206,18 @@ class LocalFileKeyStore extends BaseKeyStore {
     if (!fs.existsSync(p)) return null;
     try {
       return this.decrypt(p, this.derivedKey());
-    } catch {
-      /* telemetry — silent by design */
-      // Migrate from legacy hostname-based key
-      try {
-        const value = this.decrypt(p, this.legacyDerivedKey());
-        await this.set(backend, _userId, value);
-        log.server.info({ backend }, 'Migrated key to new key material');
-        return value;
-      } catch (err) {
-        getGlobalRecorder()?.record({
-          type: 'system.error',
-          component: 'key-store',
-          level: 'error',
-          message: 'Operation failed',
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
-        log.server.warn({ path: p, err }, 'Failed to decrypt with current and legacy keys');
-        return null;
-      }
+    } catch (err) {
+      // t/620: no v1 (hostname-derived) fallback. The file is either encrypted under other key material or is a legacy
+      // v1 file; either way it is not decrypted. WARN so the user knows to re-enter the key.
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'key-store',
+        level: 'warn',
+        message: `Stored ${backend} key cannot be decrypted with the current key material (a legacy v1 file is no longer read, t/620); re-enter it in Settings`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      log.server.warn({ backend }, 'Stored API key cannot be decrypted with the current key material; legacy v1 files are no longer read (t/620). Re-enter the key in Settings.');
+      return null;
     }
   }
 
@@ -261,7 +251,6 @@ class LocalFileKeyStore extends BaseKeyStore {
     }
 
     const oldKey = this.derivedKey();
-    const legacyKey = this.legacyDerivedKey();
 
     // 1. Decrypt all to memory first; abort the whole rotation if any fails.
     const plaintext = new Map<AIBackend, string>();
@@ -269,26 +258,23 @@ class LocalFileKeyStore extends BaseKeyStore {
       const p = this.filePath(backend);
       try {
         plaintext.set(backend, this.decrypt(p, oldKey));
-      } catch {
-        try {
-          plaintext.set(backend, this.decrypt(p, legacyKey)); // pre-v2 material
-        } catch (err) {
-          getGlobalRecorder()?.record({
-            type: 'system.error', component: 'key-store', level: 'error',
-            message: `Key rotation aborted: cannot decrypt ${backend} with current or legacy material`,
-            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-          });
-          throw new ActionableError({
-            goal: 'Rotate key material and re-encrypt all stored API keys',
-            problem: `Could not decrypt the stored key for '${backend}' with the current or legacy material; rotating now would orphan it.`,
-            location: `keyStore.ts LocalFileKeyStore.rotateKeyMaterial (${p})`,
-            nextSteps: [
-              'Verify .aitriad-key-material has not been replaced out-of-band',
-              `Re-save the '${backend}' key via the Settings dialog, then retry rotation`,
-            ],
-            innerError: err,
-          });
-        }
+      } catch (err) {
+        // t/620: no v1 fallback here either; a file the current material can't open aborts the rotation.
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'key-store', level: 'error',
+          message: `Key rotation aborted: cannot decrypt ${backend} with the current material`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        throw new ActionableError({
+          goal: 'Rotate key material and re-encrypt all stored API keys',
+          problem: `Could not decrypt the stored key for '${backend}' with the current material (legacy v1 files are no longer read, t/620); rotating now would orphan it.`,
+          location: `keyStore.ts LocalFileKeyStore.rotateKeyMaterial (${p})`,
+          nextSteps: [
+            'Verify .aitriad-key-material has not been replaced out-of-band',
+            `Re-save the '${backend}' key via the Settings dialog, then retry rotation`,
+          ],
+          innerError: err,
+        });
       }
     }
 
