@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/684 (t/651): debate-tested-sweep.yml's commit step stages ONLY taxonomy/ and refuses to commit or push
+// t/684 (t/651): debate-tested-sweep.yml's commit step stages ONLY taxonomy/Origin/ and refuses to commit or push
 // when anything else in the ai-triad-data checkout changed. The step's own `run:` block is extracted from the
 // workflow and run in a throwaway clone (origin = a local bare repo), so the test exercises the shipped shell.
 // Run: node --test operations/devops/debate-tested-sweep-commit.test.mjs
@@ -60,7 +60,20 @@ function setup() {
 test('the step never uses git add -A and stages taxonomy/ by pathspec', () => {
   const step = commitStep().split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'); // code only, not comments
   assert.doesNotMatch(step, /git add -A|git add \.|git add --all/);
-  assert.match(step, /git add -- taxonomy\//);
+  assert.match(step, /git add -- taxonomy\/Origin\//);
+});
+
+test('a change elsewhere UNDER taxonomy/ (not taxonomy/Origin/) also fails the job (SO p/44#133)', opts, () => {
+  const s = setup();
+  const before = s.originHead();
+  writeFileSync(path.join(s.data, 'taxonomy', 'Origin', 'acc.json'), '{"debate_tested":true}\n');
+  mkdirSync(path.join(s.data, 'taxonomy', 'user-notes'), { recursive: true });
+  writeFileSync(path.join(s.data, 'taxonomy', 'user-notes', 'n.json'), '{}\n');
+  const r = s.run();
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /outside taxonomy\/Origin\//);
+  assert.match(r.out, /taxonomy\/user-notes\/n\.json/);
+  assert.equal(s.originHead(), before);
 });
 
 test('only taxonomy/ changed: committed and pushed, and the push carries only taxonomy files', opts, () => {

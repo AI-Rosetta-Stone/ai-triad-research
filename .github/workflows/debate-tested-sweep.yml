@@ -84,15 +84,15 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # t/684 (t/651: user content must not reach the public data repo): stage ONLY taxonomy/, the one
-          # tree backfillDebateTested.ts writes (taxonomy/Origin/<pov>.json). Never `git add -A`. Any other
-          # change in the checkout, staged or not, tracked or untracked, fails the job before anything is
-          # committed, so a stray write elsewhere can never ride this push.
-          git add -- taxonomy/
-          outside=$(git status --porcelain=v1 --untracked-files=all | awk '{ p = substr($0, 4); sub(/^"/, "", p); if (p !~ /^taxonomy\//) print p }')
-          staged_outside=$(git diff --staged --name-only | grep -v '^taxonomy/' || true)
+          # t/684 (t/651: user content must not reach the public data repo): stage ONLY taxonomy/Origin/, the
+          # one tree backfillDebateTested.ts writes (taxonomy/Origin/<pov>.json; narrowed from taxonomy/ per
+          # SO p/44#133). Never `git add -A`. Any other change in the checkout, staged or not, tracked or
+          # untracked, fails the job before anything is committed, so a stray write can never ride this push.
+          git add -- taxonomy/Origin/
+          outside=$(git status --porcelain=v1 --untracked-files=all | awk '{ p = substr($0, 4); sub(/^"/, "", p); if (p !~ /^taxonomy\/Origin\//) print p }')
+          staged_outside=$(git diff --staged --name-only | grep -v '^taxonomy/Origin/' || true)
           if [ -n "$outside" ] || [ -n "$staged_outside" ]; then
-            echo "::error::t/684: the debate-tested sweep changed files outside taxonomy/, refusing to commit or push to ai-triad-data:"
+            echo "::error::t/684: the debate-tested sweep changed files outside taxonomy/Origin/, refusing to commit or push to ai-triad-data:"
             printf '%s\n%s\n' "$outside" "$staged_outside" | grep . | sort -u | sed 's/^/  /'
             echo "  Goal: push only the harvested debate_tested taxonomy records. Next: find which step wrote these paths (t/651)."
             exit 1

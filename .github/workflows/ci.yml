@@ -2210,7 +2210,7 @@ jobs:
         run: node --test operations/devops/comment-filter-workflow.test.mjs
 
       # t/684 (t/651): debate-tested-sweep.yml pushes to the public data repo. Its commit step is run in a
-      # throwaway clone: only taxonomy/ is staged, and any other change fails it before a commit.
+      # throwaway clone: only taxonomy/Origin/ is staged, and any other change fails it before a commit.
       - name: debate-tested-sweep commit-step suite
         run: node --test operations/devops/debate-tested-sweep-commit.test.mjs
 
