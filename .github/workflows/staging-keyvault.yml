@@ -3,6 +3,10 @@
 # exactly the staging vault, its audit diagnostics and ONE role (staging's identity, Secrets Officer, on that
 # vault only). The what-if guard refuses anything else. On a clean what-if, the TL's approval of the PR that
 # adds this workflow is the go for its first apply (TL p/12#227).
+#
+# Runbook (SO p/44#102): this is a ONE-TIME create. Once the vault exists, a second run's what-if shows
+# NoChange instead of three Creates, and the guard stops it (fail closed, by design). A later change to the
+# vault is a reviewed edit to staging-keyvault.bicep (a gate file) with an updated guard, not a re-run.
 name: Staging Key Vault (t/92)
 
 on:
@@ -66,10 +70,13 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: "What-if (read-only), then parse the JSON changeType values"
+      - name: "What-if (read-only), then parse the JSON changeType values and the role's principal"
         run: |
+          # SO p/44#102: the role must grant staging's identity and no other. Read it live; the guard fails
+          # closed when it is empty, not a GUID, or different from the what-if's principalId.
+          STAGING_PRINCIPAL=$(az containerapp show -n taxonomy-editor-staging -g "$AZ_RG" --query identity.principalId -o tsv)
           az deployment group what-if -g "$AZ_RG" -f "$TEMPLATE" --no-pretty-print -o json > whatif.json
-          node operations/devops/staging-keyvault-whatif-guard.mjs whatif.json
+          node operations/devops/staging-keyvault-whatif-guard.mjs whatif.json "$STAGING_PRINCIPAL"
 
       - name: "Apply (staging vault, its diagnostics and one role only; mode=apply, confirmed, guard passed)"
         if: inputs.mode == 'apply' && inputs.confirm == 'APPLY-STAGING-KEYVAULT'

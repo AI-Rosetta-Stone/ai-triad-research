@@ -10,12 +10,13 @@ import { checkWhatIf, KV_SECRETS_OFFICER_ROLE_ID } from './staging-keyvault-what
 
 const SUB = '/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21';
 const VAULT = `${SUB}/resourceGroups/ai-triad/providers/Microsoft.KeyVault/vaults/kv-ait-stg-kvwl3nywge4iw`;
+const STAGING_PRINCIPAL = '1e65a4d7-3a4c-4c4e-9e7c-4250bebb16d3';
 const SHARED = `${SUB}/resourceGroups/ai-triad/providers/Microsoft.KeyVault/vaults/kv-ait-kvwl3nywge4iw`;
 const roleDef = (id) => `${SUB}/providers/Microsoft.Authorization/roleDefinitions/${id}`;
 const role = (scope = VAULT, def = KV_SECRETS_OFFICER_ROLE_ID) => ({
   changeType: 'Create',
   resourceId: `${scope}/providers/Microsoft.Authorization/roleAssignments/0b3c9f8e-1111-2222-3333-444455556666`,
-  after: { properties: { roleDefinitionId: roleDef(def) } },
+  after: { properties: { roleDefinitionId: roleDef(def), principalId: STAGING_PRINCIPAL } },
 });
 const clean = () => ({
   status: 'Succeeded',
@@ -78,4 +79,23 @@ test('STOP: a failed status, a non-null error, no changes array, an unreadable r
 test('the staging vault name never matches the shared-vault check (kv-ait-stg-... is not kv-ait-...)', () => {
   const v = checkWhatIf(clean());
   assert.ok(!v.reasons.some((x) => x.includes('shared vault')));
+});
+
+// SO p/44#102: the role must grant staging's identity and no other.
+test('principal: the expected staging principal passes; another principal, or an unresolved one, stops', () => {
+  assert.equal(checkWhatIf(clean(), { expectedPrincipalId: STAGING_PRINCIPAL }).pass, true);
+  assert.equal(checkWhatIf(clean(), { expectedPrincipalId: STAGING_PRINCIPAL.toUpperCase() }).pass, true, 'case-insensitive');
+  const other = clean(); other.changes[2].after.properties.principalId = '00000000-1111-2222-3333-444444444444';
+  assert.match(checkWhatIf(other, { expectedPrincipalId: STAGING_PRINCIPAL }).reasons.join('; '), /not staging's identity/);
+  const unresolved = clean(); unresolved.changes[2].after.properties.principalId = "[reference(resourceId('Microsoft.App/containerApps', 'x'), '2025-01-01', 'full').identity.principalId]";
+  assert.match(checkWhatIf(unresolved, { expectedPrincipalId: STAGING_PRINCIPAL }).reasons.join('; '), /not a resolved id/);
+  const missing = clean(); delete missing.changes[2].after.properties.principalId;
+  assert.match(checkWhatIf(missing, { expectedPrincipalId: STAGING_PRINCIPAL }).reasons.join('; '), /unreadable/);
+});
+
+test('second apply fails closed: a NoChange what-if (vault already exists) is not three Creates', () => {
+  const again = { status: 'Succeeded', error: null, changes: clean().changes.slice(0, 3).map((c) => ({ ...c, changeType: 'NoChange' })) };
+  const v = checkWhatIf(again, { expectedPrincipalId: STAGING_PRINCIPAL });
+  assert.equal(v.pass, false);
+  assert.match(v.reasons.join('; '), /expected exactly 1 Create of the staging vault/);
 });

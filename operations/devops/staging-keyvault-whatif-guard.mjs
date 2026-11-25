@@ -15,7 +15,13 @@
 // with another role or another scope, anything naming the shared vault kv-ait-kvwl3nywge4iw, a status
 // other than Succeeded, or a non-null error.
 //
-// Usage: node staging-keyvault-whatif-guard.mjs <what-if.json>   (exit 0 = pass, 1 = stop)
+// The role must also grant staging's identity and no other (SO p/44#102): the workflow reads the staging
+// app's principal id live and passes it; an unresolved or different principalId stops.
+//
+// A SECOND apply fails closed by design: once the vault exists the what-if shows NoChange, not three
+// Creates. Re-applying is not a routine operation; a deliberate change to the vault goes through review.
+//
+// Usage: node staging-keyvault-whatif-guard.mjs <what-if.json> <staging principal id>   (exit 0 = pass, 1 = stop)
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -32,8 +38,14 @@ const normalise = (id) => String(id ?? '').toLowerCase().replace(/^\/subscriptio
 /** True when `id` names the SHARED vault (exact segment match, so kv-ait-stg-... never matches). */
 const namesSharedVault = (id) => /\/vaults\/kv-ait-kvwl3nywge4iw(\/|$)/i.test(String(id ?? ''));
 
-/** PURE. Returns { pass, reasons[] } for a parsed what-if result object. */
-export function checkWhatIf(result) {
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * PURE. Returns { pass, reasons[] } for a parsed what-if result object.
+ * expectedPrincipalId (SO p/44#102): the staging app's identity, read live by the workflow. When given,
+ * the role's principalId must equal it; an unreadable or unresolved principalId fails closed.
+ */
+export function checkWhatIf(result, { expectedPrincipalId = null } = {}) {
   const reasons = [];
   if (!result || typeof result !== 'object') return { pass: false, reasons: ['what-if output is not an object'] };
   if (result.error) reasons.push(`what-if reported an error: ${JSON.stringify(result.error)}`);
@@ -57,6 +69,14 @@ export function checkWhatIf(result) {
       if (!roleDef.endsWith(`/roledefinitions/${KV_SECRETS_OFFICER_ROLE_ID}`)) {
         reasons.push(`role assignment ${id} is not Key Vault Secrets Officer (roleDefinitionId '${roleDef || 'unreadable'}')`);
       }
+      if (expectedPrincipalId !== null) {
+        const principal = String(c.after?.properties?.principalId ?? '');
+        if (!GUID_RE.test(principal)) {
+          reasons.push(`role assignment ${id}: principalId '${principal || 'unreadable'}' is not a resolved id, cannot confirm it is staging's identity`);
+        } else if (principal.toLowerCase() !== String(expectedPrincipalId).toLowerCase()) {
+          reasons.push(`role assignment ${id} grants principal ${principal}, not staging's identity ${expectedPrincipalId}`);
+        }
+      }
       continue;
     }
     reasons.push(`unexpected Create: ${id}`);
@@ -73,14 +93,18 @@ export function checkWhatIf(result) {
 
 const isCli = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isCli) {
-  const file = process.argv[2];
-  if (!file) { console.error('usage: staging-keyvault-whatif-guard.mjs <what-if.json>'); process.exit(1); }
+  const [file, expectedPrincipalId] = process.argv.slice(2);
+  if (!file || !expectedPrincipalId || !GUID_RE.test(expectedPrincipalId)) {
+    console.error('usage: staging-keyvault-whatif-guard.mjs <what-if.json> <staging app principal id (GUID)>');
+    console.error('::error::what-if guard: the staging principal id is missing or not a GUID. Nothing is applied.');
+    process.exit(1);
+  }
   let parsed;
   try { parsed = JSON.parse(readFileSync(file, 'utf8')); } catch (err) {
     console.error(`::error::what-if guard: could not read or parse ${file} (${err.message}). Nothing is applied.`);
     process.exit(1);
   }
-  const verdict = checkWhatIf(parsed);
+  const verdict = checkWhatIf(parsed, { expectedPrincipalId });
   if (verdict.pass) {
     console.log(`what-if guard PASS: exactly the three expected Creates (vault ${STAGING_VAULT}, its kv-audit-logs, one Secrets Officer role); Ignore lines not counted.`);
   } else {
