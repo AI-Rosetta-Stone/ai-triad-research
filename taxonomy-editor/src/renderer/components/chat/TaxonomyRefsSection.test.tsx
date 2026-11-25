@@ -120,10 +120,12 @@ describe('TaxonomyRefsSection — per-reply BDI grounding (t/4627)', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  // t/4651 (Design's a11y pass, t/4651#3): the pill was a <span onClick> — unreachable by
-  // keyboard/screen reader (WCAG 2.1.1), and with nothing focusable to return to, closing the
-  // detail dropped focus to <body>. These tests exercise the real (unmocked) TaxNodeDetail, so
-  // the focus-restore assertions cover the actual fix, not a mock's approximation of it.
+  // t/4651 (Design's a11y pass, t/4651#3): Chat's ref used to be a <span onClick> pill — unreachable
+  // by keyboard/screen reader (WCAG 2.1.1), and with nothing focusable to return to, closing the
+  // detail dropped focus to <body>. Since t/167 the ref is the node-id button in each row of the
+  // shared BdiGroundingView, and t/472 removed the chip row above the rows, so that button is the
+  // only control for a ref; `pill` below names it. These tests exercise the real (unmocked)
+  // TaxNodeDetail, so the focus-restore assertions cover the actual fix, not a mock's approximation.
   describe('keyboard accessibility (t/4651)', () => {
     it('the ref pill is a real button with aria-expanded, not a span', () => {
       render(<TaxonomyRefsSection refs={[NODE_A]} />);
@@ -195,8 +197,8 @@ describe('TaxonomyRefsSection — Why for answers vs user messages, and missing 
   it('a ref whose node is gone from a loaded taxonomy shows "No longer in the taxonomy" once, not its id twice in the row', () => {
     const { container } = render(<TaxonomyRefsSection refs={[MISSING]} emptyText={ANSWER_EMPTY} />);
     expect(screen.getByText('No longer in the taxonomy')).toHaveClass('debate-reasoning-label--missing');
-    // The row button is the only element whose text is exactly the id in the list; the pill above
-    // it is the shared view's existing mouse-only span.
+    // The row button is the only element that shows the id (t/472 removed the chip row above the
+    // rows), so the label must not repeat it.
     expect(container.querySelectorAll('.debate-reasoning-label')[0].textContent).toBe('No longer in the taxonomy');
   });
 

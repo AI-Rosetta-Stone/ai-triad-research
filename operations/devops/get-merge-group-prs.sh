@@ -58,21 +58,80 @@ if [ -z "$BRANCH" ] || [ -z "$SELF_PR_NUM" ]; then
   exit 1
 fi
 
-# ---- 2. query the queue's own entry list (retry 3x, fail closed on exhaustion) ----
+# ---- 2. query the queue's own entry list (fail closed on exhaustion) ----
+# t/562 (2026-11-24 queue stall 22:35-23:46Z): the GITHUB_TOKEN installation's GraphQL pool hit
+# 5000/5000 and the old 3+6+9 s retries could not outlast the hourly window, so every merge-group
+# guard failed closed and the queue head blocked everything behind it. Errors are now classified:
+#   - PRIMARY RATE LIMIT ('rate limit' text, or HTTP 403/429, with the GraphQL pool at remaining 0
+#     per `gh api rate_limit`, which does not count against the limit): if the reset is within
+#     RL_MAX_WAIT_S (900 s = 15 min), WARN, sleep until reset + 5 s and retry ONCE. A reset further
+#     away, a second rate limit, or an unreadable rate_limit probe FAILS CLOSED with the reset time.
+#   - a secondary limit, a 429 with quota left, a 5xx or a network error: today's short backoff
+#     (3, 6 s; 3 attempts in all).
+#   - any other HTTP 4xx (a permission 403, a 404): fails closed at once. Retrying a real answer
+#     only delays it.
+# RL_SLEEP and RL_NOW override sleep and the clock for tests only.
 QUERY='query($owner:String!,$repo:String!,$branch:String!){repository(owner:$owner,name:$repo){mergeQueue(branch:$branch){entries(first:100){nodes{position pullRequest{number headRefOid labels(first:50){nodes{name}}}}}}}}'
+RL_MAX_WAIT_S="${RL_MAX_WAIT_S:-900}"
+_rl_sleep() { ${RL_SLEEP:-sleep} "$1"; }
+_rl_now() { if [ -n "${RL_NOW:-}" ]; then echo "$RL_NOW"; else date +%s; fi; }
+_rl_iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "epoch $1"; }
 ENTRIES_JSON=""
 last_err=""
-for attempt in 1 2 3; do
+short_attempts=0
+waited=0
+while :; do
   if ENTRIES_JSON=$(gh api graphql -f query="$QUERY" -f owner="$OWNER" -f repo="$NAME" -f branch="$BRANCH" --jq '.data.repository.mergeQueue.entries.nodes' 2>"$errfile"); then
     break
   fi
   ENTRIES_JSON=""
   last_err=$(head -c 400 "$errfile" 2>/dev/null | tr '\n' ' ')
-  echo "::warning::get-merge-group-prs: mergeQueue query attempt ${attempt}/3 failed -- ${last_err} -- retrying in $((attempt * 3))s" >&2
-  sleep $((attempt * 3))
+
+  if grep -qiE 'rate limit|HTTP 403|HTTP 429' "$errfile" 2>/dev/null; then
+    if ! rl=$(gh api rate_limit --jq '.resources.graphql | "\(.remaining) \(.reset)"' 2>/dev/null) \
+       || ! [[ "$rl" =~ ^[0-9]+\ [0-9]+$ ]]; then
+      echo "::error::get-merge-group-prs: the mergeQueue query failed (${last_err}) and the rate_limit probe could not be read, so a rate-limit wait cannot be bounded. FAILING CLOSED (cannot enumerate the group)." >&2
+      exit 1
+    fi
+    remaining="${rl% *}"
+    reset="${rl#* }"
+    if [ "$remaining" -eq 0 ]; then
+      wait_s=$(( reset + 5 - $(_rl_now) ))
+      [ "$wait_s" -lt 0 ] && wait_s=0
+      if [ "$waited" -eq 0 ] && [ "$wait_s" -le "$RL_MAX_WAIT_S" ]; then
+        echo "::warning::WARN get-merge-group-prs: GraphQL rate limit exhausted (resets $(_rl_iso "$reset")); waiting ${wait_s}s for the rate-limit reset, then retrying once (t/562)." >&2
+        _rl_sleep "$wait_s"
+        waited=1
+        continue
+      fi
+      if [ "$waited" -eq 1 ]; then
+        why="still rate-limited after waiting for the reset"
+      else
+        why="the reset is ${wait_s}s away, more than the ${RL_MAX_WAIT_S}s this guard waits"
+      fi
+      echo "::error::get-merge-group-prs: INFRA rate-limit: GitHub GraphQL quota exhausted, resets $(_rl_iso "$reset"); ${why}. Not a policy verdict: re-run the failed jobs after the reset. FAILING CLOSED (cannot enumerate the group)." >&2
+      exit 1
+    fi
+    # Quota left: a secondary limit or a 429 backs off briefly; a plain 403 is a real answer.
+    if ! grep -qiE 'rate limit|HTTP 429' "$errfile" 2>/dev/null; then
+      echo "::error::get-merge-group-prs: the mergeQueue query was refused (${last_err}) with GraphQL quota left (${remaining}), so this is not a rate limit. FAILING CLOSED at once (cannot enumerate the group)." >&2
+      exit 1
+    fi
+  elif grep -qE 'HTTP 4[0-9][0-9]' "$errfile" 2>/dev/null; then
+    echo "::error::get-merge-group-prs: the mergeQueue query was refused (${last_err}). A 4xx is a real answer, not retried. FAILING CLOSED (cannot enumerate the group)." >&2
+    exit 1
+  fi
+
+  short_attempts=$((short_attempts + 1))
+  if [ "$short_attempts" -ge 3 ]; then
+    echo "::error::get-merge-group-prs: could NOT read mergeQueue entries for ${BRANCH} after 3 attempts -- API/INFRA failure or no queue configured. Last error: ${last_err}. FAILING CLOSED (cannot enumerate the group)." >&2
+    exit 1
+  fi
+  echo "::warning::get-merge-group-prs: mergeQueue query attempt ${short_attempts}/3 failed -- ${last_err} -- retrying in $((short_attempts * 3))s" >&2
+  _rl_sleep $((short_attempts * 3))
 done
 if [ -z "$ENTRIES_JSON" ] || [ "$ENTRIES_JSON" = "null" ]; then
-  echo "::error::get-merge-group-prs: could NOT read mergeQueue entries for ${BRANCH} after 3 attempts -- API/INFRA failure or no queue configured. Last error: ${last_err}. FAILING CLOSED (cannot enumerate the group)." >&2
+  echo "::error::get-merge-group-prs: could NOT read mergeQueue entries for ${BRANCH} -- the query returned no entry list (no queue configured?). FAILING CLOSED (cannot enumerate the group)." >&2
   exit 1
 fi
 

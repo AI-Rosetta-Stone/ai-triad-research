@@ -100,6 +100,18 @@ export interface GitHubAPIBackendConfig {
   sharedOverlayState?: {
     store: SharedOverlayStore;
     forceActiveForTesting?: boolean;
+    /** t/549 (t/503 PR 1, interface only; used from t/550): the per-user commit lease, in the same
+     *  container as the store (one grant scope, t/503#5 ruling 4). `maxHoldMs` caps how long one
+     *  commit may keep renewing, so a hung GitHub call lets the lease lapse instead of starving the
+     *  user under 'busy' (SO t/503#8 condition 3). */
+    commitLock?: {
+      accountUrl: string;
+      container: string;
+      leaseSeconds?: number; // default 60 (the Azure maximum)
+      renewEveryMs?: number; // default 20_000
+      maxHoldMs?: number; // default 300_000
+      serviceClient?: BlobServiceClient; // test seam (Azurite)
+    };
   };
 }
 
@@ -173,6 +185,10 @@ const OVERLAY_SHARED_STATE_ENABLED = process.env.OVERLAY_SHARED_STATE_ENABLED ==
 // discarded or already-committed content keep serving as "staged" to
 // other replicas forever. Flips to true in that later PR, never by env var.
 const OVERLAY_SHARED_STATE_COMMIT_READY = false;
+
+/** t/549 (SO t/503#10): a reader re-lists a user's shared overlay entries at least this often even when
+ *  `_gen` has not moved, because a stage whose `_gen` bump failed is still acknowledged. */
+export const SHARED_OVERLAY_RELIST_MS = 10_000;
 
 /** t/4499: bounded concurrency for readFilesBatch's GraphQL chunks — same
  *  shape as nodeSourceIndex.ts's mapWithConcurrencyLimit, duplicated rather
@@ -326,7 +342,8 @@ export class GitHubAPIBackend implements StorageBackend {
   // for a read once synced (t/4311#30 R1), refreshed whenever `_gen` moves.
   private readonly sharedOverlayStore: SharedOverlayStore | null = null;
   private readonly sharedOverlayStateActive: boolean = false;
-  private sharedOverlayReadCache: Map<string, { gen: string | null; entries: Map<string, SharedOverlayEntry> }> = new Map();
+  // t/549: `listedAt` is when the entries were last listed from the store (0 = never); see SHARED_OVERLAY_RELIST_MS.
+  private sharedOverlayReadCache: Map<string, { gen: string | null; entries: Map<string, SharedOverlayEntry>; listedAt: number }> = new Map();
 
   // t/4312: per-path base blob sha, recorded once when a path first enters a
   // clean overlay slot (never reset by a later same-path rewrite — see
@@ -864,10 +881,12 @@ export class GitHubAPIBackend implements StorageBackend {
     const cached = this.sharedOverlayReadCache.get(userId);
     try {
       const currentGen = await this.sharedOverlayStore.getGeneration(userId);
-      if (cached && cached.gen === currentGen) return cached.entries;
+      // t/549: an unchanged `_gen` is trusted only for SHARED_OVERLAY_RELIST_MS, the backstop for a
+      // stage whose `_gen` bump failed after its entry landed (it is acknowledged, but bumps nothing).
+      if (cached && cached.gen === currentGen && Date.now() - cached.listedAt < SHARED_OVERLAY_RELIST_MS) return cached.entries;
       const listed = await this.sharedOverlayStore.listEntries(userId);
       const entries = new Map(listed.map(e => [e.repoPath, e.entry]));
-      this.sharedOverlayReadCache.set(userId, { gen: currentGen, entries });
+      this.sharedOverlayReadCache.set(userId, { gen: currentGen, entries, listedAt: Date.now() });
       return entries;
     } catch (err) {
       const message = `Shared overlay sync failed; falling back to the local overlay for this read: ${userId}`;
@@ -983,25 +1002,17 @@ export class GitHubAPIBackend implements StorageBackend {
    * WARN-logged, never thrown, so the returned promise never rejects.
    * No-op when the flag is inactive.
    *
-   * KNOWN GAP (flagged, not fixed, here — t/4311#29/#31): `SharedOverlayEntry.baseSha`
-   * is typed `string | 'unknown'`, with no slot for the local model's
-   * `null` ("file was absent when staged" — t/4312). The `?? 'unknown'`
-   * below collapses that distinction. It's inert today: this PR's read
-   * path only ever consults `content`, never `baseSha`, and the commit
-   * path (the only consumer t/4312's fencing matters to) is a separate,
-   * not-yet-wired follow-up. That follow-up must widen
-   * `SharedOverlayEntry.baseSha`'s type before relying on it, or it will
-   * silently treat every staged-absent path as "unknown" (fail-closed per
-   * t/4312, so not unsafe, just not what it meant to record).
+   * t/549: `SharedOverlayEntry.baseSha` now carries `null` (the file was absent when staged), closing
+   * the t/4311#29/#31 known gap. This stays a fire-and-forget `latestWins` stage, inert behind the
+   * flag; t/550 (t/503 PR 2) replaces it with the awaited, conditional stage of option 2.
    */
   private async writeThroughSharedOverlay(userId: string, repoPath: string, content: string | null, baseSha: string | null | 'unknown'): Promise<void> {
     if (!this.sharedOverlayStateActive || !this.sharedOverlayStore) return;
     try {
-      const result = await this.sharedOverlayStore.stage(userId, repoPath, {
-        content,
-        baseSha: baseSha ?? 'unknown',
-        stagedAt: new Date().toISOString(),
-      });
+      const entry = { content, baseSha, stagedAt: new Date().toISOString(), stageId: crypto.randomUUID() };
+      const result = await this.sharedOverlayStore.stage(userId, repoPath, entry, { latestWins: true });
+      // t/549: a later save already holds the path; ours is ordered before it, nothing to cache.
+      if (!result.ok && result.reason === 'newer_exists') return;
       if (!result.ok) {
         this.recordEvent({
           type: 'system.error', component: 'github-api', level: 'warn',
@@ -1014,10 +1025,11 @@ export class GitHubAPIBackend implements StorageBackend {
       // for a future getGeneration() round trip to notice our own `_gen`
       // bump — avoids a self-inflicted sync on a replica's own
       // write-then-immediate-read (t/4311#30 R1).
+      // t/549: a failed `_gen` bump leaves gen null, so the next read re-lists.
       const cached = this.sharedOverlayReadCache.get(userId);
       const entries = cached ? new Map(cached.entries) : new Map<string, SharedOverlayEntry>();
-      entries.set(repoPath, { content, baseSha: baseSha ?? 'unknown', stagedAt: new Date().toISOString() });
-      this.sharedOverlayReadCache.set(userId, { gen: result.gen, entries });
+      entries.set(repoPath, entry);
+      this.sharedOverlayReadCache.set(userId, { gen: result.gen, entries, listedAt: cached?.listedAt ?? 0 });
     } catch (err) {
       const message = `Shared overlay write-through threw (local write already succeeded): ${repoPath}`;
       this.recordEvent({

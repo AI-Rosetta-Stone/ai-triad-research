@@ -37,6 +37,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ticketRefs, majorityOwner } from './my-prs.mjs';
+import { ENQUEUE_REMEDY } from './stuck-pr-classifier.mjs';
 
 export const SENDER = 'd6bbb177-724b-466d-8382-67dd16bb3bb9'; // DevOps Worker (Lead t/535#3 Q1)
 export const DEVOPS_LEAD = 'cad2074a-520d-414b-a665-d505a9d24de5';
@@ -59,9 +60,38 @@ export function latestBlocker(comments) {
     const m = MARKER_RE.exec(body);
     if (!m) continue;
     const remedy = /^Remedy:\s*(.+)$/m.exec(body);
-    return { class: m[1], sha: m[2], remedy: remedy ? remedy[1].trim() : null };
+    return { class: m[1], sha: m[2], remedy: remedy ? safeRemedy(remedy[1].trim(), m[1]) : null };
   }
   return null;
+}
+
+// t/535 (Lead p/233#56, t/537#27): an alert comment written before the classifier fix can still say
+// "arm it (gh pr merge --auto ...)", "merge directly" or "toggle auto-merge". That route skips
+// enqueue-pr.mjs and its gate-file check, so it is never forwarded. CLASS-AWARE (Quality on #5461):
+//   - approved-not-armed: the whole remedy is about arming, so it becomes ENQUEUE_REMEDY;
+//   - any other class: only the offending parenthetical or clause is dropped, so the rest (a run
+//     id, a re-run step) survives; if nothing is left, the remedy is dropped and the class stays.
+//     The enqueue text is never substituted there (the PR may already be queued).
+// ENQUEUE_REMEDY itself names `gh pr merge` only to forbid it, so it is taken out before the test.
+const FORBIDDEN_REMEDY_RE = /gh\s+pr\s+merge|merge\s+(?:it\s+)?directly|direct\s+merge|toggle\s+auto-merge|(?<![-\w])arm\s+it\b/i; // "re-arm it" / "disarm it" are not "arm it"
+const isForbidden = (s) => FORBIDDEN_REMEDY_RE.test(String(s).split(ENQUEUE_REMEDY).join(''));
+
+/**
+ * PURE. The remedy to forward for an alert of class `cls`: unchanged when it is safe; for
+ * approved-not-armed, ENQUEUE_REMEDY; otherwise the remedy with the offending parts removed, or
+ * null when nothing safe is left.
+ */
+export function safeRemedy(remedy, cls = null) {
+  if (remedy == null) return null;
+  const text = String(remedy);
+  if (!isForbidden(text)) return text;
+  if (cls === 'approved-not-armed') {
+    return `(the alert comment's remedy was replaced: it named a merge route that skips the gates) ${ENQUEUE_REMEDY}`;
+  }
+  // Drop an offending parenthetical, then any offending sentence or `;` clause.
+  const noParens = text.replace(/\s*\([^()]*\)/g, (p) => (isForbidden(p) ? '' : p));
+  const kept = noParens.split(/(?<=[.;!?])\s+/).filter((seg) => !isForbidden(seg)).join(' ').trim();
+  return kept && !isForbidden(kept) ? kept : null;
 }
 
 /** PURE. The tickets a PR cites (my-prs.mjs's ticketRefs, which ignores the t/0-t/2 tier tokens). */

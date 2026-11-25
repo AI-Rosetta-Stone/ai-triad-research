@@ -22,6 +22,7 @@ import { runChatStream, chatStreamBus } from './chatStream';
 import { checkAnonymousSessionForModelSelection } from './anonymousSessionCheck';
 import { runOpEdCreate, cancelActiveOpEdRun, opedProgressBus } from './opedStream';
 import { readByokKeys, maskByokKey } from './byokKeys';
+import { pickBrowserDocument, extractDocumentText } from './webDocumentUpload'; // t/276
 import { onQuotaMilestone } from '../hooks/useQuotaWarning'; import { shareChatRest, unshareChatRest } from './chatShare'; // t/4922
 export { getResilienceState, subscribeResilience, resetResilience } from './resilience';
 export type { ResilienceStatus, CircuitState, ThrottleState, EndpointCategory } from './resilience';
@@ -1382,21 +1383,19 @@ const rawApi: AppAPI = {
 
   // File operations
   fetchUrlContent: (url) => post('/api/fetch-url', { url }),
+  // t/276: the File's bytes go to the server's extractor (webDocumentUpload.ts), never file.text().
   pickDocumentFile: async () => {
-    // Use browser file picker
-    return new Promise((resolve) => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.pdf,.docx,.html,.htm,.txt,.md';
-      input.onchange = async () => {
-        if (!input.files?.length) { resolve({ cancelled: true }); return; }
-        const file = input.files[0];
-        const content = await file.text();
-        resolve({ cancelled: false, filePath: file.name, content });
-      };
-      input.oncancel = () => resolve({ cancelled: true });
-      input.click();
+    const file = await pickBrowserDocument();
+    if (!file) return { cancelled: true };
+    const content = await extractDocumentText(file, {
+      send: init => fetchWithSessionRecovery('/api/documents/extract', init, {
+        timeoutMs: 120_000,
+        maxRetries: 0,
+        critical: true,
+        category: categorizeEndpoint('/api/documents/extract', 'POST'),
+      }),
     });
+    return { cancelled: false, filePath: file.name, content };
   },
   clipboardWriteText: async (text) => {
     await navigator.clipboard.writeText(text);

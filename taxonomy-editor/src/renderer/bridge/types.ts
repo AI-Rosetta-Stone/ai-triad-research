@@ -208,7 +208,14 @@ export interface CreateOpEdParams {
   /** POV tag for ONE member (t/3960, t/3992). Validated by parseOpEdRequest on both create paths. */
   tagSelection?: OpEdTagSelection;
 }
-export interface CreateOpEdPayload { topic: string; url?: string; params: CreateOpEdParams; voices: PovKey[] }
+/** t/276: an uploaded document, already extracted to text at pick time (t/274#2). `name` is the file name. */
+export interface OpEdDocumentSource { text: string; name: string }
+/** t/276: exactly one source per op-ed: a topic, a URL, or an uploaded document. The type enforces it. */
+type OpEdSource =
+  | { topic: string; url?: undefined; documentSource?: undefined }
+  | { topic?: undefined; url: string; documentSource?: undefined }
+  | { topic?: undefined; url?: undefined; documentSource: OpEdDocumentSource };
+export type CreateOpEdPayload = { params: CreateOpEdParams; voices: PovKey[] } & OpEdSource;
 /** One 3-stage progress tick from the Electron generation IPC (t/2575 `oped-progress`). */
 export interface OpEdProgressEvent { set_id: string; voice: string; stage: string; error?: string }
 
