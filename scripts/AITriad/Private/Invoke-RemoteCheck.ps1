@@ -1,6 +1,200 @@
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
+# --- Private helpers for Invoke-RemoteCheck -------------------------------
+# These are internal (dot-sourced with the module, NOT exported). They exist
+# only to keep Invoke-RemoteCheck itself under the McCabe complexity ceiling;
+# each one is a behavior-preserving extraction of a self-contained block.
+
+function Get-RemoteCheckWebParams {
+    # Builds the Invoke-WebRequest splat, including JSON body encoding, the
+    # merged header set, and optional cookie session. Pure function of its args.
+    [CmdletBinding()]
+    param(
+        [string]$Url,
+        [string]$Method,
+        [int]$TimeoutSec,
+        [bool]$HasBody,
+        [object]$Body,
+        [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
+        [hashtable]$ExtraHeaders
+    )
+
+    $Headers = @{ 'Accept' = 'application/json' }
+    if ($ExtraHeaders) {
+        foreach ($K in $ExtraHeaders.Keys) { $Headers[$K] = $ExtraHeaders[$K] }
+    }
+
+    $WebParams = @{
+        Uri             = $Url
+        Method          = $Method
+        TimeoutSec      = $TimeoutSec
+        UseBasicParsing = $true
+        ErrorAction     = 'Stop'
+        Headers         = $Headers
+    }
+    if ($HasBody -and $null -ne $Body) {
+        if ($Body -is [string]) {
+            $WebParams.Body = $Body
+        } else {
+            $WebParams.Body = ($Body | ConvertTo-Json -Depth 10 -Compress)
+        }
+        $WebParams.ContentType = 'application/json'
+    }
+    if ($Session) {
+        $WebParams.WebSession = $Session
+    }
+    $WebParams
+}
+
+function Get-RemoteCheckContentType {
+    # Extracts the first Content-Type header value, '' when absent.
+    param([object]$Response)
+
+    if ($Response.Headers -and $Response.Headers['Content-Type']) {
+        # Headers[key] returns string[] in PS7 — take the first entry.
+        return @($Response.Headers['Content-Type'])[0]
+    }
+    return ''
+}
+
+function Get-RemoteCheckRawBody {
+    # RawBody is a short slice for shape-matching (SPA-shell detection, etc). t/1355.
+    # Bumped 400 → 4096 (t/1500#7): this app's <head> is 464+ chars before
+    # Vite's script injection, so `<div id="root">` and `src="...js"` both
+    # fall past a 400-char slice → SPA-shell check always fails on `/`.
+    # 4096 gives ~10× headroom for future <head> growth without turning
+    # RawBody into a full-page buffer.
+    param([object]$Content)
+
+    if (-not $Content) { return '' }
+    if ($Content.Length -gt 4096) { return $Content.Substring(0, 4096) }
+    return $Content
+}
+
+function ConvertFrom-RemoteCheckContent {
+    # Parses the response body, returning $null only on a genuine parse failure.
+    param([object]$Content)
+
+    if (-not $Content) { return $null }
+
+    # -NoEnumerate (t/4913 staging incident, p/169#228): without it, ConvertFrom-Json's
+    # own array output gets unrolled onto the pipeline by `|`, and a scalar assignment
+    # capturing ZERO unrolled elements (a genuinely empty JSON array, "[]") becomes
+    # $null -- indistinguishable from "didn't parse at all". A real `/api/*` endpoint
+    # returning an empty list (valid, common) was wrongly flagged as unparseable and
+    # failed every check depending on it. -NoEnumerate keeps the parsed array as one
+    # object, empty or not, so only a genuine parse failure still produces $null.
+    try { return $Content | ConvertFrom-Json -NoEnumerate }
+    catch {
+        # t/4913 live-staging follow-up (p/169#231): ConvertFrom-Json's default
+        # PSCustomObject mode throws on keys that differ only by case ("keys with
+        # different casing") -- real production bodies hit this (/api/lineage-
+        # categories, verified against staging). -AsHashtable parses the exact same
+        # JSON fine (hashtable keys are case-preserving, not case-folded like
+        # PSCustomObject's property names), so retry with it before giving up.
+        try { return $Content | ConvertFrom-Json -AsHashtable -NoEnumerate }
+        catch { return $null }
+    }
+}
+
+function Test-RemoteCheckHasField {
+    # Does the parsed body carry -ExpectedField? Handles both the PSCustomObject
+    # and the -AsHashtable fallback shape.
+    param([object]$Body, [string]$ExpectedField)
+
+    # $Body can be a Hashtable (the -AsHashtable fallback above) instead of a
+    # PSCustomObject -- .PSObject.Properties[x] reflects the Hashtable TYPE's own
+    # .NET members (Keys/Values/Count), never the JSON keys inside it, so it would
+    # always miss. Check ContainsKey first for that shape.
+    # Quality nit (t/4913, e/437#2): ContainsKey is case-SENSITIVE, while
+    # PSCustomObject's .PSObject.Properties[x] lookup is case-INSENSITIVE -- the two
+    # branches below don't match -ExpectedField identically for a caller that passes a
+    # differently-cased field name than the body actually has. No known caller does
+    # this today (every -ExpectedField value in this module matches its JSON exactly),
+    # but it's a latent inconsistency worth knowing about, not one to silently paper
+    # over by hand-rolling a case-insensitive hashtable lookup here.
+    if ($Body -is [hashtable]) { return $Body.ContainsKey($ExpectedField) }
+    return ($null -ne $Body -and $null -ne $Body.PSObject.Properties[$ExpectedField])
+}
+
+function Test-RemoteCheckSuccess {
+    # Computes the Success flag from status code plus the -ExpectJson / -ExpectedField
+    # guards. Behavior-preserving extraction of the original inline chain.
+    param(
+        [int]$StatusCode,
+        [int[]]$AcceptableStatusCodes,
+        [bool]$ExpectJson,
+        [string]$ContentType,
+        [object]$Body,
+        [string]$ExpectedField
+    )
+
+    $Success = $StatusCode -in $AcceptableStatusCodes
+    # t/1474 / t/4913 — catch the auth-shell trap AND the broken-path trap: a server
+    # returning 200 for an API path with ANY Content-Type other than JSON is wrong.
+    # An allowlist (must contain 'application/json') is strictly more correct than a
+    # blocklist (must not contain 'text/html') and catches every shape of this bug.
+    if ($Success -and $ExpectJson -and $ContentType -notmatch 'application/json') {
+        $Success = $false
+    }
+    # t/4913 — Content-Type claiming JSON is not proof of a usable body: require it to
+    # have actually parsed. Folds t/1474's original $Body-null case in as a positive
+    # "did this parse" check that applies even when -ExpectedField isn't set.
+    if ($Success -and $ExpectJson -and $null -eq $Body) {
+        $Success = $false
+    }
+    # t/1474 — a missing or unparseable body must flip Success when -ExpectedField
+    # is set (the old outer `-and $Body` guard short-circuited and left Success=$true).
+    if ($Success -and $ExpectedField) {
+        if (-not (Test-RemoteCheckHasField -Body $Body -ExpectedField $ExpectedField)) {
+            $Success = $false
+        }
+    }
+    return $Success
+}
+
+function New-RemoteCheckErrorResult {
+    # Builds the failure result object from a caught exception: best-effort status
+    # code, content-type, and truncated error body. Behavior-preserving extraction
+    # of the original catch block.
+    param(
+        [System.Management.Automation.ErrorRecord]$ErrorRecord,
+        [long]$ResponseMs
+    )
+
+    $StatusCode = 0
+    $ContentType = ''
+    $RawBody = ''
+    if ($ErrorRecord.Exception.PSObject.Properties['Response'] -and $ErrorRecord.Exception.Response) {
+        $StatusCode = [int]$ErrorRecord.Exception.Response.StatusCode
+        # Best-effort content-type extraction from the error-response headers
+        # (used by the persona-endpoint 401/403 classifier — non-200 with HTML
+        # body is a real signal for auth-shell distinguisher).
+        try {
+            if ($ErrorRecord.Exception.Response.Content -and $ErrorRecord.Exception.Response.Content.Headers.ContentType) {
+                $ContentType = $ErrorRecord.Exception.Response.Content.Headers.ContentType.MediaType
+            }
+        } catch { }
+        try {
+            $ErrResp = $ErrorRecord.ErrorDetails
+            if ($ErrResp -and $ErrResp.Message) {
+                $ErrText = [string]$ErrResp.Message
+                $RawBody = if ($ErrText.Length -gt 400) { $ErrText.Substring(0, 400) } else { $ErrText }
+            }
+        } catch { }
+    }
+    [PSCustomObject]@{
+        Success     = $false
+        StatusCode  = $StatusCode
+        ResponseMs  = $ResponseMs
+        Body        = $null
+        ContentType = $ContentType
+        RawBody     = $RawBody
+        Error       = $ErrorRecord.Exception.Message
+    }
+}
+
 function Invoke-RemoteCheck {
     <#
     .SYNOPSIS
@@ -54,120 +248,24 @@ function Invoke-RemoteCheck {
     $Url = "$BaseUrl$Path"
     $Sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-    $Headers = @{ 'Accept' = 'application/json' }
-    if ($ExtraHeaders) {
-        foreach ($K in $ExtraHeaders.Keys) { $Headers[$K] = $ExtraHeaders[$K] }
-    }
-
-    $WebParams = @{
-        Uri             = $Url
-        Method          = $Method
-        TimeoutSec      = $TimeoutSec
-        UseBasicParsing = $true
-        ErrorAction     = 'Stop'
-        Headers         = $Headers
-    }
-    if ($PSBoundParameters.ContainsKey('Body') -and $null -ne $Body) {
-        if ($Body -is [string]) {
-            $WebParams.Body = $Body
-        } else {
-            $WebParams.Body = ($Body | ConvertTo-Json -Depth 10 -Compress)
-        }
-        $WebParams.ContentType = 'application/json'
-    }
-    if ($Session) {
-        $WebParams.WebSession = $Session
-    }
+    $WebParams = Get-RemoteCheckWebParams `
+        -Url $Url -Method $Method -TimeoutSec $TimeoutSec `
+        -HasBody $PSBoundParameters.ContainsKey('Body') -Body $Body `
+        -Session $Session -ExtraHeaders $ExtraHeaders
 
     try {
         $Response = Invoke-WebRequest @WebParams
         $Sw.Stop()
 
         $StatusCode = $Response.StatusCode
-        $ContentType = ''
-        if ($Response.Headers -and $Response.Headers['Content-Type']) {
-            # Headers[key] returns string[] in PS7 — take the first entry.
-            $ContentType = @($Response.Headers['Content-Type'])[0]
-        }
-        # RawBody is a short slice for shape-matching (SPA-shell detection, etc). t/1355.
-        # Bumped 400 → 4096 (t/1500#7): this app's <head> is 464+ chars before
-        # Vite's script injection, so `<div id="root">` and `src="...js"` both
-        # fall past a 400-char slice → SPA-shell check always fails on `/`.
-        # 4096 gives ~10× headroom for future <head> growth without turning
-        # RawBody into a full-page buffer.
-        $RawBody = ''
-        if ($Response.Content) {
-            $RawBody = if ($Response.Content.Length -gt 4096) {
-                $Response.Content.Substring(0, 4096)
-            } else {
-                $Response.Content
-            }
-        }
-        $Body = $null
-        if ($Response.Content) {
-            # -NoEnumerate (t/4913 staging incident, p/169#228): without it, ConvertFrom-Json's
-            # own array output gets unrolled onto the pipeline by `|`, and a scalar assignment
-            # capturing ZERO unrolled elements (a genuinely empty JSON array, "[]") becomes
-            # $null -- indistinguishable from "didn't parse at all". A real `/api/*` endpoint
-            # returning an empty list (valid, common) was wrongly flagged as unparseable and
-            # failed every check depending on it. -NoEnumerate keeps the parsed array as one
-            # object, empty or not, so only a genuine parse failure still produces $null.
-            try { $Body = $Response.Content | ConvertFrom-Json -NoEnumerate }
-            catch {
-                # t/4913 live-staging follow-up (p/169#231): ConvertFrom-Json's default
-                # PSCustomObject mode throws on keys that differ only by case ("keys with
-                # different casing") -- real production bodies hit this (/api/lineage-
-                # categories, verified against staging). -AsHashtable parses the exact same
-                # JSON fine (hashtable keys are case-preserving, not case-folded like
-                # PSCustomObject's property names), so retry with it before giving up.
-                try { $Body = $Response.Content | ConvertFrom-Json -AsHashtable -NoEnumerate }
-                catch { $Body = $null }
-            }
-        }
+        $ContentType = Get-RemoteCheckContentType -Response $Response
+        $RawBody = Get-RemoteCheckRawBody -Content $Response.Content
+        $Body = ConvertFrom-RemoteCheckContent -Content $Response.Content
 
-        $Success = $StatusCode -in $AcceptableStatusCodes
-        # t/1474 / t/4913 — catch the auth-shell trap AND the broken-path trap: a server
-        # returning 200 for an API path with ANY Content-Type other than JSON is wrong,
-        # whether that's the expected text/html login page or an unexpected value a static
-        # host's SPA-fallback rewrite happens to serve (missing header, text/plain, etc. —
-        # t/4913 found 14/24 endpoint checks passing against a nonexistent path prefix purely
-        # on status code, because the old guard only blocked a Content-Type that MATCHED
-        # 'text/html' and never required one that positively looked like JSON). An allowlist
-        # (must contain 'application/json') is strictly more correct than a blocklist (must
-        # not contain 'text/html') and catches every shape of this bug, not just the one
-        # production host happened to exhibit.
-        if ($Success -and $ExpectJson -and $ContentType -notmatch 'application/json') {
-            $Success = $false
-        }
-        # t/4913 — Content-Type claiming JSON is not proof of a usable body: require it to
-        # have actually parsed. Folds t/1474's original $Body-null case in as a positive "did
-        # this parse" check that applies even when -ExpectedField isn't set (most of
-        # Test-TaxEditorEndpoints's /api/* checks have no ExpectedField -- t/4913's "a minimal
-        # shape" ask).
-        if ($Success -and $ExpectJson -and $null -eq $Body) {
-            $Success = $false
-        }
-        # t/1474 — the previous guard `-and $Body` short-circuited when
-        # ConvertFrom-Json failed on HTML, leaving Success=$true. Drop $Body
-        # from the outer guard; move it inside as a negative check so a missing
-        # or unparseable body flips Success.
-        if ($Success -and $ExpectedField) {
-            # $Body can now be a Hashtable (the -AsHashtable fallback above) instead of a
-            # PSCustomObject -- .PSObject.Properties[x] reflects the Hashtable TYPE's own
-            # .NET members (Keys/Values/Count), never the JSON keys inside it, so it would
-            # always miss. Check ContainsKey first for that shape.
-            # Quality nit (t/4913, e/437#2): ContainsKey is case-SENSITIVE, while
-            # PSCustomObject's .PSObject.Properties[x] lookup is case-INSENSITIVE -- the two
-            # branches below don't match -ExpectedField identically for a caller that passes a
-            # differently-cased field name than the body actually has. No known caller does
-            # this today (every -ExpectedField value in this module matches its JSON exactly),
-            # but it's a latent inconsistency worth knowing about, not one to silently paper
-            # over by hand-rolling a case-insensitive hashtable lookup here.
-            $HasField = if ($Body -is [hashtable]) { $Body.ContainsKey($ExpectedField) } else { $null -ne $Body -and $null -ne $Body.PSObject.Properties[$ExpectedField] }
-            if (-not $HasField) {
-                $Success = $false
-            }
-        }
+        $Success = Test-RemoteCheckSuccess `
+            -StatusCode $StatusCode -AcceptableStatusCodes $AcceptableStatusCodes `
+            -ExpectJson:$ExpectJson -ContentType $ContentType `
+            -Body $Body -ExpectedField $ExpectedField
 
         [PSCustomObject]@{
             Success     = $Success
@@ -181,35 +279,6 @@ function Invoke-RemoteCheck {
     }
     catch {
         $Sw.Stop()
-        $StatusCode = 0
-        $ContentType = ''
-        $RawBody = ''
-        if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) {
-            $StatusCode = [int]$_.Exception.Response.StatusCode
-            # Best-effort content-type extraction from the error-response headers
-            # (used by the persona-endpoint 401/403 classifier — non-200 with HTML
-            # body is a real signal for auth-shell distinguisher).
-            try {
-                if ($_.Exception.Response.Content -and $_.Exception.Response.Content.Headers.ContentType) {
-                    $ContentType = $_.Exception.Response.Content.Headers.ContentType.MediaType
-                }
-            } catch { }
-            try {
-                $ErrResp = $_.ErrorDetails
-                if ($ErrResp -and $ErrResp.Message) {
-                    $ErrText = [string]$ErrResp.Message
-                    $RawBody = if ($ErrText.Length -gt 400) { $ErrText.Substring(0, 400) } else { $ErrText }
-                }
-            } catch { }
-        }
-        [PSCustomObject]@{
-            Success     = $false
-            StatusCode  = $StatusCode
-            ResponseMs  = $Sw.ElapsedMilliseconds
-            Body        = $null
-            ContentType = $ContentType
-            RawBody     = $RawBody
-            Error       = $_.Exception.Message
-        }
+        New-RemoteCheckErrorResult -ErrorRecord $_ -ResponseMs $Sw.ElapsedMilliseconds
     }
 }
