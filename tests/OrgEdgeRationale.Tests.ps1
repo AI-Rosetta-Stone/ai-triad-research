@@ -57,7 +57,12 @@ Describe 'New-OrgEdgeRationale: the agreed wording (t/584#8)' -Tag 'organization
         (& $script:Rationale @{ Kind = 'Matched'; OrgName = 'NIST'; ClaimText = $Long; DocumentTitle = 'D' }).Contains($Long) | Should -BeTrue
     }
 
-    It 'a PUBLISHED edge from domain seeding names the site' {
+    It 'domain seeding stores a status-neutral sentence: what the pipeline saw, no claim of publication' {
+        & $script:Rationale @{ Kind = 'SiteListed'; OrgName = 'Electronic Frontier Foundation'; SiteHost = 'en.wikipedia.org' } |
+            Should -BeExactly "The document is on en.wikipedia.org, one of the sites listed in Electronic Frontier Foundation's links."
+    }
+
+    It 'an approved PUBLISHED edge on the org''s own domain names the site' {
         & $script:Rationale @{ Kind = 'Published'; OrgName = 'RAND'; SiteHost = 'rand.org' } | Should -BeExactly "Published on RAND's own site (rand.org)."
     }
 

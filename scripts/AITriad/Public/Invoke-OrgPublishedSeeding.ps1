@@ -207,7 +207,8 @@ function Invoke-OrgPublishedSeeding {
         # t/584: the rationale is what a researcher reads on the org page, so it is a sentence. How the
         # edge was found goes in match_meta (provenance only; nothing branches on it).
         $orgName = if ($orgNameById.ContainsKey([string]$p.Source)) { $orgNameById[[string]$p.Source] } else { [string]$p.Source }
-        $rationale = New-OrgEdgeRationale -Kind Published -OrgName $orgName -SiteHost $p.SiteHost
+        # Status-neutral: a seeded edge is a proposal, and 'Published on' is a claim only a review makes.
+        $rationale = New-OrgEdgeRationale -Kind SiteListed -OrgName $orgName -SiteHost $p.SiteHost
         $matchMeta = New-OrgEdgeMatchMeta -Stage 0 -Basis $p.MatchBasis
         $target = "$($p.Source)->$($p.Target) [$($p.MatchBasis)]"
         if ($PSCmdlet.ShouldProcess($target, 'Propose PUBLISHED edge')) {

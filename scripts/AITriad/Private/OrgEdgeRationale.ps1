@@ -23,8 +23,11 @@ function New-OrgEdgeRationale {
         quoted, whole, under "states" only when -ClaimText is given AND the claim's document is the
         org's own (-OwnDocument). With only a canonical proposition (a paraphrase) there are no
         quotation marks and the sentence says it is not the org's words. For OPPOSES the direction is
-        in the sentence. Kind 'Published': a PUBLISHED edge from domain seeding. Kind 'Withdrawn': a
-        matched edge whose supporting claim no longer exists.
+        in the sentence. Kind 'SiteListed': what domain seeding stores for a PUBLISHED edge it proposes. It
+        states only what the pipeline saw and names no status, because nothing rewrites an organization
+        edge's rationale when the edge is approved or rejected (CL p/70#99, Design p/113#11). Kind
+        'Published': a PUBLISHED edge a review has approved, on the org's own domain; no pipeline writes
+        it. Kind 'Withdrawn': a matched edge whose supporting claim no longer exists.
         The text is never cut. The document is named by its title, or by its id when it has none.
     .OUTPUTS
         [string]
@@ -32,7 +35,7 @@ function New-OrgEdgeRationale {
     [CmdletBinding()]
     [OutputType([string])]
     param(
-        [Parameter(Mandatory)][ValidateSet('Matched', 'Published', 'Withdrawn')][string]$Kind,
+        [Parameter(Mandatory)][ValidateSet('Matched', 'SiteListed', 'Published', 'Withdrawn')][string]$Kind,
         [string]$OrgName,
         [string]$DocumentTitle,
         [string]$DocumentId,
@@ -52,8 +55,9 @@ function New-OrgEdgeRationale {
     }
     if ($Kind -eq 'Withdrawn') { return 'Proposed by automated claim matching; the supporting claim was later withdrawn.' }
     if ([string]::IsNullOrWhiteSpace($OrgName)) { & $Fail "No organization name was given for a '$Kind' rationale." }
-    if ($Kind -eq 'Published') {
-        if ([string]::IsNullOrWhiteSpace($SiteHost)) { & $Fail 'No site host was given for a Published rationale.' }
+    if ($Kind -in 'Published', 'SiteListed') {
+        if ([string]::IsNullOrWhiteSpace($SiteHost)) { & $Fail "No site host was given for a '$Kind' rationale." }
+        if ($Kind -eq 'SiteListed') { return "The document is on $($SiteHost.Trim()), one of the sites listed in $($OrgName.Trim())'s links." }
         return "Published on $($OrgName.Trim())'s own site ($($SiteHost.Trim()))."
     }
     $Document = if (-not [string]::IsNullOrWhiteSpace($DocumentTitle)) { $DocumentTitle.Trim() } else { ([string]$DocumentId).Trim() }
