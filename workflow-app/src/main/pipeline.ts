@@ -431,15 +431,28 @@ export function runGitPush(
   dataRoot: string,
   onData: (text: string) => void,
   onError: (text: string) => void,
+  /** Test seam: runs after the check, before the push. Not used by the app. */
+  afterCheck?: () => void,
 ): { exitCode: number } {
   try {
-    let shas: string[];
+    // The SHA the check covers. The push names it explicitly, so a commit made after
+    // this point (an electron-auto commit) is not published (Security, t/683).
+    let upstream: string;
     try {
-      shas = gitOut(dataRoot, ['rev-list', '--reverse', '@{u}..HEAD']).split('\n').map(x => x.trim()).filter(Boolean);
+      upstream = gitOut(dataRoot, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']).trim();
     } catch {
       onError('Refusing to push: the data branch has no upstream, so its outgoing commits cannot be checked (t/683).\n');
       return { exitCode: 1 };
     }
+    const slash = upstream.indexOf('/');
+    if (slash <= 0) {
+      onError(`Refusing to push: upstream "${upstream}" is not remote/branch (t/683).\n`);
+      return { exitCode: 1 };
+    }
+    const remote = upstream.slice(0, slash);
+    const branch = upstream.slice(slash + 1);
+    const checkedSha = gitOut(dataRoot, ['rev-parse', 'HEAD']).trim();
+    const shas = gitOut(dataRoot, ['rev-list', '--reverse', `${upstream}..${checkedSha}`]).split('\n').map(x => x.trim()).filter(Boolean);
     if (shas.length === 0) {
       onData('Nothing to push.\n');
       return { exitCode: 0 };
@@ -454,8 +467,9 @@ export function runGitPush(
       onError(`${plan.reason}\n`);
       return { exitCode: 1 };
     }
-    onData(`Pushing ${outgoing.length} pipeline commit(s).\n`);
-    onData(gitOut(dataRoot, ['push']));
+    afterCheck?.();
+    onData(`Pushing ${outgoing.length} pipeline commit(s) up to ${checkedSha.slice(0, 12)}.\n`);
+    onData(gitOut(dataRoot, ['push', remote, `${checkedSha}:refs/heads/${branch}`]));
     return { exitCode: 0 };
   } catch (err) {
     onError(`${err instanceof Error ? err.message : String(err)}\n`);

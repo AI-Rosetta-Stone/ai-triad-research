@@ -211,6 +211,24 @@ describe('runGitPush — real repo with an upstream (t/683)', () => {
     expect(remoteHas('chats/x.json')).toBe(false);
   });
 
+  it("does not publish a commit made after the check (Security, t/683): pushes the checked SHA only", () => {
+    recordDataStep('summarize', repo);
+    write('summaries/checked.json', '2');
+    expect(runGitCommit(repo, { runId: 'r', commitSummary: 's' }, () => {}, () => {}).exitCode).toBe(0);
+    const checked = sh(repo, 'rev-parse', 'HEAD').trim();
+    // An electron-auto commit lands between the check and the push.
+    const r = runGitPush(repo, t => { out += t; }, t => { err += t; }, () => {
+      write('chats/late.json', '{"user":"private"}');
+      sh(repo, 'add', 'chats/late.json');
+      sh(repo, 'commit', '-q', '-m', 'electron auto-commit after check');
+    });
+    expect(r.exitCode).toBe(0);
+    expect(remoteHas('summaries/checked.json')).toBe(true);
+    expect(remoteHas('chats/late.json')).toBe(false);
+    expect(sh(remote, 'rev-parse', 'main').trim()).toBe(checked);
+    expect(sh(repo, 'rev-parse', 'HEAD').trim()).not.toBe(checked);
+  });
+
   it('refuses when the branch has no upstream', () => {
     sh(repo, 'branch', '--unset-upstream');
     const r = runGitPush(repo, t => { out += t; }, t => { err += t; });
