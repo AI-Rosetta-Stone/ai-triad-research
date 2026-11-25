@@ -298,7 +298,7 @@ export function showDumpErrorToast(opts: {
   });
 
   const title = document.createElement('div');
-  title.textContent = 'Flight recorder dump failed';
+  title.textContent = 'Diagnostic report failed'; // t/673 (Design p/25#190)
   Object.assign(title.style, {
     fontWeight: '600',
     marginBottom: '4px',

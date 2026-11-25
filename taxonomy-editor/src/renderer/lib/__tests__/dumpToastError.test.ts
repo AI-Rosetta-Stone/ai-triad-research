@@ -16,6 +16,7 @@ describe('dump-failed toast (t/673)', () => {
       showDumpErrorToast({ errorMessage: RAW, isWeb, onRetry: () => {}, onSaveLocally: () => {} } as never);
       const text = document.body.textContent ?? '';
       expect(text).toContain(isWeb ? "Couldn't send the diagnostic report. Try again, or save it locally." : "Couldn't save the diagnostic report. Try again.");
+      expect(text).toContain('Diagnostic report failed');
       expect(text).not.toMatch(/Goal:|Resolve:|ActionableError|HTTP 502/);
       expect(warn.mock.calls.flat().join(' ')).toContain('HTTP 502');
     });
