@@ -53,7 +53,7 @@ import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchNa
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
 import { anonRouteDecision } from './anonAiRoutes.js';
-import { anonRequestIdentity } from './anonRequestIdentity.js';
+import { anonRequestIdentity, refuseUnkeyedHostedAnonymous } from './anonRequestIdentity.js';
 import { loadAnonSessionSecret } from './security/anonSessionSecret.js';
 import { startAnonOpedSweep } from './storage/opedStore.js';
 import { enforceAuthGate, enforceAnonRouteGuard, type AuthGateCtx, type AuthGateDeps } from './authGates.js';
@@ -605,6 +605,8 @@ async function handleRequestInner(
   // getCurrentUserId() inside getApiKey()/storeApiKey() sees the caller.
   // Unauthenticated paths (local dev, kill-switch, public endpoints) fall
   // back to '_local' — which keyStore ignores in local-file mode.
+  // t/500 (TL p/16#417): a hosted anonymous /api/ request with no verified session never reaches a per-visitor store.
+  if (refuseUnkeyedHostedAnonymous(req, res, { urlPath, isPublicPath, principalName, authOptional })) return;
   const userCtx = await resolveRequestUserContext(req, res, principalName, idp);
   if (!userCtx) return;
   await runWithUser(userCtx, async () => {
