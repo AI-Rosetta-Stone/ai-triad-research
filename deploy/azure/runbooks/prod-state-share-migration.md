@@ -34,13 +34,24 @@ Design A gives prod its own state share, which staging never mounts. Staging alr
 **Stays on `taxonomy-data`** (read from the **data** root by code, so it moves only with TaxonomyServer and Debate Engine's code change in t/625):
 `admin/quotas.json`, `proxy-tiers.json`, `authorized-users.json`, `admin/flight-recorder-dumps/`, `node-delete-log.jsonl`, `calibration/` crux registry, `greatest-hits.json` and the situation-statements sidecar, plus all taxonomy and grounding data.
 
-**Legacy per-user content, classified in step 0** (Security addition 1): `preferences/` (12 files), `chats/` (3), `debates/` (340), `harvests/` (8), `calibration/users/` (6) and the 3 id-like directories under `sources/`. In github-api mode prod reads preferences, chats, debates and calibration users through GitHub or Blob, not the share, so these copies look unused. Step 0 records, per directory, the file count, whether any file carries ids or emails (counts only), and whether any code path reads it from the mount. Anything that carries ids and that nothing reads is **deleted in step 7 with the PI's go**, not left on the share. Anything that something does read is decided like the "stays" files below.
+**Legacy per-user content, classified in step 0** (Security addition 1): `preferences/` (12 files), `chats/` (3), `debates/` (340), `harvests/` (8), `calibration/users/` (6) and the 3 id-like directories under `sources/`. In github-api mode prod reads preferences, chats and debates through GitHub or Blob, not the share. `calibration/users/` is different: prod's headless debate engine writes it to the share directly (see the final list). Step 0 records, per directory, the file count, whether any file carries ids or emails (counts only), and whether any code path reads it from the mount. Anything that carries ids and that nothing reads is **deleted in step 7 with the PI's go**, not left on the share. Anything that something does read is decided like the "stays" files below.
 
 **Decision rule for the "stays" files and legacy directories** (Security addition 3): decide per file from step 0's counts. A file that carries ids or emails **moves now**, unless moving it breaks prod (a data-root read in code, before t/625). In that case it waits, and the TL sets a review date for it on t/624. A file without ids may stay.
 
 > **Step 0 result (t/624#6):** none of the "stays" files above exist on prod's share today, so nothing carrying ids waits on t/625. The item below is kept for the record.
 >
-> **Open item for Security (condition 4), now closed.** Security asked that nothing left readable to staging carries ids or emails, and that `admin/` and `calibration/users` move in A. The files above are read through the **data** root, so moving them without t/625's code change would make prod fall back to defaults (for example, losing quota overrides). Step 0 checks each of them for ids and emails (counts only). If any carries them, there are two choices: (a) A waits for t/625 for that file, or (b) the TL sets a review date and accepts it in the interim (TL p/45#245: "the interim is acceptable"). `calibration/users/` (6 files) is read through the storage backend (GitHub), not the share. Step 0 also confirms whether the share copy is used at all; if not, it is deleted with the PI's go rather than moved.
+> **Open item for Security (condition 4), now closed.** Security asked that nothing left readable to staging carries ids or emails, and that `admin/` and `calibration/users` move in A. The files above are read through the **data** root, so moving them without t/625's code change would make prod fall back to defaults (for example, losing quota overrides). Step 0 checks each of them for ids and emails (counts only). If any carries them, there are two choices: (a) A waits for t/625 for that file, or (b) the TL sets a review date and accepts it in the interim (TL p/45#245: "the interim is acceptable"). `calibration/users/` (6 files) is **written by prod's headless debate engine to the data root by raw fs** (`lib/debate/calibrationLogger/io.ts:149`), so the share copy is the live one. `storage/calibrationStore.ts:65` reads the same path through the GitHub backend, a mismatch that t/625 fixes.
+
+## Final list (Security-accepted, t/624#8 and p/249#56)
+
+| Action | Paths |
+|---|---|
+| **Move** to `/mnt/prod-state` | `admin/` (4 files plus `admin/telemetry/` 95), the remaining `flight-recorder/` crash dumps (after the t/579#90 deletion), `debates/` (340; 59 not found in GitHub or Blob), `preferences/` (12; no other copy found) |
+| **Copy** (the original stays) | `calibration/core/` (2) |
+| **Delete** in step 7 (the PI's go) | the moved originals, `chats/` (3; all 3 present in GitHub and Blob), `.aitriad-key-gemini.enc` |
+| **Stays** on `taxonomy-data` | `harvests/` (8; source-harvest queue, not per-user, 0 ids), `calibration/users/` (6; live, 0 ids; **TL review date 2026-12-09**, moves with t/625), `calibration/greatest-hits.json`, the original `calibration/core/`, the 3 id-like `sources/` dirs (0 ids), and the taxonomy and grounding data |
+
+Nothing that stays carries ids or emails (step 0, t/624#6).
 
 ## Infrastructure (Bicep, T2)
 
