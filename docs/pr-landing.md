@@ -23,6 +23,10 @@ Target: **≤20 new PRs a day** team-wide (7-day average). Most PRs are features
   - Overlay-only guidance (role AGENTS.md, playbooks, Interweave apps) never needs a main-repo PR: commit it with `ogit`.
 - **Team daily budget (t/564, PI directive 2026-11-25):** `enqueue-pr.mjs` refuses non-exempt PRs past 20 new PRs in a UTC day (`feat/` and `train/` branches count once). At 15 the TL and that day's authors are warned. Over-budget PRs wait, oldest first, for a later day's free slots (t/564). DevOps Lead's metric job still posts the day's count at 12:00Z and 18:00Z.
 
+## Data repo PRs (ai-triad-data, TL p/7#221)
+
+The data repo has no merge queue or branch protection, so `enqueue-pr.mjs` does not apply to it. The author merges after the required approvals (Quality's recount, plus the PI's go for a corpus write) and green checks, pinned to the approved head with `gh pr merge <N> -R AI-Rosetta-Stone/ai-triad-data --squash --match-head-commit <sha>`. The never-`gh pr merge` rule applies to ai-triad-research only.
+
 ## PR-Flow Practice Rules
 
 - **Merge promptly on green,** or record why not.
