@@ -252,8 +252,14 @@ function autoMergeArmStep(text) {
 function autoMergeTokenViolations(text) {
   const out = [];
   if (!autoMergeArmStep(text)) out.push(`no '${ARM_STEP_NAME}' step whose run line is exactly \`${ARM_RUN}\` (renamed or changed? update this pin)`);
-  for (const l of text.split('\n').filter((x) => /^\s*(GH_TOKEN|GITHUB_TOKEN)\s*:/.test(x))) {
-    if (!DEFAULT_TOKEN.test(l.replace(/^\s*(GH_TOKEN|GITHUB_TOKEN)\s*:\s*/, '').trim())) out.push(`non-default token: ${l.trim()}`);
+  // t/601 residual (Security): EVERY token-valued key (GH_TOKEN, GITHUB_TOKEN, an action's `github-token:`,
+  // `token:`, `repo-token:`, any key containing 'token') must be the default token, wherever it sits.
+  for (const l of text.split('\n').filter((x) => /^\s*-?\s*[\w-]*token[\w-]*\s*:/i.test(x))) {
+    if (!DEFAULT_TOKEN.test(l.replace(/^\s*-?\s*[\w-]*token[\w-]*\s*:\s*/i, '').trim().replace(/^['"]|['"]$/g, ''))) out.push(`non-default token: ${l.trim()}`);
+  }
+  // ...and no other secret is read at all, so an App key can't come in under a key not named '*token*'.
+  for (const m of text.matchAll(/\bsecrets\.([A-Za-z0-9_]+)/g)) {
+    if (m[1] !== 'GITHUB_TOKEN') out.push(`reads a secret other than GITHUB_TOKEN: secrets.${m[1]}`);
   }
   if (/create-github-app-token/.test(text)) out.push('uses create-github-app-token');
   return out;
@@ -302,6 +308,13 @@ test('t/601: mutations of dependabot-auto-merge.yml that the narrowed pin must c
   // (a) An App token in the arm step's env, or at job level.
   assert.ok(autoMergeTokenViolations(mutate(/(GH_TOKEN:\s*)\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}/, '$1${{ steps.app.outputs.token }}')).some((v) => v.startsWith('non-default token')));
   assert.ok(autoMergeTokenViolations(mutate(/(GH_TOKEN:\s*)\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}/, '$1${{ secrets.AGENT_APP_KEY }}')).length > 0);
+  // t/601 residual: any other token-valued input (fetch-metadata's `github-token:`, a checkout `token:`),
+  // and any non-GITHUB_TOKEN secret under any key name.
+  assert.ok(autoMergeTokenViolations(mutate(/(github-token:\s*)\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}/, '$1${{ steps.app.outputs.token }}')).some((v) => v.includes('github-token:')));
+  assert.ok(autoMergeTokenViolations(`${real}\n      - uses: actions/checkout@v4\n        with:\n          token: "\${{ steps.app.outputs.token }}"\n`).some((v) => v.includes('token: "')));
+  assert.ok(autoMergeTokenViolations(`${real}\n      - uses: some/action@v1\n        with:\n          private-key: \${{ secrets.AGENT_APP_KEY }}\n`).includes('reads a secret other than GITHUB_TOKEN: secrets.AGENT_APP_KEY'));
+  // The default token in any of its forms (quoted, github.token) is accepted.
+  assert.deepEqual(autoMergeTokenViolations(mutate(/(github-token:\s*)\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}/, "$1'${{ github.token }}'")), []);
   // (b) Minting an App token anywhere in the file.
   assert.ok(autoMergeTokenViolations(`${real}\n      - uses: actions/create-github-app-token@v1\n`).includes('uses create-github-app-token'));
   // The step renamed: the exemption disappears (its run line becomes an offender) and the token test says why.
