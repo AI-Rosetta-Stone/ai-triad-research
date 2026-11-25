@@ -33,6 +33,10 @@ asarUnpack:
 extraResources:
   - from: "../ai-models.json"
     to: "ai-models.json"
+  # t/585 (t/572): the shared legacy-chunk manifest (spec 6.2). fileIO reads it from PROJECT_ROOT/docs/specs/,
+  # which is the resources dir in a packaged app; without it no legacy chunks are folded (WARN).
+  - from: "../docs/specs/source-identity-legacy-chunks.json"
+    to: "docs/specs/source-identity-legacy-chunks.json"
   - from: "../taxonomy/schemas/"
     to: "taxonomy/schemas/"
   - from: "THIRD-PARTY-NOTICES.txt"
