@@ -14,11 +14,15 @@
  * cache is `<tmp>/root/cache`, so a `../` escape or an out-of-root file is always under `<tmp>`.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
+
+// t/577: pay githubAPIBackend's cold import here, not inside the first test's timeout. Under the pre-push hook's
+// 8 workers the first test in this file timed out at 5-8 s although every test passes alone (TaxonomyServer p/52#36).
+beforeAll(async () => { await import('../storage/githubAPIBackend'); }, 60_000);
 
 vi.mock('../security/githubAppAuth', () => ({
   getCredentials: vi.fn().mockResolvedValue({ repo: 'testowner/testrepo', token: 't', mode: 'pat' }),

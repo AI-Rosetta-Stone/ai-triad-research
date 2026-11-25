@@ -18,11 +18,15 @@
  * Fix: switch to Node 26.x via nvm/fnm. This is not a test or code defect.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import { Agent } from 'undici';
 import { assertUndiciMajorInvariant, isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
 import { log } from '../logger.js';
 import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorder/index';
+
+// t/577: pay githubAPIBackend's cold import here, not inside the first test's timeout. Under the pre-push hook's
+// 8 workers the first test in this file timed out at 5-8 s although every test passes alone (TaxonomyServer p/52#36).
+beforeAll(async () => { await import('../storage/githubAPIBackend'); }, 60_000);
 
 // t/3444: every describe below that constructs a GitHubAPIBackend/SessionBranchManager
 // is gated on this — on a local Node whose bundled undici major skews from the userland
