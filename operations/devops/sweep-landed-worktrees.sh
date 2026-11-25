@@ -14,6 +14,9 @@
 #   - its working tree is clean: no modified, staged or untracked (non-ignored) files. A merged worktree
 #     that is NOT clean is skipped with a WARN naming it and the counts, so its owner can act; it is
 #     never removed with --force, and `git worktree remove` without --force refuses dirty trees anyway;
+#   - it holds nothing `git worktree remove` would silently delete: no nested worktree or repo below its
+#     root, and no ignored file outside the cache allowlist (node_modules, dist, out, build, coverage,
+#     .tsbuildinfo, .pytest_cache, __pycache__, .gate-telemetry, release). Otherwise WARN and skip (SO p/44#123);
 #   - no file in it (outside node_modules and .git) was modified in the last 2 hours, so an agent
 #     mid-work is never swept (Security p/278#9).
 # Every removal, WARN and skip is logged with its reason. A failed git read or file scan removes nothing.
@@ -84,6 +87,40 @@ while IFS="$(printf '	')" read -r path ref locked; do
   untracked=$(printf '%s' "$ut" | grep -c . | tr -d ' ')
   if [ "$modified" != "0" ] || [ "$untracked" != "0" ]; then
     echo "sweep-landed-worktrees: WARN $path ($branch) has merged ($merged) but is not clean: $modified modified/staged, $untracked untracked. Left in place; commit (and push) or discard the changes, never git stash (the stash list is shared across worktrees), then it is removed on the next sweep." >&2
+    continue
+  fi
+
+  # 2b. Clean by git status is not enough: a non-forced `git worktree remove` still DELETES ignored files,
+  #     including a whole nested worktree under an ignored .worktrees/ with its uncommitted WIP (SO t/9,
+  #     p/44#123, reproduced). So: (a) skip any worktree that contains another worktree or repo (a .git file
+  #     or dir below its root); (b) skip any worktree with ignored files outside the cache allowlist
+  #     (rebuildable output only). Both reads fail closed.
+  nested=$(find "$path" -name node_modules -prune -o -name .git ! -path "$path/.git" -print -quit 2>/dev/null) \
+    || { skip "nested-repo scan failed; fail closed"; continue; }
+  if [ -n "$nested" ]; then
+    echo "sweep-landed-worktrees: WARN $path ($branch) has merged but contains another worktree or repo (${nested%/.git}). Left in place: removing it would delete that tree's files, ignored or not. Remove the inner one first." >&2
+    continue
+  fi
+  ign=$(git -C "$path" ls-files --others --ignored --exclude-standard --directory 2>/dev/null) \
+    || { skip "git read failed (ignored files); fail closed"; continue; }
+  # Cache allowlist (SO p/44#123): an entry is rebuildable if ANY path component is one of these names,
+  # or it is a *.tsbuildinfo file. Everything else ignored (a .env, .claude/settings.local.json, a
+  # scratch dir, a nested .worktrees/) would be lost, so it blocks the removal.
+  kept=$(printf '%s\n' "$ign" | awk -F/ '
+    NF == 0 || $0 == "" { next }
+    {
+      for (i = 1; i <= NF; i++) {
+        c = $i
+        if (c == "node_modules" || c == "dist" || c == "out" || c == "build" || c == "coverage" ||
+            c == ".tsbuildinfo" || c == ".pytest_cache" || c == "__pycache__" || c == ".gate-telemetry" ||
+            c == "release" || c ~ /\.tsbuildinfo$/) next
+      }
+      print
+    }')
+  if [ -n "$kept" ]; then
+    n_kept=$(printf '%s\n' "$kept" | grep -c . | tr -d ' ')
+    first=$(printf '%s\n' "$kept" | head -n 1)
+    echo "sweep-landed-worktrees: WARN $path ($branch) has merged but holds $n_kept ignored path(s) outside the cache allowlist (first: $first). Left in place: worktree remove would delete them. Move or delete them, then it is removed on the next sweep." >&2
     continue
   fi
 
