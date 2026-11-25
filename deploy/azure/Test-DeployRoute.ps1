@@ -152,34 +152,62 @@ function Test-TrustedCi {
 
 # ── Check 3: what-if classification ─────────────────────────────────────────────────────────────
 
-# Property paths that every deploy's what-if shows without being a real change: values the workflow
-# supplies but a local what-if cannot (secrets and the auth providers built from them), env entries
-# the deploy step stamps after the Bicep apply, settings ARM normalises, and unevaluated reference()
-# expressions. Each was seen in the t/579 what-ifs (t/579#8, #26, #69).
-$script:NoisePaths = @(
-    '^properties\.configuration\.secrets'
-    '^properties\.configuration\.ingress\.exposedPort$'
-    '^properties\.template\.revisionSuffix$'
-    '^properties\.identityProviders\.'
-    '^properties\.login\.allowedExternalRedirectUrls'
-    '^properties\.(denyEncryptionScopeOverride|defaultEncryptionScope|accessTier)$'
-    '^properties\.deleteRetentionPolicy\.allowPermanentDelete$'
-    '^properties\.networkAcls'
-    '^properties\.(logs|logAnalyticsDestinationType)'
-    '^properties\.appLogsConfiguration\.logAnalyticsConfiguration\.customerId$'
-    '^properties\.(peerTrafficConfiguration|peerAuthentication)'
-    '^properties\.principalId$'
-    '^properties\.timePeriod\.(startDate|endDate)$'
-    '^properties\.(Flow_Type|Request_Source)$'
+# Noise is a closed allowlist, and fails closed: a leaf is NOISE only if it matches one rule on its
+# exact path, its propertyChangeType and, where given, its before value. Everything else is FLAG.
+# Each rule covers only what a local what-if cannot know or what ARM reports for a property the
+# template leaves unset, as seen in the t/579 what-ifs (t/579#8, #26, #69). SO review (t/612, p/299#6)
+# removed the broad subtrees (secrets, networkAcls, identityProviders, redirect URLs, logs, peer auth,
+# principalId): each hid a real security change.
+#   Before = 'any'    any before value
+#   Before = 'falsy'  before is $false, 0 or $null (a template-silent default; turning it on is a FLAG)
+$script:NoiseRules = @(
+    # Secret VALUES only: the workflow supplies them and ARM never returns them. A new, removed or
+    # renamed secret, or a changed keyVaultUrl or identity, is a different leaf and FLAGs.
+    @{ Path = '^properties\.configuration\.secrets\.\d+\.value$'; Change = 'Modify', 'Create', 'Delete'; Before = 'any' }
+    # Set by the deploy step for each revision, after the Bicep apply.
+    @{ Path = '^properties\.template\.revisionSuffix$'; Change = 'Modify', 'Delete'; Before = 'any' }
+    # ARM reports 0 for an HTTP ingress the template doesn't set.
+    @{ Path = '^properties\.configuration\.ingress\.exposedPort$'; Change = 'Delete'; Before = 'falsy' }
+    # Storage container defaults the template leaves unset (Delete only; a set value FLAGs).
+    @{ Path = '^properties\.(denyEncryptionScopeOverride|defaultEncryptionScope)$'; Change = 'Delete'; Before = 'any' }
+    @{ Path = '^properties\.deleteRetentionPolicy\.allowPermanentDelete$'; Change = 'Delete'; Before = 'falsy' }
+    # Budget period dates are rolled by Azure; App Insights reports two creation-only fields.
+    @{ Path = '^properties\.timePeriod\.(startDate|endDate)$'; Change = 'Modify', 'Delete'; Before = 'any' }
+    @{ Path = '^properties\.(Flow_Type|Request_Source)$'; Change = 'Delete'; Before = 'any' }
 )
 $script:StampedEnv = @('DEPLOY_SHA', 'DEPLOY_TAG', 'IMAGE_DIGEST', 'IMAGE_DEPLOYED_AT')
+$script:ResourceSkip = @('NoChange', 'Ignore')   # what-if reports these as unchanged or not deployed
 
-function Test-NoiseValue {
+function Test-Falsy {
     param($Value)
-    if ($Value -is [string]) { return $Value.StartsWith('[') }
-    if ($null -ne $Value -and $Value.PSObject.Properties['name']) {
-        if ($script:StampedEnv -contains $Value.name) { return $true }
-        if ($Value.PSObject.Properties['secretRef']) { return $true }
+    if ($null -eq $Value) { return $true }
+    if ($Value -is [bool]) { return (-not $Value) }
+    if ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) { return ($Value -eq 0) }
+    return $false
+}
+
+function Test-NoiseLeaf {
+    # True only for a leaf that matches one NoiseRule, or a stamped env entry being removed, or an
+    # unevaluated reference()/list*() expression replacing a value with no other change.
+    param([Parameter(Mandatory)]$Leaf)
+    foreach ($r in $script:NoiseRules) {
+        if ($Leaf.Path -notmatch $r.Path) { continue }
+        if ($r.Change -notcontains $Leaf.ChangeType) { continue }
+        if ($r.Before -eq 'falsy' -and -not (Test-Falsy $Leaf.Before)) { continue }
+        return $true
+    }
+    # The deploy step stamps these env entries after the apply, so the template never has them.
+    # Removal of the whole entry only; the entry must carry a literal value and no secretRef.
+    if ($Leaf.Path -match '^properties\.template\.containers\.\d+\.env\.\d+$' -and $Leaf.ChangeType -eq 'Delete' -and
+        $null -ne $Leaf.Before -and $Leaf.Before.PSObject.Properties['name'] -and
+        $script:StampedEnv -contains $Leaf.Before.name -and -not $Leaf.Before.PSObject.Properties['secretRef']) {
+        return $true
+    }
+    # An unevaluated expression the local what-if can't resolve (for example a Key Vault URI from
+    # reference()). Modify only, and never on a secretRef leaf.
+    if ($Leaf.ChangeType -eq 'Modify' -and $Leaf.Path -notmatch 'secretRef$' -and
+        $Leaf.After -is [string] -and $Leaf.After -match '^\[(reference|list\w*)\(') {
+        return $true
     }
     return $false
 }
@@ -210,17 +238,18 @@ function Get-WhatIfClassification {
     $rows = [System.Collections.Generic.List[object]]::new()
     foreach ($ch in @($WhatIf.changes)) {
         $res = ($ch.resourceId -split '/providers/')[-1]
-        if ($ch.changeType -in 'Create', 'Delete', 'Deploy') {
-            $rows.Add([pscustomobject]@{ Resource = $res; Path = '(resource)'; Change = $ch.changeType; Class = 'FLAG' })
+        $ct = [string]$ch.changeType
+        if ($script:ResourceSkip -contains $ct) { continue }
+        if ($ct -ne 'Modify') {
+            # Create, Delete, Deploy, and anything unknown (Unsupported, a future type): fail closed.
+            $rows.Add([pscustomobject]@{ Resource = $res; Path = '(resource)'; Change = $ct; Class = 'FLAG' })
             continue
         }
-        if ($ch.changeType -ne 'Modify') { continue }
         foreach ($leaf in Get-WhatIfLeaves -Nodes $ch.delta) {
             $class =
                 if ($leaf.ChangeType -eq 'NoEffect') { 'NOISE' }
-                elseif ($leaf.Path -match '^properties\.template\.containers\.\d+\.image$') { 'IMAGE' }
-                elseif ($script:NoisePaths | Where-Object { $leaf.Path -match $_ }) { 'NOISE' }
-                elseif ((Test-NoiseValue $leaf.After) -or (Test-NoiseValue $leaf.Before)) { 'NOISE' }
+                elseif ($leaf.Path -match '^properties\.template\.containers\.\d+\.image$' -and $leaf.ChangeType -eq 'Modify') { 'IMAGE' }
+                elseif (Test-NoiseLeaf $leaf) { 'NOISE' }
                 else { 'FLAG' }
             $rows.Add([pscustomobject]@{ Resource = $res; Path = $leaf.Path; Change = $leaf.ChangeType; Class = $class })
         }
@@ -237,7 +266,7 @@ function Test-WhatIf {
         return [pscustomobject]@{ Check = 'what-if'; Status = 'UNKNOWN'; Detail = 'no what-if supplied: run the what-if from the dispatch ref (deploy-azure.yml''s parameters, --no-pretty-print) and pass -WhatIfJsonPath'; Rows = @() }
     }
     try {
-        $wi = Get-Content -Raw -LiteralPath $WhatIfJsonPath | ConvertFrom-Json
+        $wi = Get-Content -Raw -LiteralPath $WhatIfJsonPath -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         $rows = @(Get-WhatIfClassification -WhatIf $wi)
         $counts = @($wi.changes) | Group-Object changeType | ForEach-Object { "$($_.Name) $($_.Count)" }
         $flags = @($rows | Where-Object Class -eq 'FLAG')

@@ -129,6 +129,77 @@ Describe 'Test-WhatIf (check 3)' {
     }
 }
 
+Describe 'Test-WhatIf fails closed on security changes (SO red arms, t/612 p/299#6)' {
+    BeforeAll {
+        function script:Get-OneLeafStatus([string]$Path, [string]$Change, $Before, $After, [string]$ResourceChange = 'Modify') {
+            $leaf = @{ path = $Path; propertyChangeType = $Change }
+            if ($null -ne $Before) { $leaf.before = $Before }
+            if ($null -ne $After) { $leaf.after = $After }
+            $p = New-WhatIfFile @(@{ resourceId = $script:App; changeType = $ResourceChange; delta = @($leaf) })
+            (Test-WhatIf -WhatIfJsonPath $p).Status
+        }
+    }
+    It 'FAIL: Key Vault networkAcls defaultAction Deny to Allow' {
+        Get-OneLeafStatus 'properties.networkAcls.defaultAction' 'Modify' 'Deny' 'Allow' | Should -Be 'FAIL'
+    }
+    It 'FAIL: Key Vault networkAcls removed by a template that no longer sets it' {
+        Get-OneLeafStatus 'properties.networkAcls.defaultAction' 'Delete' 'Deny' $null | Should -Be 'FAIL'
+    }
+    It 'FAIL: a new container-app secret' {
+        Get-OneLeafStatus 'properties.configuration.secrets.3' 'Create' $null @{ name = 'new-secret' } | Should -Be 'FAIL'
+    }
+    It 'FAIL: a secret re-pointed to another Key Vault secret' {
+        Get-OneLeafStatus 'properties.configuration.secrets.1.keyVaultUrl' 'Modify' 'https://kv/secrets/a' 'https://kv/secrets/b' | Should -Be 'FAIL'
+    }
+    It 'FAIL: a changed auth audience' {
+        Get-OneLeafStatus 'properties.identityProviders.azureActiveDirectory.validation.allowedAudiences.0' 'Modify' 'api://a' 'api://b' | Should -Be 'FAIL'
+    }
+    It 'FAIL: an added external redirect URL' {
+        Get-OneLeafStatus 'properties.login.allowedExternalRedirectUrls.2' 'Create' $null 'https://evil.example' | Should -Be 'FAIL'
+    }
+    It 'FAIL: an env var re-pointed to another secretRef (the t/269 case)' {
+        Get-OneLeafStatus 'properties.template.containers.0.env.5.secretRef' 'Modify' 'free-tier-gemini-key' 'gemini-paid-key' | Should -Be 'FAIL'
+    }
+    It 'FAIL: a whole env entry with a secretRef replaced' {
+        Get-OneLeafStatus 'properties.template.containers.0.env.5' 'Modify' @{ name = 'AI_API_KEY'; secretRef = 'a' } @{ name = 'AI_API_KEY'; secretRef = 'b' } | Should -Be 'FAIL'
+    }
+    It 'FAIL: a stamped-looking env entry that carries a secretRef' {
+        Get-OneLeafStatus 'properties.template.containers.0.env.30' 'Delete' @{ name = 'DEPLOY_SHA'; secretRef = 'x' } $null | Should -Be 'FAIL'
+    }
+    It 'FAIL: allowPermanentDelete turned on' {
+        Get-OneLeafStatus 'properties.deleteRetentionPolicy.allowPermanentDelete' 'Modify' $false $true | Should -Be 'FAIL'
+    }
+    It 'FAIL: allowPermanentDelete removed while it was on' {
+        Get-OneLeafStatus 'properties.deleteRetentionPolicy.allowPermanentDelete' 'Delete' $true $null | Should -Be 'FAIL'
+    }
+    It 'FAIL: a role assignment principalId change' {
+        Get-OneLeafStatus 'properties.principalId' 'Modify' '1111' '2222' | Should -Be 'FAIL'
+    }
+    It 'FAIL: diagnostic logs removed' {
+        Get-OneLeafStatus 'properties.logs.0.enabled' 'Modify' $true $false | Should -Be 'FAIL'
+    }
+    It 'FAIL: a resource changeType Unsupported is never dropped' {
+        $p = New-WhatIfFile @(@{ resourceId = $script:App; changeType = 'Unsupported' })
+        (Test-WhatIf -WhatIfJsonPath $p).Status | Should -Be 'FAIL'
+    }
+    It 'FAIL: an unknown future resource changeType' {
+        $p = New-WhatIfFile @(@{ resourceId = $script:App; changeType = 'SomethingNew' })
+        (Test-WhatIf -WhatIfJsonPath $p).Status | Should -Be 'FAIL'
+    }
+    It 'FAIL: an image leaf removed rather than changed' {
+        Get-OneLeafStatus 'properties.template.containers.0.image' 'Delete' 'img@sha256:aaa' $null | Should -Be 'FAIL'
+    }
+    It 'PASS: a secret value the local what-if cannot know' {
+        Get-OneLeafStatus 'properties.configuration.secrets.1.value' 'Modify' '*' '*' | Should -Be 'PASS'
+    }
+    It 'PASS: allowPermanentDelete reported as an unset default (Delete of false)' {
+        Get-OneLeafStatus 'properties.deleteRetentionPolicy.allowPermanentDelete' 'Delete' $false $null | Should -Be 'PASS'
+    }
+    It 'PASS: an unevaluated reference() replacing a non-secret value' {
+        Get-OneLeafStatus 'properties.template.containers.0.env.6.value' 'Modify' 'https://kv/' "[reference('x').vaultUri]" | Should -Be 'PASS'
+    }
+}
+
 Describe 'Format-RouteReport' {
     It 'says NOT SAFE TO PROPOSE unless every check passes' {
         $res = @(
