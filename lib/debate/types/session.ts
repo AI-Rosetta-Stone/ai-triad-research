@@ -114,6 +114,12 @@ export interface TranscriptEntry {
   summaries?: {
     brief: string;   // 2-3 sentences: core claim + strongest reasoning
     medium: string;  // 1-2 paragraphs: main argument + key evidence
+    /** Structured Brief (t/700): the speaker's position in one sentence. Optional; absent on
+     *  older debates and whenever the model's structured fields were malformed (strings kept). */
+    brief_claim?: string;
+    /** Structured Brief (t/700): 2-3 supporting points, each about 25 words or fewer.
+     *  Present only together with brief_claim. */
+    brief_points?: string[];
   };
   /** Which detail tier to display by default. Absent = show full content. */
   display_tier?: 'claims' | 'brief' | 'medium' | 'detailed' | 'reasoning' | 'convergence' | 'terms' | 'lineage' | 'why';

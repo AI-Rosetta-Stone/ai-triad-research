@@ -694,12 +694,16 @@ export function entrySummarizationPrompt(statementText: string, speaker: string)
 STATEMENT:
 ${statementText}
 
-BRIEF (2-3 sentences + tagline): The core claim and strongest piece of reasoning or evidence, in ${speaker}'s own voice. Omit secondary points, assumptions, and steelman content. End with a catchy, memorable one-liner that captures the argument's essence — punchy enough to quote.
+BRIEF (2-3 sentences): The core claim and strongest piece of reasoning or evidence, in ${speaker}'s own voice. Omit secondary points, assumptions, and steelman content. Plain prose: no labels, no "Tagline:" line, no slogan.
+
+BRIEF CLAIM (one sentence): ${speaker}'s position in this statement, in their own voice.
+
+BRIEF POINTS (2 or 3 items, each 25 words or fewer): the support for that claim, each one of: a study with its year, a concrete fact, or the inference that ties the support to the claim. One idea per item. No item repeats the claim.
 
 MEDIUM (1-2 paragraphs): The main argument with key supporting evidence, in ${speaker}'s own voice. Include the steelman if present. Omit rhetorical flourishes and minor supporting points.
 
 Respond ONLY with a JSON object (no markdown, no code fences):
-{"brief": "...", "medium": "..."}`;
+{"brief": "...", "brief_claim": "...", "brief_points": ["...", "..."], "medium": "..."}`;
 }
 
 // ── Missing Arguments Pass ──────────────────────────────
