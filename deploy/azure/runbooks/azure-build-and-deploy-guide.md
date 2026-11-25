@@ -150,6 +150,7 @@ Put the staging run ID, the smoke result (for example "33/33 endpoints") and `bu
   - Prod's SHA is in `curl -s <prod>/health` (`buildSha`).
   - Check with `git merge-base --is-ancestor <prod-sha> <your-sha> && echo forward`.
 - [ ] No other deploy is running or queued: `gh run list --workflow=deploy-azure.yml --limit 3`.
+- [ ] **Not a normal forward deploy from `main`** (a hotfix SHA, an old SHA, any other ref)? Read §5.5 first and run its route check.
 - [ ] **If the release touches `deploy/azure/main.bicep` or env vars:**
   - Have the Azure owner take a **container env baseline** first: `operations/devops/azure/Invoke-ContainerEnvSnapshot.ps1`, compared after the deploy with `ContainerEnvSnapshotVerdict.ps1` against `container-env-expected-changes.json`. Both apps' config entries must come out identical apart from the expected changes.
   - The workflow's own env diff is **warn-only**, so this manual compare is the real check.
@@ -210,6 +211,22 @@ curl -s https://taxonomy-editor.yellowbush-aeda037d.eastus.azurecontainerapps.io
 - If there was a baseline (§5.1), run the env compare now and post the result.
 - Record the deployed SHA, run ID, revision name and compare result on the ticket.
 
+### 5.5 Hotfix and image-only deploys (lessons from t/579, 2026-11-24)
+The incident path itself is in `docs/incident-response.md` ("Prod hotfix path"). These are the mechanics behind it.
+
+1. **There is no image-only deploy.** Every `deploy-azure.yml` run does the Bicep what-if and apply (§5.3 step 3.4-3.5) before it touches the image. A run that "only ships a fix" also applies the template from the ref you dispatch.
+2. **The `production` environment accepts deploys only from `main`.** Its deployment-branch policy is custom and lists `main` alone. A run dispatched from `epic/*`, a hotfix branch or an old tag fails when the deploy job starts. A hotfix image deploys by dispatching from `main` with `-f sha=<hotfix-sha>`. Widening the policy is a PI decision.
+   - Before you ask for the go, run a what-if of **main's** template against prod and post it. It must show nothing but the image plus known noise (revision suffix, stamped `DEPLOY_*` env, `secretRef`/`[reference(...)]` values). Any other change, such as cpu, memory, env or a role, is a change the PI hasn't approved, so stop. The run's own what-if appears only in its log, too late to stop the apply.
+   - Before proposing any route (environment, ref, SHA), run `deploy/azure/Test-DeployRoute.ps1 -Ref <ref> -Sha <sha> -WhatIfJsonPath <what-if.json>`. It checks the branch policy, the trusted CI run and the what-if, and exits non-zero unless all three pass (lands with t/612).
+3. **Build hotfix images from an `epic/` ref.** `Invoke-ContainerBuild.ps1` dispatches from `main`, which moves `:latest`. Push the hotfix commit to `epic/<ticket>-hotfix` and build there.
+   - Pushing a commit that already exists on another branch may not start CI. Then dispatch it yourself: `gh workflow run ci.yml --ref epic/<ticket>-hotfix`.
+   - **Preflight CI-gate pitfall (until #5505, t/591, merges):** preflight reads the newest CI run for the SHA. A queued or cancelled `pull_request` run on the same SHA displaces a green dispatch run, and a GitHub rate-limit 403 reads as "CI failed". If preflight says CI failed on a SHA you know is green, check `gh run list --workflow=ci.yml --commit <sha>` before you do anything else. Don't cancel CI runs on a hotfix SHA; you may need them.
+4. **The shared `containerImage` parameter feeds both apps.** A prod apply writes the deployed image into staging's template too, and an apply from an older template resets staging's cpu and memory to that template's values. After any prod apply, check staging:
+   ```bash
+   az containerapp show -n taxonomy-editor-staging -g ai-triad --query "properties.template.containers[0].{image:image,cpu:resources.cpu,memory:resources.memory}"
+   ```
+   The next staging auto-deploy (§4) puts staging's own image back, but it never sets cpu or memory. If those changed, tell the Azure owner.
+
 ---
 
 ## 6. Rollback
@@ -231,6 +248,24 @@ curl -s -w ' %{http_code}\n' "https://$FQDN/readyz"     # repeat until {"status"
 az containerapp ingress traffic set --name taxonomy-editor -g ai-triad --revision-weight "<prev>=100"
 ```
 Then deactivate the broken revision. A rollback changes prod, so tell the PI right away.
+
+**A rollback moves traffic only.** Both the script and the manual fallback leave the template naming the image you rolled away from, so `az containerapp show` still reports the bad image and the next Bicep apply reconciles against it. Record the rollback on the ticket, and treat the next deploy as a forward deploy of a fixed SHA.
+
+**Don't** run a raw `az containerapp ingress traffic set` while a deploy run is in flight or about to start (t/4242). **Don't** cancel a prod deploy during the Bicep apply or the traffic shift. Cancelling `retire-previous-revision` during the soak is safe; it leaves the previous revision active.
+
+### 6.1 When something fails
+
+| Symptom | Meaning | Do this |
+|---|---|---|
+| Deploy job rejected by the environment | The dispatch ref isn't allowed by `production`'s branch policy | Dispatch from `main` with `-f sha=` (§5.5). Don't ask for the policy to be widened as a workaround. |
+| Preflight: tag absent or digest not found | No image was pushed for that SHA | Build it (§3) with the same SHA. |
+| Preflight: CI failed on a SHA you know is green | Displaced run or rate limit (§5.5) | Check the runs for the SHA; dispatch `ci.yml` if there's no trusted run. |
+| Preflight: `IDENTITY_MAP` incomplete | Repo variable unset or partial | Stop and escalate to DevOps; it touches auth. |
+| "NOT a descendant of the commit already running in prod" | The deploy would move prod backward | Deploy a newer commit, or roll back (§6). |
+| What-if shows a delete or a change you didn't expect | Drift or a bad Bicep change | Stop and escalate to the Azure owner. |
+| A gate failed and the workflow rolled back | The new revision was unhealthy | Read "Collect failure diagnostics" with `gh run view <id> --log-failed`, and report to the owning role in the format in `docs/error-diagnosis-format.md`. |
+| Sev-1: restored revision not serving | The rollback didn't recover | It's an incident now (`docs/incident-response.md`): ping the TL, DevOps and the PI. |
+| `prod-soak-alert` issue opened | The soak failed after the shift | The previous revision is still active. Decide with DevOps whether to roll back. |
 
 ---
 
