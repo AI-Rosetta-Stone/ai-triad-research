@@ -107,27 +107,39 @@ function Get-GitText([string]$Rev, [string]$RelPath, [string]$Repo = $SourcesDir
     finally { Remove-Item -LiteralPath $o, $e -Force -ErrorAction SilentlyContinue }
 }
 
+# The node ids linked from pov_summaries key_points (one of the four C9 link fields). Mutates $Ids in place.
+function Add-T4405PovSummaryNodes($Summary, [System.Collections.Generic.HashSet[string]]$Ids) {
+    if (-not ($Summary.PSObject.Properties['pov_summaries'] -and $Summary.pov_summaries)) { return }
+    foreach ($pov in $Summary.pov_summaries.PSObject.Properties) {
+        if ($null -eq $pov.Value -or -not $pov.Value.PSObject.Properties['key_points']) { continue }
+        foreach ($kp in @($pov.Value.key_points)) { if ($kp -and $kp.PSObject.Properties['taxonomy_node_id'] -and $kp.taxonomy_node_id) { [void]$Ids.Add([string]$kp.taxonomy_node_id) } }
+    }
+}
+
+# The node ids linked from factual_claims (linked + potential taxonomy nodes). Mutates $Ids in place.
+function Add-T4405FactualClaimNodes($Summary, [System.Collections.Generic.HashSet[string]]$Ids) {
+    if (-not $Summary.PSObject.Properties['factual_claims']) { return }
+    foreach ($fc in @($Summary.factual_claims)) {
+        if (-not $fc) { continue }
+        foreach ($f in 'linked_taxonomy_nodes', 'potential_taxonomy_nodes') {
+            if ($fc.PSObject.Properties[$f]) { foreach ($n in @($fc.$f)) { if ($n) { [void]$Ids.Add([string]$n) } } }
+        }
+    }
+}
+
+# The node ids linked from unmapped_concepts resolved_node_id. Mutates $Ids in place.
+function Add-T4405UnmappedConceptNodes($Summary, [System.Collections.Generic.HashSet[string]]$Ids) {
+    if (-not $Summary.PSObject.Properties['unmapped_concepts']) { return }
+    foreach ($uc in @($Summary.unmapped_concepts)) { if ($uc -and $uc.PSObject.Properties['resolved_node_id'] -and $uc.resolved_node_id) { [void]$Ids.Add([string]$uc.resolved_node_id) } }
+}
+
 # The node ids a summary links, over the four C9 link fields (t/4337 c9-link-fields.json, SO e/344#13).
 function Get-SummaryLinkedNodes($Summary) {
     $ids = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     if ($null -eq $Summary) { return , $ids }
-    if ($Summary.PSObject.Properties['pov_summaries'] -and $Summary.pov_summaries) {
-        foreach ($pov in $Summary.pov_summaries.PSObject.Properties) {
-            if ($null -eq $pov.Value -or -not $pov.Value.PSObject.Properties['key_points']) { continue }
-            foreach ($kp in @($pov.Value.key_points)) { if ($kp -and $kp.PSObject.Properties['taxonomy_node_id'] -and $kp.taxonomy_node_id) { [void]$ids.Add([string]$kp.taxonomy_node_id) } }
-        }
-    }
-    if ($Summary.PSObject.Properties['factual_claims']) {
-        foreach ($fc in @($Summary.factual_claims)) {
-            if (-not $fc) { continue }
-            foreach ($f in 'linked_taxonomy_nodes', 'potential_taxonomy_nodes') {
-                if ($fc.PSObject.Properties[$f]) { foreach ($n in @($fc.$f)) { if ($n) { [void]$ids.Add([string]$n) } } }
-            }
-        }
-    }
-    if ($Summary.PSObject.Properties['unmapped_concepts']) {
-        foreach ($uc in @($Summary.unmapped_concepts)) { if ($uc -and $uc.PSObject.Properties['resolved_node_id'] -and $uc.resolved_node_id) { [void]$ids.Add([string]$uc.resolved_node_id) } }
-    }
+    Add-T4405PovSummaryNodes -Summary $Summary -Ids $ids
+    Add-T4405FactualClaimNodes -Summary $Summary -Ids $ids
+    Add-T4405UnmappedConceptNodes -Summary $Summary -Ids $ids
     , $ids
 }
 
