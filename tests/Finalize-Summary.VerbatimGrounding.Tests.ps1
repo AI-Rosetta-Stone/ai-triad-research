@@ -337,17 +337,17 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Sw.Elapsed.TotalSeconds | Should -BeLessThan 20
     }
 
-    It 'a repeated page header inside the sentence makes the quote interleaved, and the header is not stored' {
+    It 'a repeated page header inside the sentence is not quote text: the quote is kept as written, and a changed word still fails' {
         $Header = 'Journal of Applied Policy 14(2)'
         $Src = "$Header`nRegulators have begun to ask for results.`n$([char]12)$Header`nDevelopers answer that the evaluations they run today`n$([char]12)$Header`nwere never designed to support a licensing decision.`n"
-        $Quote = 'Developers answer that the evaluations they run today were never designed to support the licensing decision.'
+        $Quote = 'Developers answer that the evaluations they run today were never designed to support a licensing decision.'
         $Out = & $script:Run $Src $Quote 'doc-header-inside'
-        $Out.R.Interleaved | Should -Be 1
-        $Out.R.Snapped | Should -Be 0
-        $Out.Stored | Should -Be @(
-            'Developers answer that the evaluations they run today',
-            'were never designed to support a licensing decision')
-        ($Out.Stored -join ' ') | Should -Not -Match 'Journal'
+        # The header line is blanked in the working copy, so the quote's words stand together there.
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+        # The same quote with one word changed ("the" for "a") leaves a word of the model's unstored: dropped (CL t/389#86).
+        $Changed = & $script:Run $Src 'Developers answer that the evaluations they run today were never designed to support the licensing decision.' 'doc-header-inside-changed'
+        $Changed.R.Dropped | Should -Be 1
     }
 
     It 'other text inside the sentence makes the quote interleaved, even when the span is short' {
@@ -373,12 +373,21 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             'today were never designed to support a licensing decision.')
     }
 
-    It 'a piece gives up a word split by a hyphenated line break with other text after it (t/389#20, I13)' {
+    It 'a word split by a hyphenated line break with other text after it cannot be stored, so the quote is dropped (t/389#20 I13, t/389#86)' {
         $Src = "Why has predicting downstream capabilities of fron- ijcnn55064.2022.9891914. URL http://dx.doi.org`ntier ai models with scale remained elusive?, 2024a. /10.1109/IJCNN55064.2022.9891914.`n"
         $Quote = 'Why has predicting downstream capabilities of frontier ai models with scale remained elusive?, 2024a.'
+        # "frontier" is "fron-" on one line and "tier" on the next with another column's text between: neither
+        # half is a word, so the model's word would be left out of what is stored. That is a left-out word.
         $Out = & $script:Run $Src $Quote 'doc-hyphen'
-        $Out.R.Interleaved | Should -Be 1
-        $Out.Stored | Should -Be @('Why has predicting downstream capabilities of', 'ai models with scale remained elusive?, 2024a.')
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
+        $Why = InModuleScope AITriad -Parameters @{ S = $Src; Q = $Quote } {
+            param($S, $Q)
+            $script:VerbatimDiag.Clear()
+            $null = Resolve-VerbatimQuote -Source (Get-VerbatimSource -Text $S) -Quote $Q
+            @($script:VerbatimDiag.ToArray())
+        }
+        $Why | Should -Contain 'unstored model word (interleaved)'
     }
 
     It 'drops a quote when the pieces that can be stored cover less than 0.9 of it (t/389#20)' {
@@ -908,6 +917,16 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             $R.Decision | Should -Not -Be 'dropped'
             $Copied = & $script:Decide74 $Src "Modern informatics systems are neat, on the verge of providing a form of immortality, and pure or at least clean$Thin$Dash${Thin}all unobtainable in the biosphere."
             $Copied.Decision | Should -Not -Be 'dropped'
+        }
+
+        It 'a short fragment of the model''s words that cannot be stored fails the quote (CL t/389#86)' {
+            $Src = "Five states have passed regulations that apply only to minors.`n`nFigure 3`n`nWyoming and`n`nSource: survey`n`nOhio are the only states yet to implement any form of intimate deepfake regulation.`n"
+            $R = & $script:Decide74 $Src 'Five states have passed regulations that apply only to minors. Wyoming and Ohio are the only states yet to implement any form of intimate deepfake regulation.'
+            $R.Decision | Should -Be 'dropped' -Because 'Wyoming and is too short to be stored as a piece, and without it the last piece says something else'
+            $R.Diag | Should -Contain 'unstored model word (interleaved)'
+            # With nothing between the lines the same words are one passage and are kept.
+            $Plain = "Five states have passed regulations that apply only to minors. Wyoming and`nOhio are the only states yet to implement any form of intimate deepfake regulation.`n"
+            (& $script:Decide74 $Plain 'Five states have passed regulations that apply only to minors. Wyoming and Ohio are the only states yet to implement any form of intimate deepfake regulation.').Decision | Should -Not -Be 'dropped'
         }
 
         It 'a letter the source has in brackets is a marked change; a case drop at a later segment''s start is counted apart' {

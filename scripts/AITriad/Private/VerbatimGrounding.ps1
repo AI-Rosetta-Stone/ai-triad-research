@@ -89,6 +89,11 @@ $script:VerbatimSplitAtGluedSidebar = $true  # a sidebar word glued to the end o
 # UTF-8 bytes E2 80 80..8B / AF read in code page 437: three characters that read as letters ("clean" + thin
 # space + dash + thin space + "all", t/389#84). They are white space, in the source and in a quote that copied them.
 $script:VerbatimFoldSpaceMojibake = $true
+# CL t/389#86: a word of the model's that is not stored, inside the quote, is a left-out word of the stored
+# quote. The 0.9 rule limits how much may be missing from the source, not which of the model's words are
+# stored: every letter of a segment must be in a stored piece. Only an elision the model marked, or source
+# text that is not the quote's, may be left out.
+$script:VerbatimRejectUnstoredWord = $true
 $script:VerbatimSpaceMojibakePattern = ([string][char]0x393 + [char]0xC7) + '[' + (-join [char[]](0xC7, 0xFC, 0xE9, 0xE2, 0xE4, 0xE0, 0xE5, 0xE7, 0xEA, 0xEB, 0xE8, 0xEF, 0xBB)) + ']'
 $script:VerbatimSymbolRef = $true            # a footnote symbol read as a letter, glued to a word's end ("Mishra" + the section sign's mojibake)
 $script:VerbatimSymbolRefPattern = '(?<=\p{L})[' + [char]0xBA + [char]0xE7 + '](?=[\s,.;:)\]]|$)'
@@ -1503,6 +1508,13 @@ function Resolve-VerbatimSegment {
                 Add-Member -InputObject $EdgeDrop -NotePropertyName Rejected -NotePropertyValue $true
                 return $EdgeDrop
             }
+        }
+        if ($script:VerbatimRejectUnstoredWord -and $Texts.Count -gt 0 -and $Coverage -ge $script:VerbatimSnapThreshold -and
+            $StoredLetters -lt $Snap.QuoteLetters) {
+            $script:VerbatimDiag.Add("unstored model word ($(if ($IsContiguous) { 'one piece' } else { 'interleaved' }))")
+            $Unstored = & $Result 'dropped' @() $Coverage $null
+            Add-Member -InputObject $Unstored -NotePropertyName Rejected -NotePropertyValue $true
+            return $Unstored
         }
         if ($Texts.Count -gt 0 -and $Coverage -ge $script:VerbatimSnapThreshold) {
             $Decision = if ($IsContiguous) { 'snapped' } else { 'interleaved' }
