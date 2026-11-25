@@ -8,6 +8,6 @@
   "dependencies": {
     "@azure/functions": "^4.17.1",
     "@azure/identity": "^4.14.1",
-    "@azure/arm-containerinstance": "^9.1.0"
+    "@azure/arm-containerinstance": "^10.0.0"
   }
 }
