@@ -1289,6 +1289,21 @@ resource blobRoleAssignmentStagingAnalytics 'Microsoft.Authorization/roleAssignm
   }
 }
 
+// t/707: staging writes brief exports to staging-brief-exports. This grant was created by CLI
+// (t/92#18) and is adopted here, so the name is the live assignment's own GUID, not guid(...).
+// ARM allows one assignment per role, principal and scope: a guid(...) name would differ from
+// the live one and the deploy would fail with RoleAssignmentExists. With the same name, scope,
+// principal and role the apply changes nothing. Keep the literal (TL ruling, t/707#3).
+resource blobRoleAssignmentStagingBriefExports 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: stagingBriefExportsContainer
+  name: '237665b7-8bde-42b5-b8d7-7eaa9959f88d'
+  properties: {
+    principalId: containerAppStaging.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', blobDataContributorRoleId)
+  }
+}
+
 // ── Authentication (Easy Auth for Container Apps) ──
 // Enables /.auth/login/<provider> endpoints. On successful OAuth, Azure injects
 // X-MS-CLIENT-PRINCIPAL-* headers into requests to the container. The server
