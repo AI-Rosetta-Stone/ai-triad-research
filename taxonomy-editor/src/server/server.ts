@@ -49,11 +49,11 @@ import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
 import { logRequestMetrics, REQUEST_METRICS_LOG_DELAY_MS } from './requestMetricsLog.js';
-import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, anonymousStorageUserId, type UserContext } from './security/userContext.js';
+import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, type UserContext } from './security/userContext.js';
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
 import { anonRouteDecision } from './anonAiRoutes.js';
-import { verifyAnonSessionCookie } from './security/anonSessionSigning.js';
+import { anonRequestIdentity } from './anonRequestIdentity.js';
 import { loadAnonSessionSecret } from './security/anonSessionSecret.js';
 import { startAnonOpedSweep } from './storage/opedStore.js';
 import { enforceAuthGate, enforceAnonRouteGuard, type AuthGateCtx, type AuthGateDeps } from './authGates.js';
@@ -804,9 +804,11 @@ async function resolveRequestUserContext(req: http.IncomingMessage, res: http.Se
   const effectiveIdp = idp || '_local';
   // t/467 (PI option a): an anonymous visitor's storage key comes from their own anon_session_id cookie,
   // not the shared '_local' store that the signed-in local user also uses.
-  // t/664 (Security p/93#106): only a VERIFIED signed cookie yields a uuid; unsigned, forged or bare values give undefined (_local).
-  const anonymousSessionId = isAnon ? verifyAnonSessionCookie(parseCookies(req).get('anon_session_id')) : undefined;
-  const storageUserId = isAnon ? anonymousStorageUserId(anonymousSessionId) : deriveStorageUserId(effectivePrincipal, effectiveIdp);
+  // t/664, t/666 (Security p/93#106, #110): the storage id comes from the RAW signed cookie (anonymousStorageUserId verifies
+  // it); the context keeps only the VERIFIED uuid. anonRequestIdentity.ts holds the rule and its HTTP-level test.
+  const anon = isAnon ? anonRequestIdentity(req) : undefined;
+  const anonymousSessionId = anon?.anonymousSessionId;
+  const storageUserId = anon ? anon.storageUserId : deriveStorageUserId(effectivePrincipal, effectiveIdp);
 
   // Cross-provider collision guard: verify the idp matches the one that first
   // claimed this storageUserId. Prevents a different provider from accessing
