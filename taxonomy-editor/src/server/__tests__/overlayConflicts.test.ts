@@ -53,19 +53,19 @@ beforeEach(() => {
 
 describe('POST /api/sync/overlay-conflicts/use-theirs (t/4315)', () => {
   it('discards the whole staged overlay and returns the discarded paths', async () => {
-    const discardConflictedOverlayEntries = vi.fn().mockReturnValue(['a.json', 'b.json']);
+    const discardConflictedOverlayEntriesAsync = vi.fn().mockResolvedValue(['a.json', 'b.json']);
     const { status, body } = await invoke('/api/sync/overlay-conflicts/use-theirs', {
-      ctx: { getGithubBackend: () => ({ discardConflictedOverlayEntries } as any) },
+      ctx: { getGithubBackend: () => ({ discardConflictedOverlayEntriesAsync } as any) },
     });
     expect(status).toBe(200);
     expect(body).toEqual({ discarded: ['a.json', 'b.json'] });
-    expect(discardConflictedOverlayEntries).toHaveBeenCalledWith('tester');
+    expect(discardConflictedOverlayEntriesAsync).toHaveBeenCalledWith('tester');
   });
 
   it('returns an empty discarded array (not an error) when nothing was staged', async () => {
-    const discardConflictedOverlayEntries = vi.fn().mockReturnValue([]);
+    const discardConflictedOverlayEntriesAsync = vi.fn().mockResolvedValue([]);
     const { status, body } = await invoke('/api/sync/overlay-conflicts/use-theirs', {
-      ctx: { getGithubBackend: () => ({ discardConflictedOverlayEntries } as any) },
+      ctx: { getGithubBackend: () => ({ discardConflictedOverlayEntriesAsync } as any) },
     });
     expect(status).toBe(200);
     expect(body).toEqual({ discarded: [] });
@@ -80,12 +80,23 @@ describe('POST /api/sync/overlay-conflicts/use-theirs (t/4315)', () => {
   });
 
   it('returns 500 and records a flight-recorder event when the backend throws', async () => {
-    const discardConflictedOverlayEntries = vi.fn(() => { throw new Error('boom'); });
+    const discardConflictedOverlayEntriesAsync = vi.fn(async () => { throw new Error('boom'); });
     const { status } = await invoke('/api/sync/overlay-conflicts/use-theirs', {
-      ctx: { getGithubBackend: () => ({ discardConflictedOverlayEntries } as any) },
+      ctx: { getGithubBackend: () => ({ discardConflictedOverlayEntriesAsync } as any) },
     });
     expect(status).toBe(500);
     expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({ level: 'error', message: 'overlay-conflicts/use-theirs failed' }));
+  });
+
+  // t/553 (ServerStorage p/52#48): with shared overlay state on, another replica can hold the commit lease.
+  it('maps OVERLAY_COMMIT_BUSY to 409 overlay_commit_busy (retryable), not a 500, and records no error', async () => {
+    const discardConflictedOverlayEntriesAsync = vi.fn(async () => { throw Object.assign(new Error('busy'), { code: 'OVERLAY_COMMIT_BUSY' }); });
+    const { status, body } = await invoke('/api/sync/overlay-conflicts/use-theirs', {
+      ctx: { getGithubBackend: () => ({ discardConflictedOverlayEntriesAsync } as any) },
+    });
+    expect(status).toBe(409);
+    expect(body).toMatchObject({ error: 'overlay_commit_busy' });
+    expect(recordMock).not.toHaveBeenCalledWith(expect.objectContaining({ level: 'error' }));
   });
 });
 

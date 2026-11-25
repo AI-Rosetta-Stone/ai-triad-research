@@ -25,7 +25,7 @@ import { setRuntimeCredentials, clearRuntimeCredentials, getCredentials } from '
 import { diffNodes, changedFields } from '../storage/editMeta.js';
 import { computeNodeConflicts } from '../community/nodeConflicts.js';
 import type { TaxNode, NodeConflict } from '../community/nodeConflicts.js';
-import { getOverlayCommitStatus } from '../storage/overlayCommitScheduler.js';
+import { getOverlayCommitStatusShared } from '../storage/overlayCommitScheduler.js';
 import { isSessionBranchRef, stripSessionBranchPrefix } from '../storage/sessionBranchManager.js';
 import type { GitHubAPIBackend, CompareResult } from '../storage/githubAPIBackend.js';
 
@@ -204,7 +204,10 @@ export function registerSyncRoutes(r: Router, ctx: ServerCtx): void {
       // swap/bulk, conflicts, cruxes evidence, policy-registry recount) schedules a debounced
       // overlay commit rather than awaiting one inline — surface its state here so the UI can
       // show "not yet saved to GitHub" instead of implying the write is already durable.
-      const overlayCommit = getOverlayCommitStatus(userId) ?? null;
+      // t/553 (t/503 PR 3): the status any replica can answer. With shared overlay state on, it reads the per-user status
+      // blob (cached 2 s, bounded 1.5 s), and on a timeout or store error it falls back to the local value with a WARN.
+      // Hosted anonymous callers never reach this line (the guard above returns ANON_SYNC_STATUS first).
+      const overlayCommit = (await getOverlayCommitStatusShared(userId)) ?? null;
 
       const full = {
         enabled: true,
