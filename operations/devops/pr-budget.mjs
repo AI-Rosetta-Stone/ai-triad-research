@@ -79,10 +79,28 @@ export function unitKey(pr) {
  * unit = { key, day, first (ms of its first PR), prs: [pr...] }; each day's list sorted by first.
  * Throws on a PR with an unparseable createdAt (callers treat that as unreadable).
  */
+/**
+ * PURE. TL ruling p/9#565 (the PI's 'Compare & pull request' clicks, 2026-11-25): a PR closed UNMERGED
+ * within ACCIDENT_WINDOW_MS of opening, with no commit after it was opened, does not consume a budget
+ * slot. Anything else closed still counts, so closing cannot be used to dodge the cap. LIMIT: "no commit
+ * after opening" reads the last commit's committer date, which the author sets; an excluded PR is closed
+ * and lands nothing, so the only effect of a wrong date is a slot given back.
+ */
+export const ACCIDENT_WINDOW_MS = 60 * 60 * 1000;
+export function isAccidentalClose(pr) {
+  if (pr.state !== 'CLOSED' || pr.mergedAt || !pr.closedAt) return false;
+  const opened = Date.parse(pr.createdAt);
+  const closed = Date.parse(pr.closedAt);
+  if (!Number.isFinite(opened) || !Number.isFinite(closed) || closed - opened > ACCIDENT_WINDOW_MS) return false;
+  const last = pr.lastCommitAt ? Date.parse(pr.lastCommitAt) : NaN;
+  return !(Number.isFinite(last) && last > opened);
+}
+
 export function buildUnits(prs) {
   const units = new Map();
   for (const pr of prs) {
     if (isDependabotAuthor(pr.author)) continue;
+    if (isAccidentalClose(pr)) continue; // TL p/9#565: an accidental open, closed within 1 h
     const t = Date.parse(pr.createdAt);
     if (!Number.isFinite(t)) throw new Error(`#${pr.number} has an unreadable createdAt (${JSON.stringify(pr.createdAt)})`);
     const key = unitKey(pr);
@@ -255,7 +273,7 @@ function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
-const PR_FIELDS = 'number title createdAt mergedAt headRefName state author{login}';
+const PR_FIELDS = 'number title createdAt mergedAt closedAt headRefName state author{login} commits(last:1){nodes{commit{committedDate}}}';
 
 /** One PR's facts over GraphQL. Throws on any failure or a missing PR. */
 export function readPrFacts(repo, prNumber, ghFn = gh) {
@@ -267,7 +285,7 @@ export function readPrFacts(repo, prNumber, ghFn = gh) {
   return toPr(p);
 }
 
-const toPr = (p) => ({ number: p.number, title: p.title ?? '', body: p.body ?? '', createdAt: p.createdAt, headRefName: p.headRefName ?? '', headRefOid: p.headRefOid ?? null, state: p.state, mergedAt: p.mergedAt ?? null, author: p.author?.login ?? '' });
+const toPr = (p) => ({ number: p.number, title: p.title ?? '', body: p.body ?? '', createdAt: p.createdAt, headRefName: p.headRefName ?? '', headRefOid: p.headRefOid ?? null, state: p.state, mergedAt: p.mergedAt ?? null, closedAt: p.closedAt ?? null, lastCommitAt: p.commits?.nodes?.[0]?.commit?.committedDate ?? null, author: p.author?.login ?? '' });
 const isoSec = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 /**
