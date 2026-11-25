@@ -18,13 +18,29 @@ name: t1-approval-guard
 #   - an approval added by EDITING an older comment in place -> covered: the predicate uses the
 #     comment's effective time (`updatedAt ?? createdAt`), and `issue_comment: [edited]` re-runs
 #     this check so the PR isn't stuck red waiting for a new comment.
-#   - t/4096 Reviewer switch-over: a real bot APPROVED review -> covered by `pull_request_review:
-#     [submitted]`, so the check re-runs the moment the reviewer App leaves its review, same as a
-#     new comment does. The legacy `Approved (<role>):` comment path is unchanged during the
+#   - t/4096 Reviewer switch-over: a real bot APPROVED review -> covered by the review relay
+#     (t1-approval-review-relay.yml on `pull_request_review: [submitted, dismissed]`, then
+#     `workflow_run` here, from main; t/534 part B), so the check re-runs seconds after the reviewer
+#     App leaves its review, same as a new comment does. The legacy `Approved (<role>):` comment path is unchanged during the
 #     transition; both forms satisfy the predicate (t1-approval-guard-predicate.mjs).
 #
 # ROLLOUT: ships warn-only (not a required context) for >=1 green cycle against real T1 PRs.
 # Promotion to required is a separate T2 PR (branch-protection-adjacent).
+#
+# STATES (t/534, PI decision t/531 items 1 and 4). Two rows show on a PR: the job row `evaluate`
+# and the API check run `t1-approval-guard` (the one enqueue-pr.mjs reads).
+#   T1, no approval at the head, no changes-request -> `t1-approval-guard` PENDING (in_progress,
+#       "awaiting review"); `evaluate` success. Not a pass: enqueue-pr.mjs refuses guard_in_progress.
+#   approved after the latest push   -> `t1-approval-guard` success; `evaluate` success.
+#   outstanding changes-request      -> `t1-approval-guard` failure; `evaluate` failure.
+#   cannot evaluate (crash, no head) -> `t1-approval-guard` failure; `evaluate` failure (t/4819).
+#   not T1                           -> `t1-approval-guard` success; `evaluate` success.
+# While the head's `t1-approval-guard` run is pending, the next evaluation UPDATES it (postCheckRun),
+# so an approval turns the push's pending row green instead of adding a second row (#5392). Once
+# it has completed, a later evaluation (dismissal, changes-request) CREATES a new run, which is the
+# newest and so the one shown and read (t/534#9). No consumer reads `evaluate` as a verdict: it is
+# not a required context, and enqueue-pr.mjs, t1-approval-at-head.mjs, the sweeps, pr-triage,
+# stuck-pr-classifier and my-prs.mjs select rows by name and never by `evaluate` (t/534#10).
 #
 # t/4247 (TL, 2026-10-20): the check went stale 6x in one day after an approval arrived -- the
 # issue_comment/pull_request_review triggers above were already in place, but a workflow run
@@ -52,17 +68,17 @@ name: t1-approval-guard
 # DELETED PR comment always runs it. To re-run this check by hand, post a PR comment containing
 # `/recheck-guards`. The list and its reasons are on the job.
 #
-# REMOVED APPROVALS (Second Opinion condition on #5176): `issue_comment: [deleted]` and
-# `pull_request_review: [dismissed]` are triggers, so deleting an approval comment or dismissing an
+# REMOVED APPROVALS (Second Opinion condition on #5176): `issue_comment: [deleted]` and a review
+# `dismissed` (through the relay, t/534) are triggers, so deleting an approval comment or dismissing an
 # approving review re-evaluates at once. Without them the last `success` check run stayed on the
 # head, and enqueue-pr.mjs reads that check run. The run lists comments and reviews afresh: a
 # deleted comment is no longer in the list, and a dismissed review comes back with state DISMISSED,
 # which the predicate never counts as an approval. EVERY deleted PR comment runs the job, whatever
 # its text: filtering a deletion would depend on the event carrying the deleted comment's body,
 # which is not confirmed, and an empty body there would skip a deleted sole approval and leave the
-# stale `success` (Second Opinion on 3ebe74158). One run per deletion is cheap. LIMIT: GitHub takes a
-# `pull_request_review` run's workflow file from the PR side, so a branch cut before `dismissed`
-# was added here does not run on a dismissal until it is rebased onto main.
+# stale `success` (Second Opinion on 3ebe74158). One run per deletion is cheap. LIMIT (t/534): the relay runs
+# from the PR's side, so a branch cut before the relay existed re-evaluates a review only on its
+# next comment, push or sweep, until it is rebased onto main.
 
 on:
   pull_request_target:
@@ -70,8 +86,12 @@ on:
     types: [opened, reopened, synchronize, edited, labeled]
   issue_comment:
     types: [created, edited, deleted]
-  pull_request_review:
-    types: [submitted, dismissed]
+  # t/534 part B (t/537): NOT `pull_request_review`, whose runs take this file from the PR's side.
+  # Reviews reach this guard through the permission-less relay (t1-approval-review-relay.yml); a
+  # `workflow_run` run always takes this file from the default branch.
+  workflow_run:
+    workflows: [t1-approval-review-relay]
+    types: [completed]
 
 permissions:
   pull-requests: write
@@ -107,7 +127,7 @@ jobs:
     # (`if:` and `concurrency.group`). comment-filter-workflow.test.mjs fails if the copies differ
     # or if a body the predicate reacts to would not run this job.
     #
-    # `pull_request_review` events (submitted, dismissed) are not filtered: every one runs the job.
+    # Review events arrive as `workflow_run` from the relay (t/534) and are not filtered: every one runs the job.
     #
     # A job skipped here reports as `evaluate` (the job id), on the default branch's tip. It never
     # creates or changes a `t1-approval-guard` check run, so it cannot read as a verdict.
@@ -213,17 +233,78 @@ jobs:
             // GitHub counts a neutral check run as satisfying a required check, so a neutral
             // CANNOT EVALUATE would let an API outage that exhausts the retries PASS the gate
             // (fail-open). t/4819, TL condition p/12#44.
+            //
+            // t/534 (PI decision t/531 items 1 and 4): ONE ROW PER HEAD while it is pending.
+            // `conclusion` may also be 'pending' (awaiting review): the run is left `in_progress`,
+            // never failed. A later evaluation at the same head UPDATES that run while it is still
+            // in progress, so the approval settles the row the push opened instead of adding a
+            // green row beside a red or pending one (#5392). Once our run has COMPLETED, every
+            // later evaluation CREATES a new run instead (Lead t/534#9 point 2): GitHub is not
+            // shown to move a completed run back to in_progress or change its conclusion, so a
+            // dismissal or a new changes-request must never rely on rewriting a green run.
+            // enqueue-pr.mjs reads the LATEST non-skipped run at the head, so the new one decides.
+            // If the lookup or the update fails, a new run is created too (WARN). ci.yml's
+            // merge_group job shares the name but never sets this external_id, so it is never
+            // picked up here.
+            //
+            // CHECK_EXTERNAL_ID IS NOT PROOF OF ORIGIN (Lead t/534#9 point 3). Any Actions run with
+            // `checks: write`, including one running a PR's own workflow, can create a
+            // `t1-approval-guard` run with this external_id under the same `github-actions` app, and
+            // findOwnCheckRun would then pick it up. It only selects which display row to update.
+            // That is harmless solely because the row is display only: enqueue-pr.mjs and the
+            // sweeps decide from the reviews and comments themselves (t/534 part A, Security
+            // condition 3) and never read this row as an input. Never treat it as an identity.
+            const CHECK_EXTERNAL_ID = 't1-approval-guard:api';
+            async function findOwnCheckRun(headSha) {
+              const runs = await withRetry('checks.listForRef', () => github.paginate(github.rest.checks.listForRef, { owner, repo, ref: headSha, check_name: 't1-approval-guard', filter: 'all', per_page: 100 }));
+              const own = (runs || []).filter((r) => r.external_id === CHECK_EXTERNAL_ID && r.app?.slug === 'github-actions');
+              own.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+              return own[0] || null;
+            }
             async function postCheckRun(headSha, conclusion, title, summary) {
               if (!headSha) return; // nothing to pin to -- a crash before the head SHA was resolved
+              const fields = conclusion === 'pending'
+                ? { status: 'in_progress', output: { title, summary } }
+                : { status: 'completed', conclusion, output: { title, summary } };
+              let existing = null;
+              try {
+                existing = await findOwnCheckRun(headSha);
+              } catch (err) {
+                core.warning(`WARN t1-approval-guard: could not list this head's check runs (${String(err && err.message ? err.message : err).split('\n')[0]}); creating a new t1-approval-guard run instead of updating one.`);
+              }
+              if (existing && existing.status === 'completed') {
+                core.info(`t1-approval-guard: check run ${existing.id} at this head has already completed (${existing.conclusion}); creating a new run rather than rewriting a completed one (t/534#9).`);
+                existing = null;
+              }
+              if (existing) {
+                try {
+                  await withRetry('checks.update', () => github.rest.checks.update({ owner, repo, check_run_id: existing.id, ...fields }));
+                  return;
+                } catch (err) {
+                  core.warning(`WARN t1-approval-guard: could not update check run ${existing.id} (${String(err && err.message ? err.message : err).split('\n')[0]}); creating a new one at this head (the newest run decides).`);
+                }
+              }
               await withRetry('checks.create', () => github.rest.checks.create({
-                owner, repo, name: 't1-approval-guard', head_sha: headSha,
-                status: 'completed', conclusion, output: { title, summary },
+                owner, repo, name: 't1-approval-guard', head_sha: headSha, external_id: CHECK_EXTERNAL_ID, ...fields,
               }));
             }
 
-            function resolvePrNumber() {
+            // t/534 part B: a `workflow_run` from the review relay carries the PR in
+            // workflow_run.pull_requests (same-repo PRs); otherwise the open PR whose head is the
+            // relay run's head_sha. Read from the API, never from the relay's own output.
+            async function resolvePrNumber() {
               if (context.payload.pull_request) return context.payload.pull_request.number;
               if (context.payload.issue && context.payload.issue.pull_request) return context.payload.issue.number;
+              const wr = context.payload.workflow_run;
+              if (wr) {
+                // Security (t/537#18): trust pull_requests[0] only when the relay ran on a branch of
+                // THIS repository; a fork's run has none, and the API lookup below decides instead.
+                const sameRepo = wr.head_repository && wr.head_repository.full_name === `${owner}/${repo}`;
+                if (sameRepo && wr.pull_requests && wr.pull_requests.length) return wr.pull_requests[0].number;
+                const { data: prs } = await withRetry('repos.listPullRequestsAssociatedWithCommit', () => github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: wr.head_sha }));
+                const open = (prs || []).find((p) => p.state === 'open' && p.head && p.head.sha === wr.head_sha);
+                return open ? open.number : null;
+              }
               return null;
             }
 
@@ -231,7 +312,10 @@ jobs:
               await run();
             } catch (err) {
               // A crash must never read as a pass (t/4103's own lesson on tier-check, PR #3155).
-              const prNumber = resolvePrNumber();
+              // resolvePrNumber can call the API (workflow_run fallback); its failure here must not
+              // skip the setFailed below.
+              let prNumber = null;
+              try { prNumber = await resolvePrNumber(); } catch (e) { core.error(`t1-approval-guard: could not resolve the PR after the crash either — ${e && e.message}`); }
               core.error(`t1-approval-guard CRASHED: ${err && err.stack ? err.stack : String(err)}`);
               if (prNumber) {
                 // t/4819: best-effort. If GitHub is still down (the usual reason we are here),
@@ -269,7 +353,7 @@ jobs:
             }
 
             async function run() {
-            const prNumber = resolvePrNumber();
+            const prNumber = await resolvePrNumber();
             if (!prNumber) {
               core.info('t1-approval-guard: not a PR event (a plain issue comment) — nothing to do.');
               return;
@@ -279,6 +363,15 @@ jobs:
 
             if (pr.base.ref !== 'main') {
               core.info(`t1-approval-guard: base is '${pr.base.ref}', not main — skipped (epic-branch PRs aren't gated here).`);
+              return;
+            }
+
+            // Security (t/537#18): a relay event is about the head it ran on. If the PR has moved
+            // since, skip: a stale workflow_run never acts on a new head (that head's own push or
+            // comment events evaluate it).
+            const relayHead = context.payload.workflow_run && context.payload.workflow_run.head_sha;
+            if (relayHead && pr.head.sha !== relayHead) {
+              core.info(`t1-approval-guard: the review relay ran at ${relayHead}, but PR #${prNumber}'s head is now ${pr.head.sha} — skipped (stale workflow_run).`);
               return;
             }
 
@@ -345,6 +438,23 @@ jobs:
               ].join('\n'));
               await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has an outstanding changes-request from ${who}.`);
               core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has an outstanding changes-request from ${who}.`);
+              return;
+            }
+
+            // t/534: no approval at the head yet, and no changes-request, is AWAITING REVIEW. The
+            // check run is left pending (in_progress) and this job ends success, so no red row is
+            // left behind; the approval later settles the same run (postCheckRun). Pending is not
+            // a pass: enqueue-pr.mjs reads an in_progress run as `guard_in_progress` and refuses.
+            if (result.reason === 'no-post-push-approval') {
+              const why = result.summary ? `\n\n${result.summary}` : '';
+              await postVerdictComment(prNumber, [
+                MARKER,
+                '**t1-approval-guard: AWAITING REVIEW (pending)** — this is a declared `Tier: T1` PR with no `Approved (<role>):` approval at the latest push yet.',
+                '',
+                'This is not a failure. The `t1-approval-guard` check stays pending, and the PR is not enqueued, until a reviewer approves at this head; the approval re-runs this check and settles the same check row to success (no push needed). A new push makes an earlier approval stale, so the check goes back to pending.' + why,
+              ].join('\n'));
+              await postCheckRun(pr.head.sha, 'pending', 't1-approval-guard: awaiting review', `T1 PR #${prNumber}: awaiting a reviewer approval at ${pr.head.sha.slice(0, 9)}.${result.summary ? ' ' + result.summary : ''}`);
+              core.info(`t1-approval-guard: T1 PR #${prNumber} is awaiting review at ${pr.head.sha} -- check left pending, job not failed (t/534).`);
               return;
             }
 
