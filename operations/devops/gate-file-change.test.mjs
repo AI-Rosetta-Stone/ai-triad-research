@@ -23,9 +23,10 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 
 // The workflows whose results gate a merge: the four required contexts (ci-gate in ci.yml,
 // CodeQL Analysis in codeql.yml, joint-gv-guard, consult-hold-guard) and the two the enqueue
-// wrapper reads (t1-approval-guard, tier-check).
+// wrapper reads (t1-approval-guard, tier-check), and merge-approval (t/537, App-posted).
 export const REQUIRED_CHECK_WORKFLOWS = [
   'ci.yml', 'codeql.yml', 'joint-gv-guard.yml', 'consult-hold-guard.yml', 't1-approval-guard.yml', 'tier-check.yml',
+  'merge-approval.yml',
 ];
 
 const SCRIPT_REF = /operations\/devops\/[A-Za-z0-9_./-]*\.(?:mjs|cjs|js|ps1|psm1|sh|py|json|ya?ml)\b/g;

@@ -1,0 +1,151 @@
+name: merge-approval
+
+# t/537: computes and posts the `merge-approval` check run with the ai-triad-merge-approval GitHub
+# App (App ID 5912670). Branch protection requires that context PINNED TO THE APP's integration
+# id, so a check run of the same name from any other poster (GITHUB_TOKEN, another App, a PR job)
+# does not satisfy it.
+#
+# TRUST MODEL. Nothing a PR controls is ever executed here.
+#   - Triggers. pull_request_target, issue_comment and workflow_run all run THIS FILE as it is on
+#     the default branch, in the base repository's context. A PR cannot edit this file, the
+#     modules it loads, or the rules, and have that edit apply to its own evaluation.
+#   - Code. The only checkout is the default branch (`ref: default_branch`), sparse to the six
+#     modules and the one config file below, without credentials. The PR's ref is never fetched,
+#     never built, never run. The verdict reads PR facts (body, file NAMES, reviews, comments)
+#     through the REST/GraphQL API as data only.
+#   - The key. The App's private key is a secret of the `merge-approval` environment, which
+#     deploys from `main` only. All three triggers run with GITHUB_REF = the default branch, so
+#     they pass that rule; a `pull_request` or `merge_group` run from a PR branch does not, and is
+#     refused the secret (probe-plan item i).
+#   - The relays. merge-approval-group-relay.yml and merge-approval-review-relay.yml exist only to
+#     wake this workflow up (merge_group and pull_request_review have no base-branch variant). A PR
+#     can edit or delete them in its own merge group. This workflow reads NOTHING from a relay run:
+#     no outputs, artifacts or logs, only the event's own workflow_run fields (event, head
+#     repository, head branch, head SHA), checked against Security's conditions in
+#     merge-approval-run.mjs. A deleted relay means no `merge-approval` check on the group, which
+#     fails the group (fail closed, probe-plan item iv).
+#   - Fail closed. Any API error posts `failure` on the SHA being judged (if known) and fails the
+#     job. The verdict is never `neutral` or skipped once a SHA is being judged.
+#
+# TOKENS.
+#   - GITHUB_TOKEN: contents: read (the checkout, the merge-queue GraphQL read) and
+#     pull-requests: read (the PR, its files, reviews and comments). Every read uses it.
+#   - The App token: minted for the whole installation (owner set, no repositories filter) with
+#     checks: write only. It is used for exactly two calls: GET /installation/repositories (the
+#     App must be installed on this repository alone; checked every run, reported in the summary)
+#     and creating the check run. Minting it scoped to this repo would make that check vacuous.
+#
+# CONCURRENCY: none shared. The group is unique per run (github.run_id), never per PR or SHA.
+# GitHub keeps at most ONE pending run per concurrency group and cancels the older pending run
+# when another queues, whatever cancel-in-progress says (workflow-lint R4, SO e/399#2). Per-PR
+# grouping would let a run that ends in a skip (a chatter comment, a review relay whose head has
+# moved) replace a pending synchronize run, leaving the new head with no check at all. Instead,
+# runs proceed in parallel and the ordering race is closed in merge-approval-run.mjs: after posting
+# on a PR head, a run re-reads every fact and posts again if the verdict changed, so the last
+# check run on a head always reflects facts that were current after it was posted.
+#
+# REVIEW EVENTS go through merge-approval-review-relay.yml (pull_request_review -> workflow_run):
+# only `event == pull_request_review` from this repository is accepted, the PR is found through
+# the API as the open PR into main whose head equals workflow_run.head_sha, and the run skips
+# without posting if there is none or the head has moved (the push starts its own run). LIMIT: a
+# review on a FORK PR comes back with a fork head repository and is skipped; a fork PR is
+# re-evaluated on its next push, body edit, label change or allowlisted comment.
+#
+# COMMENT FILTER: a PR comment runs the job only if its author is the reviewer App (the only
+# account whose comments the verdict reads), or it contains `/recheck-guards`. Every other comment
+# cannot change the verdict.
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+  issue_comment:
+    types: [created, edited, deleted]
+  workflow_run:
+    workflows: [merge-approval-group-relay, merge-approval-review-relay]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  compute:
+    # Not named `merge-approval`: this job's own implicit check run is posted by GitHub Actions,
+    # and must not look like the App's context.
+    name: merge-approval (compute)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: merge-approval
+    permissions:
+      contents: read
+      pull-requests: read
+    concurrency:
+      group: merge-approval-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.head_sha || 'x' }}-${{ github.run_id }}
+      cancel-in-progress: false
+    if: >-
+      ${{
+      (github.event_name == 'pull_request_target')
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request
+          && (github.event.comment.user.login == 'ai-triad-reviewer-jpsnover[bot]'
+              || contains(github.event.comment.body, '/recheck-guards')))
+      || (github.event_name == 'workflow_run'
+          && (github.event.workflow_run.event == 'merge_group' || github.event.workflow_run.event == 'pull_request_review'))
+      }}
+    steps:
+      - name: Check out the default branch only (never PR code)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            operations/devops/merge-approval-run.mjs
+            operations/devops/merge-approval-verdict.mjs
+            operations/devops/gate-file-change.mjs
+            operations/devops/t1-approval-guard-predicate.mjs
+            operations/devops/tier-check-predicate.mjs
+            operations/devops/github-retry.mjs
+            .github/ci/tier-paths.json
+
+      - name: Mint the merge-approval App token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
+        with:
+          client-id: ${{ vars.MERGE_APPROVAL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MERGE_APPROVAL_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-checks: write
+
+      - name: Evaluate and post merge-approval
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const { execFileSync } = require('child_process');
+            const fs = require('fs');
+            const path = require('path');
+            const root = process.env.GITHUB_WORKSPACE;
+            const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+            core.info(`merge-approval: rules and modules from ${process.env.DEFAULT_BRANCH} at ${sha}`);
+            const dir = path.join(root, 'operations', 'devops');
+            const { runMergeApproval } = await import(pathToFileURL(path.join(dir, 'merge-approval-run.mjs')).href);
+            const { withGitHubRetry } = await import(pathToFileURL(path.join(dir, 'github-retry.mjs')).href);
+            const retry = (label, fn) => withGitHubRetry(label, fn, { warn: (m) => core.warning(m), prefix: 'merge-approval' });
+            // An unreadable tier config is not a crash: rule C fails with that reason, on the SHA.
+            let tierConfig = null;
+            try {
+              tierConfig = JSON.parse(fs.readFileSync(path.join(root, '.github', 'ci', 'tier-paths.json'), 'utf8'));
+            } catch (err) {
+              core.warning(`merge-approval: .github/ci/tier-paths.json unreadable on ${process.env.DEFAULT_BRANCH} (${err.message}); rule C will fail`);
+            }
+            try {
+              const appGithub = getOctokit(process.env.APP_TOKEN);
+              const result = await runMergeApproval({ github, appGithub, context, tierConfig, retry, log: (m) => core.info(m) });
+              if (result.skipped) core.notice(`merge-approval: no check posted (${result.skipped})`);
+              for (const p of result.posted) core.info(`merge-approval: ${p.conclusion} on ${p.headSha}`);
+            } catch (err) {
+              core.setFailed(`merge-approval: CANNOT EVALUATE: ${err && err.stack ? err.stack : String(err)}`);
+            }
