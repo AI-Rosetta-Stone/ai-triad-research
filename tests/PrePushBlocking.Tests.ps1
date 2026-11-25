@@ -70,7 +70,8 @@ Describe 'pre-push-checks.sh blocking (t/289)' -Tag 'devops' {
             $script:Repos.Add($r)
             & git -C $r init -q -b main
             & git -C $r config core.autocrlf false
-            foreach ($rel in 'operations/devops/pre-push-checks.sh', 'operations/devops/Test-PowerShellSyntax.ps1', '.githooks/pre-push') {
+            # t/607: the ps-lint runner too. A scratch repo has no ci.yml, so it WARNs 'skipped' (exit 3), never blocks.
+            foreach ($rel in 'operations/devops/pre-push-checks.sh', 'operations/devops/Test-PowerShellSyntax.ps1', 'operations/devops/Invoke-PrePushPsLint.ps1', '.githooks/pre-push') {
                 $dest = Join-Path $r $rel
                 New-Item -ItemType Directory -Path (Split-Path $dest) -Force | Out-Null
                 Copy-Item (Join-Path $script:Src $rel) $dest

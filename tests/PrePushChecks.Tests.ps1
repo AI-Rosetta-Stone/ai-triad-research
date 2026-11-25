@@ -61,9 +61,15 @@ Describe 'pre-push-checks.sh --plan' -Tag 'devops' {
         Get-Plan @('docs/x.md', '.github/workflows/ci.yml') | Should -BeNullOrEmpty
     }
 
-    It 'PowerShell and Python changes plan only their syntax checks, never TypeScript (t/289)' {
+    It 'PowerShell and Python changes plan their syntax checks (and, under scripts/, the repo lints), never TypeScript (t/289, t/607)' {
         $plan = Get-Plan @('scripts/AITriad/Public/Get-Foo.ps1', 'x/M.psm1', 'x/M.psd1', 'scripts/a.py')
-        $plan | Should -Be @("powershell|parse|`tscripts/AITriad/Public/Get-Foo.ps1`tx/M.psm1`tx/M.psd1", "python|py_compile|`tscripts/a.py")
+        $plan | Should -Be @("powershell|parse|`tscripts/AITriad/Public/Get-Foo.ps1`tx/M.psm1`tx/M.psd1",
+            "powershell|ps-lint|`tscripts/AITriad/Public/Get-Foo.ps1`tscripts/a.py",
+            "python|py_compile|`tscripts/a.py")
+    }
+
+    It 'a PowerShell change outside every lint input plans only the parse check (t/607)' {
+        Get-Plan @('x/M.psm1', 'deploy/azure/y.ps1') | Should -Be @("powershell|parse|`tx/M.psm1`tdeploy/azure/y.ps1")
     }
 
     It 'groups several changed files into one invocation per check' {
