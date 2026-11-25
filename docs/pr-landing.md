@@ -10,7 +10,7 @@ The full procedure behind root `AGENTS.md` → "Landing Code". This text moved o
 
 ## PR Budget and Batching: land in a vehicle (t/397; t/567, t/655 and t/657, PI-approved 2026-11-25)
 
-Every change lands in one of three vehicles. The PR count is **monitored, not gated**: the TL watches PRs per day (target **≤20**, 7-day average) and tickets per PR (target **≥3**). The count is not a gate: the change that removes the refusal is t/656, and until it lands the t/564 refusal still applies (see Monitor, not gate). Batching is the point: fewer, bigger PRs.
+Batch your work into a vehicle: every change lands in one of three. We measure tickets per PR (the TL watches it, target **≥3**). Batching is the point: fewer, bigger PRs.
 
 **The vehicles.** Every ticket names its vehicle in a `Lands in:` line when it's created. Use the first that applies:
 
@@ -31,8 +31,8 @@ Every change lands in one of three vehicles. The PR count is **monitored, not ga
 
 **Monitor, not gate (t/655, PI correction 2026-11-25):**
 
-- **The budget report** measures PRs per day and tickets per PR. It alerts the TL when PRs exceed 20 in a UTC day, or tickets per PR fall below 3. The alert is a prompt to look at why, not a refusal.
-- **`enqueue-pr.mjs` no longer refuses on the count once t/656 lands.** Until then the t/564 daily refusal still applies, and this section is the target, not the rule that is enforced. DevOps Lead's metric job posts the day's count at 12:00Z and 18:00Z.
+- **The budget report** measures tickets per PR and alerts the TL when it falls below 3. The alert is a prompt to look at why, not a refusal.
+- **`enqueue-pr.mjs` stops refusing on the count when t/656 lands.** Until then the t/564 daily refusal still applies.
 - **Add to an open PR before opening a new one.** If you already have an open PR in the same area that isn't queued, the change goes there.
 - **Minimum size:** a non-urgent change under ~50 lines waits to be combined with your next change in the same area, or goes into the feature PR or the area train. Exempt as above.
 - **No separate PRs for review nits or small follow-ups.** Fix review findings in the same PR; the reviewer re-stamps the delta only (`docs/review-routing.md` § Delta re-stamp). A follow-up that really needs its own change goes into your next substantive PR or the area train, never a standalone PR.
