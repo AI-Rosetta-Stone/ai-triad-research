@@ -393,6 +393,19 @@ const ANON_SAFE_POST_REGEXES = [
  *  anon-debates flag rather than the blanket GET-allow below. */
 const SYNTHETIC_EMBEDDINGS_PATH = '/api/taxonomy/synthetic-embeddings';
 
+/** t/579 (incident, second containment): GETs that returned personal or cross-user data to anonymous
+ *  callers on prod. admin/health has recent feedback keyed by an email address and recent errors;
+ *  analytics/query lists site-wide user identifiers with activity; analytics/engagement has site-wide
+ *  usage; calibration/log and /history hold cross-user calibration metrics. Compared on the lower-cased
+ *  path without a trailing slash. Root fixes (auth in the handlers) belong to the route owners. */
+const ANON_BLOCKED_DATA_GETS: readonly string[] = [
+  '/api/admin/health',
+  '/api/analytics/query',
+  '/api/analytics/engagement',
+  '/api/calibration/log',
+  '/api/calibration/history',
+];
+
 /**
  * Whether an anonymous (signed-out) user may call `method urlPath` in
  * AUTH_OPTIONAL mode. Anonymous users get read-only, non-AI access plus
@@ -406,6 +419,8 @@ export function isAnonAllowedRoute(method: string, urlPath: string): boolean {
   if (isAnonBlockedRoute(urlPath)) return false;
 
   if (method === 'GET') {
+    // t/579 (incident): no anonymous read of admin health, site-wide analytics or calibration data.
+    if (ANON_BLOCKED_DATA_GETS.includes(urlPath.toLowerCase().replace(/\/+$/, ''))) return false;
     // t/3259 + t/3260 (PM ruling, TL-confirmed p/522#192): the ~400MB synthetic-embeddings corpus export
     // is AUTH-ONLY — never anon-reachable, independent of any flag. This is the SOLE always-on protection:
     // anon debates, when later enabled, MUST route through the tiny /relevant-nodes endpoint (T2/t/3257),
