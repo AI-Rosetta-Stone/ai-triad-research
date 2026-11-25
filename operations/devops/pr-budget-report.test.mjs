@@ -68,6 +68,13 @@ test('alerts: a 7-day median under the floor alerts; at the floor it does not', 
   assert.equal(analyze([past('18', ['t/1'])], NOW).week.prs, 0);
 });
 
+test('TL p/9#638: every feature PR merged today is named with its tickets, so a padded table can be spot-checked', () => {
+  const f = mk({ headRefName: 'feat/t9-x', body: table(['t/1', 't/2', 't/3']) });
+  const r = analyze([f, mk({ headRefName: 'train/devops-20261126', body: table(['t/4', 't/5', 't/6']) })], NOW);
+  assert.deepEqual(r.featureMerges.map((x) => x.pr.number), [f.number]);
+  assert.match(formatText(r), new RegExp(`Feature PRs merged today[^\\n]*\\(1\\):\\n  #${f.number}: 3 ticket\\(s\\) \\(t/1, t/2, t/3\\)`));
+});
+
 test('no PR-count threshold: 60 PRs opened today, all three-ticket trains, raise no alert', () => {
   const prs = Array.from({ length: 60 }, (_, i) => mk({ headRefName: `train/devops-20261126${String.fromCharCode(97 + (i % 26))}`, body: table(['t/1', 't/2', 't/3']) }));
   const r = analyze(prs, NOW);

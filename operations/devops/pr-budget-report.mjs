@@ -85,8 +85,11 @@ export function analyze(prs, nowIso) {
   const week = stats(mergedWeek);
   const singleAlerts = counted(mergedToday).filter((x) => x.tickets.length <= 1 && x.vehicle !== 'incident');
   const medianAlert = week.medianTickets != null && week.medianTickets < MEDIAN_FLOOR;
+  // TL p/9#638: a feature PR's ticket table is author-written and could be padded to reach 3, so every
+  // feature PR merged today is named with its tickets, for the TL to spot-check.
+  const featureMerges = mergedToday.filter((x) => x.vehicle === 'feature');
   return {
-    today, from, day, week, medianFloor: MEDIAN_FLOOR,
+    today, from, day, week, medianFloor: MEDIAN_FLOOR, featureMerges,
     openedToday: prs.filter((p) => utcDay(p.createdAt) === today).length,
     mergedToday: mergedToday.length,
     mergedTodayList: mergedToday,
@@ -108,6 +111,8 @@ export function formatText(r) {
     `Batching ${r.today} (UTC). Today: ${r.day.prs} PR(s) merged (Dependabot and automated excluded), median ${num(r.day.medianTickets)} ticket(s) per PR, ${pct(r.day.singleShare)} single-ticket.`,
     `Last ${WINDOW_DAYS} days (${r.from}..${r.today}): ${r.week.prs} PR(s), median ${num(r.week.medianTickets)} ticket(s) per PR (floor ${r.medianFloor}), ${pct(r.week.singleShare)} single-ticket.`,
     `Context only (no threshold): ${r.openedToday} PR(s) opened today, ${r.mergedToday} merged today.`,
+    `Feature PRs merged today (author-written ticket tables; spot-check for padding) (${r.featureMerges.length}):`,
+    ...(r.featureMerges.length ? r.featureMerges.map((x) => `  #${x.pr.number}: ${x.tickets.length} ticket(s) (${x.tickets.join(', ') || 'none'})`) : ['  none']),
     `Merged today (${r.mergedTodayList.length}):`, ...(r.mergedTodayList.length ? r.mergedTodayList.map(row) : ['  none']),
     'Not measured yet: time from ticket-done to landed.',
   ].join('\n');
