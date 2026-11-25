@@ -678,7 +678,7 @@ resource envStorageStagingState 'Microsoft.App/managedEnvironments/storages@2024
 // (deploy/azure/runbooks/prod-state-share-migration.md).
 resource prodStateShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' = {
   name: '${storageAccount.name}/default/taxonomy-state-prod'
-  properties: { shareQuota: 100 }
+  properties: { shareQuota: 10 } // GiB; matches the Security-passed runbook (b4e98727b)
 }
 
 resource envStorageProdState 'Microsoft.App/managedEnvironments/storages@2024-03-01' = {
