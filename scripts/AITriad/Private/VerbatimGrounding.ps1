@@ -71,6 +71,8 @@ $script:VerbatimQuoteMojibakeMore = @(
     @("`u{00C3}`u{00BB}", '-'), @("`u{00C3}`u{00B9}", '-'),
     @("`u{00EF}`u{00BF}`u{00BD}", ' '), @("`u{FFFD}", ' ')
 )
+$script:VerbatimNbspBetweenLetters = $true  # CL t/389#63 (1): the a-acute that is a no-break space, between two letters, matches as a space
+$script:VerbatimHeadAcrossRef = $true       # the snap reaches back over a reference to the quote's first words ("Causation 344 poses ...")
 $script:VerbatimRejectDamagedWord = $true    # a stored piece with a word that is not the quote's word fails (CL t/389#56 (3))
 $script:VerbatimDiag = [System.Collections.Generic.List[string]]::new()   # why the last quotes were rejected or changed; read and cleared by audit scripts only
 $script:VerbatimRejectPieceDeletion = 'all'   # which stored classes may not hold source words the quote lacks: 'all', 'interleaved', 'none' (CL t/389#52 (4), #54 (2))
@@ -454,6 +456,8 @@ function Find-VerbatimSnap {
     $CarryHyphen = $false
     $FigureLines = [System.Collections.Generic.List[object]]::new()
     $FigureSeen = [System.Collections.Generic.HashSet[int]]::new()
+    $PieceNo = 0
+    $HeadGain = 0   # quote letters found by looking back over a reference; they count as matched
     foreach ($P in $Best.Pieces) {
         # A piece that starts or ends inside a quote word: take the rest of the word when the source has
         # it right there (the neighbouring piece's run had claimed those letters), else give the word up.
@@ -481,7 +485,25 @@ function Find-VerbatimSnap {
         # Where the piece begins and ends in the quote's letters (for the edge rule, t/389#47 (3)).
         $QS = $P.QFirst + $Ds; $QE = $P.QLast + 1 - $De
         if ($Letters -le 0) { continue }
-        $PS = Get-VerbatimTextOffset -Source $Source -Position ($P.First + $Ds)
+        $FirstPos = $P.First + $Ds
+        # The quote's first words can sit just before the piece with only a reference between them
+        # ("Causation 344 poses a significant challenge"): too short to be placed as a piece of their own,
+        # and the walk only goes forward. Look back over one reference of up to three digits; the words
+        # must stand there exactly, starting a source word. The reference itself comes out later.
+        if ($script:VerbatimHeadAcrossRef -and $PieceNo -eq 0 -and $QS -gt 0 -and $QS -le 60) {
+            $HeadLetters = $Q.Substring(0, $QS)
+            for ($Kd = 1; $Kd -le 3; $Kd++) {
+                $RefAt = $FirstPos - $Kd
+                if ($RefAt - $HeadLetters.Length -lt 0 -or -not [char]::IsDigit($Hay[$RefAt])) { break }
+                if ($Hay.Substring($RefAt - $HeadLetters.Length, $HeadLetters.Length) -ceq $HeadLetters -and
+                    [Array]::BinarySearch($Source.WordAt, $RefAt - $HeadLetters.Length) -ge 0) {
+                    $FirstPos = $RefAt - $HeadLetters.Length; $Letters += $QS; $HeadGain = $QS; $QS = 0
+                    break
+                }
+            }
+        }
+        $PieceNo++
+        $PS = Get-VerbatimTextOffset -Source $Source -Position $FirstPos
         $PE = (Get-VerbatimTextOffset -Source $Source -Position ($P.Last - $De)) + 1
         # Finish the source's own word when only a letter or two of it is left.
         $More = 0
@@ -575,7 +597,7 @@ function Find-VerbatimSnap {
     [pscustomobject]@{
         Start        = $Pieces[0].Start
         End          = $Pieces[$Pieces.Count - 1].End
-        Coverage     = $Best.Matched / $N
+        Coverage     = [Math]::Min($N, $Best.Matched + $HeadGain) / $N
         Contiguous   = $Contiguous
         Pieces       = $Pieces.ToArray()
         QuoteLetters = $N
@@ -804,13 +826,24 @@ function Resolve-VerbatimSegment {
                 # Walk the piece: its text between references, and each reference. A reference stays when the
                 # quote has those digits at that place (the model wrote them), and comes out when it does not.
                 $Have = [System.Text.StringBuilder]::new()
-                $Remove = [System.Collections.Generic.List[object]]::new()
+                $Remove = [System.Collections.Generic.List[object]]::new()   # references: out of the stored piece
+                $Ignore = [System.Collections.Generic.List[object]]::new()   # no-break spaces: not compared, but stored
+                # The a-acute that is the converter's no-break space, between two letters (CL t/389#63 (1)):
+                # it matches as a space when the quote has no such letter at that place. A real a-acute the
+                # model wrote is in the quote and stays. The stored text keeps the source's character.
+                $Marks = [System.Collections.Generic.List[object]]::new()
+                foreach ($M in [regex]::Matches($PieceWork, $RefPattern)) { $Marks.Add(@{ M = $M; Ref = $true }) }
+                if ($script:VerbatimNbspBetweenLetters) {
+                    foreach ($M in [regex]::Matches($PieceWork, '(?<=\p{L})á(?=\p{L})')) { $Marks.Add(@{ M = $M; Ref = $false }) }
+                }
                 $At = 0
-                foreach ($M in [regex]::Matches($PieceWork, $RefPattern)) {
+                foreach ($Mark in ($Marks | Sort-Object { $_.M.Index })) {
+                    $M = $Mark.M
+                    if ($M.Index -lt $At) { continue }
                     [void]$Have.Append((& $Letters $PieceWork.Substring($At, $M.Index - $At)))
-                    $Digits = [regex]::Replace($M.Value, '[^\p{Nd}]', '')
-                    $Wrote = $null -ne $Want -and $Have.Length + $Digits.Length -le $Want.Length -and $Want.Substring($Have.Length, $Digits.Length) -ceq $Digits
-                    if ($Wrote -or $null -eq $Want) { [void]$Have.Append($Digits) } else { $Remove.Add($M) }
+                    $Token = if ($Mark.Ref) { [regex]::Replace($M.Value, '[^\p{Nd}]', '') } else { & $Letters $M.Value }
+                    $Wrote = $null -ne $Want -and $Have.Length + $Token.Length -le $Want.Length -and $Want.Substring($Have.Length, $Token.Length) -ceq $Token
+                    if ($Wrote -or $null -eq $Want) { [void]$Have.Append($Token) } elseif ($Mark.Ref) { $Remove.Add($M) } else { $Ignore.Add($M) }
                     $At = $M.Index + $M.Length
                 }
                 [void]$Have.Append((& $Letters $PieceWork.Substring($At)))
@@ -833,7 +866,7 @@ function Resolve-VerbatimSegment {
                     if ($I + $J -eq $Want.Length -and $I -ge $script:VerbatimMinRun -and $J -ge 1) {
                         # Where the extra letters are in the piece's text: count letters, skipping the references taken out.
                         $Skip = [bool[]]::new($PieceWork.Length)
-                        foreach ($M in $Remove) { for ($K = $M.Index; $K -lt $M.Index + $M.Length; $K++) { $Skip[$K] = $true } }
+                        foreach ($M in @($Remove) + @($Ignore)) { for ($K = $M.Index; $K -lt $M.Index + $M.Length; $K++) { $Skip[$K] = $true } }
                         $Seen = 0; $ExtraFrom = -1; $ExtraTo = -1; $Total = 0
                         for ($K = 0; $K -lt $PieceWork.Length; $K++) {
                             if ($Skip[$K] -or -not [char]::IsLetterOrDigit($PieceWork[$K])) { continue }
@@ -861,6 +894,21 @@ function Resolve-VerbatimSegment {
                     }
                 }
                 if ($Why -eq 'word differs' -and -not $script:VerbatimRejectDamagedWord) { $Why = $null; $Remove.Clear() }
+                if ($Why -eq 'word differs') {
+                    # Is every difference a ligature the source lost ("e?ective", "speci c", "sta " for staff)?
+                    # It fails all the same (CL t/389#63 (2): no folding), and is named apart: these are the
+                    # drops a repair of the converter would recover.
+                    $WI = 0; $GI = 0; $Lost = 0; $OnlyLigatures = $true
+                    while ($WI -lt $Want.Length) {
+                        if ($GI -lt $Got.Length -and $Want[$WI] -ceq $Got[$GI]) { $WI++; $GI++; continue }
+                        $Lig = $null
+                        foreach ($Cand in 'ffi', 'ffl', 'ff', 'fi', 'fl') { if ($WI + $Cand.Length -le $Want.Length -and $Want.Substring($WI, $Cand.Length) -ceq $Cand) { $Lig = $Cand; break } }
+                        if ($null -eq $Lig) { $OnlyLigatures = $false; break }
+                        $WI += $Lig.Length; $Lost++
+                    }
+                    if ($OnlyLigatures -and $GI -eq $Got.Length -and $Lost -gt 0) { $Why = 'word differs: lost ligature' }
+                }
+                if ($Ignore.Count -gt 0 -and -not $Why) { $script:VerbatimDiag.Add('no-break space matched as a space') }
                 if ($Why) {
                     $script:VerbatimDiag.Add("$Why ($(if ($Snap.Contiguous) { 'one piece' } else { 'interleaved' }))")
                     $Rejection = & $Result 'dropped' @() $Coverage $null

@@ -610,6 +610,37 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.R.Dropped | Should -Be 0
     }
 
+    It 'the a-acute that is a no-break space, between two letters, matches as a space; the stored text keeps it (t/389#63 (1))' {
+        $Nb = [string][char]0x00E1
+        $Src = "Evaluators describe a${Nb}pattern termed sandbagging that has been observed in several of the recent model evaluations.`r`n"
+        $Out = & $script:Run $Src 'Evaluators describe a pattern termed sandbagging that has been observed in several of the recent model evaluations.' 'doc-nbsp-between'
+        $Out.R.Dropped | Should -Be 0
+        "$($Out.Stored)" | Should -Match "a${Nb}pattern" -Because 'the stored text is the source''s own text'
+        # A real a-acute that the model also wrote is a letter of the word and must match as one.
+        $Src2 = "The report from Panam${Nb}city describes how regulators have begun to ask for the evaluation results of each lab.`r`n"
+        (& $script:Run $Src2 "The report from Panam${Nb}city describes how regulators have begun to ask for the evaluation results of each lab." 'doc-real-a-acute').R.Dropped | Should -Be 0
+    }
+
+    It 'a source word that lost a ligature fails, and is named as its own class (t/389#63 (2))' {
+        $Src = "A central barrier to e?ective AI agent security monitoring is doctrinal, and the reporting ?elds are not standardized across regimes.`r`n"
+        $Quote = 'A central barrier to effective AI agent security monitoring is doctrinal, and the reporting fields are not standardized across regimes.'
+        $Diag = InModuleScope AITriad -Parameters @{ S = $Src; Q = $Quote } {
+            param($S, $Q)
+            $script:VerbatimDiag.Clear()
+            $R = Resolve-VerbatimQuote -Source (Get-VerbatimSource -Text $S) -Quote $Q
+            [pscustomobject]@{ Decision = $R.Decision; Diag = @($script:VerbatimDiag.ToArray()) }
+        }
+        $Diag.Decision | Should -Be 'dropped'
+        $Diag.Diag | Should -Contain 'word differs: lost ligature (one piece)'
+    }
+
+    It 'the quote''s first word before a reference is part of the passage (t/389#63, edge-word check)' {
+        $Src = "D. Causation`r`n`r`nCausation 344 poses a significant challenge in applying tort law to harm caused by AI agents. 345 This difficulty is pronounced.`r`n"
+        $Out = & $script:Run $Src 'Causation poses a significant challenge in applying tort law to harm caused by AI agents.' 'doc-head-across-ref'
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be 'Causation  poses a significant challenge in applying tort law to harm caused by AI agents'
+    }
+
     It 'an interleaved piece with a word the model left out, with no elision mark, fails the quote (t/389#52 (4), i37)' {
         # Two-column layout: a line of the other column sits between the quote's two halves, and the source
         # has "Meta CEO" where the model wrote only the name.
