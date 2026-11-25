@@ -109,6 +109,27 @@ jobs:
       }}
     # END comment-filter
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
           persist-credentials: false  # never leave a git credential lying around for anything run later in this job

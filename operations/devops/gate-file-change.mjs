@@ -83,6 +83,7 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/merge-approval-run.mjs',
   'operations/devops/merge-approval-verdict.mjs',
   'operations/devops/rate-limit-snapshot-step.yml',
+  'operations/devops/rate-limit-snapshot-start-step.yml', // t/563
   'operations/devops/run-merge-guard-tests.sh',
   'operations/devops/scheduled-workflows.json',
   'operations/devops/test-check-merge-queue-liveness-headgreen.sh',
