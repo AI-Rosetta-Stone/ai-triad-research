@@ -85,7 +85,9 @@ export function deriveTerminationReason(session: DebateSession): TerminationReas
       : 'natural_conclusion';
   }
   if (rounds <= 1) return 'first_round_exit';
-  if (fixedRoundsCompleted(session)) return 'fixed_rounds_completed';
+  // Only a run with no adaptive diagnostics at all was a fixed-rounds run. Legacy adaptive records
+  // (phases without force_active) stay 'unknown' even when they reached synthesis (t/580 review).
+  if (asd === undefined && fixedRoundsCompleted(session)) return 'fixed_rounds_completed';
   return 'unknown';
 }
 

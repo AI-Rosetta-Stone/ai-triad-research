@@ -470,6 +470,22 @@ describe('deriveTerminationReason without adaptive staging (t/580)', () => {
     expect(deriveTerminationReason(s)).toBe('natural_conclusion');
   });
 
+  it('a legacy adaptive record (phases without force_active) that reached synthesis stays unknown', () => {
+    const s = makeSession({
+      transcript: [...quickTranscript, { type: 'concluding', content: 'Synthesis', speaker: 'system', taxonomy_refs: [] }],
+      adaptive_staging_diagnostics: { phases: [{ phase: 'argumentation', rounds: [1, 2], exit_reason: 'legacy' }] },
+    });
+    expect(deriveTerminationReason(s)).toBe('unknown');
+  });
+
+  it('an adaptive record with an empty phase list is not treated as fixed-rounds', () => {
+    const s = makeSession({
+      transcript: [...quickTranscript, { type: 'concluding', content: 'Synthesis', speaker: 'system', taxonomy_refs: [] }],
+      adaptive_staging_diagnostics: { phases: [] },
+    });
+    expect(deriveTerminationReason(s)).toBe('unknown');
+  });
+
   it('fixed_rounds_completed is excluded from both convergence pools', () => {
     const r = computeConvergenceWithCensoring([{ termination_reason: 'fixed_rounds_completed' } as CalibrationDataPoint], () => 1);
     expect(r).toMatchObject({ n_completed: 0, n_censored: 0, n_unknown: 1 });
