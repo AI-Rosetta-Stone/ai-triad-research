@@ -42,7 +42,25 @@ async function isOnline(): Promise<boolean> {
   }
 }
 
-export async function checkForDataUpdates(): Promise<DataUpdateStatus> {
+/**
+ * In-flight check, shared by concurrent callers (t/576). Two overlapping
+ * `git fetch origin` runs in the same repo race for the same ref lock
+ * ("cannot lock ref 'refs/remotes/origin/...'"), so a call that arrives
+ * while a check is running joins it instead of starting a second fetch.
+ * Cleared once it settles, so the next call checks afresh.
+ */
+let inFlight: Promise<DataUpdateStatus> | null = null;
+
+export function checkForDataUpdates(): Promise<DataUpdateStatus> {
+  if (inFlight) return inFlight;
+  const run = runDataUpdateCheck().finally(() => {
+    if (inFlight === run) inFlight = null;
+  });
+  inFlight = run;
+  return run;
+}
+
+async function runDataUpdateCheck(): Promise<DataUpdateStatus> {
   const dataRoot = resolveDataPath('.');
   const gitDir = path.join(dataRoot, '.git');
 
