@@ -29,6 +29,7 @@ export const GATE_SCRIPTS = [
   // enqueue-pr.mjs's import closure, so they run inside the wrapper).
   'operations/devops/pr-budget.mjs',
   'operations/devops/pr-budget-notify.mjs',
+  'operations/devops/landing-vehicle.mjs', // t/656: the vehicle check enqueue-pr runs
   'operations/devops/my-prs.mjs',
   'operations/devops/t1-approval-at-head.mjs',
   'operations/devops/t1-approval-guard-predicate.mjs',
@@ -107,6 +108,8 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/test-get-merge-group-prs-ejected.sh',
   'operations/devops/test-get-merge-group-prs-f4.sh',
   'operations/devops/test-get-merge-group-prs-ratelimit.sh',
+  'operations/devops/test-verify-deploy-ci.sh', // t/591
+  'operations/devops/verify-deploy-ci.sh', // t/591: the prod deploy preflight's CI check (deploy-azure.yml runs it)
   'operations/devops/test-powershell-shard-durations.json',
 ];
 

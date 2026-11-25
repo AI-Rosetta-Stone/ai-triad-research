@@ -24,7 +24,7 @@
     "dev:server": "npm run build:server && node dist/server/taxonomy-editor/src/server/server.js",
     "dev:container": "concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
     "dev:electron": "wait-on http://localhost:5173 && electron .",
-    "build:main": "node -e \"const fs=require('fs');fs.rmSync('dist/main',{recursive:true,force:true});fs.rmSync('.tsbuildinfo/main.tsbuildinfo',{force:true})\" && tsc -p tsconfig.main.json",
+    "build:main": "node -e \"const fs=require('fs');fs.rmSync('dist/main',{recursive:true,force:true});fs.rmSync('.tsbuildinfo/main.tsbuildinfo',{force:true})\" && tsc -p tsconfig.main.json && node scripts/copy-main-lib-assets.mjs",
     "licenses": "node scripts/generate-notices.cjs --output THIRD-PARTY-NOTICES.txt && node scripts/parse-licenses.cjs",
     "build": "npm run build:main && vite build && npm run licenses",
     "pack": "npm run build && electron-builder --dir",

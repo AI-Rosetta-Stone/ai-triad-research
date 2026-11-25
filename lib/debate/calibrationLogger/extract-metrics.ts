@@ -738,9 +738,9 @@ const CENSORED_REASONS: ReadonlySet<string> = new Set([
   'max_iterations', 'situation_cap', 'api_ceiling',
 ]);
 
-/** Reasons excluded from both convergence pools alongside 'unknown' (t/3502). */
+/** Reasons excluded from both convergence pools alongside 'unknown' (t/3502). 'fixed_rounds_completed' (t/580): no convergence logic ran. */
 const EXCLUDED_REASONS: ReadonlySet<string> = new Set([
-  'unknown', 'first_round_exit',
+  'unknown', 'first_round_exit', 'fixed_rounds_completed',
 ]);
 
 /** Result of computing a convergence metric conditioned on termination status (t/1671). */
@@ -762,7 +762,7 @@ export interface CensoredConvergenceResult {
  *
  * Censored  = termination_reason ∈ {max_iterations, situation_cap, api_ceiling}.
  * Completed = termination_reason === 'natural_conclusion'.
- * Excluded  = absent, 'unknown', or 'first_round_exit' — excluded from both pools; counted in n_unknown.
+ * Excluded  = absent, 'unknown', 'first_round_exit' or 'fixed_rounds_completed' — excluded from both pools; counted in n_unknown.
  *
  * selector may return number | null | boolean. Boolean is coerced (true→1, false→0).
  */

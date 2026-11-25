@@ -3970,6 +3970,7 @@ jobs:
           operations/devops/test-get-merge-group-prs-f4.sh
           operations/devops/test-get-merge-group-prs-ejected.sh
           operations/devops/test-get-merge-group-prs-ratelimit.sh
+          bash operations/devops/test-verify-deploy-ci.sh  # t/591: the deploy preflight's CI check
       - name: Run C5 liveness lookup-failure shim test (SO P2)
         run: |
           chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-lookup-failure.sh

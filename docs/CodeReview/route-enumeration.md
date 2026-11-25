@@ -12,6 +12,10 @@ Then, for any check with a health check or a probe: **name what its health check
 
 The output is a table, produced once at Gate Verification. It is cheap, falsifiable by someone without domain priors, and a blank cell is an admission rather than an omission.
 
+## Restricting a route lists and fixes every caller (t/610, t/609)
+
+A change that restricts who may call a route (auth, admin-only, refusing anonymous callers) lists every caller in the PR body, found by searching for the path: deploy smoke phases, PowerShell cmdlets, tests, scheduled jobs and workflows. It fixes them in the same change, or names the follow-up ticket that does. Why: #5500 locked `/api/analytics/query`, which the deploy smoke and three cmdlets read anonymously (t/579, t/603).
+
 ## Why a rule and not more care
 
 Three enforcement mechanisms failed in one week, and all three were **day-one** scope gaps rather than decay:

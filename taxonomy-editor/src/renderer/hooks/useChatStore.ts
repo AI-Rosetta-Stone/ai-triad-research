@@ -236,7 +236,7 @@ const TAXONOMY_START_GOAL = 'Chat: start a conversation';
  *  its copy is complete. Any other failure keeps the prefix. */
 export function chatErrorText(err: unknown, prefix: string): string {
   if (err instanceof ActionableError && err.goal === TAXONOMY_START_GOAL) return err.problem;
-  return `${prefix}: ${mapErrorToUserMessage(err)}`;
+  return `${prefix}: ${mapErrorToUserMessage(err, { kind: 'ai' })}`;
 }
 
 /** Plain copy for the two ways a send can wait on the taxonomy and not start (t/490, Design p/25#115). */

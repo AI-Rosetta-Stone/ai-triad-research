@@ -16,6 +16,7 @@ import path from 'path';
 import { resolveDataPath } from '../config.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getBackend, assertSafeId, isSafeId } from './fileIO.js';
+import { BASE_BRANCH_REF } from './baseBranchRef.js';
 import { log } from '../logger.js';
 
 /** A calibration log entry. Only `debate_id` is required for curation; the rest is opaque. */
@@ -90,7 +91,7 @@ export async function readCalibrationIntegrationLog(): Promise<CalibrationIntegr
   // t/4510: consultOverlayOnPin — this log can be appended to earlier in the
   // same request (appendIntegrationRecord), and the append lands in the
   // session overlay even though the write has no ref override.
-  return parseJsonlEntries<CalibrationIntegrationRecord>(await getBackend().readFile(calibrationIntegrationLogPath(), { ref: 'main', optional: true, consultOverlayOnPin: true }));
+  return parseJsonlEntries<CalibrationIntegrationRecord>(await getBackend().readFile(calibrationIntegrationLogPath(), { ref: BASE_BRANCH_REF, optional: true, consultOverlayOnPin: true }));
 }
 
 /** Resolution is per-kind: a debate can have both a calibration-log and an
@@ -111,7 +112,7 @@ async function readUserCalibrationLog(origin: string, kind: CalibrationKind = 'c
   // t/4510: consultOverlayOnPin — the promote/reject flow rewrites this same
   // user log (removing promoted/rejected entries) and may re-read it within
   // one request; the rewrite lands in the session overlay.
-  return parseJsonlEntries(await getBackend().readFile(calibrationUserLogPath(origin, kind), { ref: 'main', optional: true, consultOverlayOnPin: true }));
+  return parseJsonlEntries(await getBackend().readFile(calibrationUserLogPath(origin, kind), { ref: BASE_BRANCH_REF, optional: true, consultOverlayOnPin: true }));
 }
 
 /**
@@ -182,7 +183,7 @@ async function appendIntegrationRecord(record: CalibrationIntegrationRecord): Pr
   const logPath = calibrationIntegrationLogPath();
   // t/4510: consultOverlayOnPin — a second append in the same request must
   // see the first append's write, which lands in the session overlay.
-  const existing = (await getBackend().readFile(logPath, { ref: 'main', optional: true, consultOverlayOnPin: true })) ?? '';
+  const existing = (await getBackend().readFile(logPath, { ref: BASE_BRANCH_REF, optional: true, consultOverlayOnPin: true })) ?? '';
   const prefix = existing.length > 0 && !existing.endsWith('\n') ? existing + '\n' : existing;
   await getBackend().writeFile(logPath, prefix + JSON.stringify(record) + '\n');
 }
@@ -224,7 +225,7 @@ export async function promoteCalibrationEntries(
     const corePath = calibrationCoreLogPath(kind);
     // t/4510: consultOverlayOnPin — a prior promote in the same request
     // already appended here; the append lands in the session overlay.
-    const existing = (await getBackend().readFile(corePath, { ref: 'main', optional: true, consultOverlayOnPin: true })) ?? '';
+    const existing = (await getBackend().readFile(corePath, { ref: BASE_BRANCH_REF, optional: true, consultOverlayOnPin: true })) ?? '';
     const prefix = existing.length > 0 && !existing.endsWith('\n') ? existing + '\n' : existing;
     const appended = toPromote.map(e => JSON.stringify(stripIdentityFields(e))).join('\n') + '\n'; // t/638
     await getBackend().writeFile(corePath, prefix + appended);
@@ -278,7 +279,7 @@ export async function rejectCalibrationEntries(
 export async function readCoreCalibrationEntries(kind: CalibrationKind = 'calibration-log'): Promise<CalibrationLogEntry[]> {
   // t/4510: consultOverlayOnPin — a promote in the same request may have just
   // appended here; the append lands in the session overlay.
-  return parseJsonlEntries(await getBackend().readFile(calibrationCoreLogPath(kind), { ref: 'main', optional: true, consultOverlayOnPin: true }));
+  return parseJsonlEntries(await getBackend().readFile(calibrationCoreLogPath(kind), { ref: BASE_BRANCH_REF, optional: true, consultOverlayOnPin: true }));
 }
 
 // ── Lineage enrichments curation (keyed-map variant, t/621#2 / t/647) ──
@@ -307,7 +308,7 @@ async function readLineageMap(filePath: string): Promise<Record<string, unknown>
   // t/4510: consultOverlayOnPin — promoteLineageEnrichments reads the core map
   // here, then writes it later in the same request; the write lands in the
   // session overlay.
-  const raw = await getBackend().readFile(filePath, { ref: 'main', optional: true, consultOverlayOnPin: true });
+  const raw = await getBackend().readFile(filePath, { ref: BASE_BRANCH_REF, optional: true, consultOverlayOnPin: true });
   if (!raw) return {};
   try {
     const data = JSON.parse(raw.replace(/^﻿/, ''));

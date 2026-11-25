@@ -31,6 +31,7 @@ import { scheduleOverlayCommit } from './overlayCommitScheduler.js';
 import type { NodeSourceIndex } from '../../../../lib/sourceIndex/types.js';
 import { buildNodeSourceIndex } from './nodeSourceIndex.js';
 import { repairSnapshotMojibake } from '../../../../lib/sanitize/repairSnapshotMojibake.js';
+import { BASE_BRANCH_REF, baseBranchForLogs } from './baseBranchRef.js';
 import { FailClosedUserContentBackend, isPositivelyLocalBackend, isHostedProfile } from './failClosedUserContentBackend.js';
 
 // ── Extracted sub-modules (ADR-007, t/1688) — cohesion splits behind a stable
@@ -121,7 +122,7 @@ export function setBriefExportBackend(b: StorageBackend): void { briefExportBack
  *  unambiguous (FilesystemBackend, AzureBlobBackend already throw on
  *  anything but a real absence). */
 function readFileMainStrict(filePath: string): Promise<string | null> {
-  return backend.readFileStrict ? backend.readFileStrict(filePath) : backend.readFile(filePath, { ref: 'main' });
+  return backend.readFileStrict ? backend.readFileStrict(filePath) : backend.readFile(filePath, { ref: BASE_BRANCH_REF });
 }
 /** Brief-export backend; falls back to user-content backend when unset. */
 export function getBriefExportBackend(): StorageBackend { return briefExportBackend ?? getUserContentBackend(); }
@@ -342,7 +343,7 @@ const SYNTHETIC_POV_KEYS = new Set(['acc', 'saf', 'skp']);
 export async function loadSyntheticCorpus(pov: string): Promise<unknown | null> {
   if (!SYNTHETIC_POV_KEYS.has(pov)) return null;
   const filePath = path.join(getTaxonomyDir(), 'synthetic', `corpus_${pov}.json`);
-  const raw = await backend.readFile(filePath, { ref: 'main' });
+  const raw = await backend.readFile(filePath, { ref: BASE_BRANCH_REF });
   if (raw === null) return null;
   const parsed = JSON.parse(raw.replace(/^﻿/, ''));
   validateGraphAttributes(parsed, pov); // t/768: warn (don't reject) on type drift
@@ -429,7 +430,7 @@ export async function loadSyntheticEmbeddings(): Promise<Record<string, { pov: s
     const t0 = performance.now();
     const [npyBuf, idxRaw] = await Promise.all([
       backend.readBinaryFile(npyPath),
-      backend.readFile(idxPath, { ref: 'main' }),
+      backend.readFile(idxPath, { ref: BASE_BRANCH_REF }),
     ]);
     if (!npyBuf || !idxRaw) continue;
     const t1 = performance.now();
@@ -504,7 +505,7 @@ export async function readAggregatedCruxesWithVersion(): Promise<{ data: unknown
 // not read via the caller's session branch.
 export async function readConflictClusters(): Promise<unknown | null> {
   const filePath = path.join(getConflictsDir(), '_conflict-clusters.json');
-  const raw = await backend.readFile(filePath, { ref: 'main' });
+  const raw = await backend.readFile(filePath, { ref: BASE_BRANCH_REF });
   if (raw === null) return null;
   try { return JSON.parse(raw); } catch { /* telemetry — silent by design */ return null; }
 }
@@ -512,7 +513,7 @@ export async function readConflictClusters(): Promise<unknown | null> {
 /** t/4190: like readConflictClusters, also returns the version (ETag). */
 export async function readConflictClustersWithVersion(): Promise<{ data: unknown; version: string } | null> {
   try {
-    const result = await readFileWithVersionOrFallback(path.join(getConflictsDir(), '_conflict-clusters.json'), { ref: 'main' });
+    const result = await readFileWithVersionOrFallback(path.join(getConflictsDir(), '_conflict-clusters.json'), { ref: BASE_BRANCH_REF });
     if (result === null) return null;
     return { data: JSON.parse(result.content), version: result.version };
   } catch (err: unknown) { getGlobalRecorder()?.record({ type: 'system.error', component: 'file-io', level: 'warn', message: 'readConflictClustersWithVersion: read/parse failed, returning null', data: { error: String(err) } }); return null; }
@@ -524,7 +525,7 @@ export async function readConflictClustersWithVersion(): Promise<{ data: unknown
 // taxonomy), never user-written — pinned to main, not the session branch.
 export async function readLineageCategories(): Promise<unknown | null> {
   const filePath = path.join(getTaxonomyDir(), 'lineage_categories.json');
-  const raw = await backend.readFile(filePath, { ref: 'main' });
+  const raw = await backend.readFile(filePath, { ref: BASE_BRANCH_REF });
   if (raw === null) return null;
   try { return JSON.parse(raw); } catch { /* telemetry — silent by design */ return null; }
 }
@@ -580,7 +581,7 @@ export async function readOrganizations(): Promise<unknown | null> {
     const raw = await readFileMainStrict(p);
     organizationsReadDegradedReason = null;
     if (raw === null) {
-      log.server.warn({ path: p, ref: 'main' }, 'readOrganizations: file absent');
+      log.server.warn({ path: p, ref: baseBranchForLogs() }, 'readOrganizations: file absent');
       return null;
     }
     return JSON.parse(raw);
@@ -605,7 +606,7 @@ export async function readOrganizationEdges(): Promise<OrganizationEdge[] | null
     const raw = await readFileMainStrict(p);
     organizationsReadDegradedReason = null;
     if (raw === null) {
-      log.server.warn({ path: p, ref: 'main' }, 'readOrganizationEdges: file absent');
+      log.server.warn({ path: p, ref: baseBranchForLogs() }, 'readOrganizationEdges: file absent');
       return null;
     }
     const data = JSON.parse(raw);
@@ -688,8 +689,7 @@ export async function readEntities(): Promise<Entity[] | null> {
     if (raw === null) {
       // t/478: log the ref the read used. On github-api that is the base branch (GITHUB_BRANCH), not
       // always 'main'; the literal cost time in a staging diagnosis.
-      const ref = STORAGE_MODE === 'github-api' ? (process.env.GITHUB_BRANCH ?? 'main') : 'main';
-      log.server.warn({ path: p, ref }, 'readEntities: file absent');
+      log.server.warn({ path: p, ref: baseBranchForLogs() }, 'readEntities: file absent');
       return null;
     }
     const data = JSON.parse(raw) as { entities?: Entity[] };
@@ -725,7 +725,7 @@ export async function readEntities(): Promise<Entity[] | null> {
 export async function readEntityRegistry(): Promise<Map<string, Entity> | null> {
   const entities = await readEntities();
   if (entities === null) {
-    log.server.warn({ ref: 'main' }, 'readEntityRegistry: entity store absent');
+    log.server.warn({ ref: baseBranchForLogs() }, 'readEntityRegistry: entity store absent');
     return null;
   }
   return new Map(entities.map(e => [e.id, e]));
@@ -933,11 +933,11 @@ async function buildNodeToPoliciesMap(): Promise<Map<string, string[]>> {
 // user-written — pinned to main like nodeSourceIndex.ts's own copy of this read.
 async function loadPolicyMetaCache(sourcesDir: string | null): Promise<Record<string, { dateIngested: string; sourceTime: string }>> {
   const metaCache: Record<string, { dateIngested: string; sourceTime: string }> = {};
-  const sourceEntries = sourcesDir ? await backend.listDirectory(sourcesDir, { ref: 'main' }) : [];
+  const sourceEntries = sourcesDir ? await backend.listDirectory(sourcesDir, { ref: BASE_BRANCH_REF }) : [];
   for (const name of sourceEntries) {
     const metaPath = path.join(sourcesDir!, name, 'metadata.json');
     try {
-      const metaRaw = await backend.readFile(metaPath, { ref: 'main' });
+      const metaRaw = await backend.readFile(metaPath, { ref: BASE_BRANCH_REF });
       if (metaRaw !== null) {
         const meta = JSON.parse(metaRaw);
         metaCache[name] = {
@@ -1192,14 +1192,14 @@ export async function discoverSources(): Promise<DiscoveredSource[]> {
   const summariesDir = getSummariesDir();
 
   // t/4391: source metadata/summaries are pipeline-generated, not user-written.
-  const sourceEntries = await backend.listDirectory(sourcesDir, { ref: 'main' });
+  const sourceEntries = await backend.listDirectory(sourcesDir, { ref: BASE_BRANCH_REF });
   if (sourceEntries.length === 0) return [];
 
   const sources: DiscoveredSource[] = [];
   for (const name of sourceEntries) {
     const metaPath = path.join(sourcesDir, name, 'metadata.json');
     try {
-      const metaRaw = await backend.readFile(metaPath, { ref: 'main' });
+      const metaRaw = await backend.readFile(metaPath, { ref: BASE_BRANCH_REF });
       if (metaRaw === null) continue; // not a source directory (no metadata)
       const meta = JSON.parse(metaRaw);
       const summaryPath = path.join(summariesDir, `${name}.json`);
@@ -1215,7 +1215,7 @@ export async function discoverSources(): Promise<DiscoveredSource[]> {
         // also keeps the check off the session-branch Contents-API path for
         // every source in this loop (the hot-path concern from t/4428#2
         // condition 2) rather than needing a per-request memo.
-        hasSummary: await backend.fileExists(summaryPath, { ref: 'main' }),
+        hasSummary: await backend.fileExists(summaryPath, { ref: BASE_BRANCH_REF }),
         tags: meta.pov_tags || [],
         authors: meta.authors || [],
       });
@@ -1228,7 +1228,7 @@ export async function discoverSources(): Promise<DiscoveredSource[]> {
 export async function loadSummary(docId: string): Promise<unknown | null> {
   assertSafeId(docId, 'document id');
   const filePath = path.join(getSummariesDir(), `${docId}.json`);
-  const raw = await backend.readFile(filePath, { ref: 'main' });
+  const raw = await backend.readFile(filePath, { ref: BASE_BRANCH_REF });
   if (raw === null) return null;
   try { return JSON.parse(raw); } catch { /* telemetry — silent by design */ return null; }
 }
@@ -1253,7 +1253,7 @@ export async function loadSnapshot(sourceId: string): Promise<string | null> {
   assertSafeId(sourceId, 'source id');
   const sourcesDir = getSourcesDir();
   if (!sourcesDir) return null; // sources unavailable
-  const raw = await backend.readFile(path.join(sourcesDir, sourceId, 'snapshot.md'), { ref: 'main' });
+  const raw = await backend.readFile(path.join(sourcesDir, sourceId, 'snapshot.md'), { ref: BASE_BRANCH_REF });
   return raw === null ? null : repairSnapshotForModel(raw, sourceId);
 }
 
@@ -1276,7 +1276,7 @@ async function findRawPdfPath(docId: string): Promise<string | null> {
   const sourcesDir = getSourcesDir();
   if (!sourcesDir) return null;
   const rawDir = path.join(sourcesDir, docId, 'raw');
-  const entries = await backend.listDirectory(rawDir, { ref: 'main' });
+  const entries = await backend.listDirectory(rawDir, { ref: BASE_BRANCH_REF });
   const pdf = entries.find(e => e.toLowerCase().endsWith('.pdf'));
   return pdf ? path.join(rawDir, pdf) : null;
 }
@@ -1302,7 +1302,7 @@ export async function resolveSourceDocument(docId: string): Promise<SourceDocume
   let sourceType = '';
   try {
     // t/4391: ingested source metadata/snapshot are pipeline-generated.
-    const metaRaw = await backend.readFile(path.join(docDir, 'metadata.json'), { ref: 'main' });
+    const metaRaw = await backend.readFile(path.join(docDir, 'metadata.json'), { ref: BASE_BRANCH_REF });
     if (metaRaw) sourceType = String(JSON.parse(metaRaw).source_type ?? '').toLowerCase();
   } catch (err) {
     // Malformed/missing metadata — fall back to content detection below.
@@ -1316,7 +1316,7 @@ export async function resolveSourceDocument(docId: string): Promise<SourceDocume
   }
 
   const pdfPath = await findRawPdfPath(docId);
-  const snapshot = await backend.readFile(path.join(docDir, 'snapshot.md'), { ref: 'main' });
+  const snapshot = await backend.readFile(path.join(docDir, 'snapshot.md'), { ref: BASE_BRANCH_REF });
   const fileUrl = `/api/source-documents/${encodeURIComponent(docId)}/file`;
 
   // Prefer markdown snapshot — renders inline with claim highlighting and

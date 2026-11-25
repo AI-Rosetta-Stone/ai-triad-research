@@ -48,6 +48,15 @@ cd "$ROOT" || exit 0
 # containing * or ?). The runner below splits on TAB only, with globbing off.
 TAB=$(printf '\t')
 
+# t/607: the repo-wide PowerShell lint suites (operations/devops/Invoke-PrePushPsLint.ps1) run when a push
+# changes any path one of them reads. This is the UNION of that script's SUITES Paths; a pin test
+# (tests/PrePushPsLint.Tests.ps1) keeps the two equal. Prefix match, space-separated.
+PSLINT_TRIGGERS='tests/ scripts/ ai-models.json lib/ai-config/ .trivyignore'
+is_pslint_input() {
+  for p in $PSLINT_TRIGGERS; do case "$1" in "$p"*) return 0 ;; esac; done
+  return 1
+}
+
 is_ts() { case "$1" in *.ts|*.tsx|*.mts|*.cts) return 0 ;; esac; return 1; }
 is_lintable() { case "$1" in *.ts|*.tsx|*.mts|*.cts|*.js|*.jsx|*.mjs|*.cjs) return 0 ;; esac; return 1; }
 
@@ -78,13 +87,14 @@ check_node_modules_link() {
 
 # plan_for <file list on stdin> -> prints one check per line: "<pkg>|<kind>|<arg>"
 plan_for() {
-  te_lint=""; te_ts=0; lib_lint=""; lib_ts=0; related=""; ps=""; py=""
+  te_lint=""; te_ts=0; lib_lint=""; lib_ts=0; related=""; ps=""; py=""; pslint=""
   while IFS= read -r f; do
     [ -z "$f" ] && continue
     case "$f" in
       *.ps1|*.psm1|*.psd1) ps="$ps$TAB$f" ;;
       *.py) py="$py$TAB$f" ;;
     esac
+    is_pslint_input "$f" && pslint="$pslint$TAB$f"
     case "$f" in
       taxonomy-editor/src/*)
         is_lintable "$f" && te_lint="$te_lint$TAB${f#taxonomy-editor/}"
@@ -102,6 +112,7 @@ plan_for() {
   [ "$lib_ts" = 1 ] && { echo "lib|tsc|debate/tsconfig.json"; echo "lib|script|typecheck:brief-nodenext"; }
   [ -n "$related" ] && echo "taxonomy-editor|vitest-related|$related"
   [ -n "$ps" ] && echo "powershell|parse|$ps"
+  [ -n "$pslint" ] && echo "powershell|ps-lint|$pslint"
   [ -n "$py" ] && echo "python|py_compile|$py"
   return 0
 }
@@ -333,6 +344,53 @@ for step in $PLAN; do
       fi
       tmp=$(mktemp -d) && extract_pushed "$tmp" "$@" &&
         ( cd "$tmp" && pwsh -NoProfile -NonInteractive -File "$ROOT/operations/devops/Test-PowerShellSyntax.ps1" "$@" ) >&2 ;;
+    ps-lint)
+      # t/607: CI's repo-wide PowerShell lint suites, under CI's pinned Pester, for the suites whose
+      # inputs changed. They scan the WORKING TREE, so they can only judge this push when the pushed sha
+      # is the checked-out HEAD; with uncommitted lint inputs a failure warns (LINT_DIRTY), not blocks.
+      label="PowerShell repo lints (Pester, CI's pin)"
+      if ! command -v "$PWSH" >/dev/null 2>&1; then
+        echo "pre-push: WARN pwsh not found; skipping the PowerShell repo lints (CI's test-powershell still runs them)." >&2
+        IFS='
+'
+        continue
+      fi
+      if [ ! -f "$ROOT/operations/devops/Invoke-PrePushPsLint.ps1" ]; then
+        echo "pre-push: WARN operations/devops/Invoke-PrePushPsLint.ps1 is missing; skipping the PowerShell repo lints (CI still runs them)." >&2
+        IFS='
+'
+        continue
+      fi
+      if [ "$(git rev-parse HEAD 2>/dev/null)" != "$(git rev-parse "$HEAD" 2>/dev/null)" ]; then
+        echo "pre-push: WARN skipping the PowerShell repo lints: the pushed commit ${HEAD} is not the checked-out HEAD, and these lints read the working tree. CI still runs them." >&2
+        IFS='
+'
+        continue
+      fi
+      LINT_DIRTY=$(git status --porcelain --untracked-files=all -- $PSLINT_TRIGGERS 2>/dev/null | head -5)
+      [ -n "$LINT_DIRTY" ] && echo "pre-push: WARN uncommitted changes to lint inputs, so a lint failure below will warn, not block:
+$LINT_DIRTY" >&2
+      # The changed paths go through a temp file, never the command line (Lead t/607#6): a train push
+      # after a main merge can list thousands of paths and pass Windows' ~32 K command-line limit, which
+      # would block the push with an unrelated error. printf is a shell builtin, so it has no such limit.
+      lintlist=$(mktemp) && printf '%s\n' "$@" > "$lintlist"
+      "$PWSH" -NoProfile -NonInteractive -File "$ROOT/operations/devops/Invoke-PrePushPsLint.ps1" -RepoRoot "$ROOT" -ChangedFilesPath "$lintlist" >&2
+      rc=$?
+      rm -f "$lintlist"
+      if [ $rc -eq 3 ]; then
+        echo "pre-push:   skip  $label (see the WARN above; not a pass)"
+        IFS='
+'
+        continue
+      fi
+      if [ $rc -ne 0 ] && [ -n "$LINT_DIRTY" ]; then
+        echo "pre-push:   WARN  $label failed, but lint inputs have uncommitted changes, so not blocking; CI judges the pushed commit."
+        IFS='
+'
+        continue
+      fi
+      exact=1
+      ( exit $rc ) ;;
     py_compile)
       label="Python py_compile ($# file(s))"; exact=1
       if ! pybin=$(find_python); then

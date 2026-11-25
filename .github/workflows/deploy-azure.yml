@@ -147,73 +147,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           DEPLOY_SHA: ${{ inputs.sha }}
-        run: |
-          # t/3679: verify CI for the DEPLOYED commit (inputs.sha), not github.sha (the dispatch HEAD,
-          # which can differ from what we're deploying). $DEPLOY_SHA is validated upstream by the
-          # resolve_digest step (^[0-9a-fA-F]{7,40}$) and read from env, not interpolated inline.
-          echo "Checking CI status for ${DEPLOY_SHA}..."
-
-          # Get the latest CI run for this commit (or its nearest ancestor).
-          # Docs-only pushes to main are intentionally skipped by ci.yml paths-ignore
-          # (**.md, docs/**, deploy/azure/runbooks/**), so the commit may have no CI run.
-          # Walk back up to 10 commits to find the last green ancestor — safe because
-          # docs-only commits cannot affect the container image.
-          COMMITS=$(gh api "repos/${GH_REPO}/commits?sha=${DEPLOY_SHA}&per_page=10" \
-            --jq '.[].sha' 2>/dev/null || echo "")
-          RUN_ID=""
-          for COMMIT in $COMMITS; do
-            RUN_ID=$(gh api "repos/${GH_REPO}/actions/workflows/ci.yml/runs?head_sha=${COMMIT}&per_page=1" \
-              --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
-            if [ -n "$RUN_ID" ]; then
-              if [ "$COMMIT" != "${DEPLOY_SHA}" ]; then
-                echo "Commit ${DEPLOY_SHA} has no CI run (docs-only skip). Using ancestor ${COMMIT} (run ${RUN_ID})."
-              fi
-              break
-            fi
-          done
-
-          if [ -z "$RUN_ID" ]; then
-            echo "::error::No CI run found for commit ${DEPLOY_SHA} or recent ancestors. CI must run before deploying."
-            exit 1
-          fi
-
-          # Wait for the run to complete if it is still in progress.
-          RUN_STATUS=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}" \
-            --jq '.status' 2>/dev/null || echo "")
-          if [ "$RUN_STATUS" = "in_progress" ] || [ "$RUN_STATUS" = "queued" ]; then
-            echo "CI run ${RUN_ID} is still ${RUN_STATUS} — waiting for completion..."
-            gh run watch "${RUN_ID}" --exit-status || {
-              echo "::error::CI run ${RUN_ID} failed. Deploy blocked until CI passes."
-              exit 1
-            }
-          fi
-
-          # Check only test-container — it needs: [test-powershell, test-electron]
-          # so if it passed, all upstream jobs passed too. Checking test-electron
-          # by name fails because the matrix creates per-app jobs (e.g. "test-electron (taxonomy-editor)").
-          # "skipped" is also acceptable: the dorny/paths-filter gate skips test-container
-          # when no container-relevant files changed, meaning the deployed image is identical
-          # to the last image that DID pass the container tests.
-          for JOB in test-container; do
-            # --paginate + per_page=100: the jobs API returns 30 per page by default and CI has
-            # more than 30 jobs (35 on 2026-10-06), so an unpaginated lookup could not see
-            # test-container and refused every deploy as "not found".
-            STATUS=$(gh api --paginate "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?per_page=100" \
-              --jq ".jobs[] | select(.name == \"${JOB}\") | .conclusion // .status" 2>/dev/null || echo "")
-            if [ "$STATUS" = "success" ] || [ "$STATUS" = "skipped" ]; then
-              echo "  ${JOB}: ${STATUS}"
-            elif [ -z "$STATUS" ]; then
-              echo "::error::Job '${JOB}' not found in CI run ${RUN_ID}."
-              exit 1
-            elif [ "$STATUS" = "in_progress" ] || [ "$STATUS" = "queued" ]; then
-              echo "::error::Job '${JOB}' is still ${STATUS} in CI run ${RUN_ID}. Wait for it to complete."
-              exit 1
-            else
-              echo "::error::Job '${JOB}' status is '${STATUS}' in CI run ${RUN_ID}. Container-relevant CI must pass before deploying."
-              exit 1
-            fi
-          done
-          echo "Container-relevant CI passed for this commit"
+        # t/591: the logic lives in operations/devops/verify-deploy-ci.sh (tested by
+        # test-verify-deploy-ci.sh with a shimmed gh). It judges CI by any completed green run on
+        # the SHA from a trusted event (push to main, merge_group, workflow_dispatch), never the
+        # newest run; a rate limit waits once or says "cannot verify CI", never "CI failed".
+        # $DEPLOY_SHA is validated upstream by the resolve_digest step and read from env.
+        run: bash operations/devops/verify-deploy-ci.sh
 
       # NOTE (t/3679): "Verify container image exists" was REMOVED — the resolve_digest step above
       # already fails-closed if the per-SHA tag is absent (it throws in Resolve-ImageDigest.ps1),

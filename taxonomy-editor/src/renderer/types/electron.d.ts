@@ -340,6 +340,8 @@ export interface ElectronAPI {
   // File operations
   fetchUrlContent: (url: string) => Promise<{ content: string; error?: string }>;
   pickDocumentFile: () => Promise<{ cancelled: boolean; filePath?: string; content?: string }>;
+  /** t/634: main probes the real extractor once and caches the answer (ElectronMain). */
+  documentExtractionAvailable?: () => Promise<boolean>;
   clipboardWriteText: (text: string) => Promise<void>;
 
   // Window control

@@ -264,7 +264,7 @@ test('R6: T2/R1 PR, no label, no approval -> FAIL (fires)', () => {
 });
 
 test('R6: T2/R1 PR, no label, TL reviewer-App review at the head + SO clearing marker with the head SHA -> PASS', () => {
-  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): T2 approval at this head.' }];
+  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): T2 approval at this head.', submittedAt: '2026-10-19T12:06:00Z' }];
   const comments = [{ body: `**SO clearing comment (T2, t/4266), head \`${HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' }];
   const fired = checkR6(true, [], comments, reviews, HEAD, APP_LOGIN, PUSH_AT);
   assert.equal(fired, false);
@@ -315,13 +315,12 @@ test('R6 (t/4266#15): a PI-comment approval that PREDATES the latest push is sta
   assert.equal(fired, true, 'a PI comment from long before the latest push must not clear this head');
 });
 
-test('R6 (t/4266#15): a fresh PI-comment approval + head-bound SO marker -> PASS', () => {
+test('R6 (t/116(b)): a shared-login PI comment, even fresh, does NOT clear the approval (only the reviewer App counts)', () => {
   const comments = [
-    { body: 'Approved (PI): go ahead.', createdAt: '2026-10-19T12:06:00Z' }, // after PUSH_AT
+    { body: 'Approved (PI): go ahead.', createdAt: '2026-10-19T12:06:00Z' }, // no login: the shared path
     { body: `**SO clearing comment, head \`${HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' },
   ];
-  const fired = checkR6(true, [], comments, [], HEAD, APP_LOGIN, PUSH_AT);
-  assert.equal(fired, false);
+  assert.equal(checkR6(true, [], comments, [], HEAD, APP_LOGIN, PUSH_AT), true);
 });
 
 test('R6 (t/4266#15): an "SO did not review" note that PREDATES the latest push is stale -- does not count', () => {
@@ -334,7 +333,7 @@ test('R6 (t/4266#15): an "SO did not review" note that PREDATES the latest push 
 });
 
 test('R6 (t/4266#15): a fresh "SO did not review" note + an App review at the head -> PASS (no PI comment needed)', () => {
-  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): proceeding without SO review.' }];
+  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): proceeding without SO review.', submittedAt: '2026-10-19T12:06:00Z' }];
   const comments = [{ body: 'SO did not review within the time-box.', createdAt: '2026-10-19T12:05:00Z' }];
   const fired = checkR6(true, [], comments, reviews, HEAD, APP_LOGIN, PUSH_AT);
   assert.equal(fired, false);
@@ -428,4 +427,83 @@ test('evaluateTierCheck: a clean T0 PR with no rule hits passes with no comments
   });
   assert.equal(result.pass, true);
   assert.deepEqual(result.comments, []);
+});
+
+// ── t/116(b): sticky changes-requests and head-bound approvals (TL p/12#58, t/116#8) ──
+const SO_MARK = { body: `**SO clearing comment, head \`${HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' };
+const TL_AT_HEAD = { state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): ok.', submittedAt: '2026-10-19T12:06:00Z' };
+
+test('t/116(b) arm 1: an approved TL at the head, then a later changes-request from another role via the App -> BLOCKED', () => {
+  const comments = [
+    SO_MARK,
+    { login: APP_LOGIN, body: 'Changes requested (Quality): fix the test.', createdAt: '2026-10-19T12:10:00Z' },
+  ];
+  assert.equal(checkR6(true, [], comments, [TL_AT_HEAD], HEAD, APP_LOGIN, PUSH_AT), true);
+});
+
+test('t/116(b) arm 1b: an approved TL, then a later changes-request from a HUMAN reviewer -> BLOCKED', () => {
+  const reviews = [TL_AT_HEAD, { state: 'CHANGES_REQUESTED', commitId: HEAD, login: 'some-human', body: '', submittedAt: '2026-10-19T12:10:00Z' }];
+  assert.equal(checkR6(true, [], [SO_MARK], reviews, HEAD, APP_LOGIN, PUSH_AT), true);
+});
+
+test('t/116(b) PI ruling (t/116#31): an App COMMENT "Approved (PI):" or "Approved (Tech Lead):" does NOT satisfy R6 -- reviews only', () => {
+  for (const body of ['Approved (PI): go.', 'Approved (Tech Lead): go.']) {
+    const comments = [SO_MARK, { login: APP_LOGIN, body, createdAt: '2026-10-19T12:06:00Z' }];
+    assert.equal(checkR6(true, [], comments, [], HEAD, APP_LOGIN, PUSH_AT), true, `App comment "${body}" must not approve`);
+  }
+});
+
+test('t/116(b) PI ruling control: the same approval as an App REVIEW at the head satisfies R6', () => {
+  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (PI): go.', submittedAt: '2026-10-19T12:06:00Z' }];
+  assert.equal(checkR6(true, [], [SO_MARK], reviews, HEAD, APP_LOGIN, PUSH_AT), false);
+});
+
+test('t/116(b) PI ruling: an App comment still BLOCKS (comments stay in the blocks call)', () => {
+  const comments = [SO_MARK, { login: APP_LOGIN, body: 'Changes requested (Quality): no.', createdAt: '2026-10-19T12:10:00Z' }];
+  assert.equal(checkR6(true, [], comments, [TL_AT_HEAD], HEAD, APP_LOGIN, PUSH_AT), true);
+});
+
+test('t/116(b) SO p/44#90: an approval-shaped COMMENT (shared login or App) does NOT clear a sticky changes-request', () => {
+  // Every spelling the verdict parser accepts as a Quality approval or exemption, from both logins.
+  for (const login of [undefined, APP_LOGIN]) {
+    for (const body of ['Approved (Quality): fine', 'Approved(Quality): fine', 'Approved\n(Quality): fine', '**Approved (Quality):** fine', 'Design-exempt (Quality): n/a']) {
+      const comments = [
+        SO_MARK,
+        { login: APP_LOGIN, body: 'Changes requested (Quality): fix the test.', createdAt: '2026-10-19T12:07:00Z' },
+        { login, body, createdAt: '2026-10-19T12:09:00Z' },
+      ];
+      assert.equal(checkR6(true, [], comments, [TL_AT_HEAD], HEAD, APP_LOGIN, PUSH_AT), true, `${JSON.stringify(body)} by ${login ?? 'shared login'} must not clear Quality's block`);
+    }
+  }
+});
+
+test('t/116(b) arm 2: changes-requested by Quality, then Quality re-approves at the head -> UNBLOCKED (with TL approval and SO marker)', () => {
+  const comments = [
+    SO_MARK,
+    { login: APP_LOGIN, body: 'Changes requested (Quality): fix the test.', createdAt: '2026-10-19T12:07:00Z' },
+  ];
+  const reviews = [
+    TL_AT_HEAD,
+    { state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Quality): fixed.', submittedAt: '2026-10-19T12:09:00Z' },
+  ];
+  assert.equal(checkR6(true, [], comments, reviews, HEAD, APP_LOGIN, PUSH_AT), false);
+});
+
+test('t/116(b) arm 3: a human CHANGES_REQUESTED, then the same human DISMISSES it -> UNBLOCKED', () => {
+  const reviews = [
+    TL_AT_HEAD,
+    { state: 'CHANGES_REQUESTED', commitId: HEAD, login: 'some-human', body: '', submittedAt: '2026-10-19T12:08:00Z' },
+    { state: 'DISMISSED', commitId: HEAD, login: 'some-human', body: '', submittedAt: '2026-10-19T12:09:00Z' },
+  ];
+  assert.equal(checkR6(true, [], [SO_MARK], reviews, HEAD, APP_LOGIN, PUSH_AT), false);
+});
+
+test('t/116(b) arm 4: changes-requested stays sticky across a push -- an approval from the OLD head does not clear it', () => {
+  const OLD = '0000000000000000000000000000000000000000';
+  const reviews = [
+    { state: 'APPROVED', commitId: OLD, login: APP_LOGIN, body: 'Approved (Tech Lead): old head.', submittedAt: '2026-10-19T11:00:00Z' },
+    TL_AT_HEAD,
+    { state: 'CHANGES_REQUESTED', commitId: OLD, login: 'some-human', body: '', submittedAt: '2026-10-19T11:30:00Z' },
+  ];
+  assert.equal(checkR6(true, [], [SO_MARK], reviews, HEAD, APP_LOGIN, PUSH_AT), true);
 });

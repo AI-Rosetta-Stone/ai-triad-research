@@ -737,6 +737,9 @@ function buildElectronApi() {
   // File picker
   pickDocumentFile: (): Promise<{ cancelled: boolean; filePath?: string; fileName?: string; content?: string; format?: string }> =>
     ipcRenderer.invoke('pick-document-file'),
+  // t/634: false while extraction can't run (t/631); the renderer hides the Document source.
+  documentExtractionAvailable: (): Promise<boolean> =>
+    ipcRenderer.invoke('document-extraction-available'),
 
   // Taxonomy proposals (for batch approve UI)
   listProposals: (): Promise<unknown[]> =>

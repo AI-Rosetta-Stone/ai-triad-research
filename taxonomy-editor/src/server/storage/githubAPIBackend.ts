@@ -155,7 +155,8 @@ const POLL_INTERVAL_MS = 60_000;
  *  deployment whose base branch is something else (staging) a pinned read reads that branch. Before
  *  this mapping such a read went to the repository's default branch, a different branch from the tree,
  *  the listings and the strict reads. */
-export const BASE_BRANCH_REF = 'main';
+export { BASE_BRANCH_REF } from './baseBranchRef.js';
+import { BASE_BRANCH_REF } from './baseBranchRef.js';
 const ERROR_BUFFER_CAPACITY = 100;
 
 // t/4179 (TL R1/R2/R3): single-holder poll coordination constants.
@@ -4170,24 +4171,33 @@ export class GitHubAPIBackend implements StorageBackend {
     return !this.blobLease || this.blobLease.isHolder();
   }
 
+  /** The startup diff, run by loadFromHead after the new tree has loaded (t/483 order). t/555: it used
+   *  getChangedFiles, which answers [] for a failed compare and for a list cut at GitHub's cap, so the
+   *  manifest kept entries for changed files and served their old blob after a restart; on a 404/422 it
+   *  also ran fullCacheInvalidation, emptying the tree loadFromHead had just loaded. Now an unknown set
+   *  of changed paths (compareChangedPaths returns null) drops every cached entry and leaves the tree. */
   private async invalidateChangedFiles(fromSha: string, toSha: string): Promise<void> {
-    const changed = await this.getChangedFiles(fromSha, toSha);
-    if (changed.length === 0) return;
+    if (!fromSha || fromSha === toSha) return;
+    const changed = await this.compareChangedPaths(fromSha, toSha);
+    if (changed === null) {
+      log.storage.warn({ fromSha, toSha },
+        'initialize: the changed paths since the cached commit are unknown; falling back to invalidating every cached file (t/555)');
+    }
 
     await this.withManifestLock(async () => {
-      for (const filePath of changed) {
-        if (this.manifest?.files[filePath]) {
-          delete this.manifest.files[filePath];
-        }
-      }
+      if (!this.manifest) return;
+      if (changed === null) this.manifest.files = {};
+      else for (const filePath of changed) delete this.manifest.files[filePath];
     });
 
     this.recordEvent({
       type: 'cache.invalidate',
       component: 'cache',
-      level: 'info',
-      message: `Invalidated ${changed.length} files on startup diff`,
-      data: { paths: changed.slice(0, 20), trigger: 'startup' },
+      level: changed === null ? 'warn' : 'info',
+      message: changed === null
+        ? 'Startup diff: changed paths unknown, all cached files invalidated'
+        : `Invalidated ${changed.length} files on startup diff`,
+      data: { paths: (changed ?? []).slice(0, 20), trigger: 'startup', full: changed === null },
     });
   }
 

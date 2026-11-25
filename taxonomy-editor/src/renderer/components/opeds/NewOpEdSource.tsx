@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { documentPickErrorLine } from './documentPickError';
 
 /** One source is active at a time (Design t/272#1). Each mode keeps its value until the dialog closes. */
 export type SourceMode = 'topic' | 'web' | 'document';
@@ -15,6 +16,12 @@ export interface DocumentChoice { name: string; text: string; words: number }
 
 export const SOURCE_MODES: SourceMode[] = ['topic', 'web', 'document'];
 const SOURCE_LABELS: Record<SourceMode, string> = { topic: 'Topic', web: 'Web page', document: 'Document' };
+
+/** The last segment of a Windows or POSIX path; undefined for an empty value. */
+export function fileNameOf(path: string | undefined): string | undefined {
+  const name = path?.split(/[\\/]/).pop()?.trim();
+  return name || undefined;
+}
 
 export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -129,6 +136,31 @@ export function DocumentField({ docFile, docState, docError, isAnonymous, onPick
   );
 }
 
+let warnedDocumentHidden = false;
+
+/**
+ * t/634 (Design p/25#160): whether the Document source can run here, asked once each time the dialog opens.
+ * `null` while the check runs: the segment stays hidden until it passes, so it never flashes in and out.
+ * When the check says no, the segment is hidden and a WARN is recorded once per session.
+ */
+export function useDocumentExtractionAvailable(open: boolean): boolean | null {
+  const [available, setAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void api.documentExtractionAvailable().then((ok) => {
+      if (cancelled) return;
+      setAvailable(ok);
+      if (!ok && !warnedDocumentHidden) {
+        warnedDocumentHidden = true;
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'oped-new-dialog', level: 'warn', message: 'WARN: the Document source is hidden because document extraction is not available in this build (t/634, t/631)' });
+      }
+    });
+    return () => { cancelled = true; };
+  }, [open]);
+  return available;
+}
+
 /**
  * The picked document and its state. The desktop picker extracts in main; web sends the bytes to
  * /api/documents/extract (web-bridge). Either way the text arrives before the chip shows, so a bad
@@ -148,7 +180,9 @@ export function useDocumentSource() {
         setDocState(docFile ? 'ready' : 'idle');
         return;
       }
-      const name = res.filePath ?? 'document';
+      // The desktop picker returns the full path; only the file's own name is shown and sent as sourceName (the
+      // server takes a bare name only), so no folder or account name ever reaches the chip or the server (t/632).
+      const name = fileNameOf(res.filePath) ?? 'document';
       const words = countWords(res.content);
       setDocFile({ name, text: res.content, words });
       if (words === 0) {
@@ -158,10 +192,11 @@ export function useDocumentSource() {
       }
       setDocState('ready');
     } catch (err) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'oped-new-dialog', level: 'error', message: 'Failed to read document source', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'oped-new-dialog', level: 'warn', message: 'WARN: document pick failed; the field shows a plain line, the raw error is recorded here', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       setDocFile(null);
       setDocState('error');
-      setDocError(err instanceof Error && err.message ? err.message : "Couldn't read text from this file. If it's a scanned PDF it has no text layer: try a text-based PDF or another format.");
+      // t/632: never the raw text (the desktop IPC wrapper carries an ActionableError dump and the user's paths).
+      setDocError(documentPickErrorLine(err));
     }
   };
 

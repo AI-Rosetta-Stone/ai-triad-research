@@ -37,6 +37,7 @@ import {
   SOURCES_INDEX_SCHEMA_VERSION, SOURCES_INDEX_FILENAME, type SourcesIndexFile,
 } from '../../../../lib/sourceIndex/sourcesIndexSchema.js';
 import { getBackend } from './fileIO.js';
+import { BASE_BRANCH_REF } from './baseBranchRef.js';
 
 function sourcesIndexPath(): string {
   return resolveDataPath(path.join(loadDataConfig().taxonomy_dir, SOURCES_INDEX_FILENAME));
@@ -64,7 +65,7 @@ export async function loadSourcesIndex(): Promise<SourcesIndexFile | null> {
   const indexPath = sourcesIndexPath();
   let raw: string | null;
   try {
-    raw = await getBackend().readFile(indexPath, { ref: 'main', optional: true });
+    raw = await getBackend().readFile(indexPath, { ref: BASE_BRANCH_REF, optional: true });
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'node-source-index', level: 'warn',

@@ -22,6 +22,7 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 
 ## Shared Checkout and Git Hygiene
 
+- **Remove your worktree when its PR merges** (PI decision, t/9; `docs/pr-landing.md`).
 - **The shared checkout stays on `main`.** `checkout`, `reset`, `rebase`, `merge`, `pull --rebase` and `stash` happen only in a worktree.
 - **Mode** is line 1 of `.orca/workflow-mode` (`worktree` is strict, and the default). Change it only deliberately, recording who, when and why in the file. In `worktree` mode, work on a branch in `.worktrees/` (or use `/land-from-worktree`), and `cd` into it in the same command. Ref §2.
 - **Commit with a pathspec** (`git commit -m "…" -- <paths>`). Never `-a` or `add -A`. Scan `git status --short` before you commit and `git show --stat HEAD` after. Commits that set the executable bit go through a worktree. Ref §6.
@@ -42,9 +43,9 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 
 - **Ownership:** for `.github/workflows/*` and other paths `resolve-owner` can't express, `docs/ownership-exceptions.md` wins.
 - **Landing code:** see `docs/pr-landing.md`.
-  - Every ticket lands in a feature PR (`feat/t<N>`) or an area train (`train/<area>-YYYYMMDD`); open your own PR only for broken main, an incident, a security fix or a PI request with the TL's go (`docs/pr-landing.md`).
+  - Land in a vehicle: your area train (`train/<area>-YYYYMMDD`, closing 06:00Z and 18:00Z), a feature PR (`feat/t<N>`, for 2+ owners or 3+ tickets), or an incident PR (an open INCIDENT ticket). Security fixes ride `train/security-YYYYMMDD`. No own PRs otherwise. The PR count is monitored, not gated (`docs/pr-landing.md`).
   - Merge through a PR to `main` via the merge queue.
-  - Enqueue only pinned, with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`. If it refuses, stop and escalate; never fall back to the raw `enablePullRequestAutoMerge` mutation, and never run `gh pr merge` in any form (with or without `--auto`): on a merge-queue branch even a plain `gh pr merge` arms auto-merge and enters the queue, skipping the approval guard (PI-approved 2026-11-09, t/4939; t/537).
+  - Enqueue only pinned, with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`. If it refuses, stop and escalate; never fall back to the raw `enablePullRequestAutoMerge` mutation, and never run `gh pr merge` in any form (with or without `--auto`): on a merge-queue branch even a plain `gh pr merge` arms auto-merge and enters the queue, skipping the approval guard (this rule is for ai-triad-research only; the data repo's exception is in `docs/pr-landing.md`) (PI-approved 2026-11-09, t/4939; t/537).
   - **Never push to a queued PR.**
   - User-facing UI changes need `Approved (Design):` (`docs/review-routing.md`).
 - **Change tiers and decision rights:** see `docs/change-tiers.md`.

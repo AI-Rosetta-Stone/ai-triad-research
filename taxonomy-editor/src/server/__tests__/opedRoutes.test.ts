@@ -52,8 +52,9 @@ const { isAnonymousUser, getStorageUserId, getCurrentUser, resolveTier, resolveB
   resolveBackend: vi.fn(() => 'gemini'),
   isRegisteredModel: vi.fn(() => true),
 }));
-vi.mock('../security/userContext.js', () => ({ isAnonymousUser, getStorageUserId, getCurrentUser }));
-vi.mock('../ai/proxyTiers.js', () => ({ resolveTier, isBackendAllowed: (tier: { allowedBackends: string[] }, b: string) => tier.allowedBackends.includes(b) }));
+// t/616: the free-pool funding path (isHostedAnonymousRequest) is covered by opedHttpAnonKeyless; these cases test the earlier gates.
+vi.mock('../security/userContext.js', () => ({ isAnonymousUser, getStorageUserId, getCurrentUser, isHostedAnonymousRequest: () => false }));
+vi.mock('../ai/proxyTiers.js', () => ({ resolveTier, isBackendAllowed: (tier: { allowedBackends: string[] }, b: string) => tier.allowedBackends.includes(b), byokGeminiFallbackApplies: () => false }));
 vi.mock('../ai/aiBackends.js', () => ({ resolveBackend, isRegisteredModel, getModelRegistry: () => ({}) }));
 // t/467 (SO condition 2): which models have a price on file. Only the test models named here are priced.
 const { pricedModels } = vi.hoisted(() => ({ pricedModels: new Set(['gemini-2.5-flash', 'gemini-2.5-pro']) }));

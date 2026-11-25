@@ -208,6 +208,26 @@ describe('Why panel: BDI | Vocabulary tabs', () => {
     expect(screen.getByRole('combobox', { name: 'How view' })).toBeInTheDocument();
   });
 
+  it('t/643: How no longer offers Convergence, and clicking How still lands on Reasoning', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<StatementCard entry={makeEntry({ display_tier: 'reasoning' })} />);
+    const how = screen.getByRole('combobox', { name: 'How view' });
+    const labels = Array.from(how.querySelectorAll('option')).map(o => o.textContent);
+    expect(labels.some(l => /convergence/i.test(l ?? ''))).toBe(false);
+    expect((how as HTMLSelectElement).value).toBe('reasoning');
+    unmount();
+    render(<StatementCard entry={makeEntry({ display_tier: 'detailed' })} />);
+    await user.click(screen.getByRole('radio', { name: 'How' }));
+    expect(debateState.setEntryDisplayTier).toHaveBeenLastCalledWith('e1', 'reasoning');
+  });
+
+  it('t/643: a statement already on Convergence (global control or an old save) still lists it, so the dropdown is not blank', () => {
+    render(<StatementCard entry={makeEntry({ display_tier: 'convergence' })} />);
+    const how = screen.getByRole('combobox', { name: 'How view' }) as HTMLSelectElement;
+    expect(how.value).toBe('convergence');
+    expect(how.selectedOptions[0].textContent).toBe('Convergence');
+  });
+
   it('How no longer offers Vocabulary', () => {
     render(<StatementCard entry={makeEntry({ display_tier: 'reasoning', ...withVocab })} />);
     const how = screen.getByRole('combobox', { name: 'How view' });

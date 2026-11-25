@@ -612,7 +612,7 @@ async function runDocumentAnalysis(
     getGlobalRecorder()?.record({ type: 'system.error', debate_id: activeDebate?.id, component: 'debate-store', level: 'error', message: 'Document analysis failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     console.warn('[debate] Document analysis failed:', err);
     pushWarning(get, set, 'Document analysis could not be completed');
-    addTranscriptEntry({ type: 'system', speaker: 'system', content: `Document analysis skipped: ${mapErrorToUserMessage(err)}`, taxonomy_refs: [] });
+    addTranscriptEntry({ type: 'system', speaker: 'system', content: `Document analysis skipped: ${mapErrorToUserMessage(err, { kind: 'ai' })}`, taxonomy_refs: [] });
   } finally {
     set({ debateGenerating: null });
     await saveDebate('beginDebate:docAnalysis');
@@ -860,7 +860,7 @@ async function generateSingleSpeakerOpening(
     }
     get().updateTranscriptEntry(slotId, isRetryable
       ? { status: 'retrying', errorMessage: `${info.label} ${retryReasonLabel(retryReason)} — retrying automatically…` }
-      : { status: 'error', errorMessage: mapErrorToUserMessage(err) });
+      : { status: 'error', errorMessage: mapErrorToUserMessage(err, { kind: 'ai' }) });
     if (isRetryable) {
       const backoffMs = retryReason === 'rate_limit' ? (retryInMs ?? 5000) : Math.min(5000 * 2 ** openingRetryPass, 30_000);
       return { kind: 'retryable', label: info.label, reason: retryReasonLabel(retryReason), backoffMs };
@@ -1156,7 +1156,7 @@ export const createClarificationSlice: StateCreator<DebateStore, [], [], Clarifi
       addTranscriptEntry({
         type: 'system',
         speaker: 'system',
-        content: `Failed to generate clarifying questions: ${mapErrorToUserMessage(err)}`,
+        content: `Failed to generate clarifying questions: ${mapErrorToUserMessage(err, { kind: 'ai' })}`,
         taxonomy_refs: [],
       });
     }
@@ -1241,7 +1241,7 @@ export const createClarificationSlice: StateCreator<DebateStore, [], [], Clarifi
         message: 'Topic synthesis failed',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      set({ debateError: `Topic synthesis failed: ${mapErrorToUserMessage(err)}` });
+      set({ debateError: `Topic synthesis failed: ${mapErrorToUserMessage(err, { kind: 'ai' })}` });
     } finally {
       set({ debateGenerating: null });
       await saveDebate('submitAnswersAndSynthesize:finally');

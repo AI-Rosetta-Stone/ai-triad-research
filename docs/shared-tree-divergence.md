@@ -195,6 +195,10 @@ git rev-parse HEAD origin/main                         # must match
 git rev-list --left-right --count HEAD...origin/main   # must be 0  0
 ```
 
+### Standing rule: notice instead of acks, safe case only (TL p/9#583, 2026-11-25)
+
+When the shared checkout is on `main`, behind-only, with no tracked modifications, no untracked path colliding with the incoming files, no `.git/*.lock`, and a fast-forward is possible, DevOps may fast-forward after a 5-minute notice ("DevOps fast-forwarding the shared checkout in 5 min; reply hold to stop") sent to every agent with shared-tree writes in the last 2 hours, instead of collecting all-clears. Anyone may reply hold, which stops it. The conditions are re-checked immediately before the `git merge --ff-only origin/main`, and the before and after SHAs are logged on t/557. Every other case, including any doubt, keeps the all-clear procedure above.
+
 ## Prevention — the cheap path that avoids all of the above
 
 Divergence is not inevitable. It is the product of a gap between committing and pushing, and at this fleet's merge rate that gap is usually enough.

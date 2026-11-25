@@ -11,8 +11,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  classify, classifyVuln, cveSection, fixedVulns, outputLines, parseRuntimeRemovals, scanBoth, scanFailure,
-  STRIP_PACKAGES, STRIP_PATHS,
+  classify, classifyVuln, cveSection, fixedVulns, missingOutputKeys, outputLines, parseRuntimeRemovals, scanBoth, scanFailure,
+  STRIP_PACKAGES, STRIP_PATHS, VULN_ID,
 } from './base-pin-cves.mjs';
 
 const DOCKERFILE = fileURLToPath(new URL('../../../taxonomy-editor/Dockerfile', import.meta.url));
@@ -159,6 +159,44 @@ test('scanFailure: pull wording vs other errors', () => {
 test('outputLines: one line each, no CR/LF smuggled into $GITHUB_OUTPUT', () => {
   const lines = outputLines({ route: 'pr', undecidable: ['a\nroute=issue', 'b'], runtime: ['CVE-1'], buildOnly: [] });
   assert.deepEqual(lines, ['route=pr', 'undecidable=a route=issue; b', 'runtime_cves=CVE-1', 'buildonly_cves=']);
+});
+
+// ---- t/605#10 (Docker): a VulnerabilityID carrying a line break must not inject a second `route=` ----
+test('REGRESSION t/605#10: an id with a line break is undecidable, routes to pr, and emits exactly one route line', () => {
+  for (const bad of ['CVE-2026-1\nroute=issue', 'CVE-2026-1\r\nroute=issue', 'CVE-2026-1\rroute=issue']) {
+    for (const v of [vuln(bad, 'openssl'), vuln(bad, 'tar', 'usr/local/lib/node_modules/npm/node_modules/tar/package.json')]) {
+      const cls = v.PkgPath ? lang(v) : os(v);
+      const c = classify({ reports: { pinned: report(cls), latest: report() } });
+      assert.equal(c.route, 'pr', JSON.stringify(bad));
+      assert.deepEqual(c.runtime, []);
+      assert.deepEqual(c.buildOnly, []);
+      assert.match(c.undecidable.join(';'), /is not a plain id token/);
+      const lines = outputLines(c);
+      assert.equal(lines.filter((l) => l.startsWith('route=')).length, 1);
+      assert.equal(lines[0], 'route=pr');
+      assert.ok(lines.every((l) => !/[\r\n]/.test(l)));
+      assert.deepEqual(missingOutputKeys(lines), []);
+    }
+  }
+});
+
+test('t/605#10: the id pattern takes real advisory ids and refuses separators, spaces, empties and non-strings', () => {
+  for (const ok of ['CVE-2026-124851', 'GHSA-xxxx-yyyy-zzzz', 'DLA-1234-1', 'GO-2026-0001', 'PYSEC-2026-1', 'RUSTSEC-2026-0001', 'ALAS2:2026-001']) {
+    assert.equal(VULN_ID.test(ok), true, ok);
+    assert.equal(classifyVuln({ id: ok, pkg: 'openssl', cls: 'os-pkgs' }), 'runtime', ok);
+  }
+  for (const bad of ['', ' CVE-1', 'CVE-1,CVE-2', 'CVE 1', 'CVE-1\n', '-CVE-1', 'x'.repeat(101)]) {
+    assert.ok(classifyVuln({ id: bad, pkg: 'openssl', cls: 'os-pkgs' }).undecidable, JSON.stringify(bad));
+  }
+  for (const bad of [undefined, null, 42]) assert.ok(classifyVuln({ id: bad, pkg: 'openssl', cls: 'os-pkgs' }).undecidable, String(bad));
+});
+
+test('t/605#10: outputLines drops a line holding a line break whole, and missingOutputKeys names it (the scan then fails)', () => {
+  // A route value with a line break cannot come from classify(); this pins the filter itself.
+  const lines = outputLines({ route: 'pr\nroute=issue', undecidable: [], runtime: ['CVE-1'], buildOnly: [] });
+  assert.equal(lines.some((l) => l.startsWith('route=')), false);
+  assert.deepEqual(missingOutputKeys(lines), ['route']);
+  assert.deepEqual(missingOutputKeys(['route=pr', 'undecidable=', 'runtime_cves=', 'buildonly_cves=']), []);
 });
 
 test('cveSection: the PR body names the runtime CVEs; undecidable names the failure; a failed cves job is undecidable', () => {
