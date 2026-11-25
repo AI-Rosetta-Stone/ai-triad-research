@@ -182,3 +182,57 @@ test('the shared (main) checkout itself is never a candidate', opts, () => {
   const mainPath = posix(s.repo);
   assert.ok(lines.every((l) => !l.includes(`${mainPath} `) && !l.includes(`${mainPath}:`)), `main checkout listed:\n${lines.join('\n')}`);
 });
+
+// SO p/44#123: a non-forced `git worktree remove` still deletes IGNORED files, including a whole nested
+// worktree under an ignored .worktrees/ with its uncommitted WIP. Both arms below delete data on 6d569749e.
+const ignore = (s, ...pats) => sh(s.repo, `printf '%s\n' ${pats.map((p) => `'${p}'`).join(' ')} >> "$(git rev-parse --git-common-dir)/info/exclude"`);
+
+test('a merged + clean worktree that CONTAINS another worktree (ignored .worktrees/) is skipped; the inner WIP survives', opts, () => {
+  const s = setup();
+  ignore(s, '.worktrees/');
+  const w = s.wt('outer', { commit: true });
+  s.pr('outer', 'MERGED', w.head);
+  const inner = path.join(w.path, '.worktrees', 'inner');
+  sh(s.repo, `git worktree add -q -b inner "${posix(inner)}" main`);
+  writeFileSync(path.join(inner, 'wip.txt'), 'uncommitted work');
+  const r = s.run();
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /WARN .*outer \(outer\) has merged but contains another worktree or repo/);
+  assert.equal(existsSync(w.path), true);
+  assert.equal(existsSync(path.join(inner, 'wip.txt')), true, 'the inner worktree\'s WIP must survive');
+});
+
+test('a merged + clean worktree holding an ignored file OUTSIDE the cache allowlist (.env) is skipped; the file survives', opts, () => {
+  const s = setup();
+  ignore(s, '.env');
+  const w = s.wt('secret', { commit: true });
+  s.pr('secret', 'MERGED', w.head);
+  writeFileSync(path.join(w.path, '.env'), 'X=1');
+  const r = s.run();
+  assert.match(r.out, /WARN .*secret \(secret\) has merged but holds 1 ignored path\(s\) outside the cache allowlist \(first: \.env\)/);
+  assert.equal(existsSync(path.join(w.path, '.env')), true);
+});
+
+test('a merged + clean worktree whose ignored files are ALL cache (node_modules, dist, nested build, *.tsbuildinfo) is removed', opts, () => {
+  const s = setup();
+  ignore(s, 'node_modules/', 'dist/', 'build/', '*.tsbuildinfo');
+  const w = s.wt('cache', { commit: true });
+  // lib/ is tracked (as in the real repo), so git reports lib/build/ itself, not a collapsed lib/.
+  const head = sh(w.path, 'mkdir -p lib && echo 1 > lib/k.txt && git add lib/k.txt && git commit -qm lib && git rev-parse HEAD');
+  s.pr('cache', 'MERGED', head);
+  sh(w.path, 'mkdir -p node_modules/x dist lib/build && echo 1 > node_modules/x/i.js && echo 1 > dist/o.js && echo 1 > lib/build/b.js && echo 1 > r.tsbuildinfo');
+  const r = s.run();
+  assert.match(r.out, /removed .*cache \(cache, PR MERGED at its head\)/);
+  assert.equal(existsSync(w.path), false);
+});
+
+test('an UNTRACKED dir holding only cache is reported collapsed (lib/) and blocks removal: conservative, never deletes', opts, () => {
+  const s = setup();
+  ignore(s, 'build/');
+  const w = s.wt('collapsed', { commit: true });
+  s.pr('collapsed', 'MERGED', w.head);
+  sh(w.path, 'mkdir -p lib/build && echo 1 > lib/build/b.js');
+  const r = s.run();
+  assert.match(r.out, /WARN .*collapsed \(collapsed\) has merged but holds 1 ignored path\(s\) outside the cache allowlist \(first: lib\/\)/);
+  assert.equal(existsSync(path.join(w.path, 'lib', 'build', 'b.js')), true);
+});
