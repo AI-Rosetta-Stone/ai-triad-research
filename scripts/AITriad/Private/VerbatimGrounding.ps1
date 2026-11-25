@@ -1750,6 +1750,22 @@ function Test-VerbatimElisionGap {
     $true
 }
 
+function Test-VerbatimRunInSource {
+    # Does the source have a run of VerbatimMinRun letters of the segment, anywhere in the snapshot? This is
+    # the header's test for "the source does not have it" (t/389#103, #110). It reads the same letters the
+    # matcher does (the segment with its noise removed, the working copy of the snapshot) and searches all
+    # of them, so it is not bounded by the matcher's candidate places.
+    param([object]$Source, [string]$Segment)
+    $Clean = Remove-VerbatimQuoteNoise -Source $Source -Quote $Segment
+    $Letters = (ConvertTo-EvidenceKey -Quote $Clean) -replace ' ', ''
+    $Run = $script:VerbatimMinRun
+    if ([string]::IsNullOrEmpty($Letters) -or $Letters.Length -lt $Run) { return $false }
+    for ($I = 0; $I + $Run -le $Letters.Length; $I++) {
+        if ($Source.Chars.IndexOf($Letters.Substring($I, $Run), [System.StringComparison]::Ordinal) -ge 0) { return $true }
+    }
+    $false
+}
+
 function Resolve-VerbatimQuote {
     # Decides one quote. Returns { Decision; Texts; Coverage; Segments; KeptSegments; SegmentDecisions }.
     #   Texts     what to store, in order: one string per kept segment, or several for a segment kept as
@@ -1794,7 +1810,9 @@ function Resolve-VerbatimQuote {
             # The source "does not have" a segment only when the matcher found no run of VerbatimMinRun letters
             # of it anywhere in the snapshot (CL t/389#103). With such a run the segment is a misquote of
             # source text, however much else differs, and it fails the whole quote in the same way.
-            if ($script:VerbatimRejectedSegmentFailsQuote -and $R.Coverage -gt 0) {
+            # The test is the run itself, not the matcher's Coverage: Coverage can be above zero from a
+            # shorter run at the segment's end, and is zero when a run holds no whole word (t/389#110).
+            if ($script:VerbatimRejectedSegmentFailsQuote -and (Test-VerbatimRunInSource -Source $Source -Segment $Part)) {
                 $script:VerbatimDiag.Add('elided quote: a segment is partly in the source')
                 $Dropped.Coverage = $BestCoverage
                 return $Dropped

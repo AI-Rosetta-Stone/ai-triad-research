@@ -993,6 +993,12 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             $Absent = & $script:Decide74 $Src "$A. [...] Nobody objected at all."
             $Absent.Decision | Should -Not -Be 'dropped'
             @($Absent.Texts).Count | Should -Be 1
+            # The test is a run of 12 letters, not any match (t/389#110): this segment's last 11 letters
+            # ("the standard") are in the source and no run of 12 is, so the source does not have it.
+            $Tail = & $script:Decide74 $Src "$A. [...] Nobody at all objected to the standard."
+            $Tail.Decision | Should -Not -Be 'dropped'
+            @($Tail.Texts).Count | Should -Be 1
+            $Tail.Diag | Should -Not -Contain 'elided quote: a segment is partly in the source'
             # The rule's limit: a segment under 12 letters has no run to find, so a short misquote is left out
             # like an absent segment ("Later, they adopted it" is not in the source; "Later, no" is 7 letters).
             $Short = & $script:Decide74 $Src "$A. [...] Later, no."
