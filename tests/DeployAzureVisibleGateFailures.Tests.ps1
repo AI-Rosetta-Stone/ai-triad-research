@@ -135,11 +135,26 @@ Describe 'deploy-azure.yml deploy job reads no git history beyond rev-parse / me
         [regex]::Matches('Write-Host "a git error, not a git repo"', $script:GitPattern).Count | Should -Be 0
     }
 
-    It 'invokes only rev-parse and merge-base' {
+    It 'invokes only rev-parse and merge-base, plus the t/670 containment check''s four commands' {
         $script:GitSubcommands | Should -Not -BeNullOrEmpty -Because 'the t/4194 guard does call git; an empty set means the scan broke'
+        # t/670 (t/579): Test-DeployChangesContained (Get-DeployAgeVerdict.ps1) runs ONLY when the
+        # requested SHA is not a descendant of the running one, a rare path. Its diff/apply read the
+        # blobs of the running commit's changed files, which blob:none fetches lazily: a handful of
+        # blobs (5 files for the t/579 hotfix), not the history-wide reads WP6 guards against.
+        # read-tree and log read trees and commits only.
+        $allowed = @('rev-parse', 'merge-base', 'diff', 'apply', 'read-tree', 'log')
         foreach ($sub in $script:GitSubcommands) {
-            $sub | Should -BeIn @('rev-parse', 'merge-base') -Because "git $sub in the deploy job could read blobs under filter: blob:none"
+            $sub | Should -BeIn $allowed -Because "git $sub in the deploy job could read blobs under filter: blob:none"
         }
+    }
+
+    It 't/670: the blob-reading commands (diff, apply) appear only in the containment function, never in the workflow itself' {
+        foreach ($sub in 'diff', 'apply') {
+            @(Get-GitSubcommands $script:DeployJob) | Should -Not -Contain $sub -Because "git $sub belongs only in Test-DeployChangesContained"
+        }
+        $fn = [regex]::Match((Get-Content -Raw (Join-Path $PSScriptRoot '..' 'operations' 'devops' 'Get-DeployAgeVerdict.ps1')), '(?s)function Test-DeployChangesContained \{.*').Value
+        $fn | Should -Match 'git -C \$RepoPath diff'
+        $fn | Should -Match 'apply --cached --check -R'
     }
 
     It 'FIRE ARM: the scan catches a blob-reading git call' {
