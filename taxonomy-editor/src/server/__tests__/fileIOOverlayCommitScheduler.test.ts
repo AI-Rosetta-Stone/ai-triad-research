@@ -118,6 +118,24 @@ describe('fileIO overlay commit scheduler (t/4258/t/4277 C3b)', () => {
     expect(rateEvents.map((e) => e.data?.commitsInLastHour)).toEqual([1, 2]);
   });
 
+  // t/550 (TL ruling 8): 'busy' (another replica holds the commit lease) is neither a commit nor a failure. The status
+  // stays 'pending', the attempt isn't counted, and the scheduler keeps trying until the lease is free.
+  it('busy is not counted as a failed attempt: more busy rounds than the retry ceiling still end in a commit', async () => {
+    let calls = 0;
+    backend.commitImpl = async () => {
+      calls++;
+      if (calls <= 5) throw Object.assign(new Error('another replica holds the commit lease'), { code: 'OVERLAY_COMMIT_BUSY' });
+      return { commitSha: 'sha', filesCommitted: 1 };
+    };
+    fileIO.scheduleOverlayCommit('olga');
+    await vi.advanceTimersByTimeAsync(2_000); // debounce fires; busy
+    expect(calls).toBe(1);
+    expect(fileIO.getOverlayCommitStatus('olga')?.state).toBe('pending');
+    for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(5_000);
+    expect(calls).toBe(6); // 5 busy rounds, more than OVERLAY_COMMIT_MAX_RETRIES (2), then the commit
+    expect(fileIO.getOverlayCommitStatus('olga')?.state).toBe('committed');
+  });
+
   it('retries with backoff on failure, surfaces failed status, then commits on the retry', async () => {
     let calls = 0;
     backend.commitImpl = async () => {

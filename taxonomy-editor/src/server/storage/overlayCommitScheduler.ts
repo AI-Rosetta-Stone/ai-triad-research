@@ -42,6 +42,16 @@ function supportsOverlayCommit(b: StorageBackend): b is StorageBackend & Overlay
 const OVERLAY_COMMIT_DEBOUNCE_MS = 2_000;
 const OVERLAY_COMMIT_MAX_WAIT_MS = 10_000;
 const OVERLAY_COMMIT_MAX_RETRIES = 2;
+/** t/550: when another replica holds this user's commit lease ('busy'), try again after this long, without counting a
+ *  retry. The holder commits the same entries from the shared store, so the retry usually finds nothing left; a dead
+ *  holder's lease lapses within its duration (60 s), never more than maxHold (300 s) after it was taken (ruling 8). */
+export const OVERLAY_COMMIT_BUSY_RETRY_MS = 5_000;
+
+/** t/550: the backend signals 'busy' (the OverlayCommitOutcome of t/549) as an error with this code, so commitOverlay's
+ *  return type, and its other callers, stay unchanged. */
+function isCommitBusy(err: unknown): boolean {
+  return (err as { code?: unknown } | null)?.code === 'OVERLAY_COMMIT_BUSY';
+}
 
 // t/4312 (SO F1, TL p/538#94): ships gated — either together with Rosetta's
 // conflict banner (t/4313) or behind this flag, OFF by default. The base-sha
@@ -101,6 +111,24 @@ function clearPendingOverlayCommit(userId: string): void {
   pendingOverlayCommits.delete(userId);
 }
 
+/** A conflict-only batch (t/4312). With the conflict state on, records 'conflict' and returns true (stop: retrying never
+ *  resolves it; wait for "Use theirs"/"Keep mine"). With it off, throws into the caller's retry/backoff path, matching
+ *  pre-t/4312 behaviour; nothing committed, so it must not report 'committed'. Extracted for the complexity budget (t/550). */
+function stopOnConflict(userId: string, result: OverlayCommitResult | null): boolean {
+  const conflictedPaths = result?.conflictedPaths ?? [];
+  if (conflictedPaths.length === 0) return false;
+  if (CONFLICT_STATE_ENABLED) {
+    overlayCommitStatus.set(userId, { state: 'conflict', at: Date.now(), conflictedPaths });
+    return true;
+  }
+  throw new ActionableError({
+    goal: 'Commit the overlay',
+    problem: `${conflictedPaths.length} path(s) conflicted, nothing committed`,
+    location: 'overlayCommitScheduler.runScheduledOverlayCommit',
+    nextSteps: ['Enable OVERLAY_CONFLICT_STATE_ENABLED for the resolution flow', 'Retry once the other actor\'s change is known'],
+  });
+}
+
 async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<void> {
   clearPendingOverlayCommit(userId);
   retryingOverlayCommits.delete(userId); // this invocation IS the retry firing (or the first attempt — a no-op delete either way)
@@ -112,25 +140,7 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
     // GitHubAPIBackend.getEffectiveRef() would otherwise fall back to
     // baseBranch and commitOverlayImpl would throw on every scheduled commit.
     const result = await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
-    const hasConflict = (result?.conflictedPaths?.length ?? 0) > 0;
-    if (hasConflict) {
-      if (CONFLICT_STATE_ENABLED) {
-        // t/4312 SO F1: a conflict-only batch never resolves itself by
-        // retrying — same stale content, same base, same mismatch every
-        // time. Stop and wait for "Use theirs"/"Keep mine" instead.
-        overlayCommitStatus.set(userId, { state: 'conflict', at: Date.now(), conflictedPaths: result!.conflictedPaths });
-        return;
-      }
-      // Flag off: nothing committed, so this must NOT report 'committed' —
-      // throw into the existing retry/backoff path below, same as any other
-      // retryable failure, matching pre-t/4312 behavior exactly.
-      throw new ActionableError({
-        goal: 'Commit the overlay',
-        problem: `${result!.conflictedPaths!.length} path(s) conflicted, nothing committed`,
-        location: 'overlayCommitScheduler.runScheduledOverlayCommit',
-        nextSteps: ['Enable OVERLAY_CONFLICT_STATE_ENABLED for the resolution flow', 'Retry once the other actor\'s change is known'],
-      });
-    }
+    if (stopOnConflict(userId, result)) return;
     overlayCommitStatus.set(userId, { state: 'committed', at: Date.now() });
     const commitsInLastHour = recordCommitRate(userId);
     getGlobalRecorder()?.record({
@@ -141,6 +151,14 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
       data: { userId, commitsInLastHour },
     });
   } catch (err) {
+    if (isCommitBusy(err)) {
+      // t/550: nothing committed and nothing failed; the status stays 'pending' and the attempt is not counted.
+      log.storage.info({ userId, attempt, retryInMs: OVERLAY_COMMIT_BUSY_RETRY_MS },
+        'Scheduled overlay commit: another replica holds the commit lease; trying again (t/550)');
+      const timer = setTimeout(() => { void runScheduledOverlayCommit(userId, attempt); }, OVERLAY_COMMIT_BUSY_RETRY_MS);
+      retryingOverlayCommits.set(userId, { timer, attempt });
+      return;
+    }
     const message = String((err as Error)?.message ?? err);
     const warnMsg = `Scheduled overlay commit failed for ${userId} (attempt ${attempt + 1}) — will retry (t/4258)`;
     log.storage.warn({ userId, attempt }, warnMsg);
