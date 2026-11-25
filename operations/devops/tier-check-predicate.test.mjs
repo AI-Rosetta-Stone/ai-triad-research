@@ -464,13 +464,16 @@ test('t/116(b) PI ruling: an App comment still BLOCKS (comments stay in the bloc
 });
 
 test('t/116(b) SO p/44#90: an approval-shaped COMMENT (shared login or App) does NOT clear a sticky changes-request', () => {
+  // Every spelling the verdict parser accepts as a Quality approval or exemption, from both logins.
   for (const login of [undefined, APP_LOGIN]) {
-    const comments = [
-      SO_MARK,
-      { login: APP_LOGIN, body: 'Changes requested (Quality): fix the test.', createdAt: '2026-10-19T12:07:00Z' },
-      { login, body: 'Approved (Quality): fine', createdAt: '2026-10-19T12:09:00Z' },
-    ];
-    assert.equal(checkR6(true, [], comments, [TL_AT_HEAD], HEAD, APP_LOGIN, PUSH_AT), true, `comment by ${login ?? 'shared login'} must not clear Quality's block`);
+    for (const body of ['Approved (Quality): fine', 'Approved(Quality): fine', 'Approved\n(Quality): fine', '**Approved (Quality):** fine', 'Design-exempt (Quality): n/a']) {
+      const comments = [
+        SO_MARK,
+        { login: APP_LOGIN, body: 'Changes requested (Quality): fix the test.', createdAt: '2026-10-19T12:07:00Z' },
+        { login, body, createdAt: '2026-10-19T12:09:00Z' },
+      ];
+      assert.equal(checkR6(true, [], comments, [TL_AT_HEAD], HEAD, APP_LOGIN, PUSH_AT), true, `${JSON.stringify(body)} by ${login ?? 'shared login'} must not clear Quality's block`);
+    }
   }
 });
 

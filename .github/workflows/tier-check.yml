@@ -56,7 +56,9 @@ jobs:
     #
     # The quoted strings between BEGIN/END comment-filter are THE list. It mirrors the only comment
     # bodies operations/devops/tier-check-predicate.mjs reads, all in R6 (checkR6):
-    #   'Approved (PI):'       -- PI_COMMENT_APPROVAL_RE
+    #   'Changes requested'    -- a changes-request comment ADDS an R6 block (latestRoleVerdicts, gate
+    #       mode; t/116). No comment approves or clears in R6 (PI ruling t/116#31), so approval-shaped
+    #       comments are not on the list.
     #   'SO did not review'    -- SO_DID_NOT_REVIEW_RE
     #   'SO clearing comment'  -- SO_CLEARING_PREFIX_RE
     #   '/recheck-guards'      -- the one documented way to re-run this check and t1-approval-guard
@@ -86,7 +88,7 @@ jobs:
         && (
         github.event_name != 'issue_comment'
         || github.event.action == 'deleted'
-        || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Approved (PI):')
+        || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Changes requested')
         || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'SO did not review')
         || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'SO clearing comment')
         || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), '/recheck-guards')
@@ -101,7 +103,7 @@ jobs:
       && (
       github.event_name != 'issue_comment'
       || github.event.action == 'deleted'
-      || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Approved (PI):')
+      || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Changes requested')
       || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'SO did not review')
       || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'SO clearing comment')
       || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), '/recheck-guards')
@@ -428,10 +430,10 @@ jobs:
               ? ciGateNeedsFromText(await readFromHead('.github/workflows/ci.yml')) : null;
 
             // R6 (t/4266 P2, fixed per t/4266#13/#15): the App review and the SO clearing
-            // marker are head-bound (commitId/headSha text) and need no timestamp. The two
-            // comment-only paths (Approved (PI): / "SO did not review") have no SHA-binding of
-            // their own, so they still need `lastPushAt` freshness (created_at only -- fix 3:
-            // never updated_at) or an old one of either would clear every future head forever.
+            // marker are head-bound (commitId/headSha text) and need no timestamp. The
+            // comment-only path ("SO did not review") has no SHA-binding of its own, so it still
+            // needs `lastPushAt` freshness (created_at only -- fix 3: never updated_at) or an old
+            // one would clear every future head forever. No comment approves in R6 (t/116#31).
             const rawComments = await retry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
             const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at }));
             // Gate Co-Location (t/4266#13 fix 1, same identity t1-approval-guard.yml already
