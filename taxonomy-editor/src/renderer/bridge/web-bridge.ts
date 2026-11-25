@@ -1393,11 +1393,6 @@ const rawApi: AppAPI = {
         critical: true,
         category: categorizeEndpoint('/api/documents/extract', 'POST'),
       }),
-      onFailure: ({ status, code, serverError }) => getGlobalRecorder()?.record({
-        type: 'system.error', component: 'web-bridge', level: 'warn',
-        message: `WARN: POST /api/documents/extract failed with HTTP ${status}${code ? ` (${code})` : ''}; showing the plain line instead of the server text`,
-        error: { name: 'DocumentExtractError', message: serverError ?? `HTTP ${status}`, stack: undefined },
-      }),
     });
     return { cancelled: false, filePath: file.name, content };
   },

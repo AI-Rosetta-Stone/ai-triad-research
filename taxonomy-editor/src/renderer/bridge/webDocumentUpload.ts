@@ -6,6 +6,8 @@
 // The 10 MB cap here is a client courtesy; the server enforces it too and is authoritative.
 // The transport is passed in so this module does not import web-bridge (no cycle).
 
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
+
 export const DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
 // html/htm stay accepted: the server still extracts them, and the old picker offered them.
 const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'html', 'htm', 'txt', 'md'];
@@ -50,11 +52,10 @@ export function documentExtractErrorMessage(status: number, code: string | undef
  * Posts the File as a binary body and returns the extracted text.
  * `send` performs the request (session recovery, timeout, no retry: an upload is not safe to replay).
  * A non-2xx answer throws an Error whose message is the plain line from documentExtractErrorMessage;
- * `onFailure` receives the raw status, code and server text for the flight recorder.
+ * The raw status, code and server text go to the flight recorder with a WARN.
  */
 export async function extractDocumentText(file: File, deps: {
   send: (init: RequestInit) => Promise<Response>;
-  onFailure: (failure: { status: number; code?: string; serverError?: string }) => void;
 }): Promise<string> {
   checkDocumentFile(file);
   const res = await deps.send({
@@ -68,7 +69,11 @@ export async function extractDocumentText(file: File, deps: {
       parsed = await res.json() as { code?: unknown; error?: unknown };
     } catch { /* telemetry — silent by design: a non-JSON error body still gets the status-based line below */ }
     const code = typeof parsed.code === 'string' ? parsed.code : undefined;
-    deps.onFailure({ status: res.status, code, serverError: typeof parsed.error === 'string' ? parsed.error : undefined });
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'web-bridge', level: 'warn',
+      message: `WARN: POST /api/documents/extract failed with HTTP ${res.status}${code ? ` (${code})` : ''}; showing the plain line, not the server text`,
+      error: { name: 'DocumentExtractError', message: typeof parsed.error === 'string' ? parsed.error : `HTTP ${res.status}`, stack: undefined },
+    });
     throw new Error(documentExtractErrorMessage(res.status, code, file.name));
   }
   const body = await res.json() as { text: string };
