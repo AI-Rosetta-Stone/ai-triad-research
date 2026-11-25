@@ -81,10 +81,10 @@ Describe 'New-OrgEdgeRationale: the agreed wording (t/584#8)' -Tag 'organization
 Describe 'New-OrgEdgeMatchMeta (t/584)' -Tag 'organizations' {
 
     It 'holds the diagnostics the rationale used to hold, in a fixed key order' {
-        $M = InModuleScope AITriad { New-OrgEdgeMatchMeta -Stage 3 -Basis 'high-cosine' -Families 1 -BestCosine 0.65749 -ClaimSourceId 'doc-2026' -ClaimText 'X.' -NliDirection 'opposes' -NliConfidence 5.17541 -DirectionalFlip 'ADVOCATES_FOR->OPPOSES' -Endorsement 'none' }
-        @($M.Keys) | Should -Be @('stage', 'basis', 'families', 'best_cosine', 'claim_source_id', 'claim_text_sha256', 'nli_direction', 'nli_confidence', 'directional_flip', 'endorsement')
+        $M = InModuleScope AITriad { New-OrgEdgeMatchMeta -Stage 3 -Basis 'high-cosine' -Families 1 -BestCosine 0.65749 -ClaimSourceId 'doc-2026' -ClaimText 'X.' -NliDirection 'opposes' -NliMargin 5.17541 -DirectionalFlip 'ADVOCATES_FOR->OPPOSES' -Endorsement 'none' }
+        @($M.Keys) | Should -Be @('stage', 'basis', 'families', 'best_cosine', 'claim_source_id', 'claim_text_sha256', 'nli_direction', 'nli_margin', 'directional_flip', 'endorsement')
         $M.best_cosine | Should -Be 0.657
-        $M.nli_confidence | Should -Be 5.1754
+        $M.nli_margin | Should -Be 5.1754
         $M.claim_text_sha256 | Should -Match '^[0-9a-f]{64}$'
     }
 

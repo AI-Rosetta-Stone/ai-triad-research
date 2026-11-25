@@ -92,7 +92,7 @@ function New-OrgEdgeMatchMeta {
         [string]$ClaimSourceId,
         [string]$ClaimText,
         [string]$NliDirection,
-        [Nullable[double]]$NliConfidence,
+        [Nullable[double]]$NliMargin,
         [string]$DirectionalFlip,
         [string]$Endorsement,
         [switch]$DirectionConflict
@@ -108,7 +108,7 @@ function New-OrgEdgeMatchMeta {
         $Meta['claim_text_sha256'] = [System.Convert]::ToHexString($Sha).ToLowerInvariant()
     }
     if ($NliDirection) { $Meta['nli_direction'] = $NliDirection }
-    if ($null -ne $NliConfidence) { $Meta['nli_confidence'] = [Math]::Round([double]$NliConfidence, 4) }
+    if ($null -ne $NliMargin) { $Meta['nli_margin'] = [Math]::Round([double]$NliMargin, 4) }
     if ($DirectionalFlip) { $Meta['directional_flip'] = $DirectionalFlip }
     if ($Endorsement) { $Meta['endorsement'] = $Endorsement }
     if ($DirectionConflict) { $Meta['direction_conflict'] = $true }
