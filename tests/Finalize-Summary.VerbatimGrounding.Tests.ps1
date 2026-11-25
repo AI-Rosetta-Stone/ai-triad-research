@@ -524,6 +524,33 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.R.Dropped | Should -Be 0
     }
 
+    It 'the quote''s last word printed after a footnote in mid-sentence is found; the quote is stored as written (t/389#52 (1))' {
+        $Body = 'This Article expands on the debate as AI entities become an even more integral part of our commercial'
+        $Note = '25. For more on this Act, see Section IV.C.3 of the earlier discussion.'
+        $Src = "$Body`r`n`r`n$Note`r`n`r`nlives.26 Thus, the solution is a new framework.`r`n"
+        $Out = & $script:Run $Src "$Body lives." 'doc-footnote-between'
+        $Out.R.Dropped | Should -Be 0
+        $Out.R.Interleaved | Should -Be 0
+        $Out.Stored | Should -Be "$Body lives."
+        # Not when the text between is long (over 500 letters), or does not start with a footnote number.
+        $Long = '25. ' + (('A long footnote sentence that goes on about other cases and statutes. ' * 10).Trim())
+        (& $script:Run "$Body`r`n`r`n$Long`r`n`r`nlives.26 Thus.`r`n" "$Body lives." 'doc-footnote-long').R.Dropped | Should -Be 1
+        (& $script:Run "$Body`r`n`r`nSome other paragraph of the text.`r`n`r`nlives.26 Thus.`r`n" "$Body lives." 'doc-not-footnote').R.Dropped | Should -Be 1
+    }
+
+    It 'an interleaved piece with a word the model left out, with no elision mark, fails the quote (t/389#52 (4), i37)' {
+        # Two-column layout: a line of the other column sits between the quote's two halves, and the source
+        # has "Meta CEO" where the model wrote only the name.
+        $Src = "Taking note of this trend, Meta CEO Mark Zuckerberg expects that a lot of the code will be built by AI in 2025`r`n`r`nOffice of Population Health, New York City Health and Hospitals, a line of the other column here`r`n`r`nwhile Salesforce CEO Marc Benioff proclaims that Salesforce will no longer hire software engineers.`r`n"
+        $Quote = 'Taking note of this trend, Mark Zuckerberg expects that a lot of the code will be built by AI in 2025 while Salesforce CEO Marc Benioff proclaims that Salesforce will no longer hire software engineers.'
+        (& $script:Run $Src $Quote 'doc-piece-deletion').R.Dropped | Should -Be 1
+        # The same layout with the model's words equal to the source's: stored as its two pieces.
+        $Src2 = $Src.Replace('Meta CEO Mark', 'Mark')
+        $Ok = & $script:Run $Src2 $Quote 'doc-piece-no-deletion'
+        $Ok.R.Dropped | Should -Be 0
+        $Ok.R.Interleaved | Should -Be 1
+    }
+
     It 'a footnote reference glued to the quote''s first or last word is not part of the word (t/389#47 (3))' {
         # "125Large-scale" and "SMEs3": the reference number is glued on by the converter. The quote's words are
         # whole words of the source, so the edge rule does not reject it; the stored text is the source's.

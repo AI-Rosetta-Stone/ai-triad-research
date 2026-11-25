@@ -52,6 +52,8 @@ $script:VerbatimLigatureMojibake = @(
 # a leading number ("113 ", "1416 R. Fang", "349. F. Heiding", "2)"), a bracketed tag ("[industry]"), or an
 # author with initials ("Heiding, F." / "F. Heiding,").
 $script:VerbatimEntryStartPattern = '^(?:\(?\p{Nd}{1,4}[.)*]?(?:\s+\S|(?=\p{Lu}))|\[[^\]\r\n]{1,40}\]|\p{Lu}[\p{L}\u2019''\-]+,\s+(?:\p{Lu}\.[ \u00A0]?)+|(?:\p{Lu}\.[ \u00A0]?)+\p{Lu}[\p{L}\u2019''\-]+,)'
+$script:VerbatimFootnoteMaxGap = 500      # letters of footnote text that may sit between two words of a quote (CL t/389#52 (1), stipulated)
+$script:VerbatimRejectPieceDeletion = $true   # an interleaved piece may not hold source words the quote lacks (CL t/389#52 (4))
 $script:VerbatimRequireEndWords = $true  # a snapped segment must begin and end on the source's own words (CL t/389#47 (3))
 $script:VerbatimListMarkerPattern = '^\(?\p{Nd}{1,3}[.)]$'   # "1." or "2)" on a line of its own: a list numeral, never a figure (CL t/389#42)
 # UTF-8 bytes of the snapshot's own mojibake quote marks (U+00F4, U+00F6, U+00C6, U+00E6) read as Latin-1.
@@ -611,6 +613,37 @@ function Get-VerbatimFigureVerdict {
     $Out
 }
 
+function Find-VerbatimTailAfterFootnote {
+    # The quote's last words, when the source prints them after a footnote that the page layout put in the
+    # middle of the sentence (CL t/389#52 (1), stipulated). $Tail is the quote's letters after the snapped
+    # piece; $After is where the piece ends in the source text. Found when
+    #   - the piece does not end a sentence (the quote resumes mid-sentence after the footnote),
+    #   - what follows starts, at the start of a line, with a footnote number,
+    #   - and within VerbatimFootnoteMaxGap letters the source has $Tail as whole words.
+    # Returns the text offset where the tail ends, or -1.
+    param([object]$Source, [string]$Tail, [int]$After)
+    if ($Tail.Length -eq 0 -or $After -le 0 -or $After -ge $Source.Text.Length) { return -1 }
+    $Text = if ($Source.PSObject.Properties['Work'] -and $Source.Work.Length -eq $Source.Text.Length) { $Source.Work } else { $Source.Text }
+    if ($Text[$After - 1] -match '[.!?]') { return -1 }
+    $Rest = $Text.Substring($After, [Math]::Min($Text.Length - $After, 40))
+    if ($Rest -notmatch '^[ \t]*\r?\n\s*\p{Nd}{1,4}(?:[.)\s]|$)') { return -1 }
+    $W = [Array]::BinarySearch($Source.WordOffset, $After)
+    if ($W -lt 0) { $W = -bnot $W }
+    if ($W -ge $Source.WordAt.Count) { return -1 }
+    $From = $Source.WordAt[$W]
+    $Limit = [Math]::Min($Source.Chars.Length, $From + $script:VerbatimFootnoteMaxGap + $Tail.Length)
+    $P = $From
+    while ($P -lt $Limit) {
+        $P = $Source.Chars.IndexOf($Tail, $P, $Limit - $P, [System.StringComparison]::Ordinal)
+        if ($P -lt 0) { return -1 }
+        $StartsWord = [Array]::BinarySearch($Source.WordAt, $P) -ge 0
+        $EndsWord = ($P + $Tail.Length -ge $Source.Chars.Length) -or ([Array]::BinarySearch($Source.WordAt, $P + $Tail.Length) -ge 0)
+        if ($StartsWord -and $EndsWord -and $P -gt $From) { return (Get-VerbatimTextOffset -Source $Source -Position ($P + $Tail.Length - 1)) + 1 }
+        $P++
+    }
+    -1
+}
+
 function Resolve-VerbatimSegment {
     # Decides one elision-free segment. Returns { Decision; Texts; Coverage; Start; End }: Decision is 'exact',
     # 'snapped', 'interleaved' or 'dropped', Texts is what to store, in order (empty when dropped), and
@@ -649,6 +682,21 @@ function Resolve-VerbatimSegment {
     }
     $Snap = Find-VerbatimSnap -Source $Source -Quote $Clean
     $Coverage = if ($Snap) { $Snap.Coverage } else { 0.0 }
+    # The quote's last words printed after a footnote in mid-sentence (t/389#52 (1)): one piece from the
+    # quote's first letter that stops short, and the rest right after the footnote. The whole quote is then
+    # in the source in order with only footnote text skipped, and is stored as the model wrote it.
+    if ($Snap -and $Snap.Contiguous -and $Clean -ceq $Segment -and @($Snap.Pieces).Count -eq 1) {
+        $Only = $Snap.Pieces[0]
+        if ($Only.QStart -eq 0 -and -not $Only.HeadPartial -and $Only.QEnd -lt $Snap.QuoteLetters -and $Only.QEnd -ge $script:VerbatimMinRun) {
+            $QLetters = (ConvertTo-EvidenceKey -Quote $Clean) -replace ' ', ''
+            $TailEnd = Find-VerbatimTailAfterFootnote -Source $Source -Tail $QLetters.Substring($Only.QEnd) -After $Only.End
+            if ($TailEnd -gt 0) {
+                $R = & $Result 'snapped' @($Segment) 1.0 $Snap
+                $R.End = $TailEnd
+                return $R
+            }
+        }
+    }
     if ($Snap -and $Coverage -ge $script:VerbatimSnapThreshold) {
         $Figure = Get-VerbatimFigureVerdict -Source $Source -Snap $Snap -Quote $Clean
         if ($Figure.Verdict -eq 'drop') { return (& $Result 'dropped' @() $Coverage $null) }
@@ -664,6 +712,23 @@ function Resolve-VerbatimSegment {
         $Texts = [System.Collections.Generic.List[string]]::new()
         $StoredPieces = [System.Collections.Generic.List[object]]::new()
         $StoredLetters = 0
+        # An interleaved piece is the source's text. If it has more letters than the part of the quote it
+        # stands for, the source has words there that the model left out without marking it ("Meta CEO Mark
+        # Zuckerberg" for the quote's "Mark Zuckerberg"), and storing the piece would put them back into the
+        # model's mouth (CL t/389#52 (4)). The segment fails. Counted on the repaired copy, by the same key
+        # as the quote.
+        if ($script:VerbatimRejectPieceDeletion -and -not $Snap.Contiguous) {
+            $KeyText = if ($Source.PSObject.Properties['Work'] -and $Source.Work.Length -eq $Source.Text.Length) { $Source.Work } else { $Source.Text }
+            foreach ($P in $Snap.Pieces) {
+                if ($P.QuoteLetters -lt $script:VerbatimMinRun) { continue }
+                $PieceLetters = ((ConvertTo-EvidenceKey -Quote $KeyText.Substring($P.Start, $P.End - $P.Start)) -replace ' ', '').Length
+                if ($PieceLetters -gt $P.QuoteLetters) {
+                    $Deletion = & $Result 'dropped' @() $Coverage $null
+                    Add-Member -InputObject $Deletion -NotePropertyName Rejected -NotePropertyValue $true
+                    return $Deletion
+                }
+            }
+        }
         foreach ($P in $Snap.Pieces) {
             # A piece too short to have been placed by itself is not stored as a quote.
             if ($P.QuoteLetters -lt $script:VerbatimMinRun) { continue }
