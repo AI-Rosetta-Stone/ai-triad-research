@@ -60,7 +60,7 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
         }
         It 'gives both ends of a range the percent form: <Range>' -ForEach @(
             @{ Range = '54-67%' }, @{ Range = "54$([char]0x2013)67%" }, @{ Range = "54$([char]0xFB)67%" }
-            @{ Range = "54$([char]0x393)$([char]0xC7)$([char]0xF4)67%" }, @{ Range = '54 to 67%' }, @{ Range = '54 to 67 percent' }
+            @{ Range = "54$([char]0x393)$([char]0xC7)$([char]0xF4)67%" }, @{ Range = '54 to 67%' }, @{ Range = '54 to 67 percent' }, @{ Range = '54to67%' }
         ) {
             Invoke-NumericDrop 'Accuracy was between 54% and 67%.' "Accuracy on the order of $Range was seen." @{ Percent = $true } | Should -Be 0
         }
