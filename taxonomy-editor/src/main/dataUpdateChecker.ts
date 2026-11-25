@@ -160,15 +160,20 @@ export async function pullDataUpdates(): Promise<{ success: boolean; message: st
       }
     } catch { /* telemetry — silent by design;  doesn't exist — normal */ }
 
-    // Auto-commit any dirty working tree so pull doesn't fail on conflicts
+    // t/682 (t/651): never commit local changes. The old `git add -A` + electron-auto commit
+    // swept user content (debates, chats, op-eds, feedback, analytics) into the public data
+    // repo's history. Now tracked edits are stashed around the pull (--autostash) and put back,
+    // and untracked files are never staged at all; git leaves them in place. If an incoming
+    // file would overwrite an untracked one, the pull refuses and we report that, losing nothing.
     const status = await runGit(['status', '--porcelain'], dataRoot);
-    if (status) {
-      await runGit(['add', '-A'], dataRoot);
-      await runGit(['-c', 'user.name=electron-auto', '-c', 'user.email=auto@local',
-        'commit', '-m', 'auto-commit: stash local changes before pull'], dataRoot);
+    const lines = status ? status.split('\n').filter(Boolean) : [];
+    const untracked = lines.filter(l => l.startsWith('??')).length;
+    const trackedChanged = lines.length - untracked;
+    if (lines.length > 0) {
+      console.warn(`[DataUpdateChecker] WARN pull with a dirty data root: ${untracked} untracked file(s) left unstaged and uncommitted; ${trackedChanged} tracked change(s) stashed around the pull and restored (t/682)`);
     }
 
-    const output = await runGit(['pull', '--rebase', 'origin', 'main'], dataRoot);
+    const output = await runGit(['pull', '--rebase', '--autostash', 'origin', 'main'], dataRoot);
     return { success: true, message: output || 'Up to date' };
   } catch (err) {
     getGlobalRecorder()?.record({
