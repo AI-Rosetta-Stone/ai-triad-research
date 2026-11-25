@@ -791,7 +791,7 @@ var baseEnv = [
   // t/4794: same reasoning as the three above — explicit, not relying on server.ts's
   // `|| 'analytics'` default. Staging overrides to its own staging-analytics container below.
   { name: 'AZURE_ANALYTICS_CONTAINER', value: 'analytics' }
-  // t/554 / t/503: overlay-state container name. Read only when OVERLAY_SHARED_STATE_ENABLED is set (not set here).
+  // t/554 / t/503: overlay-state container name. The server builds the store when the URL and container are set, but uses it only when OVERLAY_SHARED_STATE_ENABLED is set (not set here).
   { name: 'AZURE_OVERLAY_STATE_CONTAINER', value: 'overlay-state' }
   // t/3165 DURABLE close: the worker-offload flag lives HERE (baseEnv), not a CLI --set-env-vars —
   // a CLI value is wiped by the next full template deploy (the ephemeral-drift trap). It routes the
