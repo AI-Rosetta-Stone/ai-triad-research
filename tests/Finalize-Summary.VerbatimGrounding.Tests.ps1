@@ -478,14 +478,48 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.Stored | Should -Be $Quote
     }
 
-    It 'one numbers-only line between two segments of an elided quote is a page number, not a chart; two are a chart (t/389#42 (1))' {
+    It 'a numbers-only line between two segments of an elided quote is a page marker: the quote is dropped (t/389#45 (c))' {
         $A = 'Developers answer that the evaluations they run today were never designed for licensing.'
         $B = 'Auditors therefore ask for access to the weights and to the training data.'
-        $One = & $script:Run "$A`r`n`r`n17`r`n`r`nSome text between the two.`r`n$B`r`n" "$A [...] $B" 'doc-elision-one-number'
-        $One.R.Dropped | Should -Be 0
-        $One.Stored | Should -Be @($A, $B)
-        $Two = & $script:Run "$A`r`n`r`n64%`r`n`r`n39%`r`n`r`nSome text between the two.`r`n$B`r`n" "$A [...] $B" 'doc-elision-two-numbers'
-        $Two.R.Dropped | Should -Be 1
+        (& $script:Run "$A`r`n`r`n17`r`n`r`nSome text between the two.`r`n$B`r`n" "$A [...] $B" 'doc-elision-one-number').R.Dropped | Should -Be 1
+        (& $script:Run "$A`r`n`r`n64%`r`n`r`n39%`r`n`r`nSome text between the two.`r`n$B`r`n" "$A [...] $B" 'doc-elision-two-numbers').R.Dropped | Should -Be 1
+    }
+
+    It 'two bibliography entries joined by an ellipsis are not one passage (t/389#45 (a), G08, H04, H10)' {
+        $E1 = 'Nathan E. Sanders and Bruce Schneier, AI Will Write Complex Laws, Lawfare, January 16, 2025'
+        $E2 = 'Agencia Brasil, Brazilian City Enacts an Ordinance That Was Written by ChatGPT, AP News, January 11, 2025'
+        # A numbered entry: the next entry's number starts a paragraph in the gap.
+        (& $script:Run "116 $E1, https://www.example.org/article.`r`n`r`n117 $E2.`r`n" "$E1... $E2" 'doc-bib-number').R.Dropped | Should -Be 1
+        # Number and period, then an author with initials.
+        $F1 = 'Evaluating Large Language Models Capability to Launch Fully Automated Spear Phishing Campaigns'
+        $F2 = 'Conversational AI: The Convergence of Language Models and Customer Service in Practice'
+        $Src = "349. F. Heiding, S. Lermen, $F1, arXiv (2024).`r`n`r`n350. E. Hermann, S. Puntoni, $F2, Journal (2025).`r`n"
+        (& $script:Run $Src "$F1... $F2" 'doc-bib-number-period').R.Dropped | Should -Be 1
+        # No number: an entry that starts with an author and initials.
+        $Src2 = "Heiding, F., Lermen, S. $F1. arXiv, 2024.`r`n`r`nHermann, E., Puntoni, S. $F2. Journal, 2025.`r`n"
+        (& $script:Run $Src2 "$F1... $F2" 'doc-bib-author').R.Dropped | Should -Be 1
+        # A bracketed tag.
+        $Src3 = "[industry] OpenAI, $F1 (2025).`r`n`r`n[industry] Oracle, $F2 (2025).`r`n"
+        (& $script:Run $Src3 "$F1... $F2" 'doc-bib-tag').R.Dropped | Should -Be 1
+    }
+
+    It 'sentences of running prose joined by an ellipsis are kept, across a paragraph break and a footnote reference (t/389#45, H01, H03)' {
+        $A = 'Developers answer that the evaluations they run today were never designed for licensing.'
+        $B = 'Auditors therefore ask for access to the weights and to the training data.'
+        $Out = & $script:Run "$A`r`n`r`nSystem forces human approval of agent actions by default.`r`n`r`n$B`r`n" "$A [...] $B" 'doc-elision-paragraphs'
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be @($A, $B)
+        $A2 = 'Insurers argue that the impracticability of pricing such risk is the central obstacle'
+        $Out2 = & $script:Run "$A2.180`r`n`r`nAccording to this argument, $B`r`n" "$A2 [...] $B" 'doc-elision-footnote-ref'
+        $Out2.R.Dropped | Should -Be 0
+    }
+
+    It 'a ligature whose bytes were misread in the snapshot still matches the word (t/389#45, H06)' {
+        $Bad = "A signi$([char]0x2229)$([char]0x00BC)$([char]0x00FC)cant amount of recent work has focused on the AI alignment problem, broadly de$([char]0x2229)$([char]0x00BC)$([char]0x00FC)ned."
+        $Quote = "A signi$([char]0xFB01)cant amount of recent work has focused on the AI alignment problem, broadly de$([char]0xFB01)ned."
+        $Out = & $script:Run "Alignment. $Bad More text follows here.`r`n" $Quote 'doc-ligature-mojibake'
+        $Out.R.Dropped | Should -Be 0
+        "$($Out.Stored)" | Should -Match '^A signi' -Because 'the first word must not be trimmed off the stored text'
     }
 
     It 'a segment whose text occurs before and after the previous segment is placed after it (t/389#42 (2))' {

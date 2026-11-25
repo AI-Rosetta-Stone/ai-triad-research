@@ -43,6 +43,15 @@ $script:VerbatimHtmlTagPattern = '(?i)</?(?:a|abbr|article|aside|b|blockquote|br
 $script:VerbatimBlankLineRegex = [regex]::new('\r?\n(?:[ \t]*\r?\n)+')   # one or more blank lines
 $script:VerbatimFigureLinePattern = '^[^\p{L}\r\n]*\p{Nd}[^\p{L}\r\n]*$'      # a line with a digit and no letter
 $script:VerbatimFigureTokenPattern = '(?<!\S)[^\p{L}\s]*\p{Nd}[^\p{L}\s]*(?!\S)'  # a word with a digit and no letter
+# U+FB00..U+FB04 (ff, fi, fl, ffi, ffl) as their UTF-8 bytes EF AC 80..84 read in code page 437.
+$script:VerbatimLigatureMojibake = @(
+    @("`u{2229}`u{00BC}`u{00C7}", 'ff'), @("`u{2229}`u{00BC}`u{00FC}", 'fi'), @("`u{2229}`u{00BC}`u{00E9}", 'fl'),
+    @("`u{2229}`u{00BC}`u{00E2}", 'ffi'), @("`u{2229}`u{00BC}`u{00E4}", 'ffl')
+)
+# The start of a list or bibliography entry, tested on the first line of a paragraph (CL t/389#45, stipulated):
+# a leading number ("113 ", "1416 R. Fang", "349. F. Heiding", "2)"), a bracketed tag ("[industry]"), or an
+# author with initials ("Heiding, F." / "F. Heiding,").
+$script:VerbatimEntryStartPattern = '^(?:\(?\p{Nd}{1,4}[.)*]?(?:\s|$|(?=\p{Lu}))|\[[^\]\r\n]{1,40}\]|\p{Lu}[\p{L}\u2019''\-]+,\s+(?:\p{Lu}\.[ \u00A0]?)+|(?:\p{Lu}\.[ \u00A0]?)+\p{Lu}[\p{L}\u2019''\-]+,)'
 $script:VerbatimListMarkerPattern = '^\(?\p{Nd}{1,3}[.)]$'   # "1." or "2)" on a line of its own: a list numeral, never a figure (CL t/389#42)
 $script:VerbatimElisionMaxGap = 1000   # letters between two segments of an elided quote (CL t/389#40, stipulated; to be revisited)
 $script:VerbatimWordTail = 2           # source letters past a quote word's end that a stored piece may take (a plural)
@@ -65,6 +74,10 @@ function Get-VerbatimSource {
         $W = $W.Replace($From, $To + (' ' * ($From.Length - $To.Length)))
     }
     foreach ($P in $script:EvidenceMojibakeSingles) { $W = $W.Replace($P[0], $P[1]) }
+    # Ligatures whose UTF-8 bytes were read as code page 437 ("signi" + U+2229 U+00BC U+00FC + "cant" for
+    # "significant"; t/389#45, H06). Without this the word does not match the model's quote, and the stored
+    # piece starts after it. Same length, like the repairs above; only the matching copy changes.
+    foreach ($P in $script:VerbatimLigatureMojibake) { $W = $W.Replace($P[0], $P[1].PadRight(3)) }
     # Same-length blanking of what is not text (t/389#20): HTML tags, and two mojibake forms of a
     # no-break space and an ellipsis that read as letters ("N.<a-acute>Li", "Ma, <a-grave> D. Hendrycks").
     $W = [regex]::Replace($W, $script:VerbatimHtmlTagPattern, { param($M) ' ' * $M.Length })
@@ -660,25 +673,40 @@ function Find-VerbatimOccurrenceAfter {
 }
 
 function Test-VerbatimElisionGap {
-    # May two segments of an elided quote stand as one quote (CL rulings t/389#40 (4) and t/389#42 (1),
-    # stipulated)? They must be in source order, at most VerbatimElisionMaxGap letters apart, with no layout
-    # marker in the gap: a page break, a blanked page header, a table row, or a chart (two or more
-    # numbers-only lines; one alone is a page or footnote number, and a list numeral is not counted).
+    # May two segments of an elided quote stand as one quote (CL ruling t/389#45, stipulated; it replaces
+    # t/389#40 (4) and t/389#42 (1))? An elision may join two segments only if the source text between them
+    # is running prose. They must be in source order, and the gap fails if it has
+    #   (a) a paragraph that starts a list or bibliography entry (VerbatimEntryStartPattern);
+    #   (b) a table row;
+    #   (c) a page marker: a page break, a blanked page header, or a numbers-only line;
+    #   (d) more than VerbatimElisionMaxGap letters.
+    # Two references joined by an ellipsis are in order and close together, and are still not one passage.
     param([object]$Source, [int]$PrevEnd, [int]$NextStart)
     if ($NextStart -lt $PrevEnd) { return $false }
     $Gap = $Source.Text.Substring($PrevEnd, $NextStart - $PrevEnd)
     if (([regex]::Replace($Gap, '[^\p{L}\p{Nd}]', '')).Length -gt $script:VerbatimElisionMaxGap) { return $false }
     if ($Gap.IndexOf([char]12) -ge 0) { return $false }
     if ($Gap -match '(?m)^\s*\|' -or $Gap -match '\|\s[^|\r\n]*\|') { return $false }
-    $NumberLines = 0
-    foreach ($M in [regex]::Matches($Gap, '(?m)^[^\p{L}\r\n]*\p{Nd}[^\p{L}\r\n]*\r?$')) {
-        if ($M.Value.Trim() -notmatch $script:VerbatimListMarkerPattern) { $NumberLines++ }
+    # A numbers-only line, taken over whole source lines: the gap's first stretch is the rest of the previous
+    # segment's line (a footnote reference after its full stop, ".180", is not a line of its own), and its
+    # last stretch is the start of the next segment's line.
+    $GapLines = $Gap -split '\r?\n'
+    $FirstWhole = if ($PrevEnd -eq 0 -or $Source.Text[$PrevEnd - 1] -eq [char]10) { 0 } else { 1 }
+    for ($I = $FirstWhole; $I -lt $GapLines.Count - 1; $I++) {
+        if ($GapLines[$I] -match '^[^\p{L}]*\p{Nd}[^\p{L}]*$') { return $false }
     }
-    if ($NumberLines -ge 2) { return $false }
     if ($Source.BlankedAt.Count -gt 0) {
         $B = [Array]::BinarySearch($Source.BlankedAt, $PrevEnd)
         if ($B -lt 0) { $B = -bnot $B }
         if ($B -lt $Source.BlankedAt.Count -and $Source.BlankedAt[$B] -lt $NextStart) { return $false }
+    }
+    # The first line of each paragraph in the gap. The gap's own first stretch continues the previous
+    # segment's line, so it is not a paragraph start; its last stretch may be the start of the next segment's
+    # entry ("... \n\n113 " before the segment), which counts.
+    $Paragraphs = [regex]::Split($Gap, '\r?\n[ \t]*(?:\r?\n[ \t]*)+')
+    for ($I = 1; $I -lt $Paragraphs.Count; $I++) {
+        $First = ($Paragraphs[$I] -split '\r?\n')[0].TrimStart()
+        if ($First.Length -gt 0 -and $First -cmatch $script:VerbatimEntryStartPattern) { return $false }
     }
     $true
 }
