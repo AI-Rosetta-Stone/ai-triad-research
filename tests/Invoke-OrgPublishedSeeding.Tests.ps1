@@ -93,7 +93,8 @@ Describe 'Invoke-OrgPublishedSeeding (t/1553 Stage 0)' -Tag 'taxonomy' {
             $anthropicProposal.status     | Should -Be 'proposed'
             $anthropicProposal.match_meta.basis | Should -Be 'exact_url'
             $anthropicProposal.match_meta.stage | Should -Be 0
-            $anthropicProposal.rationale  | Should -Match "^Published on .+'s own site \(.+\)\.$" -Because 'the rationale is a sentence, not a diagnostic (t/584)'
+            $anthropicProposal.rationale  | Should -Match "^The document is on \S+, one of the sites listed in .+'s links\.$" -Because 'the rationale is a sentence, not a diagnostic, and a proposal does not claim publication (t/584)'
+            $anthropicProposal.rationale  | Should -Not -Match 'Published|Proposed' -Because 'the stored sentence names no status: nothing rewrites it on approval'
             $anthropicProposal.rationale  | Should -Not -Match 'match_basis'
             $anthropicProposal.source_refs | Should -Contain 'src-anthropic'
         }
