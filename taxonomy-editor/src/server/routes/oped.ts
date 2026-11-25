@@ -38,7 +38,9 @@ import { resolveGenerationContext, enforceBackendAllowed } from './generationCon
 import { resolveBackend } from '../ai/aiBackends.js';
 import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
 import { getProjectRoot } from '../config.js';
-import { createWebOpEdAdapter } from '../ai/opedAdapter.js';
+import { createWebOpEdAdapter, type WebOpEdAdapterOptions } from '../ai/opedAdapter.js';
+import { resolveOpEdFunding } from './opedFunding.js';
+import * as ai from '../ai/aiBackends.js';
 import { OUTLET_BANDS } from '../../../../lib/oped/outletBands.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
@@ -195,6 +197,7 @@ async function driveOpEdRun(
   writeFrame: (event: Record<string, unknown>) => void,
   heartbeat: ReturnType<typeof setInterval>,
   isClientGone: () => boolean,
+  adapterOptions: WebOpEdAdapterOptions = {},
 ): Promise<void> {
   const completed: OpEdMember[] = [];
   // t/2893: persist the run-control record to the shared store on each transition so the per-user
@@ -212,7 +215,9 @@ async function driveOpEdRun(
     // resolves in dist, tsc, AND vitest (a 3-ups path exists in none — it would 500 at runtime).
     const { generateOpEdSet } = await import('../../../../lib/oped/generate.js');
     const deps: OpEdGeneratorDeps = {
-      adapter: createWebOpEdAdapter(),
+      adapter: createWebOpEdAdapter(adapterOptions), // t/616: free-pool funding, when the run uses the pool
+      // t/541: grounding's query embedding goes through the server's worker ONNX session (one session per process).
+      embedQuery: (text: string) => ai.computeQueryEmbedding(text),
       // t/2609 relocated the op-ed .prompt files from scripts/AITriad/Prompts to
       // lib/oped/prompts; New-OpEd (PS), the parity gate, and Electron main (#1015) already
       // read the new location. The container ships them at /app/lib/oped/prompts via the
@@ -307,7 +312,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // entitlement path in routes/generationContext.ts, replacing the local resolveOpEdModel
     // mirror). Free tier's model is pinned; a free/restricted caller can't reach a premium
     // backend via params.model. Must precede any generation (JSON errors before the SSE headers).
-    const { tier, effectiveModel, backend } = resolveGenerationContext(req, params.model);
+    const { tier, effectiveModel, backend, limitKey } = resolveGenerationContext(req, params.model);
     const model = effectiveModel || DEFAULT_MODEL;
     // t/2687: reject an UNREGISTERED model before committing the SSE stream — the shared helper
     // doesn't (resolveBackend only prefix-guesses unknown → 'gemini', so an unregistered id would
@@ -348,8 +353,14 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
       sourceMaterial = fetched.content;
     }
 
-    // ── Commit SSE — no JSON error responses after this point ──
+    // ── Funding (t/616): free-pool keys, geo gate and run admission, all refused as JSON before the stream ──
     const runId = randomUUID();
+    const funding = await resolveOpEdFunding(req, res, {
+      tier, backend, limitKey, model, runId, voices: povs.length, sourceMaterial, outlet: params.outlet, wordCount: params.wordCount,
+    });
+    if (!funding.ok) return;
+
+    // ── Commit SSE — no JSON error responses after this point ──
     const setId = randomUUID();
     const ac = new AbortController();
     const run: RunControlRecord = { runId, userId, setId, status: 'running', perVoice: Object.fromEntries(povs.map(p => [p, 'pending' as VoiceState])), startedAt: Date.now() };
@@ -372,7 +383,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     writeFrame({ type: 'run_started', runId });
     // Generate with the entitlement-resolved (free-tier-pinned) model, not the raw request.
     const request: GenerateOpEdRequest = { set_id: setId, topic, params: { ...params, model }, povs: povs as PovKey[], sourceMaterial, ...documentSourceFields(documentText, sourceName), signal: ac.signal };
-    await driveOpEdRun(res, run, request, writeFrame, heartbeat, () => clientGone);
+    await driveOpEdRun(res, run, request, writeFrame, heartbeat, () => clientGone, funding.adapter);
   };
 
   post('/api/oped-sets', async (req, res, body) => {
@@ -398,6 +409,10 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // Shared store (was opedRuns.get). getOpedRun scopes to the caller's user dir, so another user's
     // run resolves to null → 404; the explicit userId check is defence-in-depth. A cross-replica
     // reconnect that finds no run falls back to GET /api/oped-sets/:setId (client contract, t/2610#3).
+    // t/616 (Security p/93#69): an anonymous caller never reads the run store. Anonymous run records are never written
+    // (opedRunStore.upsertOpedRun returns early), so there is nothing of theirs to read, and an anonymous caller with no
+    // anon_session_id has the storage id '_local', which would otherwise read the local owner's run directory.
+    if (isAnonymousUser()) { error(res, 'Run not found', 404); return; }
     const run = await getOpedRun(runId);
     if (!run || run.userId !== getStorageUserId()) { error(res, 'Run not found', 404); return; }
     json(res, { runId: run.runId, setId: run.setId, status: run.status, perVoice: run.perVoice });
