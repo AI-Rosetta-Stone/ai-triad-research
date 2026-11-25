@@ -186,9 +186,16 @@ Describe 'Invoke-GatedRollbackCore (t/266 b, SO condition 1)' -Tag 'devops' {
 
         It 'the wrapper deactivates only when Get-DrillDeactivateDecision says so' {
             $src = Get-Content "$PSScriptRoot/../operations/devops/Invoke-GatedRollback.ps1" -Raw
-            $src | Should -Match '\$drill = Get-DrillDeactivateDecision -Result \$r -DeactivateAfterMeasure:\$DeactivateAfterMeasure'
-            $src | Should -Match 'if \(-not \$drill\.Skip\) \{'
-            $src | Should -Not -Match "if \(\`$r\.Action -eq 'measured' -and \`$DeactivateAfterMeasure\)"
+            # The SO round 2 outer block stays (DeployAzureRetirePreviousRevision.Tests.ps1 pins it); the
+            # decision is its first act, and the double-sourced guard sits in its else branch.
+            $block = [regex]::Match($src, '(?s)if \(\$r\.Action -eq ''measured'' -and \$DeactivateAfterMeasure\) \{.*?\n\}').Value
+            $block | Should -Not -BeNullOrEmpty
+            $decide = $block.IndexOf('$drill = Get-DrillDeactivateDecision -Result $r -DeactivateAfterMeasure:$DeactivateAfterMeasure')
+            $decide | Should -BeGreaterThan -1
+            $skip = $block.IndexOf('if ($drill.Skip) {')
+            $skip | Should -BeGreaterThan $decide
+            $skip | Should -BeLessThan $block.IndexOf('Get-RevisionDeactivationVerdict -RevisionName')
+            $skip | Should -BeLessThan $block.IndexOf('az containerapp revision deactivate')
         }
 
         It 'no -GetActive at all (older callers): activate runs as before' {

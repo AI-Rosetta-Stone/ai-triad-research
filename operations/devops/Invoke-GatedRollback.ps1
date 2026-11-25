@@ -75,24 +75,29 @@ Write-Host "Gated rollback: $($r.Action) - $($r.Reason)"
 if ($r.AlreadyActive) { Write-Host "  target was already active: the activate step was skipped (t/513); every gate still ran" }
 Write-Host ("  activate->provisioned: {0}s   activate->healthy+warm: {1}s   fqdn: {2}" -f $r.ActivateToProvisionedSec, $r.ActivateToWarmSec, $r.Fqdn)
 
-$drill = Get-DrillDeactivateDecision -Result $r -DeactivateAfterMeasure:$DeactivateAfterMeasure
-if ($drill.Skip -and $DeactivateAfterMeasure) { Write-Host "  drill: NOT deactivating '$RevisionName': $($drill.Reason)" }
-if (-not $drill.Skip) {
-    # SO round 2: never deactivate a revision that carries traffic. Same double-sourced t/4242 guard
-    # as the deploy's cleanup (the revision's own weight AND the ingress traffic config, read fresh).
-    . (Join-Path $PSScriptRoot 'Get-RevisionDeactivationVerdict.ps1')
-    $raw = az containerapp revision show -n $AppName -g $ResourceGroup --revision $RevisionName -o json | ConvertFrom-Json
-    $app = az containerapp show -n $AppName -g $ResourceGroup -o json | ConvertFrom-Json
-    $entries = if ($app.properties.configuration.ingress.PSObject.Properties['traffic']) { @($app.properties.configuration.ingress.traffic) } else { $null }
-    $ingress = Get-IngressTrafficWeightForRevision -RevisionName $RevisionName -TrafficEntries $entries -LatestRevisionName $app.properties.latestRevisionName
-    $weight = if ($raw.properties.PSObject.Properties['trafficWeight']) { $raw.properties.trafficWeight } else { $null }
-    $guard = Get-RevisionDeactivationVerdict -RevisionName $RevisionName -TrafficWeight $weight -Active ([bool]$raw.properties.active) `
-        -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic
-    if ($guard.Action -eq 'deactivate') {
-        az containerapp revision deactivate -n $AppName -g $ResourceGroup --revision $RevisionName -o none
-        Write-Host "  drill: deactivated '$RevisionName' again (exit $LASTEXITCODE)"
+if ($r.Action -eq 'measured' -and $DeactivateAfterMeasure) {
+    # t/513 (Quality p/262#9): the drill deactivates only a revision it activated itself; an already-active
+    # standby (staging's weight-0 rollback target) is left alone.
+    $drill = Get-DrillDeactivateDecision -Result $r -DeactivateAfterMeasure:$DeactivateAfterMeasure
+    if ($drill.Skip) {
+        Write-Host "  drill: NOT deactivating '$RevisionName': $($drill.Reason)"
     } else {
-        Write-Host "  drill: NOT deactivating '$RevisionName': $($guard.Reason)"
+        # SO round 2: never deactivate a revision that carries traffic. Same double-sourced t/4242 guard
+        # as the deploy's cleanup (the revision's own weight AND the ingress traffic config, read fresh).
+        . (Join-Path $PSScriptRoot 'Get-RevisionDeactivationVerdict.ps1')
+        $raw = az containerapp revision show -n $AppName -g $ResourceGroup --revision $RevisionName -o json | ConvertFrom-Json
+        $app = az containerapp show -n $AppName -g $ResourceGroup -o json | ConvertFrom-Json
+        $entries = if ($app.properties.configuration.ingress.PSObject.Properties['traffic']) { @($app.properties.configuration.ingress.traffic) } else { $null }
+        $ingress = Get-IngressTrafficWeightForRevision -RevisionName $RevisionName -TrafficEntries $entries -LatestRevisionName $app.properties.latestRevisionName
+        $weight = if ($raw.properties.PSObject.Properties['trafficWeight']) { $raw.properties.trafficWeight } else { $null }
+        $guard = Get-RevisionDeactivationVerdict -RevisionName $RevisionName -TrafficWeight $weight -Active ([bool]$raw.properties.active) `
+            -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic
+        if ($guard.Action -eq 'deactivate') {
+            az containerapp revision deactivate -n $AppName -g $ResourceGroup --revision $RevisionName -o none
+            Write-Host "  drill: deactivated '$RevisionName' again (exit $LASTEXITCODE)"
+        } else {
+            Write-Host "  drill: NOT deactivating '$RevisionName': $($guard.Reason)"
+        }
     }
 }
 
