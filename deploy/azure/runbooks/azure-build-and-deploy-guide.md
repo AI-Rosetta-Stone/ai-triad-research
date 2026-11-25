@@ -180,7 +180,7 @@ The run is named `Deploy to Azure (production, sha-<sha>)`. **Check that the run
 1. **`preflight`:**
    - validates the SHA and resolves `sha-<sha>` to a digest (fails closed if the image is missing);
    - checks `vars.IDENTITY_MAP`;
-   - requires the commit's CI job `test-container` to pass. For docs-only tips it walks back up to 10 commits to find a CI run.
+   - requires a **trusted** green CI run for the SHA (`operations/devops/verify-deploy-ci.sh`, #5505, t/591). Trusted means a push to `main` or `epic/**`, `merge_group`, or `workflow_dispatch`; a `pull_request` run never counts. Its `test-container` job must be success or skipped. If the SHA has no CI run, it accepts the nearest ancestor that has one only when every file changed since then is in ci.yml's `paths-ignore`. If a trusted run is still in progress, it waits for it. A GitHub rate limit or API error blocks with "cannot verify CI", never "CI failed".
 2. **`pin-digest`:** ordering only.
 3. **`deploy`:**
    1. Waits for any staging deploy.
@@ -220,7 +220,7 @@ The incident path itself is in `docs/incident-response.md` ("Prod hotfix path").
    - Before proposing any route (environment, ref, SHA), run `deploy/azure/Test-DeployRoute.ps1 -Ref <ref> -Sha <sha> -WhatIfJsonPath <what-if.json>`. It checks the branch policy, the trusted CI run and the what-if, and exits non-zero unless all three pass (lands with t/612).
 3. **Build hotfix images from an `epic/` ref.** `Invoke-ContainerBuild.ps1` dispatches from `main`, which moves `:latest`. Push the hotfix commit to `epic/<ticket>-hotfix` and build there.
    - Pushing a commit that already exists on another branch may not start CI. Then dispatch it yourself: `gh workflow run ci.yml --ref epic/<ticket>-hotfix`.
-   - **Preflight CI-gate pitfall (until #5505, t/591, merges):** preflight reads the newest CI run for the SHA. A queued or cancelled `pull_request` run on the same SHA displaces a green dispatch run, and a GitHub rate-limit 403 reads as "CI failed". If preflight says CI failed on a SHA you know is green, check `gh run list --workflow=ci.yml --commit <sha>` before you do anything else. Don't cancel CI runs on a hotfix SHA; you may need them.
+   - **The preflight needs a trusted CI run on the hotfix SHA** (§5.3; fixed in #5505, t/591, 2026-11-25). Before #5505, a queued `pull_request` run displaced a green dispatch run, and a rate limit read as "CI failed". Now only trusted runs count, so a hotfix SHA needs a CI run from a push to `epic/**` or a `workflow_dispatch`. A PR run alone fails closed. Don't cancel CI runs on a hotfix SHA; the gate may need them.
 4. **The shared `containerImage` parameter feeds both apps.** A prod apply writes the deployed image into staging's template too, and an apply from an older template resets staging's cpu and memory to that template's values. After any prod apply, check staging:
    ```bash
    az containerapp show -n taxonomy-editor-staging -g ai-triad --query "properties.template.containers[0].{image:image,cpu:resources.cpu,memory:resources.memory}"
@@ -259,7 +259,8 @@ Then deactivate the broken revision. A rollback changes prod, so tell the PI rig
 |---|---|---|
 | Deploy job rejected by the environment | The dispatch ref isn't allowed by `production`'s branch policy | Dispatch from `main` with `-f sha=` (§5.5). Don't ask for the policy to be widened as a workaround. |
 | Preflight: tag absent or digest not found | No image was pushed for that SHA | Build it (§3) with the same SHA. |
-| Preflight: CI failed on a SHA you know is green | Displaced run or rate limit (§5.5) | Check the runs for the SHA; dispatch `ci.yml` if there's no trusted run. |
+| Preflight: no trusted green CI run for the SHA | Only `pull_request` runs exist, or the trusted run failed | Check `gh run list --workflow=ci.yml --commit <sha>`; dispatch `ci.yml` on the branch if there's no trusted run (§5.5). |
+| Preflight: "cannot verify CI" | GitHub rate limit or API error; not a CI failure | Wait for the reset it names, then re-dispatch once. |
 | Preflight: `IDENTITY_MAP` incomplete | Repo variable unset or partial | Stop and escalate to DevOps; it touches auth. |
 | "NOT a descendant of the commit already running in prod" | The deploy would move prod backward | Deploy a newer commit, or roll back (§6). |
 | What-if shows a delete or a change you didn't expect | Drift or a bad Bicep change | Stop and escalate to the Azure owner. |
