@@ -16,12 +16,15 @@ export function requireAdminOrOperator(res: http.ServerResponse): boolean {
   return requireAdmin(res);
 }
 
-/** The id an unauthenticated request derives to ('_local' principal), which is the owner's own id, never a visitor's. */
-export const LOCAL_DERIVED_ID = deriveStorageUserId('_local', '_local');
+/** The id an unauthenticated request derives to ('_local' principal), which is the owner's own id, never a visitor's.
+ *  Computed on call, not at module load, so importing this module has no side effects. */
+export function localDerivedId(): string {
+  return deriveStorageUserId('_local', '_local');
+}
 
 /** True when a signed-in, non-anonymous caller asks for their own id, and that id is not the '_local' one. */
 export function isOwnSignedInId(requested: string | undefined, callerId: string): boolean {
-  return requested !== undefined && !isAnonymousRequest() && callerId !== LOCAL_DERIVED_ID && requested === callerId;
+  return requested !== undefined && !isAnonymousRequest() && callerId !== localDerivedId() && requested === callerId;
 }
 
 /** 403 in the same shape as requireAdmin, for a branch that refuses without the admin check. */
