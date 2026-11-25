@@ -33,21 +33,46 @@ describe('t/618: finished chat reply parse check', () => {
     expect(fields()).toMatchObject({ fenced: false, recoveredByProductParser: true });
   });
 
-  it('a raw newline inside the response string (t/167#30): unrecovered, counted, with the parse error', () => {
+  it('a raw newline inside the response string (t/167#30): unrecovered, counted, with the error kind, position and character class', () => {
     checkFinishedChatReply('{"response":"line one\nline two","taxonomy_refs":[]}', TURN);
     expect(getChatReplyParseCounts()).toEqual({ strictFailures: 1, unrecovered: 1 });
-    expect(String(fields().parseError)).toMatch(/JSON|control character|position/i);
+    const f = fields();
+    expect(String(f.parseErrorKind)).toMatch(/JSON|control character|position/i);
+    expect(f.parseErrorPosition).toBe(21);
+    expect(f.charClassAtError).toBe('newline');
   });
 
-  it('logs only the first and last 40 characters of the reply, never the middle', () => {
-    const middle = 'SECRET-MIDDLE-CONTENT-'.repeat(20);
-    const reply = `${'A'.repeat(40)}${middle}${'Z'.repeat(40)}`;
-    checkFinishedChatReply(reply, TURN);
-    const f = fields();
-    expect(f.head).toBe('A'.repeat(40));
-    expect(f.tail).toBe('Z'.repeat(40));
-    expect(f.chars).toBe(reply.length);
-    expect(JSON.stringify(h.warn.mock.calls)).not.toContain('SECRET-MIDDLE');
+  // t/618 follow-up (TL p/16#434): structure only. A marker anywhere in the reply, at its start, middle, end or the
+  // parse-error position (which V8 quotes in its message), never reaches the WARN.
+  it('never logs reply text: a marker at the start, middle, end or error position is absent from the WARN', () => {
+    const M = 'MARKER-7f3a';
+    for (const reply of [
+      `${M} is not json at all`,
+      `{"response":"ok ${M} ok",${M}}`,
+      `prefix text then ${M}`,
+      `{"response":"${M}\nraw newline ${M}"}`,
+      `Here is ${M}: {"response":"${M}"} and more ${M}`,
+    ]) {
+      h.warn.mockClear();
+      checkFinishedChatReply(reply, TURN);
+      expect(h.warn).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(h.warn.mock.calls)).not.toContain(M);
+      const f = fields();
+      expect(f).not.toHaveProperty('head');
+      expect(f).not.toHaveProperty('tail');
+      expect(f).not.toHaveProperty('parseError');
+      expect(f.chars).toBe(reply.length);
+    }
+  });
+
+  it('parseErrorShape strips every quoted fragment from a V8 message; charClass never returns the character', async () => {
+    const { parseErrorShape, charClass } = await import('../routes/chatReplyParseCheck.js');
+    const s = parseErrorShape(`Unexpected token 'M', "MARKER-7f3a is not json" is not valid JSON`);
+    expect(s.kind).toBe(`Unexpected token <token>, <input> is not valid JSON`);
+    expect(parseErrorShape('Bad control character in string literal in JSON at position 21 (line 1 column 22)').position).toBe(21);
+    expect(['quote', 'json-punct', 'backslash', 'backtick', 'newline', 'whitespace', 'control', 'digit', 'letter', 'other', 'end', null])
+      .toEqual(expect.arrayContaining([charClass('é', 0), charClass('x', 5), charClass('x', null)]));
+    expect(charClass('a{', 1)).toBe('json-punct');
   });
 
   it('never throws, even on a pathological input', () => {
