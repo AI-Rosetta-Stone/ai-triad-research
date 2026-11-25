@@ -154,13 +154,21 @@ function parseCalibrationSource(source: string): string {
  *  public data repo, at any depth. Security found none in today's contents; this keeps it that way. */
 const IDENTITY_FIELD_RE = /^(?:user|users|user_?id|uid|email|e_?mail|by|owner|author|ip|ip_?address|session_?id|origin_?user|name|display_?name)$/i;
 
-export function stripIdentityFields<T>(value: T): T {
-  if (Array.isArray(value)) return value.map(v => stripIdentityFields(v)) as unknown as T;
-  if (!value || typeof value !== 'object') return value;
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (IDENTITY_FIELD_RE.test(k)) continue;
-    out[k] = stripIdentityFields(v);
+export function stripIdentityFields<T>(value: T, dropped: Set<string> = new Set(), top = true): T {
+  let out: unknown = value;
+  if (Array.isArray(value)) out = value.map(v => stripIdentityFields(v, dropped, false));
+  else if (value && typeof value === 'object') {
+    const kept: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (IDENTITY_FIELD_RE.test(k)) { dropped.add(k); continue; }
+      kept[k] = stripIdentityFields(v, dropped, false);
+    }
+    out = kept;
+  }
+  // SO (p/269#16): say when something is dropped, key names only (never values), so a later legitimate 'name',
+  // 'author' or 'by' field is noticed rather than silently lost. Today's data has none.
+  if (top && dropped.size > 0) {
+    log.server.warn({ droppedKeys: [...dropped].sort() }, 'calibration promote: identity fields dropped before the public data repo (t/638)');
   }
   return out as T;
 }

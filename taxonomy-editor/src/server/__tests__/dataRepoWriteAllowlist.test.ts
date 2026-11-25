@@ -101,6 +101,19 @@ describe('harvest and calibration content guards (t/638; Security p/228#34, TL p
     const out = stripIdentityFields({ debate_id: 'd-1', score: 0.8, user_id: 'u-1', email: 'a@b.c', meta: { by: 'admin', author: 'x', ok: 1 }, list: [{ userId: 'u', v: 2 }] });
     expect(out).toEqual({ debate_id: 'd-1', score: 0.8, meta: { ok: 1 }, list: [{ v: 2 }] });
   });
+
+  it('dropping an identity field logs a WARN with the key names only, never the values (SO p/269#16)', async () => {
+    const { stripIdentityFields } = await import('../storage/calibrationStore.js');
+    const { log } = await import('../logger.js');
+    const warn = vi.spyOn(log.server, 'warn').mockImplementation(() => undefined as unknown as ReturnType<typeof log.server.warn>);
+    stripIdentityFields({ debate_id: 'd-1', email: 'a@b.c', meta: { author: 'Someone' } });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toEqual({ droppedKeys: ['author', 'email'] });
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/a@b.c|Someone/);
+    warn.mockClear();
+    stripIdentityFields({ debate_id: 'd-2', score: 1 });
+    expect(warn).not.toHaveBeenCalled();
+  });
 });
 
 let githubCalls: string[];
