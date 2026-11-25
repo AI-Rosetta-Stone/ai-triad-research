@@ -252,6 +252,16 @@ function Test-CitationLinkIntegrity {
                 $cOff.Add([pscustomobject]@{ kind = 'stale-marks'; stored = $marksStored; recomputed = $marksNow })
             }
         }
+        # Legacy-chunk manifest (t/355, TL p/37#207): the list of chunks is an input of the index that
+        # neither hash above covers. It lives in this repo, so it is checked with or without a sources
+        # checkout. An index built before chunksHash existed (no field) is current exactly when the
+        # manifest is empty; with the 16 legacy chunks listed, such an index is stale and must be rebuilt.
+        $chunksNow = Get-SourceChunksHash -Resolution (New-IdentitySourceResolution)
+        $emptyChunks = Get-SourceChunksHash -Resolution ([pscustomobject]@{ Chunks = [hashtable]::new([System.StringComparer]::Ordinal) })
+        $chunksStored = if ($ix.PSObject.Properties['chunksHash']) { [string]$ix.chunksHash } else { $emptyChunks }
+        if ($chunksStored -ne $chunksNow) {
+            $cOff.Add([pscustomobject]@{ kind = 'stale-chunks'; stored = $chunksStored; recomputed = $chunksNow })
+        }
         # t/3896 (CL predicate correction): compare the index key SET to the live-node SET, not
         # just the count -- a swap (remove one POV node, add another) keeps counts equal while
         # the index carries a dead key and is missing the new node's key. A count-only check

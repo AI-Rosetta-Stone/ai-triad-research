@@ -97,7 +97,7 @@ function Build-NodeSourceIndex {
     $ErrorActionPreference = 'Stop'
 
     $SchemaVersion = 1
-    $BuilderVersion = '1.3.0'   # bump on any output-shape/serialization change (NOT per run); 1.1.0: marksHash (t/4337); 1.2.0: duplicate-group evidence union, entries may carry via (t/4337, spec 7); 1.3.0: listed legacy chunks fold into their base, entries may carry chunk_of (t/355, spec 6.2)
+    $BuilderVersion = '1.3.0'   # bump on any output-shape/serialization change (NOT per run); 1.1.0: marksHash (t/4337); 1.2.0: duplicate-group evidence union, entries may carry via (t/4337, spec 7); 1.3.0: listed legacy chunks fold into their base, entries may carry chunk_of, header carries chunksHash (t/355, spec 6.2)
 
     if (-not $SummariesDir) { $SummariesDir = Get-SummariesDir }
     if (-not $TaxonomyDir)  { $TaxonomyDir  = Get-TaxonomyDir }
@@ -217,6 +217,9 @@ function Build-NodeSourceIndex {
     # Separate from inputHash so the citation gate can still check summaries when no sources
     # checkout exists (-SkipSourceResolution); it compares marksHash only when sources resolve.
     $marksHash = Get-SourceMarksHash -Resolution $resolution
+    # The legacy-chunk manifest is a third input (t/355): a changed list changes the correct index without
+    # touching a summary or a mark, so the header carries its hash for the staleness check too.
+    $chunksHash = Get-SourceChunksHash -Resolution $resolution
 
     # ── Dedup + ordinal sort per node ───────────────────────────────────────────
     # Dedup key: source_id | quote | link_source | doc_position (SO cond 2 / CL #4).
@@ -272,6 +275,7 @@ function Build-NodeSourceIndex {
         builderVersion = $BuilderVersion
         inputHash     = $inputHash
         marksHash     = $marksHash
+        chunksHash    = $chunksHash
         totals        = [ordered]@{
             nodes   = $nodeIds.Count
             entries = $totalEntries

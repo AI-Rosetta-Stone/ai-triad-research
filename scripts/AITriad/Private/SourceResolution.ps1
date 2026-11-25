@@ -325,6 +325,29 @@ function Get-ListedSummaryFile {
     Select-SelectableSummaryFile -Files $all -Resolution (Get-DefaultSourceResolution -Caller $Caller)
 }
 
+function Get-SourceChunksHash {
+    <#
+    .SYNOPSIS
+        Content hash of the legacy-chunk manifest a resolution carries (t/355, TL p/37#207): sha256 over
+        the ordinally sorted 'chunk=>base' pairs joined with LF. Adding, removing or re-pointing an entry
+        changes it. The empty manifest hashes the empty string.
+    .DESCRIPTION
+        The manifest is an input of the node source index that neither inputHash (summaries) nor marksHash
+        (duplicate_of marks) covers, so the index header carries this hash and the staleness check compares it.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][pscustomobject]$Resolution)
+    $chunks = Get-SourceResolutionChunk -Resolution $Resolution
+    $pairs = [string[]]@(foreach ($k in $chunks.Keys) { "$k=>$($chunks[$k])" })
+    [Array]::Sort($pairs, [System.StringComparer]::Ordinal)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($pairs -join "`n")
+        -join ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') })
+    } finally { $sha.Dispose() }
+}
+
 function Get-SourceMarksHash {
     <#
     .SYNOPSIS

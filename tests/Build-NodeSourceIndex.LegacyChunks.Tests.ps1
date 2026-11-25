@@ -192,6 +192,32 @@ Describe 'Build-NodeSourceIndex: legacy chunks (spec 6.2 and 7, t/355)' -Tag 'co
         $added[0].PSObject.Properties['chunk_of'] | Should -BeNullOrEmpty
     }
 
+    It 'the header carries chunksHash, and the staleness check fails when the manifest changes after the build (TL p/37#207)' {
+        script:SetManifest @{ 'paper-2024-2' = 'paper-2024' }
+        $t = script:NewTree
+        script:WriteJson (Join-Path $t.Src 'paper-2024/metadata.json') @{ id = 'paper-2024' }
+        script:WriteJson (Join-Path $t.Sum 'paper-2024.json') (script:Summary 'paper-2024' 'The base document says one thing about oversight.')
+        script:WriteJson (Join-Path $t.Sum 'paper-2024-2.json') (script:Summary 'paper-2024-2' 'The second chunk says something else about audits.')
+        script:WriteJson (Join-Path $t.Tax 'situations.json') @{ nodes = @() }
+        $ix = script:Build $t
+        $ix.chunksHash | Should -Match '^[0-9a-f]{64}$'
+        $legC = { (Test-CitationLinkIntegrity -SummariesDir $t.Sum -TaxonomyDir $t.Tax -SourceIndexPath $t.Out -SourcesRoot $t.Src -WarningAction SilentlyContinue 6>$null).results | Where-Object leg -eq 'c' }
+        @((& $legC).offenders | Where-Object kind -eq 'stale-chunks').Count | Should -Be 0
+
+        # The list changes (an entry added): the index on disk no longer matches its inputs.
+        script:SetManifest @{ 'paper-2024-2' = 'paper-2024'; 'other-2023-1' = 'other-2023' }
+        $c = & $legC
+        $c.pass | Should -BeFalse
+        @($c.offenders | Where-Object kind -eq 'stale-chunks').Count | Should -Be 1
+
+        # An index with no chunksHash (built before 1.3.0) is stale while the manifest lists anything.
+        script:SetManifest @{ 'paper-2024-2' = 'paper-2024' }
+        $old = Get-Content -Raw -LiteralPath $t.Out | ConvertFrom-Json
+        $old.PSObject.Properties.Remove('chunksHash')
+        Set-Content -LiteralPath $t.Out -Value ($old | ConvertTo-Json -Depth 8) -Encoding utf8NoBOM
+        @((& $legC).offenders | Where-Object kind -eq 'stale-chunks').Count | Should -Be 1
+    }
+
     It 'PowerShell and TypeScript read the same manifest file' {
         $repo = (Resolve-Path "$PSScriptRoot/..").Path
         $file = Join-Path $repo 'docs/specs/source-identity-legacy-chunks.json'
