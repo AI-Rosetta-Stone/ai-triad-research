@@ -11,6 +11,7 @@ import path from 'path';
 import { getStateRoot } from './config.js';
 import { log } from './logger.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
+import { ActionableError } from '../../../lib/debate/errors.js';
 
 export interface AuthorizedUser {
   name: string;
@@ -51,4 +52,36 @@ export function loadAuthorizedUsers(): AuthorizedUsersFile | null {
     }
   }
   return null; // No file found = no restriction
+}
+
+/** True when this deployment needs the allowlist to gate sign-in: neither AUTH_DISABLED nor AUTH_OPTIONAL is set. */
+export function requiredAuthMode(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.AUTH_DISABLED !== '1' && env.AUTH_OPTIONAL !== '1';
+}
+
+/**
+ * t/625 (Security p/93#80): a hosted deployment in required-auth mode with no readable allowlist must fail CLOSED.
+ * loadAuthorizedUsers() returns null for a missing or unreadable file, and the gate reads null as "no restriction",
+ * so without this a missing file (for example a state root that was never seeded) would open the deployment to any
+ * signed-in user. Called once at boot, before the server listens; it throws and the process refuses to start.
+ * Hosted means Azure Container Apps (CONTAINER_APP_NAME is injected by the platform). Local, Electron and
+ * filesystem-mode runs, and any deployment in optional or disabled auth mode, are unaffected.
+ */
+export function assertAllowlistForRequiredAuth(
+  env: NodeJS.ProcessEnv = process.env,
+  load: () => AuthorizedUsersFile | null = loadAuthorizedUsers,
+): void {
+  if (!env.CONTAINER_APP_NAME || !requiredAuthMode(env)) return;
+  if (load() !== null) return;
+  throw new ActionableError({
+    goal: 'Start a hosted deployment that requires sign-in',
+    problem: `Required-auth mode (neither AUTH_DISABLED nor AUTH_OPTIONAL is set) but ${path.join(getStateRoot(), 'authorized-users.json')} is missing or unreadable, which would let any signed-in user in.`,
+    location: 'authorizedUsers.assertAllowlistForRequiredAuth',
+    nextSteps: [
+      "Seed authorized-users.json in this deployment's state root (AI_TRIAD_STATE_ROOT, or the data root when unset)",
+      'Or deploy with auth_mode optional or disabled if sign-in is not meant to be required',
+    ],
+    code: 'ALLOWLIST_MISSING_REQUIRED_AUTH',
+    httpStatus: 500,
+  });
 }

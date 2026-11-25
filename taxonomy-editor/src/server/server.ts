@@ -51,7 +51,7 @@ import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchNa
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
 import { anonRouteDecision } from './anonAiRoutes.js';
-import { loadAuthorizedUsers, type AuthorizedUsersFile } from './authorizedUsers.js';
+import { loadAuthorizedUsers, assertAllowlistForRequiredAuth, type AuthorizedUsersFile } from './authorizedUsers.js';
 import { getRollbackStatus } from './rollbackStatus.js';
 import { getErrorSummaryCached, type ErrorEntry } from './errorAggregation.js';
 import { isCaseStatus } from './support/types.js';
@@ -1284,6 +1284,7 @@ initAnonymousSessionStore({
 ensureFreePoolBudgetBooted(log);
 // ── Start ──
 assertStateRootIsolation(); // t/2643: refuse start if staging's state root wasn't isolated (env drift) — no-op prod/local
+assertAllowlistForRequiredAuth(); // t/625: a hosted required-auth deployment with no allowlist refuses to start (fail closed)
 // t/3296 (t/3290 prevention) → t/3309 Path B (step-3): assert taxonomy/ + dictionary/ are present AND
 // non-empty via the ACTIVE backend (validateDataRoot uses listDirectoryStrict — profile-agnostic: fs
 // local, GitHub Contents hosted; a transient blip throws rather than false-empties). The outcome is

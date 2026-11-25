@@ -15,7 +15,7 @@ vi.mock('../logger.js', () => {
 });
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 
-import { loadAuthorizedUsers } from '../authorizedUsers.js';
+import { loadAuthorizedUsers, assertAllowlistForRequiredAuth } from '../authorizedUsers.js';
 
 const ENV = ['AI_TRIAD_DATA_ROOT', 'AI_TRIAD_STATE_ROOT', 'FREE_TIER_GEMINI_KEY'];
 const saved: Record<string, string | undefined> = {};
@@ -72,5 +72,28 @@ describe('t/625: proxy-tiers.json comes from the state root', () => {
     write(dataRoot, 'proxy-tiers.json', tiers('alice', 'platform'));
     const { resolveTier } = await import('../ai/proxyTiers.js');
     expect(resolveTier('alice', 'github').level).toBe('platform');
+  });
+});
+
+describe('t/625 (Security p/93#80): a hosted required-auth deployment with no allowlist fails closed at boot', () => {
+  const ALLOW = () => ({ users: [{ name: 'a' }] });
+  const NONE = () => null;
+  it('ACA + required mode + no file: refuses to start (ALLOWLIST_MISSING_REQUIRED_AUTH)', () => {
+    expect(() => assertAllowlistForRequiredAuth({ CONTAINER_APP_NAME: 'taxonomy-editor-staging' }, NONE)).toThrow(/would let any signed-in user in/);
+  });
+  it('ACA + required mode + a readable file: starts', () => {
+    expect(() => assertAllowlistForRequiredAuth({ CONTAINER_APP_NAME: 'taxonomy-editor' }, ALLOW)).not.toThrow();
+  });
+  it('optional or disabled auth mode: the allowlist is not consulted, so no check', () => {
+    expect(() => assertAllowlistForRequiredAuth({ CONTAINER_APP_NAME: 'x', AUTH_OPTIONAL: '1' }, NONE)).not.toThrow();
+    expect(() => assertAllowlistForRequiredAuth({ CONTAINER_APP_NAME: 'x', AUTH_DISABLED: '1' }, NONE)).not.toThrow();
+  });
+  it('not hosted (local, Electron, filesystem mode): unchanged', () => {
+    expect(() => assertAllowlistForRequiredAuth({}, NONE)).not.toThrow();
+  });
+  it('the real loader: a state root with no file fails closed even when the data root has one', () => {
+    process.env.AI_TRIAD_STATE_ROOT = stateRoot;
+    write(dataRoot, 'authorized-users.json', users('prod-user'));
+    expect(() => assertAllowlistForRequiredAuth({ CONTAINER_APP_NAME: 'taxonomy-editor-staging' })).toThrow(/ALLOWLIST|signed-in/);
   });
 });
