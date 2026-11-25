@@ -342,8 +342,14 @@ for step in $PLAN; do
 '
         continue
       fi
-      tmp=$(mktemp -d) && extract_pushed "$tmp" "$@" &&
-        ( cd "$tmp" && pwsh -NoProfile -NonInteractive -File "$ROOT/operations/devops/Test-PowerShellSyntax.ps1" "$@" ) >&2 ;;
+      # t/614: the file list goes through a temp file, never the command line (as t/607's ps-lint step):
+      # thousands of changed .ps1 files would pass Windows' ~32 K limit and block the push with an
+      # unrelated error. printf is a builtin, so it has no such limit. Still the literal `pwsh` (t/289).
+      tmp=$(mktemp -d) && extract_pushed "$tmp" "$@" && parselist=$(mktemp) && printf '%s\n' "$@" > "$parselist" &&
+        ( cd "$tmp" && pwsh -NoProfile -NonInteractive -File "$ROOT/operations/devops/Test-PowerShellSyntax.ps1" -PathsFile "$parselist" ) >&2
+      rc=$?
+      rm -f "$parselist"
+      ( exit $rc ) ;;
     ps-lint)
       # t/607: CI's repo-wide PowerShell lint suites, under CI's pinned Pester, for the suites whose
       # inputs changed. They scan the WORKING TREE, so they can only judge this push when the pushed sha
