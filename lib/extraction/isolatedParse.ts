@@ -13,6 +13,7 @@
 
 import { fork } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,14 +67,28 @@ export function childEnvironment(): Record<string, string> {
  * with pnpm, which it is; otherwise lib/node_modules. Read-only, and it holds dependency code only.
  */
 function parserStoreRoot(): string {
-  const pdfjs = realpathSync(join(LIB_ROOT, 'node_modules', 'pdfjs-dist'));
-  let current = pdfjs;
-  while (basename(current) !== '.pnpm') {
-    const parent = dirname(current);
-    if (parent === current) return join(LIB_ROOT, 'node_modules');
-    current = parent;
+  return parserStoreRootFor(CHILD_PATH);
+}
+
+/**
+ * t/631: the store for the parsers as the child will find them, resolved from the child's own location. In the source
+ * tree that is lib's pnpm store. In a packed app (app.asar.unpacked) it is the node_modules next to the app's code,
+ * because lib/node_modules does not exist there. Exported so a test can run it against a packed-style layout.
+ */
+export function parserStoreRootFor(fromFile: string): string {
+  const req = createRequire(fromFile);
+  const pdfjs = realpathSync(req.resolve('pdfjs-dist/package.json'));
+  // pnpm store: the .pnpm directory holds every package the parsers need, with their dependencies.
+  for (let current = pdfjs; ; current = dirname(current)) {
+    if (basename(current) === '.pnpm') return current;
+    if (dirname(current) === current) break;
   }
-  return current;
+  // No pnpm store (a packed app): the node_modules directory that holds pdfjs-dist.
+  for (let current = pdfjs; ; current = dirname(current)) {
+    if (basename(current) === 'node_modules') return current;
+    if (dirname(current) === current) break;
+  }
+  throw new Error(`pdfjs-dist resolved to ${pdfjs} without a node_modules directory`);
 }
 
 /**
