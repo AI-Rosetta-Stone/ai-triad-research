@@ -70,21 +70,4 @@ export interface OrganizationEdge {
   source_refs?: string[];
   status?: string;
   discovered_at?: string;
-  /** Provenance written by the PowerShell edge writers (t/584). Optional; nothing branches on it (point-of-use exemption, t/584#3). */
-  match_meta?: OrganizationEdgeMatchMeta;
-}
-
-/** Matching provenance for an organization edge (t/584). Keys are the PowerShell writers' names; all optional except stage and basis. */
-export interface OrganizationEdgeMatchMeta {
-  stage: number;
-  basis: string;
-  families?: number;
-  best_cosine?: number;
-  claim_source_id?: string;
-  claim_text_sha256?: string;
-  nli_direction?: string;
-  nli_confidence?: number;
-  directional_flip?: string;
-  endorsement?: string;
-  direction_conflict?: boolean;
 }
