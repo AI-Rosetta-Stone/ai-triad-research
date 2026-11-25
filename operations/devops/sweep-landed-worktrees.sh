@@ -66,7 +66,7 @@ while IFS="$(printf '\t')" read -r path ref locked; do
   modified=$(git -C "$path" status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')
   untracked=$(git -C "$path" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
   if [ "$modified" != "0" ] || [ "$untracked" != "0" ]; then
-    echo "sweep-landed-worktrees: WARN $path ($branch) has merged ($merged) but is not clean: $modified modified/staged, $untracked untracked. Left in place; commit, stash or discard, then it is removed on the next sweep." >&2
+    echo "sweep-landed-worktrees: WARN $path ($branch) has merged ($merged) but is not clean: $modified modified/staged, $untracked untracked. Left in place; commit (and push) or discard the changes, never git stash (the stash list is shared across worktrees), then it is removed on the next sweep." >&2
     continue
   fi
 
