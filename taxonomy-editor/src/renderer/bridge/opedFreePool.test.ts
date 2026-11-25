@@ -1,0 +1,72 @@
+// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+// t/467: free-pool and anonymous-limit refusals become stable codes, before and during the stream
+// (TaxonomyServer p/74#27, #29, #32). No server text reaches the progress panel for a pool refusal.
+import { describe, it, expect, vi } from 'vitest';
+
+const record = vi.hoisted(() => vi.fn());
+vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record }) }));
+
+import { runOpEdCreate, opedProgressBus } from './opedStream';
+import { preStreamFreePoolCode, midStreamFreePoolCode, freePoolRefusalOf } from './opedFreePool';
+
+const params = { outlet: 'x', model: 'm', temperature: 0.2 } as never;
+const payload = { params, voices: ['acc', 'saf'], topic: 'x' } as never;
+
+const sse = (events: Record<string, unknown>[]) => new Response(
+  events.map((e, seq) => `data: ${JSON.stringify({ runId: 'r1', seq, event: e })}\n\n`).join(''),
+  { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+);
+const refusalFor = async (res: Response) => {
+  const err = await runOpEdCreate(vi.fn().mockResolvedValue(res), payload).then(() => null, (e: unknown) => e);
+  return freePoolRefusalOf(err);
+};
+
+describe('free-pool refusal codes (t/467)', () => {
+  it('maps each pre-stream status and code; anything else stays unmapped', () => {
+    expect(preStreamFreePoolCode(403, { error: 'free_pool_region' })).toBe('free_pool_region');
+    expect(preStreamFreePoolCode(503, { error: 'free_pool_empty' })).toBe('free_pool_unavailable');
+    expect(preStreamFreePoolCode(503, { error: 'Free tier is not available' })).toBe('free_pool_unavailable');
+    expect(preStreamFreePoolCode(429, { error: 'free_pool_exhausted' })).toBe('free_pool_exhausted');
+    expect(preStreamFreePoolCode(429, { error: 'free_pool_oped_limit' })).toBe('free_pool_oped_limit');
+    expect(preStreamFreePoolCode(429, { error: 'anon_oped_limit', limit: 10, used: 10 })).toBe('anon_oped_limit');
+    expect(preStreamFreePoolCode(429, { error: 'concurrency_limit' })).toBeNull();
+    expect(preStreamFreePoolCode(403, { reason: 'anon_route_blocked' })).toBeNull();
+    expect(preStreamFreePoolCode(400, { error: 'too many voices' })).toBeNull();
+  });
+
+  it('maps the mid-stream codes only', () => {
+    expect(['FREE_POOL_EXHAUSTED', 'FREE_POOL_UNAVAILABLE', 'ANON_RUN_COST_CEILING', 'OTHER', undefined].map(midStreamFreePoolCode))
+      .toEqual(['free_pool_exhausted', 'free_pool_unavailable', 'run_cost_ceiling', null, null]);
+  });
+
+  it('a pre-stream refusal carries its code and records the raw body with a WARN', async () => {
+    record.mockClear();
+    expect(await refusalFor(new Response(JSON.stringify({ error: 'free_pool_exhausted', resetsAt: 'x' }), { status: 429 }))).toEqual({ code: 'free_pool_exhausted', midStream: false });
+    expect(record.mock.calls.some(([e]) => e.level === 'warn' && /free_pool_exhausted/.test(e.message))).toBe(true);
+  });
+
+  it('an error frame with a pool code is a mid-stream refusal without a set id', async () => {
+    expect(await refusalFor(sse([{ type: 'run_started', runId: 'r1' }, { type: 'error', code: 'ANON_RUN_COST_CEILING', problem: 'raw' }])))
+      .toEqual({ code: 'run_cost_ceiling', midStream: true });
+  });
+
+  it('voices refused by the pool, then complete: a mid-stream refusal with the set id; no raw text in progress', async () => {
+    const seen: Array<{ voice: string; error?: string }> = [];
+    const off = opedProgressBus.onProgress((e) => { seen.push(e); });
+    const refusal = await refusalFor(sse([
+      { type: 'voice_complete', pov: 'acc' },
+      { type: 'voice_failed', pov: 'saf', code: 'FREE_POOL_EXHAUSTED', error: 'ActionableError: Goal: … $5 …' },
+      { type: 'complete', set: { set_id: 'set-9' } },
+    ]));
+    off();
+    expect(refusal).toEqual({ code: 'free_pool_exhausted', midStream: true, setId: 'set-9' });
+    expect(seen.find((e) => e.voice === 'saf')?.error).toBeUndefined();
+  });
+
+  it('a voice_failed without a code (before t/668) stays a generic failure, and the set resolves', async () => {
+    const res = sse([{ type: 'voice_failed', pov: 'saf', error: 'boom' }, { type: 'complete', set: { set_id: 'set-1' } }]);
+    await expect(runOpEdCreate(vi.fn().mockResolvedValue(res), payload)).resolves.toEqual({ set_id: 'set-1' });
+  });
+});

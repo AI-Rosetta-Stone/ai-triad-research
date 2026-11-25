@@ -18,6 +18,7 @@ const h = vi.hoisted(() => {
     anonymous: false,
     hasApiKey: vi.fn().mockResolvedValue(true),
     createOpEdSet: vi.fn(),
+    loadOpEdSet: vi.fn(),
     pickDocumentFile: vi.fn(),
     documentExtractionAvailable: vi.fn().mockResolvedValue(true),
     cancelOpEdSet: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('@bridge', () => ({
   api: {
     hasApiKey: h.hasApiKey,
     createOpEdSet: h.createOpEdSet,
+    loadOpEdSet: h.loadOpEdSet,
     pickDocumentFile: h.pickDocumentFile,
     documentExtractionAvailable: h.documentExtractionAvailable,
     cancelOpEdSet: h.cancelOpEdSet,
@@ -357,6 +359,16 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
     expect(await screen.findByRole('radio', { name: 'Document' })).toBeTruthy();
   });
 
+  it('t/467: the retention line shows for anonymous users only', () => {
+    h.anonymous = true;
+    const { unmount } = open();
+    expect(screen.getByText(/each one is removed 24 hours after you last open it/)).toBeTruthy();
+    unmount();
+    h.anonymous = false;
+    open();
+    expect(screen.queryByText(/each one is removed 24 hours after you last open it/)).toBeNull();
+  });
+
   it('t/467: anonymous users can enter a web page URL (no sign-in gate on URL sources)', () => {
     h.anonymous = true;
     open();
@@ -493,6 +505,41 @@ describe('NewOpEdDialog — draft + progress + cancel', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     expect(screen.getByText('The generator could not be reached.')).toBeTruthy();
     expect(screen.getByText('Check that PowerShell is installed')).toBeTruthy();
+  });
+
+  // t/467: free-pool refusals show Design's line (t/467#72, #74, #77), never the server's text.
+  const refuse = (freePool: Record<string, unknown>) =>
+    createOpEdSet.mockRejectedValue(Object.assign(new Error('raw server text'), { problem: 'raw server text', nextSteps: ['raw step'], freePool }));
+  const draft = () => {
+    fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'Mandatory audits' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Draft/ }));
+  };
+
+  it('t/467: a pre-stream refusal shows the anonymous line, with no server text', async () => {
+    h.anonymous = true;
+    refuse({ code: 'free_pool_region', midStream: false });
+    open();
+    draft();
+    await waitFor(() => expect(screen.getByText("Free op-eds aren't available in your region. To continue, sign in and add your own API key for this model in Settings > API Keys.")).toBeTruthy());
+    expect(screen.queryByText('raw server text')).toBeNull();
+    expect(h.loadOpEdSet).not.toHaveBeenCalled();
+  });
+
+  it('t/467: a signed-in user without a key gets the remedy without sign-in', async () => {
+    refuse({ code: 'free_pool_exhausted', midStream: false });
+    open();
+    draft();
+    await waitFor(() => expect(screen.getByText('Free op-eds have run out for now. Try again later, or add your own API key for this model in Settings > API Keys.')).toBeTruthy());
+  });
+
+  it('t/467: a stop partway through checks the set, then says the finished voices are saved', async () => {
+    h.anonymous = true;
+    h.loadOpEdSet.mockResolvedValue({ opeds: [{ status: 'complete' }, { status: 'failed' }] });
+    refuse({ code: 'run_cost_ceiling', midStream: true, setId: 'set-7' });
+    open();
+    draft();
+    await waitFor(() => expect(screen.getByText('This op-ed was stopped because it reached the spending limit for one free run. The voices that finished are saved. Open them from the My tab. Choosing fewer voices or a shorter length uses less.')).toBeTruthy());
+    expect(h.loadOpEdSet).toHaveBeenCalledWith('set-7');
   });
 });
 

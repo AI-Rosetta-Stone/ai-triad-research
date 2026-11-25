@@ -28,6 +28,8 @@ import { OpEdTagPicker, opEdTagBlocksStart, opEdTagSelection, type OpEdTagChoice
 import { registryOrNull } from '../debate/SeatTagPicker';
 import type { PovNode } from '@lib/debate/taxonomyTypes';
 import './NewOpEdDialog.css';
+import { freePoolRefusalOf } from '../../bridge/opedFreePool';
+import { ANON_RETENTION_LINE, partialStateFor, refusalLine } from './anonOpEdCopy';
 import {
   SOURCE_MODES, SourceSelector, DocumentField, hasSourceFor, sourceStartReason, useDocumentSource, useDocumentExtractionAvailable,
   type SourceMode, type DocumentState, type DocumentChoice,
@@ -511,6 +513,7 @@ function OpEdCreateForm(p: CreateFormProps) {
           setSourceMode={p.setSourceMode}
           modes={SOURCE_MODES.filter(m => (m !== 'web' || p.allowUrlSource) && (m !== 'document' || p.allowDocumentSource))}
         />
+        {p.isAnonymous && <p className="oped-signin-note">{ANON_RETENTION_LINE}</p>}
 
         {p.sourceMode === 'topic' && (
           <div>
@@ -879,7 +882,11 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
       onClose();
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'oped-new-dialog', level: 'error', message: 'Failed to create op-ed set', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      setStartError(toActionable(err));
+      // t/467: a free-pool or anonymous-limit refusal gets Design's line; after a stop partway through, the set
+      // is checked first so the line says what was really saved (t/467#77).
+      const refusal = freePoolRefusalOf(err);
+      const partial = refusal?.midStream ? await partialStateFor(refusal.setId, api.loadOpEdSet) : 'unknown';
+      setStartError(refusal ? { problem: refusalLine(refusal, isAnonymous, partial), nextSteps: [] } : toActionable(err));
       setCreating(false);
     } finally {
       unsub();

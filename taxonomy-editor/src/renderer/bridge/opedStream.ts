@@ -29,6 +29,7 @@ import { ActionableError } from '@lib/debate/errors';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { categorizeEndpoint, type ResilientFetchOptions } from './resilience';
 import type { CreateOpEdPayload, OpEdProgressEvent } from './types';
+import { preStreamFreePoolCode, midStreamFreePoolCode, freePoolError, type FreePoolCode } from './opedFreePool';
 
 type OpEdProgressCb = (event: OpEdProgressEvent) => void;
 const progressCbs = new Set<OpEdProgressCb>();
@@ -135,6 +136,9 @@ function refusedCreateError(goal: string, data: Record<string, unknown>, status:
  *  `isDocument` is set for a document-source create, so its 400s get the plain-language copy. */
 async function buildHttpError(res: Response, isDocument: boolean): Promise<ActionableError> {
   const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+  // t/467: free-pool and anonymous-limit refusals carry a code the dialog maps to Design's copy.
+  const pool = preStreamFreePoolCode(res.status, data);
+  if (pool) return freePoolError({ code: pool, midStream: false }, { status: res.status, body: data });
   const goal = 'Op-Ed Studio: create an op-ed';
   const anonLimit = res.status === 429 && (data.error === 'spend_ceiling' || data.error === 'rate_limited');
   let err: ActionableError;
@@ -163,10 +167,27 @@ function toProgress(event: Record<string, unknown>): OpEdProgressEvent | null {
   switch (event.type) {
     case 'voice_start': return { set_id: '', voice: pov, stage: 'generating' };
     case 'voice_complete': return { set_id: '', voice: pov, stage: 'complete' };
-    case 'voice_failed': return { set_id: '', voice: pov, stage: 'failed', error: typeof event.error === 'string' ? event.error : undefined };
+    // t/467: a pool refusal's raw text isn't shown; the dialog says why once the run ends.
+    case 'voice_failed': return { set_id: '', voice: pov, stage: 'failed', error: typeof event.error === 'string' && !midStreamFreePoolCode(event.code) ? event.error : undefined };
     case 'voice_cancelled': return { set_id: '', voice: pov, stage: 'cancelled' };
     default: return null; // grounding_done/failed (set-level) + run_started/complete
   }
+}
+
+/** The run's 'error' frame as a create error: a free-pool code (t/467) or the frame's own text. */
+function streamErrorFor(event: Record<string, unknown>): ActionableError {
+  const pool = midStreamFreePoolCode(event.code);
+  if (pool) return freePoolError({ code: pool, midStream: true }, event);
+  const evtProblem = typeof event.problem === 'string' ? event.problem : (typeof event.message === 'string' ? event.message : 'Op-ed generation failed on the server.');
+  return new ActionableError({ goal: 'Op-Ed Studio: create an op-ed', problem: evtProblem, location: 'opedStream.runOpEdCreate', nextSteps: ['Try creating it again', 'Check My Op-Eds — a partial op-ed may have been saved'] });
+}
+
+/** A finished stream's outcome: the run's error, a pool stop (t/467: the core completed with whatever finished, and
+ *  the dialog checks the set and says so), or the created set. Null when the stream gave no answer. */
+function settleRun(streamError: ActionableError | null, stoppedBy: FreePoolCode | null, setId: string | null): { set_id: string } | null {
+  if (streamError) throw streamError;
+  if (stoppedBy && setId) throw freePoolError({ code: stoppedBy, midStream: true, setId }, { setId });
+  return setId ? { set_id: setId } : null;
 }
 
 /** The web bridge's session-recovering fetch (injected to avoid a circular import). */
@@ -216,6 +237,7 @@ export async function runOpEdCreate(fetchFn: OpEdFetch, payload: CreateOpEdPaylo
   let runId = '';
   let resolvedSetId: string | null = null;
   let streamError: ActionableError | null = null;
+  let poolCode: FreePoolCode | null = null;
   try {
     await consumeSse(res, (frame) => {
       const event = (frame.event ?? frame) as Record<string, unknown>; // frames wrap: {runId, seq, event}
@@ -226,11 +248,8 @@ export async function runOpEdCreate(fetchFn: OpEdFetch, payload: CreateOpEdPaylo
         if (set && typeof set.set_id === 'string') resolvedSetId = set.set_id;
         return;
       }
-      if (event.type === 'error') {
-        const evtProblem = typeof event.problem === 'string' ? event.problem : (typeof event.message === 'string' ? event.message : 'Op-ed generation failed on the server.');
-        streamError = new ActionableError({ goal: 'Op-Ed Studio: create an op-ed', problem: evtProblem, location: 'opedStream.runOpEdCreate', nextSteps: ['Try creating it again', 'Check My Op-Eds — a partial op-ed may have been saved'] });
-        return;
-      }
+      if (event.type === 'error') { streamError = streamErrorFor(event); return; }
+      if (event.type === 'voice_failed') poolCode ??= midStreamFreePoolCode(event.code); // t/467 (t/668's code)
       const progress = toProgress(event);
       if (progress) emitProgress(progress);
     });
@@ -244,8 +263,9 @@ export async function runOpEdCreate(fetchFn: OpEdFetch, payload: CreateOpEdPaylo
   }
 
   activeAbort = null;
-  if (streamError) throw streamError as ActionableError;
-  if (resolvedSetId) return { set_id: resolvedSetId };
+  // Assigned inside the SSE callback, so TS can't see them change; widen explicitly.
+  const settled = settleRun(streamError as ActionableError | null, poolCode as FreePoolCode | null, resolvedSetId as string | null);
+  if (settled) return settled;
   // Stream ended cleanly but with no 'complete' frame (rare) — recover the terminal state.
   if (runId) return recoverFromRunStatus(fetchFn, runId);
   throw new ActionableError({ goal: 'Op-Ed Studio: create an op-ed', problem: 'The op-ed finished but no result was returned.', location: 'opedStream.runOpEdCreate', nextSteps: ['Check My Op-Eds — it may have been saved', 'Try creating it again'] });
