@@ -70,6 +70,7 @@ describe('t/590: every GET route is classified for anonymous callers', () => {
     expect(isAnonGetAllowlisted('/api/snapshots/src-1').allowed).toBe(false);
     expect(isAnonGetAllowlisted('/api/source-documents/doc-1/file').allowed).toBe(false);
     expect(isAnonGetAllowlisted('/api/source-documents/doc-1').allowed).toBe(true);
+    expect(ANON_GET_ROUTES['/api/source-documents/:docId'].class).toBe('metadata'); // t/677: no text for anonymous
     expect(isAnonGetAllowlisted('/api/summaries/doc-1').allowed).toBe(true);
   });
 

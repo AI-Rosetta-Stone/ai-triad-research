@@ -10,6 +10,8 @@
  * matcher would decide a path differently from the route the router actually serves.
  *
  *   shared       public taxonomy and corpus data, the same for every caller
+ *   metadata     allowed, but the handler must return METADATA ONLY to anonymous callers (no source text); any
+ *                handler change that adds content needs a Security review (t/574, t/677)
  *   per-visitor  the caller's own data, keyed on getStorageUserId() (anon-<uuid>), never _local (t/500, t/574 §3)
  *   status       small status the SPA needs for an anonymous visitor (flags, tier, availability)
  *   deny         not for anonymous callers: admin, owner-keyed, server internals, sign-in-only features
@@ -23,7 +25,7 @@
 
 import { log } from '../logger.js';
 
-export type AnonGetClass = 'shared' | 'per-visitor' | 'status' | 'deny';
+export type AnonGetClass = 'shared' | 'metadata' | 'per-visitor' | 'status' | 'deny';
 
 export interface AnonGetEntry {
   readonly class: AnonGetClass;
@@ -57,7 +59,8 @@ export const ANON_GET_ROUTES: Readonly<Record<string, AnonGetEntry>> = {
   '/api/organizations/by-topic/:topicRef': { class: 'shared', why: 'organizations by topic' },
   '/api/policy-registry': { class: 'shared', why: 'policy registry' },
   '/api/policy-source-index': { class: 'shared', why: 'policy sources panel' },
-  '/api/source-documents/:docId': { class: 'shared', why: 'source metadata' },
+  // PI t/574#13: anonymous callers get { available, type, signInRequired } only, never the snapshot text (t/677).
+  '/api/source-documents/:docId': { class: 'metadata', why: 'metadata only for anonymous callers (t/677); adding content needs Security review' },
   '/api/source-evidence-index': { class: 'shared', why: 'evidence index' },
   '/api/sources': { class: 'shared', why: 'source list' },
   '/api/summaries/:docId': { class: 'shared', why: 'summaries tab' },
