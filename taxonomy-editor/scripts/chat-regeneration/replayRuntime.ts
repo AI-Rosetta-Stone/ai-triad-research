@@ -30,7 +30,13 @@ export interface ReplayRuntime {
 }
 
 /** Start the runtime against the taxonomy-editor server at `serverUrl`. Call close() when done. */
-export async function startReplayRuntime(serverUrl: string): Promise<ReplayRuntime> {
+export interface ReplayRuntimeOptions {
+  /** The operator's own API key for the replay's model. Sent the way the web app sends a bring-your-own key
+   *  (sessionStorage 'byok-api-key' -> the chat-stream request body). Held in memory only. */
+  byokKey?: string;
+}
+
+export async function startReplayRuntime(serverUrl: string, options: ReplayRuntimeOptions = {}): Promise<ReplayRuntime> {
   const guard = createReplayFetchGuard({ baseUrl: serverUrl });
 
   // @ts-expect-error -- jsdom ships no types and @types/jsdom is not a dependency of this package
@@ -39,6 +45,7 @@ export async function startReplayRuntime(serverUrl: string): Promise<ReplayRunti
   const domWindow = dom.window as unknown as Record<string, unknown>;
   const globals = globalThis as Record<string, unknown>;
   for (const key of BROWSER_GLOBALS) globals[key] = domWindow[key];
+  if (options.byokKey) (domWindow.sessionStorage as Storage).setItem('byok-api-key', options.byokKey);
   globals.fetch = guard.fetch;
   domWindow.fetch = guard.fetch;
 

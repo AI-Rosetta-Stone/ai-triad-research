@@ -214,7 +214,10 @@ async function main() {
       process.exit(1);
     }
     console.log(`Replaying chat ${chat.id} ("${chat.title}", ${chat.transcript.length} entries) through ${opts.server}`);
-    const runtime = await startReplayRuntime(opts.server);
+    // The key comes from the environment, never from an argument, so it does not appear in a process list.
+    const byokKey = process.env.CHAT_REPLAY_BYOK_KEY?.trim() || undefined;
+    console.log(byokKey ? 'Using the bring-your-own key from CHAT_REPLAY_BYOK_KEY.' : 'No CHAT_REPLAY_BYOK_KEY set; the server must hold a key for the model.');
+    const runtime = await startReplayRuntime(opts.server, { byokKey });
     let exitCode = 0;
     try {
       const regenerated = await runtime.replay(chat, { fallbackModel: opts.model, overrideModel: opts.overrideModel });

@@ -64,7 +64,8 @@ describe('replaySessionThroughStore (t/287)', () => {
   beforeEach(() => {
     bridge.streamCalls.length = 0;
     const file = { nodes: [] };
-    useTaxonomyStore.setState({ accelerationist: file, safetyist: file, skeptic: file, situations: file } as never);
+    // t/490: the store holds a send until all four POV/situation files and the policy registry are loaded.
+    useTaxonomyStore.setState({ accelerationist: file, safetyist: file, skeptic: file, situations: file, policyRegistry: [] } as never);
   });
 
   it('regenerates each answer in place and keeps user messages untouched', async () => {

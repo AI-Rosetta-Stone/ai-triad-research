@@ -84,7 +84,9 @@ export function planReplay(session: ChatSession): Step[] {
 async function ensureTaxonomyLoaded(timeoutMs: number): Promise<void> {
   const loaded = () => {
     const s = useTaxonomyStore.getState();
-    return s.accelerationist !== null && s.safetyist !== null && s.skeptic !== null && s.situations !== null;
+    // The same parts the store waits for before a send (t/490), policy registry included.
+    return s.accelerationist !== null && s.safetyist !== null && s.skeptic !== null && s.situations !== null
+      && (s as { policyRegistry?: unknown }).policyRegistry !== null;
   };
   if (loaded()) return;
   await useTaxonomyStore.getState().loadAll();
