@@ -14,7 +14,7 @@ Batch your work into a vehicle: every change lands in one of three. We measure t
 
 **The vehicles.** Every ticket names its vehicle in a `Lands in:` line when it's created. Use the first that applies:
 
-1. **Incident PR:** only for an active incident with an open INCIDENT ticket, anchored to that ticket. Needs the TL's recorded go (or the hotfix path above).
+1. **Incident PR** (`incident/t<N>-<slug>`): only for an open ticket titled INCIDENT, anchored to that ticket. The open INCIDENT ticket is the go; there is no separate TL go. Declaring an incident (Security or the TL, `docs/incident-response.md`) is already the gate, and `enqueue-pr` checks the ticket, not a review. The hotfix path above still applies to prod deploys.
 2. **Feature PR:** branch `feat/t<N>-<slug>` (t/N is the feature's parent ticket). Only for a change spanning **2+ owners or 3+ tickets**. Child tickets commit to that branch, each owner in its own commits. One review pass (Quality; SO and TL for T2).
 3. **Area train:** everything else, including security fixes. Each area has one rolling train, and its owner merges finished tickets onto it continuously. **Trains close at 06:00Z and 18:00Z.** At close the owner opens one PR, or updates the open one, with a per-ticket table. A ticket not ready at close waits for the next train, about 12 hours.
   - Security fixes, whatever area they touch, ride `train/security-YYYYMMDD` (t/658, owner Security). They don't get their own PR.
