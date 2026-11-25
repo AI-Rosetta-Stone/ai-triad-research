@@ -58,6 +58,12 @@ asarUnpack:
   - "node_modules/core-util-is/**"
   - "node_modules/isarray/**"
   - "node_modules/process-nextick-args/**"
+  # t/662: the rest of the declared closure. duck (lop) and sprintf-js (argparse) are only reached from test and CLI
+  # code, and @napi-rs/canvas is pdfjs-dist's optional canvas; unpacked anyway so scripts/__tests__/asarUnpackParserDeps
+  # can hold the whole declared closure and a new dependency fails that test instead of hiding the Document source.
+  - "node_modules/duck/**"
+  - "node_modules/sprintf-js/**"
+  - "node_modules/@napi-rs/**"
 
 extraResources:
   - from: "../ai-models.json"
