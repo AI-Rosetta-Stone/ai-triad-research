@@ -109,7 +109,7 @@ Describe 'Invoke-PipelineAutoFireStage2' -Tag 'ingestion' {
     It 'returns current values unchanged under FIRE (no re-run)' {
         $summary = [pscustomobject]@{ k = 1 }
         $r = Invoke-PipelineAutoFireStage2 -IterativeExtraction -SummaryObject $summary `
-            -FullPrompt 'p' -SysInstruction 's' -Model 'm' -ApiKey 'k' -Temperature 0.1 `
+            -FullPrompt 'p' -SysInstruction 's' -Model 'gemini-3.5-flash-lite' -ApiKey 'k' -Temperature 0.1 `
             -ExtractionMaxTokens 100 -CurrentBackend 'be' -CurrentFireStats 'fs'
         $r.Summary | Should -Be $summary
         $r.Backend | Should -Be 'be'
@@ -121,7 +121,7 @@ Describe 'Invoke-PipelineAutoFireStage2' -Tag 'ingestion' {
         # Define a local stub so the dependency-free helper can resolve the call without the module.
         function Test-FireRequired { param($SummaryObject) @{ ShouldFire = $false } }
         $r = Invoke-PipelineAutoFireStage2 -SummaryObject $summary `
-            -FullPrompt 'p' -SysInstruction 's' -Model 'm' -ApiKey 'k' -Temperature 0.1 `
+            -FullPrompt 'p' -SysInstruction 's' -Model 'gemini-3.5-flash-lite' -ApiKey 'k' -Temperature 0.1 `
             -ExtractionMaxTokens 100 -CurrentBackend 'be' -CurrentFireStats 'fs'
         $r.Backend | Should -Be 'be'
     }

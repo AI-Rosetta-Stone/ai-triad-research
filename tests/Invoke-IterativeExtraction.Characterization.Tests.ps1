@@ -73,7 +73,7 @@ Describe 'Invoke-IterativeExtraction characterization' -Tag 'ingestion' {
             param($Prompt, $MaxTokens)
             New-Resp '{"factual_claims":[{"claim_label":"c0","claim":"X","evidence_criteria":{"specificity":"precise","has_warrant":true,"internally_consistent":true}}]}'
         }
-        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'm' -ApiKey '' -ConfidenceThreshold 0.7 -MaxIterPerClaim 1 -WallClockSeconds 30 3>$null
+        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'gemini-3.5-flash-lite' -ApiKey '' -ConfidenceThreshold 0.7 -MaxIterPerClaim 1 -WallClockSeconds 30 3>$null
         $r.FireStats.claims_confident | Should -Be 1
         $r.FireStats.claims_iterated | Should -Be 0
         $r.FireStats.termination_reason | Should -Be 'all_confident'
@@ -83,7 +83,7 @@ Describe 'Invoke-IterativeExtraction characterization' -Tag 'ingestion' {
 
     It 'Parse failure: Summary null, parse_failed stats shape' {
         $script:AIHandler = { param($Prompt, $MaxTokens) New-Resp 'not json at all {' }
-        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'm' -ApiKey '' 3>$null
+        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'gemini-3.5-flash-lite' -ApiKey '' 3>$null
         $r.Summary | Should -BeNullOrEmpty
         $r.FireStats.termination_reason | Should -Be 'parse_failed'
         $r.FireStats.parse_failed | Should -BeTrue
@@ -93,7 +93,7 @@ Describe 'Invoke-IterativeExtraction characterization' -Tag 'ingestion' {
 
     It 'No factual_claims: termination no_claims' {
         $script:AIHandler = { param($Prompt, $MaxTokens) New-Resp '{"pov_summaries":{}}' }
-        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'm' -ApiKey '' 3>$null
+        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'gemini-3.5-flash-lite' -ApiKey '' 3>$null
         $r.FireStats.termination_reason | Should -Be 'no_claims'
         $r.FireStats.claims_total | Should -Be 0
         $r.Summary | Should -Not -BeNullOrEmpty
@@ -101,7 +101,7 @@ Describe 'Invoke-IterativeExtraction characterization' -Tag 'ingestion' {
 
     It 'Null initial result throws via New-ActionableError' {
         $script:AIHandler = { param($Prompt, $MaxTokens) $null }
-        { Invoke-IterativeExtraction -Prompt 'p' -Model 'm' -ApiKey '' 3>$null } | Should -Throw
+        { Invoke-IterativeExtraction -Prompt 'p' -Model 'gemini-3.5-flash-lite' -ApiKey '' 3>$null } | Should -Throw
     }
 
     It 'Drops a claim whose verification says verified=false; counts the drop' {
@@ -117,7 +117,7 @@ Describe 'Invoke-IterativeExtraction characterization' -Tag 'ingestion' {
             }
             New-Resp '{"claim_label":"claim-1","verified":true,"refined_claim":"A real claim, refined","evidence_criteria":{"specificity":"precise","has_warrant":true,"internally_consistent":true},"confidence":0.9}'
         }
-        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'm' -ApiKey '' -ConfidenceThreshold 0.7 -MaxIterPerClaim 1 -WallClockSeconds 30 3>$null
+        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'gemini-3.5-flash-lite' -ApiKey '' -ConfidenceThreshold 0.7 -MaxIterPerClaim 1 -WallClockSeconds 30 3>$null
         @($r.Summary.factual_claims).Count | Should -Be 1
         $r.Summary.factual_claims[0].claim_label | Should -Be 'claim-1'
         @($r.Summary.factual_claims | Where-Object { $_.claim -match 'does not contain' }) | Should -BeNullOrEmpty
@@ -139,7 +139,7 @@ Describe 'Invoke-IterativeExtraction characterization' -Tag 'ingestion' {
             }
             New-Resp '{"claim_label":"claim-0","verified":true,"refined_claim":"International trade tariffs reduce consumer purchasing power elsewhere","evidence_criteria":{"specificity":"precise","has_warrant":true,"internally_consistent":true},"confidence":0.85}'
         }
-        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'm' -ApiKey '' -ConfidenceThreshold 0.7 -MaxIterPerClaim 1 -WallClockSeconds 30 3>$null
+        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'gemini-3.5-flash-lite' -ApiKey '' -ConfidenceThreshold 0.7 -MaxIterPerClaim 1 -WallClockSeconds 30 3>$null
         $r.Summary.factual_claims[0].drift_warning | Should -BeTrue
         $r.FireStats.claims_drifted | Should -BeGreaterOrEqual 1
     }
@@ -154,7 +154,7 @@ Describe 'Invoke-IterativeExtraction characterization' -Tag 'ingestion' {
             }
             New-Resp '{"claim_label":"claim-0","verified":true,"refined_claim":"Some observation, sharpened","evidence_criteria":{"specificity":"precise","has_warrant":true,"internally_consistent":true},"confidence":0.9}'
         }
-        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'm' -ApiKey '' -ConfidenceThreshold 0.7 -MaxIterPerClaim 1 -WallClockSeconds 30 3>$null
+        $r = Invoke-IterativeExtraction -Prompt 'p' -Model 'gemini-3.5-flash-lite' -ApiKey '' -ConfidenceThreshold 0.7 -MaxIterPerClaim 1 -WallClockSeconds 30 3>$null
         $r.FireStats.claims_iterated | Should -Be 1
         $r.FireStats.claims_drifted | Should -Be 0
         $r.FireStats.total_api_calls | Should -Be 2
