@@ -5,7 +5,9 @@
 <#
     t/607: the pre-push run of CI's repo-wide PowerShell lints (operations/devops/Invoke-PrePushPsLint.ps1,
     wired as the `ps-lint` step of operations/devops/pre-push-checks.sh).
-    a) acceptance: a test file gaining -Model 'm' is refused with ModelLiteralLint's own message;
+    a) acceptance: a test file gaining an unregistered model id literal (the id m) is refused with
+       ModelLiteralLint's own message. The fixture line is assembled at run time, so this file itself
+       holds no such literal (ModelLiteralLint scans tests/, comments included);
     b) a push with no lint input changed runs nothing;
     c) Pester not at CI's pin (or the pin unreadable): WARN naming the install command, exit 3 (never a pass);
     d) the pins: every tests/*Lint*.Tests.ps1 is listed or excluded with a reason; every filtered Describe
@@ -132,7 +134,7 @@ Describe 'Invoke-PrePushPsLint: what runs' -Tag 'devops' {
         } finally { Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue }
     }
 
-    It 'a) ACCEPTANCE: a test file gaining -Model ''m'' is refused, with ModelLiteralLint''s message' -Skip:(-not $HavePin) {
+    It 'a) ACCEPTANCE: a test file gaining an unregistered model id is refused, with ModelLiteralLint''s message' -Skip:(-not $HavePin) {
         $root = script:New-ScratchRoot
         try {
             # The tree ModelLiteralLint reads: tests/, scripts/ (the AITriad module and ModelLiteralScan.ps1),
@@ -145,7 +147,8 @@ Describe 'Invoke-PrePushPsLint: what runs' -Tag 'devops' {
             Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'ai-models.json') -Destination $root
             Copy-Item -LiteralPath (Join-Path $script:RepoRoot '.github' 'workflows' 'ci.yml') -Destination (Join-Path $root '.github' 'workflows')
             Set-Content -LiteralPath (Join-Path $root 'tests' 'ZzPrePushAcceptance.Tests.ps1') -Value @(
-                "Describe 'fixture' { It 'uses a model' { Invoke-Something -Model 'm' } }")
+                # Assembled, so no literal of that shape sits in this file for the real lint to flag.
+                ("Describe 'fixture' {{ It 'uses a model' {{ Invoke-Something -{0} '{1}' }} }}" -f 'Model', 'm'))
             $r = script:Invoke-Runner -Root $root -Files 'tests/ZzPrePushAcceptance.Tests.ps1'
             $r.Exit | Should -Be 1 -Because $r.Out
             $r.Out | Should -Match "ZzPrePushAcceptance\.Tests\.ps1:1 names unregistered id 'm'"
