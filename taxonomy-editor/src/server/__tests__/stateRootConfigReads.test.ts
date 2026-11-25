@@ -15,7 +15,7 @@ vi.mock('../logger.js', () => {
 });
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 
-import { loadAuthorizedUsers, assertAllowlistForRequiredAuth } from '../authorizedUsers.js';
+import { loadAuthorizedUsers, resolveAllowlist, allowlistRequiredButMissing } from '../authorizedUsers.js';
 
 const ENV = ['AI_TRIAD_DATA_ROOT', 'AI_TRIAD_STATE_ROOT', 'FREE_TIER_GEMINI_KEY'];
 const saved: Record<string, string | undefined> = {};
@@ -75,25 +75,39 @@ describe('t/625: proxy-tiers.json comes from the state root', () => {
   });
 });
 
-describe('t/625 (Security p/93#80): a hosted required-auth deployment with no allowlist fails closed at boot', () => {
+describe('t/625 (Security p/93#80, p/93#100): a hosted required-auth deployment with no allowlist fails closed at the gate', () => {
   const ALLOW = () => ({ users: [{ name: 'a' }] });
   const NONE = () => null;
-  it('ACA + required mode + no file: refuses to start (ALLOWLIST_MISSING_REQUIRED_AUTH)', () => {
-    expect(() => assertAllowlistForRequiredAuth({ CONTAINER_APP_NAME: 'taxonomy-editor-staging' }, NONE)).toThrow(/would let any signed-in user in/);
+  const HOSTED = { CONTAINER_APP_NAME: 'taxonomy-editor-staging' };
+  it('hosted + required mode + no file: an EMPTY allowlist (the required gate then denies every sign-in), never null', () => {
+    expect(resolveAllowlist(HOSTED, NONE)).toEqual({ users: [] });
+    expect(allowlistRequiredButMissing(HOSTED, NONE)).toBe(true);
   });
-  it('ACA + required mode + a readable file: starts', () => {
-    expect(() => assertAllowlistForRequiredAuth({ CONTAINER_APP_NAME: 'taxonomy-editor' }, ALLOW)).not.toThrow();
+  it('hosted + required mode + a readable file: that file, and ready', () => {
+    expect(resolveAllowlist(HOSTED, ALLOW)).toEqual(ALLOW());
+    expect(allowlistRequiredButMissing(HOSTED, ALLOW)).toBe(false);
   });
-  it('optional or disabled auth mode: the allowlist is not consulted, so no check', () => {
-    expect(() => assertAllowlistForRequiredAuth({ CONTAINER_APP_NAME: 'x', AUTH_OPTIONAL: '1' }, NONE)).not.toThrow();
-    expect(() => assertAllowlistForRequiredAuth({ CONTAINER_APP_NAME: 'x', AUTH_DISABLED: '1' }, NONE)).not.toThrow();
+  it('optional or disabled auth mode: unaffected (null = the allowlist is not consulted), and ready', () => {
+    for (const mode of [{ AUTH_OPTIONAL: '1' }, { AUTH_DISABLED: '1' }]) {
+      expect(resolveAllowlist({ ...HOSTED, ...mode }, NONE)).toBeNull();
+      expect(allowlistRequiredButMissing({ ...HOSTED, ...mode }, NONE)).toBe(false);
+    }
   });
   it('not hosted (local, Electron, filesystem mode): unchanged', () => {
-    expect(() => assertAllowlistForRequiredAuth({}, NONE)).not.toThrow();
+    expect(resolveAllowlist({}, NONE)).toBeNull();
+    expect(allowlistRequiredButMissing({}, NONE)).toBe(false);
   });
-  it('the real loader: a state root with no file fails closed even when the data root has one', () => {
+  it('never throws (no boot crash on a slow mount); a late file is picked up on the next read', () => {
+    let present = false;
+    const late = () => (present ? ALLOW() : null);
+    expect(() => resolveAllowlist(HOSTED, late)).not.toThrow();
+    expect(resolveAllowlist(HOSTED, late)).toEqual({ users: [] });
+    present = true;
+    expect(resolveAllowlist(HOSTED, late)).toEqual(ALLOW());
+  });
+  it('the real loader: a state root with no file denies even when the data root has one', () => {
     process.env.AI_TRIAD_STATE_ROOT = stateRoot;
     write(dataRoot, 'authorized-users.json', users('prod-user'));
-    expect(() => assertAllowlistForRequiredAuth({ CONTAINER_APP_NAME: 'taxonomy-editor-staging' })).toThrow(/ALLOWLIST|signed-in/);
+    expect(resolveAllowlist(HOSTED)).toEqual({ users: [] });
   });
 });

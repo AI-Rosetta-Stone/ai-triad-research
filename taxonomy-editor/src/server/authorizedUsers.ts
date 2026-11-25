@@ -59,29 +59,46 @@ export function requiredAuthMode(env: NodeJS.ProcessEnv = process.env): boolean 
   return env.AUTH_DISABLED !== '1' && env.AUTH_OPTIONAL !== '1';
 }
 
+/** A hosted deployment (Azure Container Apps injects CONTAINER_APP_NAME) that requires sign-in. */
+function hostedRequiredAuth(env: NodeJS.ProcessEnv): boolean {
+  return !!env.CONTAINER_APP_NAME && requiredAuthMode(env);
+}
+
 /**
- * t/625 (Security p/93#80): a hosted deployment in required-auth mode with no readable allowlist must fail CLOSED.
- * loadAuthorizedUsers() returns null for a missing or unreadable file, and the gate reads null as "no restriction",
- * so without this a missing file (for example a state root that was never seeded) would open the deployment to any
- * signed-in user. Called once at boot, before the server listens; it throws and the process refuses to start.
- * Hosted means Azure Container Apps (CONTAINER_APP_NAME is injected by the platform). Local, Electron and
- * filesystem-mode runs, and any deployment in optional or disabled auth mode, are unaffected.
+ * t/625 (Security p/93#80, p/93#100): a hosted, required-auth deployment with no readable allowlist fails CLOSED at the
+ * gate. loadAuthorizedUsers() returns null for a missing or unreadable file, and the gate reads null as "no restriction",
+ * so a state root that wasn't seeded (or a mount that hasn't settled yet) would let any signed-in user in. Here null is
+ * replaced by an EMPTY allowlist: the required-auth gate then runs and denies every sign-in (403 user_not_in_allowlist).
+ * The caller's cache re-reads every 30 s, so a late mount recovers without a restart. No boot throw: a slow mount must
+ * not crash-loop the process (t/2683, t/3309). /readyz reports it (allowlistRequiredButMissing). Unchanged: local,
+ * Electron and filesystem-mode runs; optional or disabled auth mode (null still means "not consulted" there); and
+ * AUTH_ALLOW_ALL_SIGNED_IN, which by design admits any signed-in user whatever the list holds.
  */
-export function assertAllowlistForRequiredAuth(
+export function resolveAllowlist(
   env: NodeJS.ProcessEnv = process.env,
   load: () => AuthorizedUsersFile | null = loadAuthorizedUsers,
-): void {
-  if (!env.CONTAINER_APP_NAME || !requiredAuthMode(env)) return;
-  if (load() !== null) return;
-  throw new ActionableError({
-    goal: 'Start a hosted deployment that requires sign-in',
-    problem: `Required-auth mode (neither AUTH_DISABLED nor AUTH_OPTIONAL is set) but ${path.join(getStateRoot(), 'authorized-users.json')} is missing or unreadable, which would let any signed-in user in.`,
-    location: 'authorizedUsers.assertAllowlistForRequiredAuth',
+): AuthorizedUsersFile | null {
+  const loaded = load();
+  if (loaded !== null || !hostedRequiredAuth(env)) return loaded;
+  const err = new ActionableError({
+    goal: 'Gate sign-in on a hosted deployment that requires it',
+    problem: `Required-auth mode but ${path.join(getStateRoot(), 'authorized-users.json')} is missing or unreadable; denying every sign-in until it is present.`,
+    location: 'authorizedUsers.resolveAllowlist',
     nextSteps: [
       "Seed authorized-users.json in this deployment's state root (AI_TRIAD_STATE_ROOT, or the data root when unset)",
       'Or deploy with auth_mode optional or disabled if sign-in is not meant to be required',
     ],
     code: 'ALLOWLIST_MISSING_REQUIRED_AUTH',
-    httpStatus: 500,
+    httpStatus: 403,
   });
+  log.auth.warn({ component: 'auth', code: 'ALLOWLIST_MISSING_REQUIRED_AUTH' }, err.message);
+  return { users: [] };
+}
+
+/** For /readyz: true while a hosted, required-auth deployment has no readable allowlist (sign-in is being denied). */
+export function allowlistRequiredButMissing(
+  env: NodeJS.ProcessEnv = process.env,
+  load: () => AuthorizedUsersFile | null = loadAuthorizedUsers,
+): boolean {
+  return hostedRequiredAuth(env) && load() === null;
 }
