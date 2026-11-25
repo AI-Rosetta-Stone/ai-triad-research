@@ -72,6 +72,7 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/Get-BicepBaseEnv.ps1',
   'operations/devops/Get-PesterExcludePaths.ps1',
   'operations/devops/Get-TestPowerShellAbnormalEndVerdict.ps1',
+  'operations/devops/Invoke-ContainerSmoke.ps1', // t/611: decides test-container's container-smoke step
   'operations/devops/ShardBalancer.ps1',
   'operations/devops/Test-BicepAcaResourcePairs.ps1',
   'operations/devops/Test-BicepEnvDrift.ps1',
