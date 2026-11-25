@@ -44,6 +44,7 @@ import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool, computeEmbeddingsOffThread } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { pollLeaseConfigFromEnv } from './pollLeaseConfig.js';
+import { writeLifecycleDump } from './lifecycleDumps.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
@@ -1244,9 +1245,8 @@ function shutdown(signal: string) {
   try {
     serverRecorder.record({ type: 'lifecycle', component: 'server', level: 'info', message: `Shutdown: ${signal}` });
     const ndjson = appendServerLogs(serverRecorder.buildDump('manual').ndjson);
-    const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
-    fs.mkdirSync(dumpDir, { recursive: true });
-    fs.writeFileSync(path.join(dumpDir, `server-shutdown-${Date.now()}.jsonl`), ndjson);
+    // t/613: write, then prune old shutdown/crash dumps (newest 200, under 14 days). Never throws.
+    writeLifecycleDump(path.join(getStateRoot(), 'flight-recorder'), 'shutdown', ndjson); // t/2643: class-A writable state
   } catch { /* telemetry — silent by design;  best effort */ }
 
   // 1a. Stop GitHubAPIBackend polling (also logs the immediate uncommitted-overlay snapshot, t/4258 Part 1)
@@ -1303,9 +1303,7 @@ process.on('uncaughtException', (err) => {
   try {
     serverRecorder.record({ type: 'system.error', component: 'server', level: 'fatal', message: err.message, error: { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) } });
     const { ndjson } = serverRecorder.buildDump('uncaught_error', { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) });
-    const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
-    fs.mkdirSync(dumpDir, { recursive: true });
-    fs.writeFileSync(path.join(dumpDir, `server-crash-${Date.now()}.jsonl`), ndjson);
+    writeLifecycleDump(path.join(getStateRoot(), 'flight-recorder'), 'crash', ndjson); // t/613 + t/2643: pruned, never throws
   } catch { /* telemetry — silent by design;  best effort */ }
   log.server.fatal({ err }, 'Uncaught exception');
   process.exit(1);
