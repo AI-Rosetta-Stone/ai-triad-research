@@ -1795,6 +1795,10 @@ jobs:
 
       - name: Auto-close contrast-alert issue on green main (t/2818)
         if: success() && github.event_name == 'push'
+        # t/563: housekeeping only. On 2026-11-25 (main pushes 340fa9d7f, 9036352ed) this step hit the
+        # GITHUB_TOKEN GraphQL rate limit after contrast-check had PASSED, and failed contrast-check and
+        # so ci-gate on main. A failure to close the alert issue must never turn a green check red.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
