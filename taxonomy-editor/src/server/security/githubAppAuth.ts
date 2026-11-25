@@ -279,15 +279,43 @@ function hostedPatFallback(repo: string, envPat: string): SyncCredentials | null
     });
     return null;
   }
-  log.auth.warn({ reason, repo }, 'getCredentials: FALLBACK taken, writing with GITHUB_TOKEN instead of the GitHub App (write identity changes to the token owner)');
-  getGlobalRecorder()?.record({
-    type: 'system.error',
-    component: 'github-auth',
-    level: 'warn',
-    message: `getCredentials() fell back from the GitHub App to GITHUB_TOKEN (${reason}); writes go out as the token owner`,
-    error: { name: 'PatFallbackTaken', message: reason },
-  });
+  const suppressed = patFallbackWarnDue(reason, Date.now());
+  if (suppressed !== null) {
+    log.auth.warn({ reason, repo, suppressedSinceLast: suppressed }, 'getCredentials: FALLBACK taken, writing with GITHUB_TOKEN instead of the GitHub App (write identity changes to the token owner)');
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'github-auth',
+      level: 'warn',
+      message: `getCredentials() fell back from the GitHub App to GITHUB_TOKEN (${reason}); writes go out as the token owner${suppressed > 0 ? `; ${suppressed} more fallback(s) since the last report` : ''}`,
+      error: { name: 'PatFallbackTaken', message: reason },
+    });
+  }
   return { repo, token: envPat, mode: 'pat' };
+}
+
+/** t/679: the fallback WARN is loud but bounded (Quality via TL p/102#357). */
+export const PAT_FALLBACK_WARN_INTERVAL_MS = 60_000;
+let patFallbackWarn: { reason: string; lastMs: number; suppressed: number } | null = null;
+
+/**
+ * Whether this fallback should be reported: always on the first, and whenever the reason changes; otherwise at most
+ * once per PAT_FALLBACK_WARN_INTERVAL_MS. Returns the number of fallbacks suppressed since the last report when one
+ * is due, or null when this one is suppressed (and counted).
+ */
+function patFallbackWarnDue(reason: string, nowMs: number): number | null {
+  const s = patFallbackWarn;
+  if (!s || s.reason !== reason || nowMs - s.lastMs >= PAT_FALLBACK_WARN_INTERVAL_MS) {
+    const suppressed = s && s.reason === reason ? s.suppressed : 0;
+    patFallbackWarn = { reason, lastMs: nowMs, suppressed: 0 };
+    return suppressed;
+  }
+  s.suppressed++;
+  return null;
+}
+
+/** Test seam: forget the fallback-report state. */
+export function resetPatFallbackWarnState(): void {
+  patFallbackWarn = null;
 }
 
 /**
