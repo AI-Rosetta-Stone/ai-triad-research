@@ -347,6 +347,8 @@ export class GitHubAPIBackend implements StorageBackend {
   // for a read once synced (t/4311#30 R1), refreshed whenever `_gen` moves.
   private readonly sharedOverlayStore: SharedOverlayStore | null = null;
   private readonly sharedOverlayStateActive: boolean = false;
+  /** t/550: the per-user commit lease settings (sharedOverlayState.commitLock), or null when not configured. */
+  private readonly sharedCommitLock: NonNullable<NonNullable<GitHubAPIBackendConfig['sharedOverlayState']>['commitLock']> | null = null;
   // t/549: `listedAt` is when the entries were last listed from the store (0 = never); see SHARED_OVERLAY_RELIST_MS.
   private sharedOverlayReadCache: Map<string, { gen: string | null; entries: Map<string, SharedOverlayEntry>; listedAt: number }> = new Map();
   /** t/550: per (user, path) chain so this replica runs one shared save at a time for a path (SO condition 2). */
@@ -518,6 +520,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const sharedOverlay = GitHubAPIBackend.resolveSharedOverlayState(config);
     this.sharedOverlayStore = sharedOverlay.store;
     this.sharedOverlayStateActive = sharedOverlay.active;
+    this.sharedCommitLock = config.sharedOverlayState?.commitLock ?? null;
     if (sharedOverlay.warnInert) {
       log.storage.warn(
         'OVERLAY_SHARED_STATE_ENABLED=1 is set, but OVERLAY_SHARED_STATE_COMMIT_READY is false — '
@@ -2610,8 +2613,9 @@ export class GitHubAPIBackend implements StorageBackend {
   private async commitOverlayImpl(
     userId: string, message?: string, branchName?: string,
   ): Promise<{ commitSha: string; filesCommitted: number; conflictedPaths?: string[] } | null> {
+    // t/550: with shared state active the local map is only a read cache, so its being empty says nothing.
     const entries = this.getOverlayEntries(userId);
-    if (!entries) return null;
+    if (!entries && !this.sharedSavesActive(userId)) return null;
 
     // t/4258/t/4277 (C3a): an explicit branchName is required for callers
     // running outside request scope (a debounced commit timer, a SIGTERM
@@ -2628,6 +2632,8 @@ export class GitHubAPIBackend implements StorageBackend {
         nextSteps: ['Ensure a session branch is active'],
       });
     }
+    // t/550: with shared state active the batch comes from the shared store, under the per-user commit lease.
+    if (this.sharedSavesActive(userId)) return this.commitSharedOverlay(userId, branch, message);
 
     const creds = await this.getCredsCached();
     if (!creds) throw this.noCredsError('commitOverlay');
@@ -2654,6 +2660,7 @@ export class GitHubAPIBackend implements StorageBackend {
     // while the edges file it's referenced from conflicts and stays out) —
     // durability doesn't need a partial commit, since everything stays
     // staged either way. Any conflict means nothing commits this round.
+    if (!entries) return null; // unreachable: the shared path returned above, and a local commit needs entries
     const { conflictedPaths } = await this.partitionOverlayEntriesByBase(creds, userId, entries, currentSha, callId);
     if (conflictedPaths.length > 0) {
       this.recordOverlayConflicts(userId, branch, conflictedPaths);
@@ -4483,6 +4490,179 @@ export class GitHubAPIBackend implements StorageBackend {
     return Math.min(1, cachedCount / Math.max(1, this.repoTree.size));
   }
 
+  // ── t/550 commit 2: the cross-replica commit lease, and committing from the shared store ──────────────
+
+  /** The commit when shared state is active (t/503#3 §2, rulings t/503#5, SO t/503#8 conditions 3 and 4):
+   *  1. take this user's commit lease; if another replica holds it, throw OVERLAY_COMMIT_BUSY (nothing committed, nothing
+   *     failed; the scheduler re-arms without counting a retry);
+   *  2. the batch is the shared store's entries alone (option 2: every acknowledged save is there);
+   *  3. the base check uses each entry's recorded baseSha (null = absent, 'unknown' = conflict);
+   *  4. tree, commit, then the non-forced ref update, which GitHub refuses on a stale parent (the last fence). Just before
+   *     it the lease is renewed, and the commit is abandoned if the lease changed hands or the hold cap passed;
+   *  5. each committed entry is cleared only if its ETag is unchanged; an entry rewritten during the commit is rebased
+   *     onto the blob just committed instead, so the next commit doesn't see a false conflict.
+   *  The lease is renewed every renewEveryMs while the commit runs, never past maxHoldMs (a hung GitHub call lets it lapse),
+   *  and released in finally. */
+  private async commitSharedOverlay(
+    userId: string, branch: string, message?: string,
+  ): Promise<{ commitSha: string; filesCommitted: number; conflictedPaths?: string[] } | null> {
+    const store = this.sharedOverlayStore!;
+    const cfg = this.commitLockConfig();
+    const lease = new BlobLease({
+      accountUrl: cfg.accountUrl, container: cfg.container, blobName: `commit-locks/${userId}`,
+      durationSeconds: cfg.leaseSeconds, serviceClient: cfg.serviceClient,
+    });
+    if (!(await lease.acquireOrRenew())) throw this.commitBusyError(userId);
+    const heldFrom = Date.now();
+    const leaseId = lease.getLeaseId();
+    const renewTimer = setInterval(() => {
+      if (Date.now() - heldFrom >= cfg.maxHoldMs) { clearInterval(renewTimer); return; }
+      void lease.acquireOrRenew().catch((err: unknown) => {
+        log.storage.warn({ userId, err: String(err) }, 'commit lease renewal failed; the ref-update check decides (t/550)');
+      });
+    }, cfg.renewEveryMs);
+    try {
+      return await this.commitSharedBatch(store, userId, branch, message, async () => {
+        const stillOurs = Date.now() - heldFrom < cfg.maxHoldMs && (await lease.acquireOrRenew()) && lease.getLeaseId() === leaseId;
+        if (!stillOurs) throw this.commitLeaseLostError(userId, branch);
+      });
+    } finally {
+      clearInterval(renewTimer);
+      await lease.release();
+    }
+  }
+
+  private async commitSharedBatch(
+    store: SharedOverlayStore, userId: string, branch: string, message: string | undefined,
+    beforeRefUpdate: () => Promise<void>,
+  ): Promise<{ commitSha: string; filesCommitted: number; conflictedPaths?: string[] } | null> {
+    const listed = await store.listEntries(userId);
+    if (listed.length === 0) return null;
+    const entries = {
+      writes: listed.filter(e => e.entry.content !== null).map(e => ({ path: e.repoPath, content: e.entry.content as string })),
+      deletes: listed.filter(e => e.entry.content === null).map(e => e.repoPath),
+    };
+    const bases = new Map<string, string | null | 'unknown'>(listed.map(e => [e.repoPath, e.entry.baseSha]));
+
+    const creds = await this.getCredsCached();
+    if (!creds) throw this.noCredsError('commitOverlay');
+    const callId = crypto.randomUUID();
+    const startMs = Date.now();
+    const currentSha = await this.readBranchHeadForCommit(creds, branch, callId);
+
+    const { conflictedPaths } = await this.partitionOverlayEntriesByBase(creds, userId, entries, currentSha, callId, bases);
+    if (conflictedPaths.length > 0) {
+      this.recordOverlayConflicts(userId, branch, conflictedPaths);
+      this.sessionOverlayConflicts.set(userId, new Set(conflictedPaths));
+      return { commitSha: currentSha, filesCommitted: 0, conflictedPaths };
+    }
+    this.sessionOverlayConflicts.delete(userId);
+
+    const commitSha = await this.createTreeCommitAndUpdateRef(creds, branch, currentSha,
+      this.buildOverlayTreeEntries(entries), message || this.buildOverlayCommitMessage(entries), callId, beforeRefUpdate);
+    this.recordEvent({
+      type: 'overlay.commit', component: 'session', level: 'info',
+      message: `Overlay committed to ${branch} from the shared store: ${entries.writes.length} writes, ${entries.deletes.length} deletes`,
+      call_id: callId, duration_ms: Date.now() - startMs,
+      data: { branch, writes: entries.writes.length, deletes: entries.deletes.length, commitSha, shared: true },
+    });
+
+    await this.clearCommittedSharedEntries(store, userId, listed);
+    this.clearCommittedOverlayEntries(userId, entries); // the local map is a read cache; drop what was committed
+    this.sharedOverlayReadCache.delete(userId); // the next read re-lists
+    return { commitSha, filesCommitted: listed.length };
+  }
+
+  /** Step 5: clear by ETag; rebase an entry rewritten during the commit onto the blob just committed. */
+  private async clearCommittedSharedEntries(
+    store: SharedOverlayStore, userId: string,
+    listed: Array<{ repoPath: string; entry: SharedOverlayEntry; etag: string }>,
+  ): Promise<void> {
+    for (const e of listed) {
+      const outcome = await store.unstage(userId, e.repoPath, { ifMatch: e.etag });
+      if (outcome === 'deleted') continue;
+      if (outcome === 'failed') {
+        log.storage.warn({ userId, path: e.repoPath }, 'committed entry could not be cleared from the shared store; the next commit may report it as a conflict (t/550)');
+        continue;
+      }
+      const committedBase = e.entry.content === null ? null : gitBlobSha(e.entry.content);
+      const rebased = await this.rebaseRewrittenEntry(store, userId, e.repoPath, committedBase);
+      if (rebased !== 'rebased') {
+        log.storage.warn({ userId, path: e.repoPath, rebased }, 'entry rewritten during the commit could not be rebased; the next commit may report a conflict (t/550)');
+      }
+    }
+  }
+
+  private async rebaseRewrittenEntry(
+    store: SharedOverlayStore, userId: string, repoPath: string, baseSha: string | null,
+  ): Promise<'rebased' | 'changed' | 'failed' | 'gone'> {
+    for (let attempt = 0; attempt < SHARED_SAVE_MAX_ATTEMPTS; attempt++) {
+      let current: SharedOverlayEntryWithEtag | null;
+      try {
+        current = await store.getEntryWithEtag(userId, repoPath);
+      } catch (err) {
+        log.storage.warn({ userId, repoPath, err: String(err) }, 'could not read an entry to rebase it after a commit (t/550)');
+        return 'failed';
+      }
+      if (!current) return 'gone';
+      const r = await store.rebaseEntry(userId, repoPath, { ifMatch: current.etag, baseSha });
+      if (r !== 'changed') return r;
+    }
+    return 'changed';
+  }
+
+  private async readBranchHeadForCommit(creds: SyncCredentials, branch: string, callId: string): Promise<string> {
+    const refResp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}/git/refs/heads/${branch}`, undefined, callId);
+    if (!refResp.ok) {
+      throw new ActionableError({
+        goal: `Commit overlay to ${branch}`,
+        problem: `Failed to get branch ref: ${refResp.status} ${refResp.error}`,
+        location: 'GitHubAPIBackend.commitSharedOverlay',
+        nextSteps: ['Verify branch exists', 'Check GitHub App permissions'],
+      });
+    }
+    return ((refResp.data as { object: { sha: string } }).object).sha;
+  }
+
+  private commitLockConfig(): { accountUrl: string; container: string; leaseSeconds: number; renewEveryMs: number; maxHoldMs: number; serviceClient?: BlobServiceClient } {
+    const c = this.sharedCommitLock;
+    if (!c) {
+      throw new ActionableError({
+        goal: 'Commit the shared session overlay',
+        problem: 'Shared overlay state is active but no commit lock is configured (sharedOverlayState.commitLock).',
+        location: 'GitHubAPIBackend.commitSharedOverlay',
+        nextSteps: ['Pass sharedOverlayState.commitLock in server.ts with the overlay-state container (t/553)'],
+        httpStatus: 503,
+      });
+    }
+    return {
+      accountUrl: c.accountUrl, container: c.container, serviceClient: c.serviceClient,
+      leaseSeconds: c.leaseSeconds ?? 60, renewEveryMs: c.renewEveryMs ?? 20_000, maxHoldMs: c.maxHoldMs ?? 300_000,
+    };
+  }
+
+  private commitBusyError(userId: string): ActionableError {
+    return new ActionableError({
+      goal: 'Commit the session overlay',
+      problem: `Another replica is committing this user's changes right now (${userId}). Nothing was committed and nothing failed.`,
+      location: 'GitHubAPIBackend.commitSharedOverlay',
+      nextSteps: ['The scheduler retries on its next tick; the other replica commits the same entries'],
+      httpStatus: 409,
+      code: 'OVERLAY_COMMIT_BUSY',
+    });
+  }
+
+  private commitLeaseLostError(userId: string, branch: string): ActionableError {
+    log.storage.warn({ userId, branch }, 'commit lease lost or past its hold cap before the ref update; commit abandoned, entries stay staged (t/550)');
+    return new ActionableError({
+      goal: `Commit overlay to ${branch}`,
+      problem: 'The commit lease was lost (or held past its cap) before the branch ref update, so the commit was abandoned.',
+      location: 'GitHubAPIBackend.commitSharedOverlay',
+      nextSteps: ['Nothing is lost: every entry is still staged and the next commit retries'],
+      code: 'OVERLAY_COMMIT_LEASE_LOST',
+    });
+  }
+
   // ── t/550 (t/503 option 2): saves acknowledged only after the shared stage succeeds ──────────────────
 
   /** One save to the shared overlay store when shared state is active (t/503#9 to #15, SO t/503#14):
@@ -4911,7 +5091,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async partitionOverlayEntriesByBase(
     creds: SyncCredentials, userId: string,
     entries: { writes: { path: string; content: string }[]; deletes: string[] },
-    currentSha: string, callId: string,
+    currentSha: string, callId: string, basesOverride?: ReadonlyMap<string, string | null | 'unknown'>,
   ): Promise<{ conflictedPaths: string[] }> {
     const treeResp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/git/trees/${currentSha}?recursive=1`, undefined, callId);
@@ -4921,7 +5101,7 @@ export class GitHubAPIBackend implements StorageBackend {
       : new Map((treeResp.data as { tree: { path: string; sha: string; type: string }[] }).tree
           .filter(t => t.type === 'blob').map(t => [t.path, t.sha]));
 
-    const bases = this.sessionOverlayBaseShas.get(userId);
+    const bases = basesOverride ?? this.sessionOverlayBaseShas.get(userId); // t/550: shared entries carry their own base
     // t/4312: 'unknown' means a live lookup was attempted and FAILED — fails
     // closed (always conflicts), never trusted. `undefined` (no base ever
     // recorded — a raw writeToOverlay() call, or an entry that predates this
@@ -4970,6 +5150,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async createTreeCommitAndUpdateRef(
     creds: SyncCredentials, branch: string, currentSha: string,
     treeEntries: Record<string, unknown>[], commitMsg: string, callId: string,
+    beforeRefUpdate?: () => Promise<void>,
   ): Promise<string> {
     const treeResp = await this.rest.request(creds, 'POST',
       `/repos/${creds.repo}/git/trees`, { base_tree: currentSha, tree: treeEntries }, callId);
@@ -4994,6 +5175,8 @@ export class GitHubAPIBackend implements StorageBackend {
       });
     }
     const commitSha = (commitResp.data as { sha: string }).sha;
+
+    if (beforeRefUpdate) await beforeRefUpdate(); // t/550: abandon here if the commit lease was lost
 
     const updateResp = await this.rest.request(creds, 'PATCH',
       `/repos/${creds.repo}/git/refs/heads/${branch}`, { sha: commitSha, force: false }, callId);
