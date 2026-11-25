@@ -88,4 +88,36 @@ describe('web-bridge pickDocumentFile (t/276)', () => {
     await expect(api.pickDocumentFile()).rejects.toThrow(/isn't a supported file type/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  // t/276 harness finding: the server's `error` is an ActionableError dump, and the bridge's generic
+  // mutation error wraps it in another one. The Document field shows err.message, so a failed read
+  // must reject with one plain line chosen by status and code, never the server text.
+  const DUMP = '\n  Goal:     Extract text\n  Error:    Could not parse the PDF\n  Location: lib/extraction\n  Resolve:\n  1. Try another file';
+  const failing = (status: number, code?: string) => vi.fn().mockResolvedValue(
+    new Response(JSON.stringify({ error: DUMP, code }), { status, headers: { 'content-type': 'application/json' } }),
+  );
+  const pdf = () => new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'brief.pdf', { type: 'application/pdf' });
+
+  it.each([
+    [422, 'CORRUPT_DOCUMENT', "Couldn't read text from this file. If it's a scanned PDF it has no text layer: try a text-based PDF or another format."],
+    [422, 'EXTRACTION_TIMEOUT', "Couldn't read text from this file. If it's a scanned PDF it has no text layer: try a text-based PDF or another format."],
+    [422, 'EMPTY_DOCUMENT', 'This file has no readable text.'],
+    [422, 'ENCRYPTED_DOCUMENT', '“brief.pdf” is password-protected. Remove the password, then choose it again.'],
+    [413, 'SIZE_LIMIT_EXCEEDED', '“brief.pdf” is over the 10 MB limit.'],
+    [415, 'UNSUPPORTED_FORMAT', "“brief.pdf” isn't a supported file type. Choose a PDF, Word (.docx), text or Markdown file."],
+    [429, 'EXTRACTION_BUSY', 'The server is busy reading other documents. Try again in a minute.'],
+    [500, 'EXTRACTION_FAILED', "Couldn't read text from this file. If it's a scanned PDF it has no text layer: try a text-based PDF or another format."],
+  ])('HTTP %i %s rejects with the plain line only', async (status, code, line) => {
+    stubPicker(pdf());
+    vi.stubGlobal('fetch', failing(status, code));
+    const err = await api.pickDocumentFile().then(() => null, (e: unknown) => e as Error);
+    expect(err?.message).toBe(line);
+    expect(err?.message).not.toMatch(/Goal:|Location:|Resolve:|HTTP \d{3}/);
+  });
+
+  it('a non-JSON error body still gets a plain line from the status', async () => {
+    stubPicker(pdf());
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>Bad gateway</html>', { status: 502 })));
+    await expect(api.pickDocumentFile()).rejects.toThrow(/^Couldn't read text from this file\./);
+  });
 });

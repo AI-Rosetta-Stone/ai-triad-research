@@ -33,14 +33,28 @@ export function checkDocumentFile(file: File): void {
   }
 }
 
+/** The plain line the Document field shows for a failed extraction. The server's own `error` text is an
+ *  ActionableError dump (Goal / Error / Location / Resolve), so it is never shown; the status and code pick
+ *  the copy instead. */
+export function documentExtractErrorMessage(status: number, code: string | undefined, fileName: string): string {
+  if (status === 401) return 'Sign in to upload a document.';
+  if (status === 413 || code === 'SIZE_LIMIT_EXCEEDED') return `“${fileName}” is over the 10 MB limit.`;
+  if (status === 415 || code === 'UNSUPPORTED_FORMAT') return `“${fileName}” isn't a supported file type. Choose a PDF, Word (.docx), text or Markdown file.`;
+  if (code === 'ENCRYPTED_DOCUMENT') return `“${fileName}” is password-protected. Remove the password, then choose it again.`;
+  if (code === 'EMPTY_DOCUMENT') return 'This file has no readable text.';
+  if (status === 429 || code === 'EXTRACTION_BUSY') return 'The server is busy reading other documents. Try again in a minute.';
+  return "Couldn't read text from this file. If it's a scanned PDF it has no text layer: try a text-based PDF or another format.";
+}
+
 /**
  * Posts the File as a binary body and returns the extracted text.
- * `send` performs the request (session recovery, timeout, no retry: an upload is not safe to replay);
- * `assertOk` throws the bridge's standard error for a non-2xx response.
+ * `send` performs the request (session recovery, timeout, no retry: an upload is not safe to replay).
+ * A non-2xx answer throws an Error whose message is the plain line from documentExtractErrorMessage;
+ * `onFailure` receives the raw status, code and server text for the flight recorder.
  */
 export async function extractDocumentText(file: File, deps: {
   send: (init: RequestInit) => Promise<Response>;
-  assertOk: (res: Response) => Promise<void>;
+  onFailure: (failure: { status: number; code?: string; serverError?: string }) => void;
 }): Promise<string> {
   checkDocumentFile(file);
   const res = await deps.send({
@@ -48,7 +62,15 @@ export async function extractDocumentText(file: File, deps: {
     headers: { 'Content-Type': 'application/octet-stream', 'X-Document-Name': encodeURIComponent(file.name) },
     body: file,
   });
-  await deps.assertOk(res);
+  if (!res.ok) {
+    let parsed: { code?: unknown; error?: unknown } = {};
+    try {
+      parsed = await res.json() as { code?: unknown; error?: unknown };
+    } catch { /* telemetry — silent by design: a non-JSON error body still gets the status-based line below */ }
+    const code = typeof parsed.code === 'string' ? parsed.code : undefined;
+    deps.onFailure({ status: res.status, code, serverError: typeof parsed.error === 'string' ? parsed.error : undefined });
+    throw new Error(documentExtractErrorMessage(res.status, code, file.name));
+  }
   const body = await res.json() as { text: string };
   return body.text;
 }
