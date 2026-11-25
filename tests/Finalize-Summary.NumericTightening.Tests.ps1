@@ -49,6 +49,32 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
         }
     }
 
+    Context 'Percent forms a snapshot prints (CL t/384#14)' {
+        It 'reads a damaged percent sign after a number as percent' {
+            $Src = "Weekly users grew 108 $([char]0xF9) in legal and 41 $([char]0xF9) in sales."
+            Invoke-NumericDrop 'Users grew 108% in legal and 41% in sales.' $Src @{ Percent = $true } | Should -Be 0
+        }
+        It 'does not read the letter in a word as a percent sign' {
+            $Src = "In 2020 o$([char]0xF9) 12 people met."
+            Invoke-NumericDrop 'A share of 12% met.' $Src @{ Percent = $true } | Should -Be 1
+        }
+        It 'gives both ends of a range the percent form: <Range>' -ForEach @(
+            @{ Range = '54-67%' }, @{ Range = "54$([char]0x2013)67%" }, @{ Range = "54$([char]0xFB)67%" }
+            @{ Range = "54$([char]0x393)$([char]0xC7)$([char]0xF4)67%" }, @{ Range = '54 to 67%' }, @{ Range = '54 to 67 percent' }
+        ) {
+            Invoke-NumericDrop 'Accuracy was between 54% and 67%.' "Accuracy on the order of $Range was seen." @{ Percent = $true } | Should -Be 0
+        }
+        It 'a range of counts gives neither end the percent form' {
+            Invoke-NumericDrop 'Accuracy was 54%.' 'Between 54 to 67 people came.' @{ Percent = $true } | Should -Be 1
+        }
+        It 'accepts the percent sign on the line after its number' {
+            Invoke-NumericDrop 'It will impact less than 5% of tasks.' "will impact less than 5`n% of all tasks" @{ Percent = $true } | Should -Be 0
+        }
+        It 'reads a claim as written: a damaged sign in the claim is not a percent' {
+            Invoke-NumericDrop "Users grew 108 $([char]0xF9) in legal." 'Users grew 108 times.' @{ Percent = $true } | Should -Be 0
+        }
+    }
+
     Context 'Scale suffixes' {
         It 'grounds a claim 75,000 by the source 75K when scale is on' {
             Invoke-NumericDrop 'Roughly 75,000 workers were retrained.' 'About 75K workers were retrained.' @{ Scale = $true } | Should -Be 0
