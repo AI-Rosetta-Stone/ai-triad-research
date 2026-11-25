@@ -15,7 +15,6 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { ticketRefs, majorityOwner } from './my-prs.mjs';
-import { makeAppRun } from './stuck-pr-ping.mjs';
 
 export const DEFAULT_DAEMON = 'http://127.0.0.1:7420';
 export const PING_REASONS = Object.freeze(['over_budget_today', 'pooled_no_slot', 'pool_expired']);
@@ -121,4 +120,22 @@ export async function pingBudgetRefusal({ repo, pr, reason, message, by }, deps 
     warn(`WARN: enqueue-pr could not ping the owner of #${pr.number} about the budget refusal (${e.message}); the refusal stands.`);
     return { sent: false, skipped: 'send_failed' };
   }
+}
+
+// t/564: a copy of stuck-pr-ping.mjs's makeAppRun, so enqueue-pr.mjs's import closure does not pull in
+// stuck-pr-ping.mjs and, through it, the stuck-PR classifier and its metrics (t/543 import walk).
+let rpcId = 0;
+export function makeAppRun(daemon) {
+  return async (app, command, args) => {
+    const res = await fetch(`${daemon}/api/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name: 'app_run', arguments: { app, command, args: [JSON.stringify(args)] } } }),
+    });
+    if (!res.ok) throw new Error(`Interweave ${app} ${command}: HTTP ${res.status}`);
+    const out = (await res.json())?.result?.structuredContent?.result?.stdout;
+    const parsed = JSON.parse(out ?? 'null');
+    if (!parsed || parsed.error) throw new Error(`Interweave ${app} ${command}: ${parsed?.error?.message ?? 'no result'}`);
+    return parsed;
+  };
 }

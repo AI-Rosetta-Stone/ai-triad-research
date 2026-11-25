@@ -30,7 +30,6 @@ export const GATE_SCRIPTS = [
   'operations/devops/pr-budget.mjs',
   'operations/devops/pr-budget-notify.mjs',
   'operations/devops/my-prs.mjs',
-  'operations/devops/stuck-pr-ping.mjs',
   'operations/devops/t1-approval-at-head.mjs',
   'operations/devops/t1-approval-guard-predicate.mjs',
   'operations/devops/t1-approval-guard-merge-group-predicate.mjs',

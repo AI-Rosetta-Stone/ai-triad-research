@@ -337,7 +337,7 @@ test('enqueuePR: an allowed budget passes on to the gate-file read; a throwing o
 });
 
 test('GATE_SCRIPTS lists the t/564 modules', () => {
-  for (const p of ['pr-budget.mjs', 'pr-budget-notify.mjs', 'my-prs.mjs', 'stuck-pr-ping.mjs']) assert.ok(GATE_SCRIPTS.includes(`operations/devops/${p}`), p);
+  for (const p of ['pr-budget.mjs', 'pr-budget-notify.mjs', 'my-prs.mjs']) assert.ok(GATE_SCRIPTS.includes(`operations/devops/${p}`), p);
 });
 
 // ── CLI refusal ping ─────────────────────────────────────────────────────────────────────────

@@ -22,8 +22,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { addDays, budgetFor, buildUnits, fetchPrsCreated, nextDayStart, poolOf, POOL_DAYS, rankOf, SOFT_POINT, unitCount, utcDay } from './pr-budget.mjs';
-import { assertLoopback, DEFAULT_DAEMON, resolvePrOwner } from './pr-budget-notify.mjs';
-import { makeAppRun } from './stuck-pr-ping.mjs';
+import { assertLoopback, DEFAULT_DAEMON, makeAppRun, resolvePrOwner } from './pr-budget-notify.mjs';
 
 export function parseArgs(argv) {
   const o = { repo: 'AI-Rosetta-Stone/ai-triad-research', daemon: DEFAULT_DAEMON, json: false, send: false, sender: null, tl: null };
