@@ -167,7 +167,7 @@ function Get-NumericGroundingKeys {
     #     character form of an en or em dash between two numbers are a range. Only next to a digit, because
     #     ù and û are also letters;
     #   - the sign up to three white-space characters after its number, a line break included ("5" / "%");
-    #   - a range gives both ends the percent form: "9 to 14%", "54-67%".
+    #   - a range gives both ends the percent form: "9 to 14%", "54-67%", and "9to14%" as PDF text glues it.
     $SourcePercent = $F.Percent -and -not $AsClaim
     if ($SourcePercent) {
         $Text = [regex]::Replace($Text, '(?<=\d)[ \t]?ù(?!\p{L})', '%')
@@ -177,7 +177,7 @@ function Get-NumericGroundingKeys {
     $Pattern = '(\d+(?:,\d{3})*(?:\.\d+)?|(?<!\d)\.\d+)(?:' + $PercentSign + '|\s?(percent|per\s?cent)\b|(?<=\d)(k|m|bn|b|tn)\b|\s(thousand|million|billion|trillion)\b|\^(\d+))?'
     if ($SourcePercent) {
         $Number = '\d+(?:,\d{3})*(?:\.\d+)?'
-        foreach ($m in [regex]::Matches($Text, "(?<![\d.])($Number)\s?(?:[-–—]|to\b)\s?$Number(?:\s{0,3}%|\s?(?:percent|per\s?cent)\b)", 'IgnoreCase')) {
+        foreach ($m in [regex]::Matches($Text, "(?<![\d.])($Number)\s?(?:[-–—]|to)\s?$Number(?:\s{0,3}%|\s?(?:percent|per\s?cent)\b)", 'IgnoreCase')) {
             $First = ConvertTo-NumericGroundingKey -Token $m.Groups[1].Value
             if ($null -ne $First) { [void]$keys.Add("$First%") }
         }
