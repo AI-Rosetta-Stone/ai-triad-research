@@ -225,7 +225,9 @@ export function RelationshipSection({ orgId, onSelectOrg }: { orgId: string; onS
                     disabled={!onSelectOrg}
                     title={peer.id}
                   >
-                    {orgNameMap.get(peer.id) ?? peer.id}
+                    {/* Only the name is underlined, so the space and the tag are not (Design p/25#142); the
+                        accessible name reads "<name> Unreviewed". */}
+                    <span className="od-rel-link-name">{orgNameMap.get(peer.id) ?? peer.id}</span>
                     {peer.unreviewed && <>{' '}<span className="od-status od-edge-unreviewed">Unreviewed</span></>}
                   </button>
                 </div>

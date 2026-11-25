@@ -45,6 +45,16 @@ describe('groupVisibleEdges (t/298)', () => {
     expect(groupVisibleEdges([edge('x', 'OPPOSES', 'Rejected')], ORG).size).toBe(0);
   });
 
+  it('hides a pipeline-diagnostic rationale and keeps a real one (t/584 stopgap)', () => {
+    const peers = groupVisibleEdges([
+      { ...edge('a', 'ADVOCATES_FOR', 'proposed'), rationale: 'match_basis=high-cosine families=1 best_cosine=0.738 (t/1553 Stage 3)' },
+      { ...edge('b', 'PUBLISHED', 'proposed'), rationale: 'match_basis=domain (t/1553 Stage 0)' },
+      { ...edge('c', 'ADVOCATES_FOR', 'approved'), rationale: 'Co-signed the 2025 open letter.' },
+    ], ORG);
+    expect(peers.get('ADVOCATES_FOR')?.map(p => [p.id, p.rationale])).toEqual([['a', undefined], ['c', 'Co-signed the 2025 open letter.']]);
+    expect(peers.get('PUBLISHED')?.[0].rationale).toBeUndefined();
+  });
+
   it('names the peer, whichever end of the edge the org is on', () => {
     const peers = groupVisibleEdges([{ source: 'org-9', target: ORG, type: 'FUNDS', status: 'approved' }], ORG).get('FUNDS');
     expect(peers?.[0].id).toBe('org-9');
