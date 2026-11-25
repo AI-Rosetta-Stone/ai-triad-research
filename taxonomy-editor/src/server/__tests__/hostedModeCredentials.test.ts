@@ -128,7 +128,9 @@ describe('t/2895 hosted-mode credential gating (STORAGE_MODE !== filesystem)', (
     const creds = await getCredentials();
     // Must not throw; must return the PAT fallback
     expect(creds).toEqual({ repo: 'owner/repo', token: 'pat-fallback', mode: 'pat' });
-    expect(frRecord).not.toHaveBeenCalled();
+    // t/653: the fallback is no longer silent; it records exactly one WARN event (no "all rungs exhausted" error).
+    expect(frRecord).toHaveBeenCalledOnce();
+    expect((frRecord.mock.calls[0][0] as { error: { name: string } }).error.name).toBe('PatFallbackTaken');
   });
 
   it('getCredentials() absorbs getInstallationToken() throw and emits FR error when no fallback', async () => {

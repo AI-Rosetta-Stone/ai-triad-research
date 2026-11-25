@@ -1,6 +1,42 @@
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
+function Update-NodeIndexForKeyPoint {
+    <#
+    .SYNOPSIS
+        Applies one key point's mapped-node citation/stance mutation to $NodeIndex
+        (t/5326 extraction from Add-SummaryKeyPointCitations). Mutates in place.
+        No-op when the key point has no node id or an unmapped node id.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Point,
+        [Parameter(Mandatory)][string]$DocId,
+        [Parameter(Mandatory)][hashtable]$NodeIndex,
+        [switch]$OncePerDoc
+    )
+
+    Set-StrictMode -Version Latest
+
+    $NodeId = if ($Point.PSObject.Properties['taxonomy_node_id']) { $Point.taxonomy_node_id } else { $null }
+    if (-not $NodeId) { return }
+    if (-not $NodeIndex.ContainsKey($NodeId)) { return }
+
+    $Entry = $NodeIndex[$NodeId]
+    if ($OncePerDoc) {
+        if ($DocId -notin $Entry.DocIds) { $Entry.Citations++; $Entry.DocIds.Add($DocId) }
+        return
+    }
+
+    $Entry.Citations++
+    if ($DocId -notin $Entry.DocIds) {
+        $Entry.DocIds.Add($DocId)
+    }
+    if ($Point.PSObject.Properties['stance'] -and $Point.stance) {
+        $Entry.Stances.Add($Point.stance)
+    }
+}
+
 function Add-SummaryKeyPointCitations {
     <#
     .SYNOPSIS
@@ -43,21 +79,7 @@ function Add-SummaryKeyPointCitations {
 
         foreach ($Point in @($PovData.key_points)) {
             $DocKeyPoints++
-            $NodeId = if ($Point.PSObject.Properties['taxonomy_node_id']) { $Point.taxonomy_node_id } else { $null }
-            if (-not $NodeId) { continue }
-            if (-not $NodeIndex.ContainsKey($NodeId)) { continue }
-            if ($OncePerDoc) {
-                if ($DocId -notin $NodeIndex[$NodeId].DocIds) { $NodeIndex[$NodeId].Citations++; $NodeIndex[$NodeId].DocIds.Add($DocId) }
-                continue
-            }
-
-            $NodeIndex[$NodeId].Citations++
-            if ($DocId -notin $NodeIndex[$NodeId].DocIds) {
-                $NodeIndex[$NodeId].DocIds.Add($DocId)
-            }
-            if ($Point.PSObject.Properties['stance'] -and $Point.stance) {
-                $NodeIndex[$NodeId].Stances.Add($Point.stance)
-            }
+            Update-NodeIndexForKeyPoint -Point $Point -DocId $DocId -NodeIndex $NodeIndex -OncePerDoc:$OncePerDoc
         }
     }
 

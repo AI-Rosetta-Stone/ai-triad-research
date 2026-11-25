@@ -3,7 +3,7 @@
 
 import path from 'path';
 import { readFileWithMtime } from './fsCache.js';
-import { getDataRoot } from '../config.js';
+import { getStateRoot } from '../config.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getConfig as getRuntimeConfig } from '../runtimeConfig.js';
@@ -79,7 +79,9 @@ let _cacheMtime = 0;
 
 function loadTierConfig(): TierConfig {
   const candidates = [
-    path.join(getDataRoot(), 'proxy-tiers.json'),
+    // t/625 (t/617 B): per-deployment config comes from the state root. On prod that IS the data root (no change);
+    // on staging it is staging's own share, never prod's grounding data.
+    path.join(getStateRoot(), 'proxy-tiers.json'),
   ];
   for (const p of candidates) {
     try {

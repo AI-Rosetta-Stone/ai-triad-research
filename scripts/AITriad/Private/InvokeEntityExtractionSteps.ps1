@@ -186,21 +186,14 @@ function Get-EntityVectorIndex {
     # tombstone or a no-longer-approved record is never offered as a candidate. A skipped vector is an
     # orphan-vector in Get-EntityReport, which uses the same predicate.
     param([string]$Path, [object[]]$Entities = @())
-    $eligible = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach ($e in $Entities) { if ($null -ne $e -and $e.PSObject.Properties['id'] -and (Test-EntityVectorEligible $e)) { [void]$eligible.Add([string]$e.id) } }
+    $eligible = Get-EntityVectorEligibleSet -Entities $Entities
     $Index = [PSCustomObject]@{ Vectors = @{}; Model = $null; Problem = $null }
     if (-not (Test-Path $Path)) { $Index.Problem = 'entity_embeddings.json not found'; return $Index }
     try {
         $EmbStore = Get-Content -Raw -Path $Path -Encoding utf8 | ConvertFrom-Json
         if ($EmbStore.PSObject.Properties['model'] -and $EmbStore.model) { $Index.Model = [string]$EmbStore.model }
         if ($EmbStore.PSObject.Properties['vectors'] -and $null -ne $EmbStore.vectors) {
-            $skipped = 0
-            foreach ($prop in $EmbStore.vectors.PSObject.Properties) {
-                if (-not $eligible.Contains($prop.Name)) { $skipped++; continue }
-                $vec = Get-EntityNameVector -Stored $prop.Value
-                if ($null -ne $vec -and $vec.Length -gt 0) { $Index.Vectors[$prop.Name] = $vec }
-            }
-            if ($skipped) { Write-Warning "Invoke-EntityExtraction: skipped $skipped entity vector(s) whose record is not approved, is a merge tombstone, or is not in the store (t/4450); Get-EntityReport -Report orphan-vector lists them." }
+            Add-EntityStoreVectors -Index $Index -Vectors $EmbStore.vectors -Eligible $eligible
         }
         if ($Index.Vectors.Count -eq 0) { $Index.Problem = 'entity_embeddings.json has no entity vectors' }
     } catch {
@@ -208,6 +201,28 @@ function Get-EntityVectorIndex {
         $Index.Problem = 'entity_embeddings.json could not be loaded'
     }
     return $Index
+}
+
+function Get-EntityVectorEligibleSet {
+    # The id set Test-EntityVectorEligible accepts (approved, not a tombstone, present) — the same
+    # predicate Get-EntityReport's orphan-vector report uses (t/4450). Ordinal, matching the store keys.
+    param([object[]]$Entities)
+    $eligible = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($e in $Entities) { if ($null -ne $e -and $e.PSObject.Properties['id'] -and (Test-EntityVectorEligible $e)) { [void]$eligible.Add([string]$e.id) } }
+    return , $eligible   # unary comma: return the HashSet itself; a bare return enumerates it and an empty set reaches the caller as $null (t/4450 warning path)
+}
+
+function Add-EntityStoreVectors {
+    # Loads each eligible stored value's name vector into $Index.Vectors; ineligible ids are counted and
+    # a single WARN names them (t/4450). Preserves the original loop's filtering and warning exactly.
+    param($Index, $Vectors, [System.Collections.Generic.HashSet[string]]$Eligible)
+    $skipped = 0
+    foreach ($prop in $Vectors.PSObject.Properties) {
+        if (-not $Eligible.Contains($prop.Name)) { $skipped++; continue }
+        $vec = Get-EntityNameVector -Stored $prop.Value
+        if ($null -ne $vec -and $vec.Length -gt 0) { $Index.Vectors[$prop.Name] = $vec }
+    }
+    if ($skipped) { Write-Warning "Invoke-EntityExtraction: skipped $skipped entity vector(s) whose record is not approved, is a merge tombstone, or is not in the store (t/4450); Get-EntityReport -Report orphan-vector lists them." }
 }
 
 function Get-EntityResolutionState {
@@ -299,13 +314,8 @@ function ConvertTo-EntityExtractionWorkItem {
     $DocIds = [System.Collections.Generic.List[string]]::new()
     $FactPairs = [System.Collections.Generic.List[object]]::new()   # { doc_id; claim } for quote attribution (t/4404)
     foreach ($f in $Facts) {
-        if ($f -isnot [hashtable]) { continue }
-        if ($Resolution -and $f.ContainsKey('doc_id') -and $f['doc_id'] -and -not (Test-SourceSelectable -Resolution $Resolution -Id ([string]$f['doc_id']))) { continue }
-        if ($f.ContainsKey('claim') -and $f['claim']) { $Claims.Add([string]$f['claim']) }
-        if ($f.ContainsKey('doc_id') -and $f['doc_id']) { $DocIds.Add([string]$f['doc_id']) }
-        if ($f.ContainsKey('doc_id') -and $f['doc_id'] -and $f.ContainsKey('claim') -and $f['claim']) {
-            $FactPairs.Add(@{ doc_id = [string]$f['doc_id']; claim = [string]$f['claim'] })
-        }
+        if (-not (Test-EntityWorkItemFactIncluded -Fact $f -Resolution $Resolution)) { continue }
+        Add-EntityWorkItemFact -Fact $f -Claims $Claims -DocIds $DocIds -FactPairs $FactPairs
     }
     if ($Claims.Count -eq 0) { return $null }
 
@@ -338,6 +348,28 @@ function Get-EntityExtractionWorkList {
         $WorkItems = [System.Collections.Generic.List[PSObject]]($WorkItems | Select-Object -First $MaxNodes)
     }
     [PSCustomObject]@{ Items = $WorkItems; SkippedNoFacts = $SkippedNoFacts; SkippedAlreadyDone = $SkippedAlreadyDone }
+}
+
+function Test-EntityWorkItemFactIncluded {
+    # A fact is kept only when it is a hashtable and, with a Resolution in force, its doc_id is
+    # selectable (duplicate_of skip, t/4337). A non-hashtable or a copy's fact is excluded.
+    param($Fact, [pscustomobject]$Resolution)
+    if ($Fact -isnot [hashtable]) { return $false }
+    if ($Resolution -and $Fact.ContainsKey('doc_id') -and $Fact['doc_id'] -and -not (Test-SourceSelectable -Resolution $Resolution -Id ([string]$Fact['doc_id']))) { return $false }
+    return $true
+}
+
+function Add-EntityWorkItemFact {
+    # Appends an included fact's claim, doc_id and (doc_id, claim) pair to the work-item collections,
+    # each only when that field is present and truthy — the original's per-field guards, preserved.
+    param($Fact, $Claims, $DocIds, $FactPairs)
+    $hasClaim = $Fact.ContainsKey('claim') -and $Fact['claim']
+    $hasDoc = $Fact.ContainsKey('doc_id') -and $Fact['doc_id']
+    if ($hasClaim) { $Claims.Add([string]$Fact['claim']) }
+    if ($hasDoc) { $DocIds.Add([string]$Fact['doc_id']) }
+    if ($hasDoc -and $hasClaim) {
+        $FactPairs.Add(@{ doc_id = [string]$Fact['doc_id']; claim = [string]$Fact['claim'] })
+    }
 }
 
 # ── Extraction: AI call + shape validation ONLY ─────────────────────────────────────────────────

@@ -251,5 +251,69 @@ describe('stagingBootGuard', () => {
 
       expect(() => validateStagingBranchPrefix()).not.toThrow();
     });
+
+    // t/540: compared with one trailing slash, as sessionBranchManager builds branch names.
+    it('passes the live staging value with its trailing slash', () => {
+      setStagingEnv();
+      process.env.SESSION_BRANCH_PREFIX = 'staging-api-session/';
+
+      expect(() => validateStagingBranchPrefix()).not.toThrow();
+    });
+
+    for (const prefix of ['api-session/', 'api-session//', ' api-session ', 'api-session/staging', 'api-session/staging/', '/']) {
+      it(`rejects staging prefix ${JSON.stringify(prefix)} (the prod namespace, or blank)`, () => {
+        setStagingEnv();
+        process.env.SESSION_BRANCH_PREFIX = prefix;
+
+        expect(() => validateStagingBranchPrefix()).toThrow(ActionableError);
+      });
+    }
+
+    it('still allows a staging prefix that only starts with the same letters (api-session-staging/)', () => {
+      setStagingEnv();
+      process.env.SESSION_BRANCH_PREFIX = 'api-session-staging/';
+
+      expect(() => validateStagingBranchPrefix()).not.toThrow();
+    });
+  });
+
+  // t/540: an unset or blank CONTAINER_APP_NAME on a hosted container fails closed instead of
+  // reading as "not staging" and skipping every staging check.
+  describe('hosted container without CONTAINER_APP_NAME', () => {
+    for (const platformVar of ['CONTAINER_APP_REVISION', 'CONTAINER_APP_HOSTNAME', 'CONTAINER_APP_ENV_DNS_SUFFIX']) {
+      it(`refuses boot when ${platformVar} is set and the name is unset`, () => {
+        delete process.env.CONTAINER_APP_NAME;
+        process.env[platformVar] = 'x';
+
+        expect(() => validateStagingBootGuard()).toThrow(ActionableError);
+        expect(() => validateStagingBootGuard()).toThrow(/CONTAINER_APP_NAME is unset or blank/);
+        expect(() => validateStagingBranchPrefix()).toThrow(/CONTAINER_APP_NAME is unset or blank/);
+      });
+    }
+
+    it('refuses boot when the name is whitespace on a hosted container', () => {
+      process.env.CONTAINER_APP_NAME = '   ';
+      process.env.CONTAINER_APP_REVISION = 'taxonomy-editor-staging--abc';
+
+      expect(() => validateStagingBootGuard()).toThrow(/CONTAINER_APP_NAME is unset or blank/);
+    });
+
+    it('treats a whitespace-padded staging name as staging', () => {
+      setStagingEnv();
+      process.env.CONTAINER_APP_NAME = ' taxonomy-editor-staging ';
+      process.env.GITHUB_BRANCH = 'main';
+
+      expect(() => validateStagingBootGuard()).toThrow(/prod main/);
+    });
+
+    it('local and dev: no platform variables and no name boots as before', () => {
+      delete process.env.CONTAINER_APP_NAME;
+      delete process.env.CONTAINER_APP_REVISION;
+      delete process.env.CONTAINER_APP_HOSTNAME;
+      delete process.env.CONTAINER_APP_ENV_DNS_SUFFIX;
+
+      expect(() => validateStagingBootGuard()).not.toThrow();
+      expect(() => validateStagingBranchPrefix()).not.toThrow();
+    });
   });
 });

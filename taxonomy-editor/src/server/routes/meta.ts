@@ -24,6 +24,7 @@ import { getEmbeddingsCacheStatus, getEmbeddingsResolution } from '../ai/aiBacke
 import * as community from '../community/community.js';
 import * as fileIO from '../storage/fileIO.js';
 import { anonSessionSigningReady } from '../security/anonSessionSigning.js';
+import { allowlistRequiredButMissing } from '../authorizedUsers.js';
 import { requireAdminOrOperator } from './adminGate.js';
 import { getFreePoolBudget, getFreePoolBudgetConfig } from '../storage/freePoolBudget.js';
 import { isFreePoolBudgetEnforced } from '../featureFlags.js';
@@ -189,6 +190,13 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     }
     // Reset the failure-log throttle so a later re-failure (flap: failed → ready → failed) re-logs.
     lastReadyzDataRootFailed = false;
+    // t/625 (Security p/93#100): a hosted, required-auth deployment with no readable allowlist denies every sign-in
+    // (authorizedUsers.resolveAllowlist). Report it as not ready, so the warm gate blocks promoting a misprovisioned
+    // revision and the old one keeps serving. A late mount clears it on a later probe.
+    if (allowlistRequiredButMissing()) {
+      json(res, { status: 'failed', reason: 'allowlist-missing' }, 503);
+      return;
+    }
     if (dr.state === 'validating') {
       json(res, { status: 'warming', reason: 'data-root-validating' }, 503);
       return;
