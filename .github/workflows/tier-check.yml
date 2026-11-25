@@ -356,7 +356,7 @@ jobs:
             // copy of that module goes into the same temp dir. Without it the import fails.
             const baseVerdictsText = showFromBase('operations/devops/role-review-verdicts.mjs');
             if (baseVerdictsText === null) {
-              await r1FallbackCheck(config, 'role-review-verdicts.mjs not yet on the base branch's tip (predicate imports it)');
+              await r1FallbackCheck(config, "role-review-verdicts.mjs not yet on the base branch's tip (predicate imports it)");
               return;
             }
             const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tier-check-base-'));
