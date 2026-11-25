@@ -31,8 +31,8 @@ const ACCOUNT_URL = `http://127.0.0.1:${PORT}/devstoreaccount1`;
 const CONTAINER = 'overlay-state';
 const USER = 'alice';
 const BRANCH = 'api-session/alice';
-const FILE = '/taxonomy/foo.json';
-const REPO_PATH = 'taxonomy/foo.json';
+const FILE = '/conflicts/foo.json';
+const REPO_PATH = 'conflicts/foo.json';
 
 let proc: ChildProcess;
 let service: BlobServiceClient;
@@ -253,6 +253,17 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — shared overlay commit und
     expect((await makeStore().listEntries(USER)).map(e => e.entry.content)).toEqual(['pending']);
   });
 
+  // t/638 (SO p/269#14): the store may hold an entry written before the allowlist. The shared batch is refused whole.
+  it('a shared batch holding a path off the data-repo allowlist is refused whole, with no GitHub write', async () => {
+    const a = await createReplica();
+    await a.writeFile(FILE, 'allowed');
+    await makeStore().stage(USER, 'users/alice/debates/_index.json',
+      { content: '{}', baseSha: null, stagedAt: new Date().toISOString(), stageId: 'legacy-1' }, { absent: true });
+    await expect(a.commitOverlay(USER, undefined, { branchName: BRANCH })).rejects.toMatchObject({ code: 'DATA_REPO_PATH_REFUSED' });
+    expect(gh.trees.size).toBe(0);
+    expect(gh.refUpdates).toBe(0);
+  });
+
   it('a stale base in the store is a conflict: nothing commits, the entry stays', async () => {
     const a = await createReplica();
     await a.writeFile(FILE, 'mine'); // staged with baseSha null (absent)
@@ -261,5 +272,54 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — shared overlay commit und
     expect(result).toMatchObject({ filesCommitted: 0, conflictedPaths: [REPO_PATH] });
     expect(gh.refUpdates).toBe(0);
     expect(await makeStore().getEntry(USER, REPO_PATH)).toMatchObject({ content: 'mine' });
+  });
+
+  // t/551: conflict resolution acts on the shared entries, not one replica's read cache.
+  it('Use theirs: discards every shared entry, including ones saved on another replica', async () => {
+    const a = await createReplica();
+    const b = await createReplica();
+    await a.writeFile(FILE, 'from A');
+    await b.writeFile('/conflicts/bar.json', 'from B');
+    const discarded = await a.discardConflictedOverlayEntriesAsync(USER);
+    expect(discarded.sort()).toEqual(['conflicts/bar.json', REPO_PATH]);
+    expect(await makeStore().listEntries(USER)).toEqual([]);
+  });
+
+  it('Use theirs: busy while another replica holds the commit lease, and nothing is discarded', async () => {
+    const a = await createReplica();
+    await a.writeFile(FILE, 'pending');
+    const holder = new BlobLease({ accountUrl: ACCOUNT_URL, container: lockContainer(), blobName: `commit-locks/${USER}`, durationSeconds: 15, serviceClient: service });
+    expect(await holder.acquireOrRenew()).toBe(true);
+    try {
+      await expect(a.discardConflictedOverlayEntriesAsync(USER)).rejects.toMatchObject({ code: 'OVERLAY_COMMIT_BUSY' });
+      expect((await makeStore().listEntries(USER)).length).toBe(1);
+    } finally {
+      await holder.release();
+    }
+  });
+
+  it('Keep mine: re-bases the shared entry onto the branch\'s current blob and commits it over the other change', async () => {
+    const a = await createReplica();
+    await a.writeFile(FILE, 'mine'); // staged against an absent file
+    gh.committed.set(REPO_PATH, blobSha('someone else committed this'));
+    expect(await a.commitOverlay(USER, undefined, { branchName: BRANCH })).toMatchObject({ conflictedPaths: [REPO_PATH] });
+    // resolveLiveBaseSha reads the branch file; the fake GitHub serves the committed blob's sha.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if ((init?.method ?? 'GET') === 'GET' && url.includes(`/contents/${REPO_PATH}`)) {
+        const c = 'someone else committed this';
+        return respond(200, { type: 'file', encoding: 'base64', content: Buffer.from(c).toString('base64'), sha: blobSha(c), size: c.length });
+      }
+      return realFetch(input as string, init);
+    }) as unknown as typeof fetch;
+    try {
+      const result = await a.rebaseAndRecommitConflictedOverlayEntries(USER, BRANCH);
+      expect(result).toMatchObject({ committed: true, stillConflicted: [] });
+      expect(gh.committed.get(REPO_PATH)).toBe(blobSha('mine'));
+      expect(await makeStore().listEntries(USER)).toEqual([]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

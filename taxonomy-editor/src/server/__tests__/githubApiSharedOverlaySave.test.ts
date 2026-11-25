@@ -31,8 +31,8 @@ const ACCOUNT_URL = `http://127.0.0.1:${PORT}/devstoreaccount1`;
 const CONTAINER = 'overlay-state';
 const USER = 'alice';
 const BRANCH = 'api-session/alice';
-const FILE = '/taxonomy/foo.json';
-const REPO_PATH = 'taxonomy/foo.json';
+const FILE = '/conflicts/foo.json';
+const REPO_PATH = 'conflicts/foo.json';
 
 let proc: ChildProcess;
 let service: BlobServiceClient;
