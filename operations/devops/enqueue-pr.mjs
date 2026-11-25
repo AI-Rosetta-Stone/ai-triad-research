@@ -220,6 +220,13 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
   const prMeta = JSON.parse(ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft']));
   const headSha = prMeta.headRefOid;
   const tier = extractTier(prMeta.body);
+  // t/564 (Second Opinion on #5473, C): the budget (and any budget-exempt review) was judged on the head
+  // the budget check read. Refuse if the head this enqueue pins is a different one.
+  if (bv.pr && bv.pr.headRefOid !== headSha) {
+    const verdict = { allow: false, reason: 'budget_read_failed', today: bv.today, nextDayStart: bv.nextDayStart,
+      detail: `the head moved between the budget check (${String(bv.pr.headRefOid).slice(0, 9)}) and the enqueue read (${String(headSha).slice(0, 9)}); rerun` };
+    throw Object.assign(new Error(budgetRefusalMessage({ repo, prNumber, verdict })), { name: 'ActionableError', reason: verdict.reason, budget: verdict });
+  }
 
   // t/73: a caller that verified the approval at a specific head pins the enqueue to it. Both
   // arming paths below already pass `headSha` (`--match-head-commit`, `expectedHeadOid`), so

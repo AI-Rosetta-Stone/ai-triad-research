@@ -155,8 +155,8 @@ test('pool: a pooled PR merged TODAY keeps its place and its slot, so the pool c
   assert.equal(v.poolPosition, 2); assert.equal(v.slots, 1); assert.equal(v.allow, false); assert.equal(v.reason, 'pooled_no_slot');
 });
 
-test('windowStartDay: today -> 3 days back; earlier day -> 3 days before min(day, today-14)', () => {
-  assert.equal(windowStartDay(TODAY, TODAY), '2026-11-21');
+test('windowStartDay: always 3 days before min(day, today-14), today included (SO A: today needs the pool window)', () => {
+  assert.equal(windowStartDay(TODAY, TODAY), '2026-11-07');
   assert.equal(windowStartDay('2026-11-23', TODAY), '2026-11-07');
   assert.equal(windowStartDay('2026-11-01', TODAY), '2026-10-29');
 });
@@ -447,4 +447,45 @@ test('soft point (TL p/9#541): at 15 units nothing is refused, but the TL and ea
   });
   assert.deepEqual(sent14.map((s) => s.to), ['tl-id']);
   assert.doesNotMatch(sent14[0].body, /nearly used/);
+});
+
+// ── Second Opinion on #5473 (A, B, C) ────────────────────────────────────────────────────────
+
+test('SO A: pooled units merged today come off today\'s budget (10 pooled merges + 20 new must not land 30)', () => {
+  const y = day('2026-11-23', 30); // ranks 21..30 pooled
+  for (const p of y.slice(20)) { p.state = 'MERGED'; p.mergedAt = `${TODAY}T01:00:00Z`; }
+  const t = day(TODAY, 20, 120);
+  const prs = [...y, ...t];
+  const tenth = budgetVerdict({ prs, pr: t[9], nowIso: NOW });
+  assert.equal(tenth.pooledMergedToday, 10); assert.equal(tenth.allow, true); // rank 10 + 10 = 20
+  const eleventh = budgetVerdict({ prs, pr: t[10], nowIso: NOW });
+  assert.equal(eleventh.allow, false); assert.equal(eleventh.reason, 'over_budget_today');
+  const twentieth = budgetVerdict({ prs, pr: t[19], nowIso: NOW });
+  assert.equal(twentieth.allow, false); // the reproduced case: rank 20 + 10 pooled landings > 20
+  // Pooled units merged on an earlier day do not count against today.
+  for (const p of y.slice(20)) p.mergedAt = '2026-11-23T23:00:00Z';
+  assert.equal(budgetVerdict({ prs, pr: t[19], nowIso: NOW }).allow, true);
+});
+
+test('SO B: an over-budget PR older than the pool window is refused (pool_expired); a within-budget one is still allowed', () => {
+  const old = day('2026-11-05', 22); // 19 days before TODAY, ranks 21 and 22 over budget
+  const prs = [...old, ...day(TODAY, 1)];
+  const v = budgetVerdict({ prs, pr: old[21], nowIso: NOW });
+  assert.equal(v.allow, false); assert.equal(v.reason, 'pool_expired');
+  assert.match(budgetRefusalMessage({ repo: 'o/r', prNumber: old[21].number, verdict: v }), /left the carryover pool[\s\S]*budget-exempt/);
+  assert.equal(budgetVerdict({ prs, pr: old[5], nowIso: NOW }).reason, 'within_budget_earlier_day');
+});
+
+test('SO C: enqueuePR refuses when the head moved between the budget check and the enqueue read', async () => {
+  const g = (args) => {
+    const j = args.join(' ');
+    if (j.includes('headRefOid,body,isDraft')) return JSON.stringify({ headRefOid: 'newhead00', body: 'Tier: T0', isDraft: false });
+    throw new Error(`unexpected ${j}`);
+  };
+  const ok = () => ({ allow: true, reason: 'within_budget_today', units: 1, budget: 20, mean: 0, rank: 1, today: TODAY, pr: { number: 42, headRefOid: 'oldhead00' } });
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, gh: g, currency: CURRENT, budget: ok }),
+    (err) => err.reason === 'budget_read_failed' && /head moved between the budget check/.test(err.message));
+  // Same head: passes on (to the gate-file read, which this fake refuses as unexpected).
+  const same = () => ({ ...ok(), pr: { number: 42, headRefOid: 'newhead00' } });
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, gh: g, currency: CURRENT, budget: same }), (err) => err.reason !== 'budget_read_failed');
 });

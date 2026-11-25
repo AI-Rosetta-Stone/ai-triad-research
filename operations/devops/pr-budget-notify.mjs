@@ -18,7 +18,7 @@ import { ticketRefs, majorityOwner } from './my-prs.mjs';
 import { makeAppRun } from './stuck-pr-ping.mjs';
 
 export const DEFAULT_DAEMON = 'http://127.0.0.1:7420';
-export const PING_REASONS = Object.freeze(['over_budget_today', 'pooled_no_slot']);
+export const PING_REASONS = Object.freeze(['over_budget_today', 'pooled_no_slot', 'pool_expired']);
 
 /** Refuses anything that is not a loopback daemon URL (no ticket data off-host), as my-prs.mjs does. */
 export function assertLoopback(daemon) {

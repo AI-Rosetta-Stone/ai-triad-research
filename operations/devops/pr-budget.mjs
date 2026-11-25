@@ -48,7 +48,7 @@ export const SOFT_POINT = 15; // 'budget nearly used' ping, never a refusal
 export const POOL_DAYS = 14;
 export const SEARCH_CAP = 1000;
 export const BUDGET_APPROVER_ROLES = ['Tech Lead', 'Security'];
-export const REFUSAL_REASONS = Object.freeze(['over_budget_today', 'pooled_no_slot', 'budget_read_failed', 'budget_exempt_invalid']);
+export const REFUSAL_REASONS = Object.freeze(['over_budget_today', 'pooled_no_slot', 'pool_expired', 'budget_read_failed', 'budget_exempt_invalid']);
 
 const DAY_MS = 86_400_000;
 
@@ -141,7 +141,7 @@ export function poolOf(byDay, today, fromDay, { alsoOpen = [] } = {}) {
  * created in the window (see the header) and `nowIso`. Returns
  *   { allow, reason, day, today, units, budget, mean, counts, rank, dayBudget?, poolPosition?, slots?, nextDayStart }
  * reasons: allow 'dependabot' | 'within_budget_today' | 'within_budget_earlier_day' | 'pooled_slot';
- *          refuse 'over_budget_today' | 'pooled_no_slot' | 'budget_read_failed'.
+ *          refuse 'over_budget_today' | 'pooled_no_slot' | 'pool_expired' | 'budget_read_failed'.
  */
 export function budgetVerdict({ prs, pr, nowIso, poolDays = POOL_DAYS }) {
   const today = utcDay(nowIso);
@@ -162,15 +162,23 @@ export function budgetVerdict({ prs, pr, nowIso, poolDays = POOL_DAYS }) {
   const dayB = budgetFor(byDay, day);
   const todayB = budgetFor(byDay, today);
   const out = { ...base, day, units: unitCount(byDay, today), budget: todayB.budget, mean: todayB.mean, counts: todayB.counts, rank, unitKey: unit.key };
+  const poolFrom = addDays(today, -poolDays);
   if (day === today) {
-    return { ...out, allow: rank <= todayB.budget, reason: rank <= todayB.budget ? 'within_budget_today' : 'over_budget_today' };
+    // Second Opinion on #5473 (A): pooled units that merged today used today's landings, so they come
+    // off today's budget too; otherwise 10 pooled merges plus 20 new PRs would land 30 in one day.
+    const pooledMergedToday = poolOf(byDay, today, poolFrom)
+      .filter((p) => p.unit.prs.some((x) => x.mergedAt && utcDay(x.mergedAt) === today)).length;
+    const allow = rank + pooledMergedToday <= todayB.budget;
+    return { ...out, pooledMergedToday, allow, reason: allow ? 'within_budget_today' : 'over_budget_today' };
   }
   out.dayBudget = dayB.budget;
   out.dayUnits = unitCount(byDay, day);
   out.dayMean = dayB.mean;
   if (rank <= dayB.budget) return { ...out, allow: true, reason: 'within_budget_earlier_day' };
-  const fromDay = day < addDays(today, -poolDays) ? day : addDays(today, -poolDays);
-  const pool = poolOf(byDay, today, fromDay, { alsoOpen: [pr.number] });
+  // Second Opinion on #5473 (B): an over-budget PR older than the pool window is refused (exempt only),
+  // so the pool has one window and every pooled PR has one position.
+  if (day < poolFrom) return { ...out, allow: false, reason: 'pool_expired', poolDays };
+  const pool = poolOf(byDay, today, poolFrom, { alsoOpen: [pr.number] });
   const entry = pool.find((p) => p.unit === unit);
   const slots = Math.max(0, todayB.budget - out.units);
   const poolPosition = entry?.position ?? null;
@@ -222,7 +230,8 @@ export function budgetRefusalMessage({ repo, prNumber, verdict: v }) {
   const facts = `Today (${v.today ?? 'unknown'} UTC): ${v.units ?? 'unknown'} unit(s) counted, budget ${v.budget ?? 'unknown'}, ` +
     `3-day mean ${fmtMean(v.mean)}${v.counts ? ` (${v.counts.join(', ')})` : ''}.`;
   const problem = {
-    over_budget_today: `#${prNumber} ranks ${v.rank} among today's units, over today's budget of ${v.budget}. ${facts}`,
+    over_budget_today: `#${prNumber} ranks ${v.rank} among today's units${v.pooledMergedToday ? `, and ${v.pooledMergedToday} pooled unit(s) from earlier days already landed today` : ''}, over today's budget of ${v.budget}. ${facts}`,
+    pool_expired: `#${prNumber} was over budget on its creation day ${v.day} (rank ${v.rank} of ${v.dayBudget}), more than ${v.poolDays ?? POOL_DAYS} days ago, so it has left the carryover pool and lands only with a budget-exempt review. ${facts}`,
     pooled_no_slot: `#${prNumber} was over budget on its creation day ${v.day} (rank ${v.rank} of ${v.dayBudget}), so it waits in the carryover pool: ` +
       `position ${v.poolPosition ?? 'unknown'} of ${v.poolSize ?? 'unknown'}, with ${v.slots ?? 0} free slot(s) today. ${facts}`,
     budget_read_failed: `could not read what the budget needs (${v.detail ?? 'unknown error'}). An unreadable count is a refusal, not a pass.`,
@@ -312,8 +321,11 @@ export function fetchExemptReview(repo, prNumber, reviewId, ghFn = gh) {
 
 /** The first day of the search window for a PR created on `day`, checked on `today`. */
 export function windowStartDay(day, today, poolDays = POOL_DAYS) {
-  const from = day === today ? day : (day < addDays(today, -poolDays) ? day : addDays(today, -poolDays));
-  return addDays(from, -3);
+  // Always reaches back over the whole pool window (today - poolDays), today's PRs included: a today
+  // PR's verdict subtracts the pooled units merged today (Second Opinion on #5473, A), and those can
+  // come from any day in the pool window. An older PR also needs its own day (and the 3 before it).
+  const poolFrom = addDays(today, -poolDays);
+  return addDays(day < poolFrom ? day : poolFrom, -3);
 }
 
 /**
