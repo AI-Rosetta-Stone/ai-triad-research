@@ -16,7 +16,7 @@
  *
  * Replay one chat through the app's pipeline and write the result to a local candidate file.
  * It reads the store and writes no store (t/287):
- *   npx tsx scripts/chat-regeneration/cli.ts --replay --single <chat-id> --server http://127.0.0.1:7862 --out <file> [--model <id>] [--store community]
+ *   npx tsx scripts/chat-regeneration/cli.ts --replay --single <chat-id> --server http://127.0.0.1:7862 --out <file> [--model <id>] [--override-model <id>] [--store community]
  */
 
 import * as path from 'path';
@@ -52,6 +52,7 @@ interface CliOptions {
   server?: string;
   out?: string;
   model?: string;
+  overrideModel?: string;
 }
 
 function parseArgs(): CliOptions {
@@ -80,6 +81,7 @@ function parseArgs(): CliOptions {
     server: getSingleValue('--server'),
     out: getSingleValue('--out'),
     model: getSingleValue('--model'),
+    overrideModel: getSingleValue('--override-model'),
   };
 }
 
@@ -215,7 +217,7 @@ async function main() {
     const runtime = await startReplayRuntime(opts.server);
     let exitCode = 0;
     try {
-      const regenerated = await runtime.replay(chat, { fallbackModel: opts.model });
+      const regenerated = await runtime.replay(chat, { fallbackModel: opts.model, overrideModel: opts.overrideModel });
       await fs.writeFile(opts.out, JSON.stringify({ original: chat, regenerated }, null, 2), 'utf8');
       const answers = regenerated.transcript.filter(e => e.speaker === regenerated.pover);
       console.log(`Regenerated ${answers.length} answer(s); ${answers.filter(e => e.raw_prompt && e.raw_response).length} carry raw_prompt and raw_response.`);

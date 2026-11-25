@@ -21,8 +21,10 @@ import { ActionableError } from '../../../lib/debate/errors';
 export const REGENERATION_VERSION = '1.0.0';
 
 export interface ReplayOptions {
-  /** Model for a chat that recorded none. A chat's own chat_model always wins. */
+  /** Model for a chat that recorded none. A chat's own chat_model wins over this. */
   fallbackModel?: string;
+  /** Model to use whatever the chat recorded, e.g. when its own model has been retired. */
+  overrideModel?: string;
   /** Called with a WARN line for every fallback taken. */
   warn?: (message: string) => void;
   /** How long to wait for the taxonomy to finish loading. */
@@ -127,6 +129,12 @@ export async function replaySessionThroughStore(session: ChatSession, options: R
   const steps = planReplay(session);
 
   let model = session.chat_model;
+  if (options.overrideModel) {
+    if (model !== options.overrideModel) {
+      warn(`WARN: chat ${session.id} recorded model ${model ?? '(none)'}; replaying with the override model ${options.overrideModel}`);
+    }
+    model = options.overrideModel;
+  }
   if (!model) {
     if (!options.fallbackModel) {
       throw refuse(session, 'The chat records no chat_model and no fallback model was given.', [
@@ -171,5 +179,6 @@ export async function replaySessionThroughStore(session: ChatSession, options: R
   }
 
   const now = new Date().toISOString();
-  return { ...session, transcript, updated_at: now, regenerated_at: now, regenerated_from_version: REGENERATION_VERSION };
+  // The regenerated chat records the model that actually wrote its answers.
+  return { ...session, chat_model: model, transcript, updated_at: now, regenerated_at: now, regenerated_from_version: REGENERATION_VERSION };
 }

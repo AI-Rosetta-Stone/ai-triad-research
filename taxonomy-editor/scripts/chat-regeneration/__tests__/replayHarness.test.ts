@@ -100,6 +100,14 @@ describe('replaySessionThroughStore (t/287)', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('WARN: chat chat-1 records no chat_model'));
   });
 
+  it('an override model replaces the recorded one, with a WARN, and is recorded on the result', async () => {
+    const warn = vi.fn();
+    const result = await replaySessionThroughStore(session([entry('a0', 'accelerationist', 'x')], { chat_model: 'claude-opus-4' }), { overrideModel: 'claude-sonnet-5-5', warn });
+    expect(bridge.streamCalls[0].model).toBe('claude-sonnet-5-5');
+    expect(result.chat_model).toBe('claude-sonnet-5-5');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('recorded model claude-opus-4; replaying with the override model claude-sonnet-5-5'));
+  });
+
   it('fails the replay when the pipeline produces no answer', async () => {
     const failing = vi.spyOn(bridge.api, 'startChatStream').mockRejectedValueOnce(new Error('boom'));
     await expect(replaySessionThroughStore(session([entry('u0', 'user', 'q'), entry('a1', 'accelerationist', 'a')])))
