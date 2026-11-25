@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import type { DebateSession } from '../types.js';
-import { extractCalibrationData } from './extract.js';
+import { extractCalibrationData, deriveTerminationReason } from './extract.js';
 import type { CalibrationDataPoint } from './schema.js';
 import { computeConvergenceWithCensoring, computeSituationAlignment, computeAifB5Metrics, AIF_B5_METRIC_DEF_VERSION } from './extract-metrics.js';
 import type { ArgumentNetworkNode } from '../types.js';
@@ -435,5 +435,43 @@ describe('computeAifB5Metrics', () => {
     const signals = [makeSignal('taken'), makeSignal('missed'), makeSignal('none'), makeSignal('none')];
     const result = computeAifB5Metrics([], [], signals);
     expect(result.convergence_score).toBe(0.5);
+  });
+});
+
+// ── t/580: fixed-rounds (quick profile) termination ──────────────────────────
+describe('deriveTerminationReason without adaptive staging (t/580)', () => {
+  const stmt = (speaker: string) => ({ type: 'statement', content: 'x', speaker, taxonomy_refs: [] });
+  const quickTranscript = [
+    { type: 'opening', content: 'o', speaker: 'accelerationist', taxonomy_refs: [] },
+    stmt('accelerationist'), stmt('safetyist'), stmt('skeptic'),
+    stmt('accelerationist'), stmt('safetyist'), stmt('skeptic'),
+  ];
+
+  it('a quick-profile record that ran every configured round is fixed_rounds_completed, not unknown', () => {
+    const s = makeSession({ transcript: quickTranscript, fixed_rounds_diagnostics: { rounds_configured: 2, rounds_completed: 2 } });
+    expect(deriveTerminationReason(s)).toBe('fixed_rounds_completed');
+  });
+
+  it('a legacy quick-profile record (no diagnostics) that reached synthesis is fixed_rounds_completed', () => {
+    const s = makeSession({ transcript: [...quickTranscript, { type: 'concluding', content: 'Synthesis', speaker: 'system', taxonomy_refs: [] }] });
+    expect(deriveTerminationReason(s)).toBe('fixed_rounds_completed');
+  });
+
+  it('stays unknown when the fixed loop did not finish and there is no synthesis', () => {
+    expect(deriveTerminationReason(makeSession({ transcript: quickTranscript, fixed_rounds_diagnostics: { rounds_configured: 3, rounds_completed: 2 } }))).toBe('unknown');
+    expect(deriveTerminationReason(makeSession({ transcript: quickTranscript }))).toBe('unknown');
+  });
+
+  it('adaptive diagnostics still win when present', () => {
+    const s = makeSession({
+      transcript: [...quickTranscript, { type: 'concluding', content: 'Synthesis', speaker: 'system', taxonomy_refs: [] }],
+      adaptive_staging_diagnostics: { phases: [{ phase: 'concluding', rounds: [1], exit_reason: 'converged', force_active: false }] },
+    });
+    expect(deriveTerminationReason(s)).toBe('natural_conclusion');
+  });
+
+  it('fixed_rounds_completed is excluded from both convergence pools', () => {
+    const r = computeConvergenceWithCensoring([{ termination_reason: 'fixed_rounds_completed' } as CalibrationDataPoint], () => 1);
+    expect(r).toMatchObject({ n_completed: 0, n_censored: 0, n_unknown: 1 });
   });
 });

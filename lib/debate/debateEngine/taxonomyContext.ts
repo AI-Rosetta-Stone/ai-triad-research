@@ -478,6 +478,11 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
   engine._lastInjectionManifest = computeInjectionManifest(filteredCtx, pov);
   engine._lastInjectionManifest.scoring_mode = scoringMode;
   if (synthetic) (engine._lastInjectionManifest as Record<string, unknown>).synthetic_arm = synthetic.arm;
+  const skipRecord = syntheticSkipRecord(synthetic);
+  if (skipRecord) {
+    (engine._lastInjectionManifest as Record<string, unknown>).synthetic_skips = skipRecord;
+    console.warn(`[debate] WARN useSyntheticStatementGrounding: ${pov} skipped ${skipRecord.count} node(s) with no usable synthetic statement (${skipRecord.skipped.join(', ')}); backfilled ${skipRecord.backfilled.length} (t/580)`);
+  }
   if (testingSelection) engine._lastInjectionManifest.testing_selection = testingSelection;
   if (tagSelection) {
     (engine._lastInjectionManifest as Record<string, unknown>).tag_selection = {
@@ -591,8 +596,25 @@ function resolveDebateGroundingOverrides(engine: DebateEngineInternals, povNodes
 
 /** Outcome of the synthetic arm for one turn. `undefined` from resolveSyntheticPromptNodes means the flag is off. */
 export type SyntheticArm =
-  | { arm: 'synthetic'; nodes: PovNode[]; overrides: Map<string, string> }
-  | { arm: 'control-fallback' };
+  | { arm: 'synthetic'; nodes: PovNode[]; overrides: Map<string, string>; skipped?: string[]; backfilled?: string[] }
+  | { arm: 'control-fallback'; skipped?: string[]; backfilled?: string[] };
+
+/**
+ * Per-turn record of synthetic-grounding skips (t/580), written into the turn's injection manifest
+ * (diagnostics.entries[id].injection_manifest.synthetic_skips). Absent when nothing was skipped.
+ */
+export interface SyntheticSkipRecord {
+  count: number;
+  reason: 'no usable synthetic statement';
+  skipped: string[];
+  backfilled: string[];
+}
+
+export function syntheticSkipRecord(synthetic: SyntheticArm | undefined): SyntheticSkipRecord | undefined {
+  const skipped = synthetic?.skipped ?? [];
+  if (skipped.length === 0) return undefined;
+  return { count: skipped.length, reason: 'no usable synthetic statement', skipped, backfilled: synthetic?.backfilled ?? [] };
+}
 
 // Synthetic-statement arm (t/412). Flag off: undefined. Flag on with no query embedding: the turn is
 // marked 'control-fallback' and runs the control prompt, so the experiment can exclude it from arm B.
@@ -620,9 +642,9 @@ export function resolveSyntheticPromptNodes(
   // control path and mark the turn so it is excluded from arm B.
   if (grounded.nodes.length === 0) {
     getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: engine.session?.id, message: `useSyntheticStatementGrounding: no POV node has a usable synthetic statement (${grounded.skipped.length} skipped, 0 backfilled) — falling back to the control prompt, marked synthetic_arm=control-fallback` });
-    return { arm: 'control-fallback' };
+    return { arm: 'control-fallback', skipped: grounded.skipped, backfilled: grounded.backfilled };
   }
-  return { arm: 'synthetic', nodes: grounded.nodes, overrides: grounded.overrides };
+  return { arm: 'synthetic', nodes: grounded.nodes, overrides: grounded.overrides, skipped: grounded.skipped, backfilled: grounded.backfilled };
 }
 
 // Synthetic statements take precedence over debate_grounding. A control-fallback turn gets the

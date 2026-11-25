@@ -533,6 +533,12 @@ export interface DebateSession {
   moderator_state?: ModeratorState;
   /** Adaptive staging diagnostics — signal telemetry, phase transitions, GC events. Present when useAdaptiveStaging is enabled. */
   adaptive_staging_diagnostics?: AdaptiveStagingDiagnostics;
+  /**
+   * Fixed-rounds diagnostics (t/580). Written at the end of the fixed cross-respond loop (no
+   * adaptive staging, e.g. the quick profile) so the termination reason can be derived.
+   * Read by calibrationLogger/extract.ts deriveTerminationReason.
+   */
+  fixed_rounds_diagnostics?: { rounds_configured: number; rounds_completed: number };
   /** Last QBAF computation result metadata (oscillation detection, iteration count). */
   last_qbaf_result?: { iterations: number; converged: boolean; oscillationDetected?: boolean; dampingLevel?: number };
   /** Peak damping level across all QBAF runs in this debate (0 = no oscillation ever triggered). */

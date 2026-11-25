@@ -55,7 +55,7 @@ describe('synthetic-arm control-fallback WARN (t/414)', () => {
     const a = node('acc-data-001', 'data');
     const e = engine({ useSyntheticStatementGrounding: true }, { 'acc-data-001': { vectors: [[1, 0]] } }, {});
     const r = resolveSyntheticPromptNodes(e, [{ node: a, score: 0.9 }], [a], new Map([['acc-data-001', 0.9]]), QUERY);
-    expect(r).toEqual({ arm: 'control-fallback' });
+    expect(r).toEqual({ arm: 'control-fallback', skipped: ['acc-data-001'], backfilled: [] });
     expect(recorder.record).toHaveBeenCalledWith(expect.objectContaining({
       level: 'warn',
       debate_id: 'debate-t414',

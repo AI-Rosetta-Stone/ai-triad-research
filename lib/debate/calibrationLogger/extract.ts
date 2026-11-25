@@ -53,6 +53,7 @@ export type TerminationReason =
   | 'situation_cap'
   | 'api_ceiling'
   | 'first_round_exit'
+  | 'fixed_rounds_completed'
   | 'unknown';
 
 // ── Extraction logic ────────────────────────────────────────
@@ -84,7 +85,21 @@ export function deriveTerminationReason(session: DebateSession): TerminationReas
       : 'natural_conclusion';
   }
   if (rounds <= 1) return 'first_round_exit';
+  if (fixedRoundsCompleted(session)) return 'fixed_rounds_completed';
   return 'unknown';
+}
+
+/**
+ * t/580: a debate without adaptive staging (fixed rounds, e.g. the quick profile) writes no
+ * adaptive diagnostics, so its end was labelled 'unknown'. The fixed loop has no early exit, so it
+ * completed when it ran every configured round. New sessions record that in
+ * fixed_rounds_diagnostics; older sessions without it count as completed when they reached the
+ * synthesis (a 'concluding' entry), which only happens after the loop finishes.
+ */
+function fixedRoundsCompleted(session: DebateSession): boolean {
+  const frd = session.fixed_rounds_diagnostics;
+  if (frd) return frd.rounds_configured > 0 && frd.rounds_completed >= frd.rounds_configured;
+  return session.transcript.some((e: { type: string }) => e.type === 'concluding');
 }
 
 /**
