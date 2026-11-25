@@ -52,6 +52,7 @@ interface LlmCampVerdict {
  *  constant, deliberately not in the schema. */
 export const DRIFT_WARN_THRESHOLD = 0.3;
 const ANSWER_NOTE_MAX_CHARS = 300;
+const DEBATED_TOPIC_MAX_CHARS = 300;
 
 interface LlmConvergence {
   claim: string;
@@ -242,12 +243,20 @@ export function buildDirectAnswerField(raw: LlmSynthesisOutput['directAnswer']):
   return { directAnswer: parsed.data };
 }
 
-/** The debated topic, when the session's final topic differs from the question as asked; else undefined (t/285). */
+/**
+ * The debated topic, when the session's final topic differs from the question as asked; else undefined (t/285).
+ * A topic over the schema's 300-character bound is omitted with a WARN: it must not fail the whole result's
+ * parse, and truncation would misstate what was debated (TL t/285#50).
+ */
 export function debatedTopicOf(question: string, sessionFinalTopic: string | undefined): string | undefined {
   const final = sessionFinalTopic?.trim();
   if (!final) return undefined;
-  const same = final.toLowerCase() === question.trim().toLowerCase();
-  return same ? undefined : final;
+  if (final.toLowerCase() === question.trim().toLowerCase()) return undefined;
+  if (final.length > DEBATED_TOPIC_MAX_CHARS) {
+    warn(`synthesizeInquiry: debatedTopic over bound (${final.length} > ${DEBATED_TOPIC_MAX_CHARS}) — omitted`);
+    return undefined;
+  }
+  return final;
 }
 
 /** Session wrapper for debatedTopicOf. Kept out of synthesizeInquiry so its complexity budget stays put (t/285). */

@@ -262,27 +262,37 @@ export type CampVerdict = z.infer<typeof CampVerdictSchema>;
 
 // ── Direct answer and question drift (t/285) ─────────────────────────────────
 // Additive optional fields on InquiryResult: no schemaVersion bump (schema.ts:26). Old results load unchanged.
-/** A short answer to the literal question, or an explicit "no consensus" with the reason. */
-export const DirectAnswerSchema = z.object({
-  text: z.string().min(1).max(1000),
-  /** 'consensus': the camps agree on a direct answer. 'split': they diverge; `text` says why. */
-  agreement: z.enum(['consensus', 'split']),
-});
+/** A short answer to the literal question, or an explicit "no consensus" with the reason.
+ *  `.passthrough()`: a persisted object, so an older build must carry a later field through a round-trip
+ *  instead of stripping it (the tolerant-reader rule at InquiryResultSchema; TL t/285#50). */
+export const DirectAnswerSchema = z
+  .object({
+    text: z.string().min(1).max(1000),
+    /** 'consensus': the camps agree on a direct answer. 'split': they diverge; `text` says why.
+     *  A closed enum: a third value is a schemaVersion bump, not an additive change (TL t/285#50). */
+    agreement: z.enum(['consensus', 'split']),
+  })
+  .passthrough();
 export type DirectAnswer = z.infer<typeof DirectAnswerSchema>;
 
-/** Whether the debate answered the question that was asked (t/283). Present on results produced after t/285. */
-export const QuestionDriftSchema = z.object({
-  /** The topic the debate actually addressed, when it differs from the question. Absent when they match. */
-  debatedTopic: z.string().optional(),
-  /** Drift score 0–1 from t/283 A (0 = on the question). Absent until t/283 A supplies it. Not measured
-   *  today: nothing produces it, so no result carries a drift score. */
-  driftScore: z.number().min(0).max(1).optional(),
-  /** True when any camp did not answer the question, or the drift score is over the Debate Engine threshold.
-   *  Provenance: **stipulated** (metric-provenance-register, t/285). Its only live input is the model's
-   *  self-reported `answeredLiteralQuestion`, not a measurement. Do not show it to users until the
-   *  validation sample (t/285, Comp-Linguist) has been run and its rate reported. */
-  warning: z.boolean(),
-});
+/** Whether the debate answered the question that was asked (t/283). Present on results produced after t/285.
+ *  `.passthrough()` for the same round-trip reason as DirectAnswerSchema. */
+export const QuestionDriftSchema = z
+  .object({
+    /** The topic the debate actually addressed, when it differs from the question. Absent when they match. */
+    debatedTopic: z.string().max(300).optional(),
+    /** Drift score 0–1 from t/283 A (0 = on the question). Absent until t/283 A supplies it. Not measured
+     *  today: nothing produces it, so no result carries a drift score. */
+    driftScore: z.number().min(0).max(1).optional(),
+    /** True when any camp did not answer the question, or the drift score is over the Debate Engine threshold.
+     *  Provenance: **stipulated** (metric-provenance-register, t/285). Its only live input is the model's
+     *  self-reported `answeredLiteralQuestion`, not a measurement. Do not show it to users until the
+     *  validation sample (t/285, Comp-Linguist) has been run and its rate reported.
+     *  Optional: absent means not evaluated, so a result can carry `debatedTopic` without asserting a
+     *  warning (TL t/285#50). */
+    warning: z.boolean().optional(),
+  })
+  .passthrough();
 export type QuestionDrift = z.infer<typeof QuestionDriftSchema>;
 
 // ── InquiryResult ─────────────────────────────────────────────────────────────
