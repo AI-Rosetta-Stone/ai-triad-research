@@ -58,13 +58,13 @@ ARMED=$(printf '%s' "$STATE" | node -e "const d=JSON.parse(require('fs').readFil
 if [ "$IS_QUEUED" = "true" ]; then
   echo "pre-push: ERROR PR #$PR_NUM for '$BRANCH' is in the merge queue right now (t/4858)." >&2
   echo "pre-push:   Pushing now races the queue: it may build and merge your OLD head while GitHub reports success." >&2
-  echo "pre-push:   Fix: gh pr merge $PR_NUM --disable-auto   (disarm/dequeue), THEN push, THEN re-enqueue." >&2
+  echo "pre-push:   Fix: node operations/devops/disarm-pr.mjs $REPO_SLUG $PR_NUM   (dequeue + disarm, read back), THEN push, THEN re-enqueue: node operations/devops/enqueue-pr.mjs $REPO_SLUG $PR_NUM" >&2
   exit 1
 fi
 if [ "$ARMED" = "true" ]; then
   echo "pre-push: ERROR PR #$PR_NUM for '$BRANCH' has auto-merge armed and will enter the queue once checks pass (t/4858)." >&2
   echo "pre-push:   Pushing now can arm-then-queue your OLD head before this push's checks even start." >&2
-  echo "pre-push:   Fix: gh pr merge $PR_NUM --disable-auto   (disarm), THEN push, THEN re-enqueue." >&2
+  echo "pre-push:   Fix: node operations/devops/disarm-pr.mjs $REPO_SLUG $PR_NUM   (disarm, read back), THEN push, THEN re-enqueue: node operations/devops/enqueue-pr.mjs $REPO_SLUG $PR_NUM" >&2
   exit 1
 fi
 
