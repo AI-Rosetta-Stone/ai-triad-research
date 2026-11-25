@@ -29,6 +29,7 @@ import { log } from './logger.js';
 import { getCurrentUser } from './security/userContext.js';
 import { isAdmin } from './community/community.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
+import { ActionableError } from '../../../lib/debate/errors.js';
 
 // ── Types ──
 
@@ -346,9 +347,15 @@ function currentContext(): FlagUserContext {
 }
 
 /** Whether a flag def resolves true for the given context. Fail-closed. */
+/** t/494 (PI 2026-11-25, TL p/16#364): flags that are permanent controls, not temporary switches. They never expire:
+ *  a stored expires_at is ignored when resolving, refused when set, and they are not reported as stale. Before this,
+ *  an expires_at on free-pool-budget-enforced (prod had 2027-01-02) would have turned spend control off silently
+ *  (t/494#20). */
+export const PERMANENT_FLAGS: ReadonlySet<string> = new Set(['free-pool-budget-enforced']);
+
 function resolve(def: FlagDef | undefined, ctx: FlagUserContext): boolean {
   if (!def || !def.enabled) return false;
-  if (def.expires_at && Date.parse(def.expires_at) <= Date.now()) return false;
+  if (def.expires_at && !PERMANENT_FLAGS.has(def.name) && Date.parse(def.expires_at) <= Date.now()) return false;
   return evaluateScope(def.scope || 'global', ctx);
 }
 
@@ -409,6 +416,16 @@ function mergeFlagDef(name: string, patch: Partial<FlagDef>, before: FlagDef | n
 
 /** Create or update a flag (admin). Persists + appends audit. Returns the def. */
 export function setFlag(name: string, patch: Partial<FlagDef>, by = '_local'): FlagDef {
+  if (PERMANENT_FLAGS.has(name) && patch.expires_at) {
+    throw new ActionableError({
+      goal: `Set flag ${name}`,
+      problem: `${name} is a permanent control and cannot expire (t/494, PI 2026-11-25)`,
+      location: 'featureFlags.setFlag',
+      nextSteps: ['Omit expires_at, or send expires_at: null to clear it'],
+      httpStatus: 400,
+      code: 'FLAG_PERMANENT',
+    });
+  }
   // t/2644: merge onto FRESH file state (not the stale in-process cache) so a concurrent
   // change to a DIFFERENT flag on another replica survives; the RMW retries on a race.
   return rmwFlags((fresh) => {
@@ -436,7 +453,7 @@ export function deleteFlag(name: string, by = '_local'): boolean {
 /** Flags whose updated_at is older than `daysOld` and have no expiry set. */
 export function getStaleFlags(daysOld: number): FlagDef[] {
   const cutoff = Date.now() - daysOld * 86_400_000;
-  return listFlags().filter(f => !f.expires_at && Date.parse(f.updated_at) < cutoff);
+  return listFlags().filter(f => !f.expires_at && !PERMANENT_FLAGS.has(f.name) && Date.parse(f.updated_at) < cutoff);
 }
 
 /** Test-only: reset the in-memory cache. */

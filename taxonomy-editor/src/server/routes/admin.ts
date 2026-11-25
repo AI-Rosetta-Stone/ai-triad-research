@@ -21,7 +21,7 @@ import { loadUsageRegistry } from '../../../../lib/ai-client/usageTypes.js';
 import { getConfig, getConfigState, writeConfig, forceReload as reloadRuntimeConfig, diffFromDefaults } from '../runtimeConfig.js';
 import { requireAdmin, getReviewQueue, getReviewStats, getReviewDetail, executeReviewAction } from '../community/admin/reviewRegistry.js';
 import type { ReviewAction } from '../community/admin/types.js';
-import { listFlags, setFlag, deleteFlag, type FlagDef } from '../featureFlags.js';
+import { listFlags, setFlag, PERMANENT_FLAGS, deleteFlag, type FlagDef } from '../featureFlags.js';
 import { getStorageUserId, getCurrentUserId } from '../security/userContext.js';
 import { sanitizeUserText } from '../security/contentSanitizer.js';
 import { getRollbackStatus } from '../rollbackStatus.js';
@@ -189,6 +189,8 @@ export function registerAdminRoutes(r: Router, ctx: ServerCtx): void {
       const patch = (body ?? {}) as Partial<FlagDef>;
       if (patch.enabled !== undefined && typeof patch.enabled !== 'boolean') { error(res, 'enabled must be a boolean', 400); return; }
       if (patch.scope !== undefined && typeof patch.scope !== 'string') { error(res, 'scope must be a string', 400); return; }
+      // t/494 (PI 2026-11-25): a permanent control cannot be given an expiry.
+      if (PERMANENT_FLAGS.has(name) && patch.expires_at) { error(res, `${name} is a permanent control and cannot expire`, 400); return; }
       json(res, setFlag(name, patch, getStorageUserId()));
     } catch (err) {
       getGlobalRecorder()?.record({
