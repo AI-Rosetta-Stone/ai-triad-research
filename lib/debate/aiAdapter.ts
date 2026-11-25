@@ -40,6 +40,7 @@ import { getGlobalRecorder } from '../flight-recorder/index.js';
 import { DebateRateLimiter } from './debateRateLimiter.js';
 import {
   computeEmbedding as onnxComputeEmbedding,
+  computeEmbeddings as onnxComputeEmbeddings,
   tryWarmup as onnxTryWarmup,
   isReady as onnxIsReady,
 } from '../embeddings/onnxEmbedding.js';
@@ -73,6 +74,13 @@ export interface AIAdapter {
   onRetryProgress?: (info: { attempt: number; maxRetries: number; backoffSeconds: number; message: string }) => void;
   generate?(request: GenerateRequest): Promise<GenerateResponse>;
   computeQueryEmbedding?(text: string): Promise<{ vector: number[] }>;
+  /**
+   * Batch embed: one all-MiniLM-L6-v2 vector (384-dim) per text, in input order (t/561).
+   * The engine's phases embed only through the adapter (debateEngine/embedTexts.ts), so a host
+   * that owns an embedding session (the server's worker) serves them and no second session loads.
+   * Optional: without it the engine falls back to per-text computeQueryEmbedding.
+   */
+  computeEmbeddings?(texts: string[]): Promise<number[][]>;
   /**
    * The provider-reported model string from the most recent successful generateText call.
    * Set by CLI adapters for forensic dating of silent provider model swaps (t/4195).
@@ -563,6 +571,12 @@ export function createCLIAdapter(repoRoot: string, explicitApiKey?: string): Ext
       getGlobalRecorder()?.record({ type: 'ai.fallback', component: 'ai-adapter', level: 'warn', message: `generateTextWithSearch: TAVILY_API_KEY not set — returning plain generation (no search). model=${resolved} backend=${backend}` });
       const text = await doGenerateText(prompt, resolved);
       return { text };
+    },
+
+    // t/561: the batch embed the engine's phases use. In the CLI the process owns its one ONNX
+    // session, so this is the same in-process call the phases used to make directly.
+    async computeEmbeddings(texts: string[]): Promise<number[][]> {
+      return onnxComputeEmbeddings(texts);
     },
 
     async computeQueryEmbedding(text: string): Promise<{ vector: number[] }> {

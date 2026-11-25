@@ -4,6 +4,7 @@
 import type { DebateEngineInternals } from '../internals.js';
 import type { TranscriptEntry } from '../../types.js';
 import { getGlobalRecorder } from '../../../flight-recorder/index.js';
+import { adapterEmbedder } from '../embedTexts.js';
 import { narrativeVoicingPrompt } from '../../prompts.js';
 import {
   NARRATIVE_VOICING_KIND,
@@ -71,8 +72,7 @@ export async function finalizeNarrativeReference(engine: DebateEngineInternals):
   const voicing = engine.session.narrative_voicing;
   if (!voicing) return;
   try {
-    const { computeEmbeddings } = await import('../../../embeddings/onnxEmbedding.js');
-    await embedNarrativeReferences(voicing.narratives, computeEmbeddings);
+    await embedNarrativeReferences(voicing.narratives, adapterEmbedder(engine.adapter, engine.session?.id));
     for (const e of engine.session.transcript) {
       if (e.type === 'opening') await updateNarrativeSimilarity(engine, e);
     }
@@ -86,8 +86,7 @@ export async function updateNarrativeSimilarity(engine: DebateEngineInternals, e
   const voicing = engine.session.narrative_voicing;
   if (!voicing) return;
   try {
-    const { computeEmbeddings } = await import('../../../embeddings/onnxEmbedding.js');
-    const sim = await scoreTurnAgainstNarrative(voicing.narratives, entry.speaker, entry.content, computeEmbeddings);
+    const sim = await scoreTurnAgainstNarrative(voicing.narratives, entry.speaker, entry.content, adapterEmbedder(engine.adapter, engine.session?.id));
     if (sim === null) return;
     voicing.similarity_series ??= {};
     voicing.similarity_series[entry.id] = sim;
