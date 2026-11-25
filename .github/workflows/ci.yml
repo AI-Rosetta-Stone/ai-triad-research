@@ -2196,7 +2196,7 @@ jobs:
       # t/9 (PI rule p/4#32): the post-merge worktree sweep removes a worktree only when its PR merged
       # and its tree is clean; WARN and skip otherwise; never --force.
       - name: post-merge worktree sweep suite
-        run: node --test operations/devops/sweep-landed-worktrees.test.mjs
+        run: node --test operations/devops/sweep-landed-worktrees.test.mjs operations/devops/run-worktree-sweep.test.mjs
 
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs

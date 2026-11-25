@@ -53,6 +53,10 @@ export const GATE_SCRIPTS = [
   // t/543#7: the walker that keeps this list honest. Weakening it would let new drift pass the test
   // unnoticed, so a change to it needs the same second reader.
   'operations/devops/gate-path-walk.mjs',
+  // t/9 (Security p/278#9 condition 5): the daily scheduled sweep deletes worktrees unattended, so the
+  // sweep and its wrapper need the same second reader as the merge gates.
+  'operations/devops/sweep-landed-worktrees.sh',
+  'operations/devops/run-worktree-sweep.mjs',
 ];
 
 // Every operations/devops script that a required-check workflow runs or loads (ci.yml,
@@ -308,6 +312,7 @@ export const CODE_UNDER_TEST = [
 
   'operations/devops/staging-data-account-whatif-guard.test.mjs', // test of staging-data-account-whatif-guard (t/627)
   'operations/devops/sweep-landed-worktrees.test.mjs', // test of sweep-landed-worktrees.sh (t/9)
+  'operations/devops/run-worktree-sweep.test.mjs', // test of run-worktree-sweep.mjs (t/9)
   'operations/devops/stuck-pr-classifier.test.mjs', // test of stuck-pr-classifier
   'operations/devops/t0-enqueue-sweep.test.mjs', // test of t0-enqueue-sweep.mjs
   'operations/devops/t0-rule-order.test.mjs', // rule-order test of t0-enqueue-sweep.mjs
