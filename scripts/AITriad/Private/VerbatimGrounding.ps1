@@ -75,6 +75,10 @@
 # page and footnote numbers, a damaged no-break space. Damage in the model's own quote: marks and the
 # no-break space are stored repaired; letters are stored as the model wrote them (t/389#90).
 #
+# Two modifier letters that a PDF holds for an apostrophe and a closing double quote (U+02BC, U+02EE) are read
+# as those marks, in the source and in the quote, for matching only; what is stored keeps the model's
+# characters (p/70#178). It is one mark for its equal, never a wildcard.
+#
 # $script:VerbatimDiag records why each quote was changed or dropped. It is for audit scripts only; the
 # switches below let an audit count one rule at a time. Nothing in the product reads either.
 
@@ -163,6 +167,18 @@ $script:VerbatimKeepQuoteWords = $true
 # snapshot is folded to match the source, and stays damaged in the stored text. Damaged marks and the damaged
 # no-break space are stored repaired; both are counted.
 $script:VerbatimStoreLettersAsWritten = $true
+# Two modifier letters that a PDF's text layer holds where the page prints an apostrophe or a closing double
+# quote: U+02BC and U+02EE (CL p/70#176 (2), #178; the t/652 snapshot repair put 45 of them back). Unicode
+# classes them as letters, so "company" + U+02BC + "s" would not match the model's "company's". For matching
+# only, each is read as the mark it stands for, in the source and in the quote. The stored text keeps the
+# model's characters. Counted as a class of its own in VerbatimDiag.
+$script:VerbatimFoldModifierLetters = $true
+$script:VerbatimModifierLetterFold = @(
+    , @([string][char]0x02BC, "'")
+    , @([string][char]0x02EE, '"')
+)
+$script:VerbatimModifierLetterChars = [char[]]@([char]0x02BC, [char]0x02EE)
+$script:VerbatimModifierLetterDiag = 'modifier letter matched as its mark (U+02BC, U+02EE)'
 $script:VerbatimRejectUncutPiece = $true
 $script:VerbatimSpaceMojibakePattern = ([string][char]0x393 + [char]0xC7) + '[' + (-join [char[]](0xC7, 0xFC, 0xE9, 0xE2, 0xE4, 0xE0, 0xE5, 0xE7, 0xEA, 0xEB, 0xE8, 0xEF, 0xBB)) + ']'
 $script:VerbatimSymbolRef = $true            # a footnote symbol read as a letter, glued to a word's end ("Mishra" + the section sign's mojibake)
@@ -210,6 +226,9 @@ function Get-VerbatimSource {
         $W = $W.Replace($From, $To + (' ' * ($From.Length - $To.Length)))
     }
     foreach ($P in $script:EvidenceMojibakeSingles) { $W = $W.Replace($P[0], $P[1]) }
+    # A modifier letter that stands for an apostrophe or a quote mark is that mark in the matching copy (one
+    # character for one, so offsets hold).
+    if ($script:VerbatimFoldModifierLetters) { foreach ($P in $script:VerbatimModifierLetterFold) { $W = $W.Replace($P[0], $P[1]) } }
     # Ligatures whose UTF-8 bytes were read as code page 437 ("signi" + U+2229 U+00BC U+00FC + "cant" for
     # "significant"; t/389#45, H06). Without this the word does not match the model's quote, and the stored
     # piece starts after it. Same length, like the repairs above; only the matching copy changes.
@@ -353,6 +372,7 @@ function Get-VerbatimSource {
         WordOffset = $WordOffset
         WordMap    = $WordMap         # word index -> offsets within the word, for the words NFKC changed
         Footers    = $Footers
+        HasModifierLetters = ($Text.IndexOfAny($script:VerbatimModifierLetterChars) -ge 0)
         BlankedAt  = $BlankedAt.ToArray()
         LineCounts = $Counts          # trimmed line (up to VerbatimFooterMaxChars) -> how often it occurs
         Work       = $Work            # Text with mojibake repaired and page furniture blanked, offset for offset
@@ -1049,6 +1069,11 @@ function Remove-VerbatimQuoteNoise {
     # snapshot's "o-diaeresis" for a closing quote arrives as "A-tilde, pilcrow" (t/389#50, i406). They are
     # quote marks, not letters of a word.
     foreach ($P in $script:VerbatimQuoteMojibake) { $Q = $Q.Replace($P[0], $P[1]) }
+    # A modifier letter for an apostrophe or a quote mark is that mark, in the matching copy only. The copy
+    # made for storing (-KeepLigatureDamage) keeps the model's character (CL p/70#178).
+    if ($script:VerbatimFoldModifierLetters -and -not $KeepLigatureDamage) {
+        foreach ($P in $script:VerbatimModifierLetterFold) { $Q = $Q.Replace($P[0], $P[1]) }
+    }
     if ($script:VerbatimFoldMoreMojibake) {
         # The quote is folded like the source (CL t/389#61 (3)): the further forms of the same marks, the
         # ligatures, and the no-break space that reads as a-acute.
@@ -1750,6 +1775,23 @@ function Test-VerbatimElisionGap {
     $true
 }
 
+function Add-VerbatimModifierLetterDiag {
+    # Records, for audits, that a kept quote was matched with a modifier letter read as its mark: the quote
+    # has one, or the source passage a stored text stands in has one (CL p/70#178: a class of its own).
+    # The source passage is looked up only in a snapshot that has such a letter at all.
+    param([object]$Source, [string]$Quote, [string[]]$Texts)
+    if (-not $script:VerbatimFoldModifierLetters) { return }
+    $Found = $Quote.IndexOfAny($script:VerbatimModifierLetterChars) -ge 0
+    if (-not $Found -and $Source.PSObject.Properties['HasModifierLetters'] -and $Source.HasModifierLetters) {
+        foreach ($T in $Texts) {
+            if ([string]::IsNullOrWhiteSpace($T)) { continue }
+            $At = Find-VerbatimSnap -Source $Source -Quote (Remove-VerbatimQuoteNoise -Source $Source -Quote $T)
+            if ($At -and $Source.Text.Substring($At.Start, $At.End - $At.Start).IndexOfAny($script:VerbatimModifierLetterChars) -ge 0) { $Found = $true; break }
+        }
+    }
+    if ($Found -and -not $script:VerbatimDiag.Contains($script:VerbatimModifierLetterDiag)) { $script:VerbatimDiag.Add($script:VerbatimModifierLetterDiag) }
+}
+
 function Test-VerbatimRunInSource {
     # Does the source have a run of VerbatimMinRun letters of the segment, anywhere in the snapshot? This is
     # the header's test for "the source does not have it" (t/389#103, #110). It reads the same letters the
@@ -1784,6 +1826,7 @@ function Resolve-VerbatimQuote {
     if ($Parts.Count -eq 1 -and $Parts[0] -ceq $Quote.Trim()) {
         $R = Resolve-VerbatimSegment -Source $Source -Segment $Quote
         if ($R.Decision -eq 'dropped') { $Dropped.Coverage = $R.Coverage; return $Dropped }
+        Add-VerbatimModifierLetterDiag -Source $Source -Quote $Quote -Texts @($R.Texts)
         return [pscustomobject]@{ Decision = $R.Decision; Texts = @($R.Texts); Coverage = $R.Coverage; Segments = 1; KeptSegments = 1
             SegmentDecisions = @($R.Texts | ForEach-Object { $R.Decision }) }
     }
@@ -1875,6 +1918,7 @@ function Resolve-VerbatimQuote {
     # Any segment found across a layout makes the quote interleaved (t/389#15, S29). Otherwise the stored
     # text changed, which is a snap.
     $Decision = if ($Interleaved -gt 0) { 'interleaved' } else { 'snapped' }
+    Add-VerbatimModifierLetterDiag -Source $Source -Quote $Quote -Texts @($Kept | ForEach-Object { $_.Texts })
     [pscustomobject]@{
         Decision = $Decision; Texts = @($Kept | ForEach-Object { $_.Texts })
         Coverage = $MinCoverage; Segments = $Parts.Count; KeptSegments = $Kept.Count

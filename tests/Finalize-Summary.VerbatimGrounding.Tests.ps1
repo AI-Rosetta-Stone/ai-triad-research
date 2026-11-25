@@ -841,6 +841,40 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             }
         }
 
+        It 'a modifier letter for an apostrophe or a quote mark matches the mark; the stored text keeps the model''s characters (CL p/70#178)' {
+            $Mod = [string][char]0x02BC; $ModQuote = [string][char]0x02EE
+            $Class = 'modifier letter matched as its mark (U+02BC, U+02EE)'
+            $Plain = "Assess how a company's computing resources are governed across its business units and report the gaps."
+            $WithMod = $Plain.Replace("'", $Mod)
+            # The PDF's text has the modifier letter; the model wrote an apostrophe.
+            $A = & $script:Decide74 "$WithMod`n" $Plain
+            $A.Decision | Should -Not -Be 'dropped'
+            ($A.Texts -join ' ') | Should -BeExactly $Plain
+            $A.Diag | Should -Contain $Class
+            # Both have the modifier letter (a quote restored from the same snapshot): stored as written.
+            $B = & $script:Decide74 "$WithMod`n" $WithMod
+            $B.Decision | Should -Not -Be 'dropped'
+            ($B.Texts -join ' ') | Should -BeExactly $WithMod
+            $B.Diag | Should -Contain $Class
+            # The model wrote the modifier letter and the source has an apostrophe: kept, and not rewritten.
+            $C = & $script:Decide74 "$Plain`n" $WithMod
+            $C.Decision | Should -Not -Be 'dropped'
+            ($C.Texts -join ' ') | Should -BeExactly $WithMod
+            $C.Diag | Should -Contain $Class
+            # The double-quote form, around a quoted phrase.
+            $SrcQ = "The auditors called the result a ${ModQuote}material weakness${ModQuote} in the controls over model release decisions.`n"
+            $D = & $script:Decide74 $SrcQ 'The auditors called the result a "material weakness" in the controls over model release decisions.'
+            $D.Decision | Should -Not -Be 'dropped'
+            $D.Diag | Should -Contain $Class
+            # Neither side has one: the class is not counted.
+            $E = & $script:Decide74 "$Plain`n" $Plain
+            $E.Decision | Should -Be 'exact'
+            $E.Diag | Should -Not -Contain $Class
+            # It is one mark for its equal, not a wildcard: a different word still fails.
+            $F = & $script:Decide74 "$WithMod`n" ($Plain.Replace("company's", "companies"))
+            $F.Decision | Should -Be 'dropped'
+        }
+
         It 'a label on a line of its own splits the piece when the quote has digits of its own after it' {
             $Src = "Foxconn, the largest contract electronics`n`nDemo`n`nmanufacturer, reported July revenue that`n`nexceeded 900 billion New Taiwan dollars for the first`n`ntime, a 54 percent year-over-year increase.`n"
             $R = & $script:Decide74 $Src 'Foxconn, the largest contract electronics manufacturer, reported July revenue that exceeded 900 billion New Taiwan dollars for the first time, a 54 percent year-over-year increase.'
