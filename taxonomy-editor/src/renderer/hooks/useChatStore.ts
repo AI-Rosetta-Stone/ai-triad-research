@@ -287,13 +287,50 @@ function stripCodeFences(text: string): string {
 type ChatParsePath = 'direct' | 'fence' | 'embedded' | 'truncated-salvage' | 'prose';
 
 /** A JSON object (not an array or a scalar), or null. */
-function parseObject(text: string): Record<string, unknown> | null {
+function parseObjectStrict(text: string): Record<string, unknown> | null {
   try {
     const value: unknown = JSON.parse(text);
     return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
   } catch { /* telemetry — silent by design: this candidate is not JSON, so the caller tries the next one */
     return null;
   }
+}
+
+const CONTROL_ESCAPES: Record<string, string> = { '\n': '\\n', '\r': '\\r', '\t': '\\t', '\b': '\\b', '\f': '\\f' };
+
+/** t/490 follow-up (t/167#30): models sometimes put literal newlines or other control characters inside a JSON
+ *  string value, which JSON.parse rejects ("Bad control character"). Escapes U+0000–U+001F inside string literals
+ *  only; text outside strings, and characters already escaped, are left as they are. */
+export function escapeControlCharsInStrings(text: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (const ch of text) {
+    if (inString) {
+      if (escaped) { escaped = false; out += ch; continue; }
+      if (ch === '\\') { escaped = true; out += ch; continue; }
+      if (ch === '"') { inString = false; out += ch; continue; }
+      const code = ch.charCodeAt(0);
+      if (code < 0x20) { out += CONTROL_ESCAPES[ch] ?? `\\u${code.toString(16).padStart(4, '0')}`; continue; }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    out += ch;
+  }
+  return out;
+}
+
+function parseObject(text: string): Record<string, unknown> | null {
+  const strict = parseObjectStrict(text);
+  if (strict) return strict;
+  const repaired = escapeControlCharsInStrings(text);
+  if (repaired === text) return null;
+  const object = parseObjectStrict(repaired);
+  if (object) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message: 'WARN: chat reply had raw control characters inside a JSON string; parsed after escaping them' });
+  }
+  return object;
 }
 
 /** The first balanced {...} span that parses, scanning string-aware so braces inside a string don't count. */
