@@ -20,6 +20,8 @@ Rulings by the TL (p/7#131, recorded on t/220). To change a row, get a TL ruling
 | `.github/workflows/nudge-container-build.yml` | Docker | | Image build and pin lifecycle |
 | `.github/workflows/deployed-image-scan.yml` | DeployAzure | | Image security scanning (Trivy, t/222) |
 | `.github/workflows/deploy-azure.yml` | Azure | DeployAzure | Production deploy pipeline (`operations/devops/azure`) |
+| `.github/workflows/` (all of it, this repo's own workflows) | DevOps & Release | | CI and gate workflows; DevOps owns the trains and gates (TL ruling p/9#553, consistent with t/514#2). Rows above still override for their paths. |
+| `.githooks/` | DevOps & Release | | Git hooks, including `post-checkout` and `pre-push`; DevOps owns them (TL ruling p/9#553, consistent with t/514#2) |
 
 **Everything else** under `.github/workflows/` with no row here stays with the team root, whatever
 `resolve-owner` answers, until a role claims it through a TL ruling recorded here.
