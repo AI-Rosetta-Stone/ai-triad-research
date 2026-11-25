@@ -11,11 +11,23 @@
     "operations/devops/tier-check-predicate.mjs",
     "deploy/azure/main.bicep",
     "deploy/azure/deploy.ps1",
-    ".github/workflows/deploy-azure.yml"
+    ".github/workflows/deploy-azure.yml",
+    "taxonomy-editor/src/server/anonAiRoutes.ts",
+    "taxonomy-editor/src/server/routes/diagnostics.ts"
   ],
   "r1Globs": [
     "operations/devops/AgentAppToken.psm1",
-    "operations/devops/Move-PiCredential*.ps1"
+    "operations/devops/Move-PiCredential*.ps1",
+    "taxonomy-editor/src/server/security/*",
+    "taxonomy-editor/src/server/ai/*",
+    "taxonomy-editor/src/server/routes/admin*.ts",
+    "deploy/azure/*.bicep",
+    "deploy/azure/*.ps1",
+    "deploy/azure/*.sh",
+    "deploy/azure/Dockerfile*",
+    "deploy/azure/runner/*",
+    "deploy/azure/.env.template",
+    "deploy/azure/docker-compose*.yml"
   ],
   "r2cGlobs": [
     "**/eslint.config.js",
