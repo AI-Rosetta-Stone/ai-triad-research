@@ -84,6 +84,11 @@ $script:VerbatimCaseRule = $true
 # CL t/389#74. Each can be switched off by an audit script.
 $script:VerbatimAlignExtras = $true          # a piece's letters are aligned to the quote's, so extra lines and the model's own digits are told apart
 $script:VerbatimSplitAtGluedSidebar = $true  # a sidebar word glued to the end of a line ("couldLaw") splits the piece there
+# CL t/389#76.
+$script:VerbatimSymbolRef = $true            # a footnote symbol read as a letter, glued to a word's end ("Mishra" + the section sign's mojibake)
+$script:VerbatimSymbolRefPattern = '(?<=\p{L})[' + [char]0xBA + [char]0xE7 + '](?=[\s,.;:)\]]|$)'
+$script:VerbatimListJoinMin = 2              # commas of the model's own at this many line breaks of the source make a list join
+$script:VerbatimRejectListJoin = $true
 $script:VerbatimParenRefList = $true         # "(998, 1003)": a parenthesised list of two or more numerals is a reference
 $script:VerbatimParenRefListPattern = '\(\s*\p{Nd}{1,4}\*?(?:\s*[,;]\s*\p{Nd}{1,4}\*?)+\s*\)'
 $script:VerbatimCaseMaxPlaces = 25          # places in the source tried for a quote kept as written
@@ -397,6 +402,46 @@ function Get-VerbatimLooseCaseVerdict {
         if ($SourceDeclared -contains $I) { $Declared.Add($M[$I]) }
     }
     Get-VerbatimCaseVerdict -SourceCased $Cased.ToString() -WordStart $WordStart -QuoteCased $QG.Cased -FirstAllowed $FirstAllowed -Declared $Declared.ToArray()
+}
+
+function Test-VerbatimListJoin {
+    # True when a quote kept as written joins list items that the source prints on lines of their own, with
+    # commas or semicolons the source does not have (CL t/389#76): the words are the source's, the sentence is
+    # the model's. Counted at the places between two letters where the quote has the mark and the source has a
+    # line break and no such mark.
+    param([object]$Source, [string]$Quote)
+    if (-not $Source.PSObject.Properties['CharsCased']) { return $false }
+    $Gaps = {
+        param($T)
+        $X = $T
+        foreach ($Pair in $script:EvidenceMojibakeSequences) { $X = $X.Replace($Pair[0], $Pair[1]) }
+        foreach ($Pair in $script:EvidenceMojibakeSingles) { $X = $X.Replace($Pair[0], $Pair[1]) }
+        $X = $X.Normalize([System.Text.NormalizationForm]::FormKC)
+        $Out = [System.Collections.Generic.List[string]]::new()
+        $Cur = [System.Text.StringBuilder]::new()
+        foreach ($Ch in $X.ToCharArray()) {
+            if ([char]::IsLetterOrDigit($Ch)) { $Out.Add($Cur.ToString()); [void]$Cur.Clear() } else { [void]$Cur.Append($Ch) }
+        }
+        $Out.Add($Cur.ToString())
+        , $Out
+    }
+    $QG = Get-VerbatimWordGap -Text $Quote
+    $N = $QG.Letters.Length
+    if ($N -lt 2) { return $false }
+    $P = $Source.CharsCased.IndexOf($QG.Cased, [System.StringComparison]::Ordinal)
+    if ($P -lt 0) { $P = $Source.Chars.IndexOf($QG.Letters, [System.StringComparison]::Ordinal) }
+    if ($P -lt 0) { return $false }
+    $A0 = Get-VerbatimTextOffset -Source $Source -Position $P
+    $A1 = (Get-VerbatimTextOffset -Source $Source -Position ($P + $N - 1)) + 1
+    $Txt = if ($Source.PSObject.Properties['Work'] -and $Source.Work.Length -eq $Source.Text.Length) { $Source.Work } else { $Source.Text }
+    $SGaps = & $Gaps $Txt.Substring($A0, $A1 - $A0)
+    $QGaps = & $Gaps $Quote
+    if ($SGaps.Count -ne $QGaps.Count) { return $false }
+    $Joins = 0
+    for ($I = 1; $I -lt $QGaps.Count - 1; $I++) {
+        if ($QGaps[$I] -match '[,;]' -and $SGaps[$I] -notmatch '[,;]' -and $SGaps[$I].Contains([char]10)) { $Joins++ }
+    }
+    $Joins -ge $script:VerbatimListJoinMin
 }
 
 function Get-VerbatimDeclaredCase {
@@ -1028,6 +1073,9 @@ function Resolve-VerbatimSegment {
             }
         }
         if (& $CaseFails $Segment) { return (& $CaseDrop) }
+        if ($script:VerbatimRejectListJoin -and (Test-VerbatimListJoin -Source $Source -Quote $Segment)) {
+            $script:VerbatimDiag.Add('list join (as written)'); return (& $CaseDrop)
+        }
         return (& $Result 'exact' @($Segment) 1.0 $Snap)
     }
     $Clean = Remove-VerbatimQuoteNoise -Source $Source -Quote $Segment
@@ -1039,6 +1087,9 @@ function Resolve-VerbatimSegment {
             }
         }
         if (& $CaseFails $Clean) { return (& $CaseDrop) }
+        if ($script:VerbatimRejectListJoin -and (Test-VerbatimListJoin -Source $Source -Quote $Clean)) {
+            $script:VerbatimDiag.Add('list join (as written)'); return (& $CaseDrop)
+        }
         return (& $Result 'snapped' @($Clean) 1.0 $Snap)
     }
     # The quote exactly as the model wrote it, URL and all, with only marker lines between its lines (F01: a
@@ -1155,6 +1206,11 @@ function Resolve-VerbatimSegment {
                     foreach ($M in [regex]::Matches($PieceWork, $script:VerbatimParenRefListPattern)) { $Marks.Add(@{ M = $M; Ref = $true; Edge = $false }) }
                 }
                 foreach ($M in [regex]::Matches($PieceWork, $RefPattern)) { $Marks.Add(@{ M = $M; Ref = $true; Edge = $false }) }
+                # A footnote symbol the snapshot has as a letter, glued to the end of a word (an author's
+                # affiliation mark): a reference like the digits, out where the quote does not have it.
+                if ($script:VerbatimSymbolRef) {
+                    foreach ($M in [regex]::Matches($PieceWork, $script:VerbatimSymbolRefPattern)) { $Marks.Add(@{ M = $M; Ref = $true; Edge = $false; Sym = $true }) }
+                }
                 if ($script:VerbatimNbspBetweenLetters) {
                     foreach ($M in [regex]::Matches($PieceWork, '(?<=\p{L})á(?=\p{L})')) { $Marks.Add(@{ M = $M; Ref = $false; Edge = $false }) }
                 }
@@ -1169,7 +1225,7 @@ function Resolve-VerbatimSegment {
                     $M = $Mark.M
                     if ($M.Index -lt $At) { continue }
                     [void]$Have.Append((& $Letters $PieceWork.Substring($At, $M.Index - $At)))
-                    $Token = if ($Mark.Ref) { [regex]::Replace($M.Value, '[^\p{Nd}]', '') } else { & $Letters $M.Value }
+                    $Token = if ($Mark.Ref -and -not $Mark['Sym']) { [regex]::Replace($M.Value, '[^\p{Nd}]', '') } else { & $Letters $M.Value }
                     if ($null -ne $MatchJ) {
                         # The model wrote the mark when the alignment found every letter of it in the quote.
                         $InQuote = $true; $HasLetter = $false

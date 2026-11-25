@@ -870,6 +870,29 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             $Changed.Diag | Should -Contain 'case word: developers | Developers'
         }
 
+        It 'a footnote symbol read as a letter and glued to a name is a reference mark (CL t/389#76)' {
+            $Sec = [string][char]0xBA; $Dag = [string][char]0xE7
+            $Src = "Irina Bejan, Khoa Nguyen, Ishan Mishra$Sec, Koen van der Veen, Kyoko Eng, Lacey Strahm, Madhava Jay, Logan Graham$Dag,`nMatei Simtinica, and Peter Smith, Secure enclaves for AI evaluation, OpenMined, 2025.`n"
+            $R = & $script:Decide74 $Src 'Irina Bejan, Khoa Nguyen, Ishan Mishra, Koen van der Veen, Kyoko Eng, Lacey Strahm, Madhava Jay, Logan Graham, Matei Simtinica, and Peter Smith, Secure enclaves for AI evaluation, OpenMined, 2025.'
+            $R.Decision | Should -Be 'snapped'
+            # A c-cedilla the model wrote stays a letter of the word.
+            $Src2 = "The report by Fran${Dag}ois Dupont and Bar$Dag, the second author, describes how regulators have begun to ask for the results.`n"
+            (& $script:Decide74 $Src2 "The report by Fran${Dag}ois Dupont and Bar$Dag, the second author, describes how regulators have begun to ask for the results.").Decision | Should -Be 'exact'
+        }
+
+        It 'list items on lines of their own, joined by the model with commas, are not a passage (CL t/389#76)' {
+            $Src = "WHICH OPEN APPROACHES ARE MOST CRITICAL?`r`n`r`nOpen source software`r`n`r`nOpen data`r`n`r`nOpen standards`r`n`r`nOpen governance`r`n`r`nMore text of the report follows here.`r`n"
+            $R = & $script:Decide74 $Src 'Open source software, Open data, Open standards, Open governance'
+            $R.Decision | Should -Be 'dropped'
+            $R.Diag | Should -Contain 'list join (as written)'
+            # The same words as the source prints them, and a sentence whose commas are the source's, are kept.
+            $Src2 = "The approaches are open source software, open data, open standards`r`nand open governance, as the survey of the members shows.`r`n"
+            (& $script:Decide74 $Src2 'The approaches are open source software, open data, open standards and open governance, as the survey of the members shows.').Decision | Should -Be 'exact'
+            # One comma of the model's at a line break is not a list join.
+            $Src3 = "Regulators have begun to ask for evaluation results`r`nand developers answer that the tests were never designed for it.`r`n"
+            (& $script:Decide74 $Src3 'Regulators have begun to ask for evaluation results, and developers answer that the tests were never designed for it.').Decision | Should -Be 'exact'
+        }
+
         It 'a letter the source has in brackets is a marked change; a case drop at a later segment''s start is counted apart' {
             $Src = "The court held that `"[i]ndividual citizens may have a hard time finding out who they should turn to`" in such cases. Later text follows here for the second part.`n"
             $R = & $script:Decide74 $Src 'The court held that Individual citizens may have a hard time finding out who they should turn to'
