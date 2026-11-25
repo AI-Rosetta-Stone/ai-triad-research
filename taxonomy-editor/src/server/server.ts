@@ -53,6 +53,9 @@ import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchNa
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
 import { anonRouteDecision } from './anonAiRoutes.js';
+import { verifyAnonSessionCookie } from './security/anonSessionSigning.js';
+import { loadAnonSessionSecret } from './security/anonSessionSecret.js';
+import { startAnonOpedSweep } from './storage/opedStore.js';
 import { enforceAuthGate, enforceAnonRouteGuard, type AuthGateCtx, type AuthGateDeps } from './authGates.js';
 import { getRollbackStatus } from './rollbackStatus.js';
 import { getErrorSummaryCached, type ErrorEntry } from './errorAggregation.js';
@@ -801,7 +804,8 @@ async function resolveRequestUserContext(req: http.IncomingMessage, res: http.Se
   const effectiveIdp = idp || '_local';
   // t/467 (PI option a): an anonymous visitor's storage key comes from their own anon_session_id cookie,
   // not the shared '_local' store that the signed-in local user also uses.
-  const anonymousSessionId = isAnon ? parseCookies(req).get('anon_session_id') : undefined;
+  // t/664 (Security p/93#106): only a VERIFIED signed cookie yields a uuid; unsigned, forged or bare values give undefined (_local).
+  const anonymousSessionId = isAnon ? verifyAnonSessionCookie(parseCookies(req).get('anon_session_id')) : undefined;
   const storageUserId = isAnon ? anonymousStorageUserId(anonymousSessionId) : deriveStorageUserId(effectivePrincipal, effectiveIdp);
 
   // Cross-provider collision guard: verify the idp matches the one that first
@@ -1130,10 +1134,14 @@ function handleTerminalConnection(ws: WebSocket) {
 
 let isShuttingDown = false;
 
+/** t/665: stops the anonymous op-ed expiry sweep; set at boot, called in shutdown. */
+let stopAnonOpedSweep: (() => void) | null = null;
+
 function shutdown(signal: string) {
   if (isShuttingDown) return; // Prevent double-shutdown
   isShuttingDown = true;
   log.server.info({ signal }, 'Shutting down gracefully');
+  try { stopAnonOpedSweep?.(); } catch { /* telemetry — silent by design; best effort on shutdown */ }
 
   // Dump server flight recorder on shutdown
   try {
@@ -1215,6 +1223,11 @@ initAnonymousSessionStore({
 });
 ensureFreePoolBudgetBooted(log);
 // ── Start ──
+// t/664: load the per-environment anon-session-hmac secret before serving. Hosted with no secret fails closed: anonymous
+// sessions can't be minted (503) and anonymous storage stays off, with a WARN from the loader (TL p/16#413).
+await loadAnonSessionSecret();
+// t/665: hourly sweep of anonymous op-eds past their retention (anon-oped/ only); stopped in shutdown().
+stopAnonOpedSweep = startAnonOpedSweep();
 assertStateRootIsolation(); // t/2643: refuse start if staging's state root wasn't isolated (env drift) — no-op prod/local
 // t/3296 (t/3290 prevention) → t/3309 Path B (step-3): assert taxonomy/ + dictionary/ are present AND
 // non-empty via the ACTIVE backend (validateDataRoot uses listDirectoryStrict — profile-agnostic: fs
