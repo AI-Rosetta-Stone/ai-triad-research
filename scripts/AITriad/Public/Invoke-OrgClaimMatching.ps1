@@ -688,7 +688,7 @@ function Invoke-OrgClaimMatching {
             }
             if ($p.Direction -ne 'skipped') {
                 $metaArgs['NliDirection'] = [string]$p.Direction
-                if ($null -ne $p.DirConfidence) { $metaArgs['NliConfidence'] = [double]$p.DirConfidence }
+                if ($null -ne $p.DirConfidence) { $metaArgs['NliMargin'] = [double]$p.DirConfidence }
             }
             if ($p.DirectionalFlip) { $metaArgs['DirectionalFlip'] = [string]$p.DirectionalFlip }
             if ($p.Endorsement -ne 'skipped') { $metaArgs['Endorsement'] = [string]$p.Endorsement }
