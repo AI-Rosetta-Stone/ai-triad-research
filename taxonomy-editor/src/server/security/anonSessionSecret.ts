@@ -22,6 +22,7 @@ import crypto from 'crypto';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getStateRoot } from '../config.js';
+import { ActionableError } from '../../../../lib/debate/errors.js';
 import { setAnonSessionSecret, ANON_SESSION_SECRET_MIN_BYTES } from './anonSessionSigning.js';
 
 /** The Key Vault secret name (Azure creates it per environment; t/500#14). */
@@ -72,15 +73,50 @@ function failClosed(reason: string, err?: unknown): false {
   return false;
 }
 
+/** Reads the local secret file, or null when it does not exist. A file shorter than the minimum is refused, not
+ *  replaced: overwriting it would race another process reading it (fail closed; the caller logs and records it). */
+function readLocalSecret(p: string): Buffer | null {
+  let b: Buffer;
+  try {
+    b = fs.readFileSync(p);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      log.security.warn({ file: p }, 'No local anonymous-session secret file yet; one will be created');
+      return null;
+    }
+    throw err;
+  }
+  if (b.length < ANON_SESSION_SECRET_MIN_BYTES) {
+    throw new ActionableError({
+      goal: 'Load the local anonymous-session signing secret',
+      problem: `${p} is shorter than ${ANON_SESSION_SECRET_MIN_BYTES} bytes`,
+      location: 'security/anonSessionSecret.ts',
+      nextSteps: ['Delete the file; a new one is created on the next start (anonymous sessions are reset)'],
+    });
+  }
+  return b;
+}
+
+/**
+ * t/664 (CodeQL js/file-system-race on #5538): no check-then-act. Read the file; if it doesn't exist, create it
+ * EXCLUSIVELY ('wx'). If another process created it first (EEXIST), read theirs, so every local process ends up
+ * with the same secret.
+ */
 function loadLocalSecret(): Buffer {
   const p = path.join(getStateRoot(), LOCAL_SECRET_FILE);
-  if (fs.existsSync(p)) {
-    const b = fs.readFileSync(p);
-    if (b.length >= ANON_SESSION_SECRET_MIN_BYTES) return b;
-  }
+  const existing = readLocalSecret(p);
+  if (existing) return existing;
   const fresh = crypto.randomBytes(32);
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, fresh, { mode: 0o600 });
+  try {
+    fs.writeFileSync(p, fresh, { flag: 'wx', mode: 0o600 });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    log.security.warn({ file: p }, 'Local anonymous-session secret was created by another process first; using that one');
+    const theirs = readLocalSecret(p);
+    if (theirs) return theirs;
+    throw err;
+  }
   log.security.warn({ file: p }, 'Created a local anonymous-session signing secret (not hosted; anonymous sessions from before it are reset)');
   return fresh;
 }

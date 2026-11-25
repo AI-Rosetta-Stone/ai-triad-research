@@ -146,4 +146,50 @@ describe('t/664: loading anon-session-hmac', () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+it('local: when another process creates the file first (EEXIST), its secret is used, not overwritten', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'anonhmac-race-'));
+    const saved = process.env.AI_TRIAD_STATE_ROOT;
+    process.env.AI_TRIAD_STATE_ROOT = dir;
+    const file = path.join(dir, '.aitriad-anon-session-hmac');
+    const theirs = crypto.randomBytes(32);
+    const realRead = fs.readFileSync;
+    let reads = 0;
+    // First read: the file is absent. Then the other process writes it before our exclusive create.
+    const spy = vi.spyOn(fs, 'readFileSync').mockImplementation(((p: fs.PathOrFileDescriptor, o?: unknown) => {
+      if (p === file && reads++ === 0) {
+        fs.writeFileSync(file, theirs, { mode: 0o600 });
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      }
+      return (realRead as (a: unknown, b?: unknown) => Buffer)(p, o);
+    }) as typeof fs.readFileSync);
+    try {
+      clearAnonSessionSecret();
+      expect(await loadAnonSessionSecret({})).toBe(true);
+      expect(realRead(file).equals(theirs)).toBe(true); // not overwritten
+      const cookie = signAnonSessionId(UUID);
+      setAnonSessionSecret(theirs);
+      expect(verifyAnonSessionCookie(cookie)).toBe(UUID); // we signed with THEIR secret
+    } finally {
+      spy.mockRestore();
+      if (saved === undefined) delete process.env.AI_TRIAD_STATE_ROOT; else process.env.AI_TRIAD_STATE_ROOT = saved;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('local: a short secret file is refused (fail closed), not silently replaced', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'anonhmac-short-'));
+    const saved = process.env.AI_TRIAD_STATE_ROOT;
+    process.env.AI_TRIAD_STATE_ROOT = dir;
+    const file = path.join(dir, '.aitriad-anon-session-hmac');
+    fs.writeFileSync(file, Buffer.alloc(8));
+    try {
+      clearAnonSessionSecret();
+      expect(await loadAnonSessionSecret({})).toBe(false);
+      expect(fs.readFileSync(file).length).toBe(8);
+    } finally {
+      if (saved === undefined) delete process.env.AI_TRIAD_STATE_ROOT; else process.env.AI_TRIAD_STATE_ROOT = saved;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
+
