@@ -214,8 +214,9 @@ export function RelationshipSection({ orgId, onSelectOrg }: { orgId: string; onS
             {EDGE_GROUP_LABELS[type] ?? type} ({peers.length})
           </div>
           <div className="od-flex-col-4">
-            {peers.map((peer) => (
-              <div key={peer.id} className="od-text-078">
+            {peers.map((peer, i) => (
+              // Index in the key: an org can hold two edges of one type to the same peer.
+              <div key={`${peer.id}-${i}`} className="od-text-078">
                 <div className="od-row-baseline-6">
                   <button
                     className="btn-xs btn-ghost od-rel-link-btn"

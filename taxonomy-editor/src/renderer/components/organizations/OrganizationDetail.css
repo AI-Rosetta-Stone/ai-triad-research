@@ -103,7 +103,7 @@
 .od-status { font-size: 0.7rem; color: var(--text-muted); font-style: italic; }
 /* t/298: proposed (not yet reviewed) relationship. --text-secondary, not --text-muted, so it passes AA in every
    theme (Design p/25#140); the word, not the colour, carries the meaning. */
-.od-status.od-edge-unreviewed { color: var(--text-secondary); margin-left: 0.15rem; }
+.od-status.od-edge-unreviewed { color: var(--text-secondary); margin-left: 0.15rem; display: inline-block; } /* inline-block: the link underline does not run through the tag */
 .od-short-name { color: var(--text-muted); font-size: 0.78rem; margin-top: 2px; }
 .od-meta-row { display: flex; gap: 12px; margin-top: 4px; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; }
 .od-website-link { color: var(--info, #3b82f6); text-decoration: underline; padding: 0; }

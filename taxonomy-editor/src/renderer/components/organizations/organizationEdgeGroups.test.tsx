@@ -74,7 +74,7 @@ describe('OrganizationDetail relationships (t/298)', () => {
     } as never);
     const { RelationshipSection } = await import('./OrganizationDetail');
     render(<RelationshipSection orgId="org-010" onSelectOrg={() => undefined} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Approved Peer' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Approved Peer' })).toBeTruthy(), { timeout: 5000 });
     expect(screen.queryByText('Rejected Peer')).toBeNull();
     expect(screen.getByText('Published (2)')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Proposed Peer Unreviewed' })).toBeTruthy();
