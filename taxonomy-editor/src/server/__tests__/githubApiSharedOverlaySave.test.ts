@@ -12,8 +12,8 @@
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { freeAzuritePort } from './azuriteFreePort.js';
-import { spawn, type ChildProcess } from 'child_process';
+import { freeAzuritePort, spawnOwnAzurite } from './azuriteFreePort.js';
+import type { ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -122,9 +122,7 @@ describe.skipIf(SKIP_LOCAL_SKEW)('GitHubAPIBackend — shared overlay saves are 
 
   beforeAll(async () => {
     azuriteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azurite-overlay-save-test-'));
-    proc = spawn(process.execPath,
-      [AZURITE_MAIN, '--silent', '--skipApiVersionCheck', '--location', azuriteDir, '--blobHost', '127.0.0.1', '--blobPort', String(PORT)],
-      { stdio: 'ignore', windowsHide: true });
+    proc = await spawnOwnAzurite(AZURITE_MAIN, azuriteDir, PORT); // t/687: fails fast if it isn't ours
     service = BlobServiceClient.fromConnectionString(CONN);
     const start = Date.now();
     for (;;) {
