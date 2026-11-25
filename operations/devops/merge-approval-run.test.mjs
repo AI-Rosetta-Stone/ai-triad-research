@@ -14,6 +14,7 @@ import {
   resolveTarget, runMergeApproval,
 } from './merge-approval-run.mjs';
 import { REVIEWER_APP_REST_LOGIN } from './gate-file-change.mjs';
+import { parseSnapshots, pairDeltas } from './rate-limit-spend.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TIER_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.github', 'ci', 'tier-paths.json'), 'utf8'));
@@ -388,4 +389,60 @@ test('t/566 wiring: no diagnostic step; runMergeApproval gets only appGithub; th
   assert.match(yml, /- name: Evaluate and post merge-approval[\s\S]*?APP_TOKEN: \$\{\{ steps\.app\.outputs\.token \}\}/);
   assert.match(yml, /    permissions:\n      contents: read {2}# the checkout only/);
   assert.doesNotMatch(yml, /pull-requests: read/);
+});
+
+// ── t/563 (Lead p/233#187): the App-pool snapshot around the evaluation ─────────────────────────
+// The function is taken from the workflow's own script and run with fakes, so the test exercises the
+// shipped code, not a copy.
+function appSnapshotFromWorkflow() {
+  const yml = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'merge-approval.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const m = /\n {12}const appSnapshot = (async \(gh, kind\) => \{[\s\S]*?\n {12}\});\n/.exec(yml);
+  assert.ok(m, 'the Evaluate script defines appSnapshot');
+  return { src: m[1], yml };
+}
+function runSnapshot(gh, kind) {
+  const lines = [];
+  const warnings = [];
+  const fakeCore = { info: (l) => lines.push(l), warning: (l) => warnings.push(l) };
+  const fakeProcess = { env: { GITHUB_WORKFLOW: 'merge-approval', GITHUB_JOB: 'compute' } };
+  const fn = new Function('core', 'process', `return (${appSnapshotFromWorkflow().src});`)(fakeCore, fakeProcess);
+  return fn(gh, kind).then(() => ({ lines, warnings }));
+}
+const rl = (core, graphql) => ({ rest: { rateLimit: { get: async () => ({ data: { resources: { core, graphql } } }) } } });
+
+test('t/563: the App snapshot lines pair in rate-limit-spend as the merge-approval App quota (never GITHUB_TOKEN)', async () => {
+  const reset = 1795612800;
+  const s = await runSnapshot(rl({ used: 100, remaining: 4900, limit: 5000, reset }, { used: 40, remaining: 4960, limit: 5000, reset: reset + 60 }), 'start');
+  const e = await runSnapshot(rl({ used: 130, remaining: 4870, limit: 5000, reset }, { used: 75, remaining: 4925, limit: 5000, reset: reset + 60 }), 'end');
+  assert.deepEqual([s.warnings, e.warnings], [[], []]);
+  assert.match(s.lines[0], /^t\/563 rate-limit-start: pool=merge-approval-app workflow=merge-approval job=compute core used=100 reset=\d\d:\d\d:\d\dZ graphql used=40 graphql_reset=\d+$/);
+  const entries = parseSnapshots([s.lines[0], e.lines[0]].join('\n'));
+  assert.equal(entries.length, 1);
+  assert.match(entries[0].workflow, /merge-approval \[merge-approval-app quota, not GITHUB_TOKEN\]/);
+  const [d] = pairDeltas(entries);
+  assert.deepEqual([d.core, d.gql], [30, 35]);
+});
+
+test('t/563: the App snapshot never throws and never fails the evaluation; its WARN stays on one line', async () => {
+  for (const gh of [
+    { rest: { rateLimit: { get: async () => { throw new Error('HTTP 502\n::add-mask::x'); } } } },
+    rl({ used: 'x', remaining: 1, limit: 1, reset: 1 }, { used: 1, remaining: 1, limit: 1, reset: 1 }),
+  ]) {
+    const r = await runSnapshot(gh, 'start');
+    assert.deepEqual(r.lines, []);
+    assert.equal(r.warnings.length, 1);
+    assert.match(r.warnings[0], /^t\/563: could not read the merge-approval App's rate_limit \(/);
+    assert.doesNotMatch(r.warnings[0], /[\r\n]/);
+  }
+});
+
+test('t/563 wiring: the snapshot reads the App client, before the evaluation and in a finally after it', () => {
+  const { yml } = appSnapshotFromWorkflow();
+  const script = /- name: Evaluate and post merge-approval[\s\S]*$/.exec(yml)[0];
+  const iStart = script.indexOf("await appSnapshot(appGithub, 'start');");
+  const iRun = script.indexOf('await runMergeApproval(');
+  const iEnd = script.indexOf("await appSnapshot(appGithub, 'end');");
+  assert.ok(iStart > 0 && iRun > iStart && iEnd > iRun, 'start, evaluation, end, in that order');
+  assert.match(script.slice(iRun, iEnd), /\} finally \{\s*$/, 'the end snapshot is in a finally');
+  assert.doesNotMatch(script, /appSnapshot\(github,/, 'never the GITHUB_TOKEN client');
 });
