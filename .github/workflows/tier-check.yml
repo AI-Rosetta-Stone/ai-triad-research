@@ -49,6 +49,9 @@ on:
 permissions:
   pull-requests: write
   contents: read
+  # t/544 (Lead p/233#207): a relay (workflow_run) run's job row lands on the default branch's head, so
+  # it writes its result as an explicit `tier-check` check run on the PR head instead (as the guard does).
+  checks: write
 
 jobs:
   tier-check:
@@ -224,11 +227,28 @@ jobs:
               }
             }
 
+            // t/544 (Lead p/233#207): a relay run's own job row attaches to the DEFAULT BRANCH's head, not the
+            // PR's. So a relay run writes its result as an explicit `tier-check` check run on the PR head, and
+            // its job stays green: a verdict or a CANNOT EVALUATE on a known head never reds main's commit.
+            // Only a crash before the PR head is known (an unresolvable relay run) still fails the job.
+            const isRelay = context.eventName === 'workflow_run';
+            let relayHeadSha = null; // set by run() once the PR head is read and the run is not stale
+            async function postRelayCheck(conclusion, title, summary) {
+              await retry('checks.create', () => github.rest.checks.create({
+                owner, repo, name: 'tier-check', head_sha: relayHeadSha, status: 'completed', conclusion,
+                output: { title, summary },
+              }));
+            }
+
             try {
               if (!prNumber) {
                 core.info('tier-check: not a PR event (a plain issue comment, or a relay run that is not a review on an open PR) -- nothing to do.');
               } else {
                 await run();
+                if (isRelay && relayHeadSha) {
+                  await postRelayCheck('success', 'tier-check: re-evaluated after a review',
+                    `The verdict is in the PR's tier-check comment (advisory, as on every trigger). Run: ${runUrl}`);
+                }
               }
             } catch (err) {
               // A crash must never read as a verdict, and silence must never read as a pass
@@ -252,7 +272,19 @@ jobs:
               } catch (postErr) {
                 core.error(`tier-check: could not post the CANNOT EVALUATE comment either -- ${String(postErr && postErr.message ? postErr.message : postErr)}`);
               }
-              core.setFailed(`CANNOT EVALUATE: ${String(err && err.message ? err.message : err)}`);
+              // t/544: on a relay run with a known PR head, report the crash THERE and keep main's head clean.
+              // If that post fails too, fall back to failing the job (a crash must never be silent).
+              let reportedOnHead = false;
+              if (isRelay && relayHeadSha) {
+                try {
+                  await postRelayCheck('failure', 'tier-check: CANNOT EVALUATE',
+                    `The check crashed while re-evaluating after a review; no verdict. Error: ${String(err && err.message ? err.message : err)}. Run: ${runUrl}`);
+                  reportedOnHead = true;
+                } catch (checkErr) {
+                  core.error(`tier-check: could not post the CANNOT EVALUATE check run on the PR head either -- ${String(checkErr && checkErr.message ? checkErr.message : checkErr)}`);
+                }
+              }
+              if (!reportedOnHead) core.setFailed(`CANNOT EVALUATE: ${String(err && err.message ? err.message : err)}`);
             }
 
             async function run() {
@@ -272,6 +304,7 @@ jobs:
               core.info(`tier-check: the review relay ran at ${relayHead}, but PR #${prNumber}'s head is now ${headSha} -- skipped (stale workflow_run).`);
               return;
             }
+            if (isRelay) relayHeadSha = headSha;
             execSync(`git fetch origin ${JSON.stringify(pr.base.ref)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
             const baseTipSha = execSync(`git rev-parse FETCH_HEAD`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
 
