@@ -50,8 +50,9 @@ function setup() {
     return { path: p, head: sh(p, 'git rev-parse HEAD') };
   };
   const pr = (branch, state, sha) => sh(tmp, `echo "${branch}|${state}|${sha}" >> "${posix(prMap)}"`);
-  const run = () => {
-    const r = spawnSync(bash, [posix(SCRIPT)], { cwd: repo, encoding: 'utf8', env: { ...process.env, SWEEP_GH: posix(fakeGh) } });
+  // recentMinutes 0 = no idle window, so a worktree made seconds ago can be swept in a test.
+  const run = ({ recentMinutes = 0 } = {}) => {
+    const r = spawnSync(bash, [posix(SCRIPT)], { cwd: repo, encoding: 'utf8', env: { ...process.env, SWEEP_GH: posix(fakeGh), SWEEP_RECENT_MINUTES: String(recentMinutes) } });
     return { code: r.status, out: `${r.stdout}${r.stderr}` };
   };
   const branchExists = (b) => spawnSync(bash, ['-c', `git rev-parse -q --verify refs/heads/${b}`], { cwd: repo }).status === 0;
@@ -71,13 +72,29 @@ test('merged PR at its head + clean tree -> removed, local branch deleted', opts
   assert.equal(s.branchExists('done1'), false);
 });
 
-test('merged PR, HEAD differs from the PR head but is on origin/main (squash/rebase landed) + clean -> removed', opts, () => {
+test('merged PR, local HEAD BEHIND the PR head (more was pushed from elsewhere) + clean -> removed', opts, () => {
   const s = setup();
-  const w = s.wt('landed', { commit: true, push: true });
-  s.pr('landed', 'MERGED', '0000000000000000000000000000000000000000');
+  const w = s.wt('behind', { commit: true });
+  const prHead = sh(w.path, 'echo two > two.txt && git add two.txt && git commit -qm two && git rev-parse HEAD');
+  sh(w.path, 'git reset -q --hard HEAD~1');
+  s.pr('behind', 'MERGED', prHead);
   const r = s.run();
-  assert.match(r.out, /removed .*landed \(landed, PR MERGED, HEAD on origin\/main\)/);
+  assert.match(r.out, /removed .*behind \(behind, PR MERGED, HEAD within the PR\)/);
   assert.equal(existsSync(w.path), false);
+});
+
+// Quality p/119#112: a reused branch name, reset to main with no new commits, must not be swept on the
+// strength of its OLD merged PR.
+test('a REUSED branch name reset to main (old PR merged, HEAD on main, clean) is NOT swept', opts, () => {
+  const s = setup();
+  const w = s.wt('reused', { commit: true });
+  s.pr('reused', 'MERGED', w.head);
+  // The PR lands as a SQUASH commit on main (not the branch's own commit), then the branch name is reused.
+  sh(s.repo, 'git checkout -q main && echo squashed > reused.txt && git add reused.txt && git commit -qm "squash of reused" && git push -q origin HEAD:main');
+  sh(w.path, 'git fetch -q origin && git reset -q --hard origin/main');
+  const r = s.run();
+  assert.match(r.out, /skip .*reused \(reused\): HEAD [0-9a-f]+ is neither the PR head/);
+  assert.equal(existsSync(w.path), true);
 });
 
 test('merged PR but an UNTRACKED file -> WARN naming it, left in place', opts, () => {
@@ -105,16 +122,17 @@ test('a fresh worktree cut from main with NO PR (on origin/main, clean) is never
   const s = setup();
   const w = s.wt('fresh');
   const r = s.run();
-  assert.doesNotMatch(r.out, /fresh/);
+  assert.match(r.out, /skip .*fresh \(fresh\): no PR/, 'the skip is logged with its reason (Security p/278#9)');
+  assert.doesNotMatch(r.out, /(removed|WOULD remove) .*fresh/);
   assert.equal(existsSync(w.path), true);
 });
 
-test('an OPEN PR is left alone, silently', opts, () => {
+test('an OPEN PR is left alone, with the skip logged', opts, () => {
   const s = setup();
   const w = s.wt('wip', { commit: true });
   s.pr('wip', 'OPEN', w.head);
   const r = s.run();
-  assert.doesNotMatch(r.out, /wip/);
+  assert.match(r.out, /skip .*wip \(wip\): PR OPEN, not merged/);
   assert.equal(existsSync(w.path), true);
 });
 
@@ -124,7 +142,7 @@ test('merged PR but HEAD has a commit that never reached main -> skip with the r
   s.pr('extra', 'MERGED', w.head);
   sh(w.path, 'echo more > more.txt && git add more.txt && git commit -qm more');
   const r = s.run();
-  assert.match(r.out, /skip .*extra \(extra\): HEAD [0-9a-f]+ is neither PR head/);
+  assert.match(r.out, /skip .*extra \(extra\): HEAD [0-9a-f]+ is neither the PR head/);
   assert.equal(existsSync(w.path), true);
 });
 
@@ -141,7 +159,80 @@ test('--dry-run reports WOULD remove and removes nothing', opts, () => {
   const s = setup();
   const w = s.wt('dry', { commit: true });
   s.pr('dry', 'MERGED', w.head);
-  const r = spawnSync(bash, [posix(SCRIPT), '--dry-run'], { cwd: s.repo, encoding: 'utf8', env: { ...process.env, SWEEP_GH: posix(path.join(path.dirname(s.repo), 'gh')) } });
+  const r = spawnSync(bash, [posix(SCRIPT), '--dry-run'], { cwd: s.repo, encoding: 'utf8', env: { ...process.env, SWEEP_GH: posix(path.join(path.dirname(s.repo), 'gh')), SWEEP_RECENT_MINUTES: '0' } });
   assert.match(`${r.stdout}${r.stderr}`, /WOULD remove .*dry/);
   assert.equal(existsSync(w.path), true);
+});
+
+// Security p/278#9 condition 1: an agent mid-work is never swept.
+test('merged + clean but a file modified within the idle window (2h default) -> skipped, with the file named', opts, () => {
+  const s = setup();
+  const w = s.wt('busy', { commit: true });
+  s.pr('busy', 'MERGED', w.head);
+  const r = s.run({ recentMinutes: 120 });
+  assert.match(r.out, /skip .*busy \(busy\): a file was modified in the last 120 minutes/);
+  assert.equal(existsSync(w.path), true);
+});
+
+test('the shared (main) checkout itself is never a candidate', opts, () => {
+  const s = setup();
+  const r = s.run();
+  // The main checkout's path, followed by a separator, must appear in no skip/removed/WARN line.
+  const lines = r.out.split('\n').filter((l) => /sweep-landed-worktrees: (skip|removed|WOULD remove|WARN) /.test(l));
+  const mainPath = posix(s.repo);
+  assert.ok(lines.every((l) => !l.includes(`${mainPath} `) && !l.includes(`${mainPath}:`)), `main checkout listed:\n${lines.join('\n')}`);
+});
+
+// SO p/44#123: a non-forced `git worktree remove` still deletes IGNORED files, including a whole nested
+// worktree under an ignored .worktrees/ with its uncommitted WIP. Both arms below delete data on 6d569749e.
+const ignore = (s, ...pats) => sh(s.repo, `printf '%s\n' ${pats.map((p) => `'${p}'`).join(' ')} >> "$(git rev-parse --git-common-dir)/info/exclude"`);
+
+test('a merged + clean worktree that CONTAINS another worktree (ignored .worktrees/) is skipped; the inner WIP survives', opts, () => {
+  const s = setup();
+  ignore(s, '.worktrees/');
+  const w = s.wt('outer', { commit: true });
+  s.pr('outer', 'MERGED', w.head);
+  const inner = path.join(w.path, '.worktrees', 'inner');
+  sh(s.repo, `git worktree add -q -b inner "${posix(inner)}" main`);
+  writeFileSync(path.join(inner, 'wip.txt'), 'uncommitted work');
+  const r = s.run();
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /WARN .*outer \(outer\) has merged but contains another worktree or repo/);
+  assert.equal(existsSync(w.path), true);
+  assert.equal(existsSync(path.join(inner, 'wip.txt')), true, 'the inner worktree\'s WIP must survive');
+});
+
+test('a merged + clean worktree holding an ignored file OUTSIDE the cache allowlist (.env) is skipped; the file survives', opts, () => {
+  const s = setup();
+  ignore(s, '.env');
+  const w = s.wt('secret', { commit: true });
+  s.pr('secret', 'MERGED', w.head);
+  writeFileSync(path.join(w.path, '.env'), 'X=1');
+  const r = s.run();
+  assert.match(r.out, /WARN .*secret \(secret\) has merged but holds 1 ignored path\(s\) outside the cache allowlist \(first: \.env\)/);
+  assert.equal(existsSync(path.join(w.path, '.env')), true);
+});
+
+test('a merged + clean worktree whose ignored files are ALL cache (node_modules, dist, nested build, *.tsbuildinfo) is removed', opts, () => {
+  const s = setup();
+  ignore(s, 'node_modules/', 'dist/', 'build/', '*.tsbuildinfo');
+  const w = s.wt('cache', { commit: true });
+  // lib/ is tracked (as in the real repo), so git reports lib/build/ itself, not a collapsed lib/.
+  const head = sh(w.path, 'mkdir -p lib && echo 1 > lib/k.txt && git add lib/k.txt && git commit -qm lib && git rev-parse HEAD');
+  s.pr('cache', 'MERGED', head);
+  sh(w.path, 'mkdir -p node_modules/x dist lib/build && echo 1 > node_modules/x/i.js && echo 1 > dist/o.js && echo 1 > lib/build/b.js && echo 1 > r.tsbuildinfo');
+  const r = s.run();
+  assert.match(r.out, /removed .*cache \(cache, PR MERGED at its head\)/);
+  assert.equal(existsSync(w.path), false);
+});
+
+test('an UNTRACKED dir holding only cache is reported collapsed (lib/) and blocks removal: conservative, never deletes', opts, () => {
+  const s = setup();
+  ignore(s, 'build/');
+  const w = s.wt('collapsed', { commit: true });
+  s.pr('collapsed', 'MERGED', w.head);
+  sh(w.path, 'mkdir -p lib/build && echo 1 > lib/build/b.js');
+  const r = s.run();
+  assert.match(r.out, /WARN .*collapsed \(collapsed\) has merged but holds 1 ignored path\(s\) outside the cache allowlist \(first: lib\/\)/);
+  assert.equal(existsSync(path.join(w.path, 'lib', 'build', 'b.js')), true);
 });

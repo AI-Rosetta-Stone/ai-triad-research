@@ -23,8 +23,14 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { SNAPSHOT_TARGETS } from './rate-limit-snapshot-targets.mjs';
 
-const START_RE = /t\/563 rate-limit-start: workflow=(.+?) job=(\S+) core used=(\d+) reset=(\S+) graphql used=(\d+) graphql_reset=(\d+)/;
-const END_RE = /t\/314 rate-limit: workflow=(.+?) job=(\S+) core used=(\d+) remaining=\d+ limit=\d+ reset=(\S+) graphql used=(\d+) remaining=\d+ limit=\d+/;
+// An optional `pool=<name>` label marks a snapshot of a GitHub App's OWN installation quota, not the
+// GITHUB_TOKEN pool (Lead p/233#187: merge-approval reads on its App token since eaf810aaa). Only pools in
+// APP_POOLS are paired; others (the enqueue sweep's end-only `pool=app` line, t/318) are ignored as before.
+export const APP_POOLS = Object.freeze(['merge-approval-app']);
+const START_RE = /t\/563 rate-limit-start: (?:pool=(\S+) )?workflow=(.+?) job=(\S+) core used=(\d+) reset=(\S+) graphql used=(\d+) graphql_reset=(\d+)/;
+const END_RE = /t\/314 rate-limit: (?:pool=(\S+) )?workflow=(.+?) job=(\S+) core used=(\d+) remaining=\d+ limit=\d+ reset=(\S+) graphql used=(\d+) remaining=\d+ limit=\d+/;
+// The table key: an App pool's row says so, so it is never read as GITHUB_TOKEN spend.
+const label = (pool, workflow) => (pool ? `${workflow} [${pool} quota, not GITHUB_TOKEN]` : workflow);
 
 /**
  * PURE. The snapshot lines in one run's log text, keyed by job id (a job runs once per run; a matrix
@@ -41,16 +47,22 @@ export function parseSnapshots(logText) {
   for (const line of String(logText ?? '').split(/\r?\n/)) {
     let m = START_RE.exec(line);
     if (m) {
-      const { list } = slot(m[1], m[2]);
-      list.push({ workflow: m[1], job: m[2], start: { coreUsed: +m[3], coreReset: m[4], gqlUsed: +m[5], gqlReset: m[6] } });
+      if (m[1] && !APP_POOLS.includes(m[1])) continue;
+      const workflow = label(m[1], m[2]);
+      const job = m[1] ? `${m[3]}@${m[1]}` : m[3]; // an App pool never pairs with a GITHUB_TOKEN line
+      const { list } = slot(workflow, job);
+      list.push({ workflow, job: m[3], start: { coreUsed: +m[4], coreReset: m[5], gqlUsed: +m[6], gqlReset: m[7] } });
       continue;
     }
     m = END_RE.exec(line);
     if (m) {
-      const { list } = slot(m[1], m[2]);
+      if (m[1] && !APP_POOLS.includes(m[1])) continue;
+      const workflow = label(m[1], m[2]);
+      const job = m[1] ? `${m[3]}@${m[1]}` : m[3];
+      const { list } = slot(workflow, job);
       const open = list.find((e) => !e.end);
-      const end = { coreUsed: +m[3], coreReset: m[4], gqlUsed: +m[5] };
-      if (open) open.end = end; else list.push({ workflow: m[1], job: m[2], end });
+      const end = { coreUsed: +m[4], coreReset: m[5], gqlUsed: +m[6] };
+      if (open) open.end = end; else list.push({ workflow, job: m[3], end });
     }
   }
   return [...byJob.values()].flat();
@@ -121,7 +133,9 @@ export function formatReport(agg, { hours, runs, from, to } = {}) {
 }
 
 /** The workflow files that carry the snapshot steps (only their runs are read). */
-export const TARGET_WORKFLOW_FILES = Object.freeze([...new Set(SNAPSHOT_TARGETS.map(([f]) => f))]);
+// Plus the workflows that log an App-pool snapshot of their own (APP_POOLS): merge-approval (Lead p/233#187).
+export const APP_POOL_WORKFLOW_FILES = Object.freeze(['merge-approval.yml']);
+export const TARGET_WORKFLOW_FILES = Object.freeze([...new Set([...SNAPSHOT_TARGETS.map(([f]) => f), ...APP_POOL_WORKFLOW_FILES])]);
 
 /**
  * Impure (gh injectable). Lists completed runs of the target workflows created in the window, then

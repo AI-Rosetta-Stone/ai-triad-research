@@ -8,22 +8,29 @@
 #
 # A worktree is removed ONLY when ALL of:
 #   - it is not the main checkout, not locked, and has a branch (detached worktrees are left alone);
-#   - its branch has MERGED: its PR's state is MERGED, and HEAD is that PR's merged head SHA or already an
-#     ancestor of origin/main (so no commit exists that never reached main). A PR is required: a fresh
-#     worktree cut from main with no commits yet is also "on origin/main" and must never be swept;
+#   - its branch has MERGED: its PR's state is MERGED, and HEAD is that PR's head SHA or an ancestor of it
+#     (so every local commit is in the merged PR). A PR is required, and HEAD-on-origin/main is NOT
+#     enough: a fresh worktree cut from main, or a reused branch name reset to main, must never be swept;
 #   - its working tree is clean: no modified, staged or untracked (non-ignored) files. A merged worktree
 #     that is NOT clean is skipped with a WARN naming it and the counts, so its owner can act; it is
-#     never removed with --force, and `git worktree remove` without --force refuses dirty trees anyway.
+#     never removed with --force, and `git worktree remove` without --force refuses dirty trees anyway;
+#   - it holds nothing `git worktree remove` would silently delete: no nested worktree or repo below its
+#     root, and no ignored file outside the cache allowlist (node_modules, dist, out, build, coverage,
+#     .tsbuildinfo, .pytest_cache, __pycache__, .gate-telemetry, release). Otherwise WARN and skip (SO p/44#123);
+#   - no file in it (outside node_modules and .git) was modified in the last 2 hours, so an agent
+#     mid-work is never swept (Security p/278#9).
+# Every removal, WARN and skip is logged with its reason. A failed git read or file scan removes nothing.
 # The local branch is deleted under the same test. Remote branches are NOT touched here: the repo
 # setting delete_branch_on_merge handles new merges.
 #
 # Usage: sh operations/devops/sweep-landed-worktrees.sh [--dry-run]
 # Non-blocking by design (errors logged, exit 0). Every removal, WARN and skip is logged with its reason.
-# Test seam: SWEEP_GH overrides the gh command (operations/devops/sweep-landed-worktrees.test.mjs).
+# Test seams: SWEEP_GH overrides the gh command; SWEEP_RECENT_MINUTES overrides the 120-minute idle window (operations/devops/sweep-landed-worktrees.test.mjs).
 
 DRY=0
 [ "$1" = "--dry-run" ] && DRY=1
 GH=${SWEEP_GH:-gh}
+RECENT_MIN=${SWEEP_RECENT_MINUTES:-120}   # Security p/278#9: no file modified in the last 2 hours
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$ROOT" || exit 0
@@ -42,35 +49,88 @@ git worktree list --porcelain | awk '
   /^locked/{l[p]=1}
   /^$/{ if (p!="") print p "\t" b[p] "\t" (l[p]?"locked":""); p=""; }
   END{ if (p!="") print p "\t" b[p] "\t" (l[p]?"locked":"") }' |
-while IFS="$(printf '\t')" read -r path ref locked; do
-  [ "$(cd "$path" 2>/dev/null && pwd -P)" = "$MAIN_ROOT" ] && continue   # main checkout
-  [ -n "$locked" ] && continue
-  [ -z "$ref" ] && continue                                              # detached: no branch
+while IFS="$(printf '	')" read -r path ref locked; do
+  [ "$(cd "$path" 2>/dev/null && pwd -P)" = "$MAIN_ROOT" ] && continue   # the shared checkout: never
+  skip() { echo "sweep-landed-worktrees: skip $path${branch:+ ($branch)}: $1" >&2; }
+  branch=""
+  [ -n "$locked" ] && { skip "locked"; continue; }
+  [ -z "$ref" ] && { skip "detached (no branch)"; continue; }
   branch=${ref#refs/heads/}
-  [ -d "$path" ] || continue
-  head=$(git -C "$path" rev-parse HEAD 2>/dev/null) || continue
+  [ -d "$path" ] || { skip "folder missing"; continue; }
+  head=$(git -C "$path" rev-parse HEAD 2>/dev/null) || { skip "git read failed (rev-parse HEAD); fail closed"; continue; }
 
   # 1. Has the branch merged? A MERGED PR is required: "HEAD on origin/main" alone would also match a
   #    worktree an agent has just created from main and not yet committed to, which must never be swept.
   pr=$("$GH" pr view "$branch" --json state,headRefOid -q '.state + " " + .headRefOid' 2>/dev/null)
-  case "$pr" in MERGED*) ;; *) continue ;; esac                           # no merged PR: nothing to do
+  case "$pr" in
+    MERGED*) ;;
+    "") skip "no PR (or gh read failed)"; continue ;;
+    *) skip "PR ${pr%% *}, not merged"; continue ;;
+  esac
   merged_oid=${pr#MERGED }
   if [ "$head" = "$merged_oid" ]; then merged="PR MERGED at its head"
-  elif git -C "$path" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then merged="PR MERGED, HEAD on origin/main"
+  # HEAD behind the PR head (an ancestor of it): every local commit is in the merged PR. Not "HEAD on
+  # origin/main": with squash merges a branch's own commits never reach main, so that test mostly matched a
+  # REUSED branch name reset to main, which an old merged PR then wrongly vouched for (Quality p/119#112).
+  # A PR head object missing locally fails the test, so nothing is removed (fail closed).
+  elif git -C "$path" merge-base --is-ancestor HEAD "$merged_oid" 2>/dev/null; then merged="PR MERGED, HEAD within the PR"
   else
-    echo "sweep-landed-worktrees: skip $path ($branch): HEAD $head is neither PR head $merged_oid nor on origin/main" >&2
+    skip "HEAD $head is neither the PR head $merged_oid nor behind it (a commit not in the merged PR, or a reused branch name)"
     continue
   fi
 
-  # 2. Merged: is the tree clean? (modified/staged, and untracked non-ignored files, counted apart)
-  modified=$(git -C "$path" status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')
-  untracked=$(git -C "$path" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
+  # 2. Merged: is the tree clean? (modified/staged, and untracked non-ignored files, counted apart.)
+  #    A failed read is never read as clean (Security p/278#9 condition 4: fail closed).
+  st=$(git -C "$path" status --porcelain --untracked-files=no 2>/dev/null) || { skip "git read failed (status); fail closed"; continue; }
+  ut=$(git -C "$path" ls-files --others --exclude-standard 2>/dev/null) || { skip "git read failed (ls-files); fail closed"; continue; }
+  modified=$(printf '%s' "$st" | grep -c . | tr -d ' ')
+  untracked=$(printf '%s' "$ut" | grep -c . | tr -d ' ')
   if [ "$modified" != "0" ] || [ "$untracked" != "0" ]; then
     echo "sweep-landed-worktrees: WARN $path ($branch) has merged ($merged) but is not clean: $modified modified/staged, $untracked untracked. Left in place; commit (and push) or discard the changes, never git stash (the stash list is shared across worktrees), then it is removed on the next sweep." >&2
     continue
   fi
 
-  # 3. Merged and clean: remove (never --force) and delete the local branch.
+  # 2b. Clean by git status is not enough: a non-forced `git worktree remove` still DELETES ignored files,
+  #     including a whole nested worktree under an ignored .worktrees/ with its uncommitted WIP (SO t/9,
+  #     p/44#123, reproduced). So: (a) skip any worktree that contains another worktree or repo (a .git file
+  #     or dir below its root); (b) skip any worktree with ignored files outside the cache allowlist
+  #     (rebuildable output only). Both reads fail closed.
+  nested=$(find "$path" -name node_modules -prune -o -name .git ! -path "$path/.git" -print -quit 2>/dev/null) \
+    || { skip "nested-repo scan failed; fail closed"; continue; }
+  if [ -n "$nested" ]; then
+    echo "sweep-landed-worktrees: WARN $path ($branch) has merged but contains another worktree or repo (${nested%/.git}). Left in place: removing it would delete that tree's files, ignored or not. Remove the inner one first." >&2
+    continue
+  fi
+  ign=$(git -C "$path" ls-files --others --ignored --exclude-standard --directory 2>/dev/null) \
+    || { skip "git read failed (ignored files); fail closed"; continue; }
+  # Cache allowlist (SO p/44#123): an entry is rebuildable if ANY path component is one of these names,
+  # or it is a *.tsbuildinfo file. Everything else ignored (a .env, .claude/settings.local.json, a
+  # scratch dir, a nested .worktrees/) would be lost, so it blocks the removal.
+  kept=$(printf '%s\n' "$ign" | awk -F/ '
+    NF == 0 || $0 == "" { next }
+    {
+      for (i = 1; i <= NF; i++) {
+        c = $i
+        if (c == "node_modules" || c == "dist" || c == "out" || c == "build" || c == "coverage" ||
+            c == ".tsbuildinfo" || c == ".pytest_cache" || c == "__pycache__" || c == ".gate-telemetry" ||
+            c == "release" || c ~ /\.tsbuildinfo$/) next
+      }
+      print
+    }')
+  if [ -n "$kept" ]; then
+    n_kept=$(printf '%s\n' "$kept" | grep -c . | tr -d ' ')
+    first=$(printf '%s\n' "$kept" | head -n 1)
+    echo "sweep-landed-worktrees: WARN $path ($branch) has merged but holds $n_kept ignored path(s) outside the cache allowlist (first: $first). Left in place: worktree remove would delete them. Move or delete them, then it is removed on the next sweep." >&2
+    continue
+  fi
+
+  # 3. Merged and clean: was any file touched recently? An agent mid-work must never be swept
+  #    (Security p/278#9 condition 1). node_modules and .git are not work; a failed scan is fail closed.
+  recent=$(find "$path" \( -name node_modules -o -name .git \) -prune -o -type f -mmin "-$RECENT_MIN" -print -quit 2>/dev/null) \
+    || { skip "file-age scan failed; fail closed"; continue; }
+  [ -n "$recent" ] && { skip "a file was modified in the last $RECENT_MIN minutes ($recent)"; continue; }
+
+  # 4. Merged, clean and idle: remove (never --force) and delete the local branch (never a remote one).
   if [ "$DRY" = 1 ]; then
     echo "sweep-landed-worktrees: WOULD remove $path ($branch, $merged)"
   elif git worktree remove "$path" 2>/dev/null; then

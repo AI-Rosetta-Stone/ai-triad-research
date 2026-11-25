@@ -53,6 +53,10 @@ export const GATE_SCRIPTS = [
   // t/543#7: the walker that keeps this list honest. Weakening it would let new drift pass the test
   // unnoticed, so a change to it needs the same second reader.
   'operations/devops/gate-path-walk.mjs',
+  // t/9 (Security p/278#9 condition 5): the daily scheduled sweep deletes worktrees unattended, so the
+  // sweep and its wrapper need the same second reader as the merge gates.
+  'operations/devops/sweep-landed-worktrees.sh',
+  'operations/devops/run-worktree-sweep.mjs',
 ];
 
 // Every operations/devops script that a required-check workflow runs or loads (ci.yml,
@@ -68,6 +72,7 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/Get-BicepBaseEnv.ps1',
   'operations/devops/Get-PesterExcludePaths.ps1',
   'operations/devops/Get-TestPowerShellAbnormalEndVerdict.ps1',
+  'operations/devops/Invoke-ContainerSmoke.ps1', // t/611: decides test-container's container-smoke step
   'operations/devops/ShardBalancer.ps1',
   'operations/devops/Test-BicepAcaResourcePairs.ps1',
   'operations/devops/Test-BicepEnvDrift.ps1',
@@ -149,6 +154,19 @@ export const VERDICT_SCRIPTS = [
   // t/543#7: the PowerShell complexity steps call this cmdlet to compute their verdict. Reached through
   // the AITriad module, so neither walk sees it; listed by hand.
   'scripts/AITriad/Public/Test-ComplexityBudget.ps1',
+  // t/611 (SO p/273#12): ci.yml test-container's container smoke runs these phase functions from the PR's
+  // own tree (through operations/devops/Invoke-ContainerSmoke.ps1, which imports the module), so a PR
+  // could loosen a phase and lock a route in one change. Reached through the module; listed by hand.
+  'scripts/AITriad/Private/TaxEditorSmokeTestPhases.ps1',
+  // Defines the deploy smoke's OverallPass, which the container smoke's gate is pinned to.
+  'scripts/AITriad/Public/Invoke-TaxEditorSmokeTest.ps1',
+  // The verdict helpers those phases call (SO p/273#14): the DataPresence verdict, and the Health and
+  // Endpoint checks whose callers include the rollback gates. Loosening one could hide a locked route.
+  // RECORDED RESIDUAL, deliberately unprotected: scripts/AITriad/Private/Invoke-RemoteCheck.ps1 is the
+  // shared HTTP transport (~70 callers); a change there shows everywhere, so it is not listed.
+  'scripts/AITriad/Private/Test-DataPresenceAssertion.ps1',
+  'scripts/AITriad/Public/Test-TaxEditorHealth.ps1',
+  'scripts/AITriad/Public/Test-TaxEditorEndpoints.ps1',
   // t/543 (Security p/131#48): its `test` block chooses which taxonomy-editor and lib tests the
   // required vitest run executes. Same class as poviewer/vitest.config.ts; read by default name.
   'taxonomy-editor/vite.config.ts',
@@ -274,6 +292,7 @@ export const CODE_UNDER_TEST = [
   'operations/devops/actions-cache-budget.test.mjs', // test of actions-cache-budget.mjs
   'operations/devops/record-base-ref-retry.test.mjs', // t/238: unit test of the record-base-ref retry; reviewed as code
   'operations/devops/cancel-superseded-runs.test.mjs', // test of cancel-superseded-runs
+  'operations/devops/debate-tested-sweep-commit.test.mjs', // t/684: runs debate-tested-sweep.yml's commit step (the workflow is protected)
   'operations/devops/check-action-pin-resolution.test.mjs', // test of check-action-pin-resolution.mjs
   'operations/devops/check-dockerfile-store-mounts.test.mjs', // test of check-dockerfile-store-mounts.mjs
   'operations/devops/ci-filter-coverage.test.mjs', // drift test of ci.yml's changes filters (ci.yml is protected)
@@ -308,6 +327,7 @@ export const CODE_UNDER_TEST = [
 
   'operations/devops/staging-data-account-whatif-guard.test.mjs', // test of staging-data-account-whatif-guard (t/627)
   'operations/devops/sweep-landed-worktrees.test.mjs', // test of sweep-landed-worktrees.sh (t/9)
+  'operations/devops/run-worktree-sweep.test.mjs', // test of run-worktree-sweep.mjs (t/9)
   'operations/devops/stuck-pr-classifier.test.mjs', // test of stuck-pr-classifier
   'operations/devops/t0-enqueue-sweep.test.mjs', // test of t0-enqueue-sweep.mjs
   'operations/devops/t0-rule-order.test.mjs', // rule-order test of t0-enqueue-sweep.mjs

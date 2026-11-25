@@ -9,13 +9,28 @@
     changes. Parse-only: nothing is executed, imported or dot-sourced. #4961 shipped an
     `Unexpected token '}'` that broke 73 Pester tests; this catches that class before the push.
     Exit 0 = every file parsed clean; exit 1 = at least one parse error or unreadable file.
+.PARAMETER PathsFile
+    A file holding the paths, one per line. This is how pre-push-checks.sh passes them (t/614): a push
+    after a main merge can change thousands of PowerShell files, past Windows' ~32 K command line.
 .EXAMPLE
     pwsh -NoProfile -File operations/devops/Test-PowerShellSyntax.ps1 a.ps1 b.psm1
+.EXAMPLE
+    pwsh -NoProfile -File operations/devops/Test-PowerShellSyntax.ps1 -PathsFile /tmp/list.txt
 #>
+[CmdletBinding(PositionalBinding = $false)]  # every bare argument is a path, never -PathsFile
 param(
+    [string] $PathsFile = '',
     [Parameter(ValueFromRemainingArguments)]
-    [string[]] $Path
+    [string[]] $Path = @()
 )
+
+if ($PathsFile) {
+    if (-not (Test-Path -LiteralPath $PathsFile -PathType Leaf)) {
+        Write-Output "${PathsFile}: cannot read the path list"
+        exit 1
+    }
+    $Path = @($Path) + @(Get-Content -LiteralPath $PathsFile | Where-Object { $_ })
+}
 
 $bad = 0
 foreach ($p in $Path) {
