@@ -164,14 +164,13 @@ gh workflow run deploy-azure.yml --repo AI-Rosetta-Stone/ai-triad-research --ref
   -f sha=<full-40-char-sha>
 ```
 
-**Inputs** (`deploy-azure.yml:19-58`):
+**Inputs** (`deploy-azure.yml:19-52`):
 
 | Input | Values | Default | Notes |
 |---|---|---|---|
 | `environment` | `production` | `production` | The only option; staging is rejected. |
 | `sha` | 7-40 hex | `''` | **Required in practice**; empty aborts. Pass the full SHA. |
 | `auth_mode` | `optional` / `required` / `disabled` | `optional` | Prod runs `optional` (sign-in plus anonymous read-only). Changing it is a product decision for the PI. |
-| `staging_shared_read_only` | `'true'` / `'false'` | `'true'` | Leave the default. |
 | `staging_load_test_size` | `'false'` / `'true'` | `'false'` | Only for the t/4203 load test. |
 
 The run is named `Deploy to Azure (production, sha-<sha>)`. **Check that the run name shows your SHA.**
