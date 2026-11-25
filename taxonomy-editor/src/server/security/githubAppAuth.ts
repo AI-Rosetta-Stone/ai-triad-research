@@ -35,6 +35,11 @@ const require = createRequire(import.meta.url);
 const GITHUB_API = 'https://api.github.com';
 const USER_AGENT = 'ai-triad-taxonomy-editor';
 
+/** t/653: true on the staging Container App (the platform-set name ends in "-staging"; same test as stagingBootGuard). */
+function isStagingContainer(): boolean {
+  return /-staging$/.test((process.env.CONTAINER_APP_NAME ?? '').trim());
+}
+
 // Refresh installation tokens 5 min before they expire so in-flight
 // operations never race the expiry clock.
 const EXPIRY_SAFETY_MARGIN_MS = 5 * 60 * 1000;
@@ -255,6 +260,37 @@ export function getTokenExpiryMs(): number {
 }
 
 /**
+ * t/653 (TL p/102#327): the hosted App → GITHUB_TOKEN fallback changes the write identity, so it is never
+ * silent. A staging container never takes it (its writes must go out as the staging App, which the boot
+ * guard verifies, t/77): null plus a flight-recorder error. Any other hosted container takes it with a WARN
+ * and a flight-recorder event. The token value is never logged.
+ */
+function hostedPatFallback(repo: string, envPat: string): SyncCredentials | null {
+  const appConfigured = Boolean(process.env.GITHUB_APP_ID && process.env.GITHUB_APP_INSTALLATION_ID);
+  const reason = appConfigured ? 'GitHub App installation token mint failed' : 'GitHub App not configured';
+  if (isStagingContainer()) {
+    log.auth.error({ reason, containerAppName: process.env.CONTAINER_APP_NAME }, 'getCredentials: staging refuses the GITHUB_TOKEN fallback; no credentials (fail closed)');
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'github-auth',
+      level: 'error',
+      message: `getCredentials() refused the GITHUB_TOKEN fallback on a staging container (${reason}); returning null`,
+      error: { name: 'StagingPatFallbackRefused', message: reason },
+    });
+    return null;
+  }
+  log.auth.warn({ reason, repo }, 'getCredentials: FALLBACK taken, writing with GITHUB_TOKEN instead of the GitHub App (write identity changes to the token owner)');
+  getGlobalRecorder()?.record({
+    type: 'system.error',
+    component: 'github-auth',
+    level: 'warn',
+    message: `getCredentials() fell back from the GitHub App to GITHUB_TOKEN (${reason}); writes go out as the token owner`,
+    error: { name: 'PatFallbackTaken', message: reason },
+  });
+  return { repo, token: envPat, mode: 'pat' };
+}
+
+/**
  * Returns a usable credential bundle, or null when no credentials are
  * configured. Callers should 503 (or render a disabled UI) on null.
  *
@@ -275,7 +311,7 @@ export async function getCredentials(): Promise<SyncCredentials | null> {
     if (installToken && repoValid) return { repo: repo!, token: installToken, mode: 'app' };
 
     const envPat = (process.env.GITHUB_TOKEN ?? '').trim() || null;
-    if (envPat && repoValid) return { repo: repo!, token: envPat, mode: 'pat' };
+    if (envPat && repoValid) return hostedPatFallback(repo!, envPat);
 
     // All rungs exhausted — emit an observable signal so failures are diagnosable (t/2895 Condition 1).
     const tried: string[] = [];
