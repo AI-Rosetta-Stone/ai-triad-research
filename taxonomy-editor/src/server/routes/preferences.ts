@@ -12,7 +12,7 @@ import type { ServerCtx } from './context.js';
 import { json, error } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { resolveDataPath } from '../config.js';
-import { getStorageUserId } from '../security/userContext.js';
+import { getStorageUserId, isHostedAnonymousRequest } from '../security/userContext.js';
 import { getBackend, getUserContentBackend } from '../storage/fileIO.js';
 import { log } from '../logger.js';
 // t/3537 (t/3534): the single shared UserPreferences schema (t/3535) — both read
@@ -43,12 +43,24 @@ async function readLegacyPrefs(filePath: string): Promise<string | null> {
   }
 }
 
+/** t/574 stopgap (TL p/16#400, from SO on #5527): a hosted anonymous request with no anon_session_id has the storage id
+ *  '_local', so it would read and write the local owner's preferences file. Refuse it with the same 401 no_session the
+ *  optional-auth gate uses, so the client re-establishes an anonymous session. Local AUTH_DISABLED mode (every request
+ *  is '_local' by design) is not hosted and is unaffected. True when the response was sent. */
+function refuseSessionlessAnonymous(res: Parameters<typeof json>[0]): boolean {
+  if (!isHostedAnonymousRequest() || getStorageUserId() !== '_local') return false;
+  res.writeHead(401, { 'Content-Type': 'application/json', 'X-Auth-Reason': 'no_session' });
+  res.end(JSON.stringify({ error: 'Anonymous session required', reason: 'no_session' }));
+  return true;
+}
+
 export function registerPreferencesRoutes(r: Router, _ctx: ServerCtx): void {
   const { get, put } = r;
 
   // GET /api/preferences — null when no file yet (client defaults to 'simple').
   // NB: path is a string literal (not a const) so extractRoutes.ts can see it.
   get('/api/preferences', async (_req, res) => {
+    if (refuseSessionlessAnonymous(res)) return;
     try {
       const filePath = prefsPath();
       const raw = (await getUserContentBackend().readFile(filePath, { optional: true })) ?? (await readLegacyPrefs(filePath));
@@ -70,6 +82,7 @@ export function registerPreferencesRoutes(r: Router, _ctx: ServerCtx): void {
 
   // PUT /api/preferences — Zod-validated; 400 on bad schema, 204 on success.
   put('/api/preferences', async (_req, res, body) => {
+    if (refuseSessionlessAnonymous(res)) return;
     try {
       const parsed = UserPreferencesSchema.safeParse(body);
       if (!parsed.success) {
