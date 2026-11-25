@@ -1062,9 +1062,15 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
     It 'a repeated line next to a page-number line is a header even with no form feed' {
         $Header = 'Journal of Applied Policy 14(2)'
         $Src = "Developers answer that the evaluations they run today`n$Header`nPage 2 of 9`nwere never designed to support a licensing decision.`n$Header`nPage 3 of 9`nOther text.`n$Header`nPage 4 of 9`n"
-        $Out = & $script:Run $Src 'Developers answer that the evaluations they run today were never designed to support the licensing decision.' 'doc-page-number'
-        $Out.R.Interleaved | Should -Be 1
+        $Out = & $script:Run $Src 'Developers answer that the evaluations they run today were never designed to support a licensing decision.' 'doc-page-number'
+        $Out.R.Dropped | Should -Be 0
         ($Out.Stored -join ' ') | Should -Not -Match 'Journal'
+        ($Out.Stored -join ' ') | Should -Not -Match 'Page 2'
+        ($Out.Stored -join ' ') | Should -Match '^Developers answer that the evaluations they run today were never designed to support a licensing decision'
+        # A part cut at a header is checked letter for letter like any piece: one changed word ("the" for "a")
+        # fails the quote. Before, such parts had no place in the quote and were not compared.
+        $Changed = & $script:Run $Src 'Developers answer that the evaluations they run today were never designed to support the licensing decision.' 'doc-page-number-changed'
+        $Changed.R.Dropped | Should -Be 1
     }
 
     It 'a one- or two-word repeated line is never a header: a quote across it is stored as pieces' {

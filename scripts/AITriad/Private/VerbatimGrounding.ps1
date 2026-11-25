@@ -94,6 +94,11 @@ $script:VerbatimFoldSpaceMojibake = $true
 # stored: every letter of a segment must be in a stored piece. Only an elision the model marked, or source
 # text that is not the quote's, may be left out.
 $script:VerbatimRejectUnstoredWord = $true
+# A piece cut at a blanked page header gets its own place in the quote (so it is checked letter for letter and
+# stored as the model's words), and a piece whose words cannot be cut from the model's quote fails the quote:
+# the source's text is never stored in their place (CL t/389#64 (3): where the match does not hold, it drops).
+$script:VerbatimPlaceHeaderParts = $true
+$script:VerbatimRejectUncutPiece = $true
 $script:VerbatimSpaceMojibakePattern = ([string][char]0x393 + [char]0xC7) + '[' + (-join [char[]](0xC7, 0xFC, 0xE9, 0xE2, 0xE4, 0xE0, 0xE5, 0xE7, 0xEA, 0xEB, 0xE8, 0xEF, 0xBB)) + ']'
 $script:VerbatimSymbolRef = $true            # a footnote symbol read as a letter, glued to a word's end ("Mishra" + the section sign's mojibake)
 $script:VerbatimSymbolRefPattern = '(?<=\p{L})[' + [char]0xBA + [char]0xE7 + '](?=[\s,.;:)\]]|$)'
@@ -896,6 +901,33 @@ function Find-VerbatimSnap {
             if ($Skip.End -gt $From) { $From = $Skip.End }
         }
         if ($PE -gt $From) { $Parts.Add(@{ Start = $From; End = $PE }) }
+        # Where each part stands in the quote: the parts' letters, in order, aligned to the letters the quote
+        # has for the whole piece. Other text in a part (a reference) is stepped over. When they do not line
+        # up, the parts keep no place and the quote cannot be stored from them.
+        $Placed = $false
+        if ($script:VerbatimPlaceHeaderParts -and $Parts.Count -ge 1 -and $QE -gt $QS -and $QE -le $N) {
+            $AllLetters = [System.Text.StringBuilder]::new()
+            foreach ($Part in $Parts) {
+                $Part.L0 = $AllLetters.Length
+                [void]$AllLetters.Append(((ConvertTo-EvidenceKey -Quote $EdgeText.Substring($Part.Start, $Part.End - $Part.Start)) -replace ' ', ''))
+                $Part.L1 = $AllLetters.Length
+            }
+            $PartMatch = Get-VerbatimLetterMatch -Have $AllLetters.ToString() -Want $Q.Substring($QS, $QE - $QS)
+            if ($null -ne $PartMatch) {
+                $Placed = $true
+                foreach ($Part in $Parts) {
+                    $Lo = -1; $Hi = -1; $Count = 0
+                    for ($X = $Part.L0; $X -lt $Part.L1; $X++) { if ($PartMatch[$X] -ge 0) { if ($Lo -lt 0) { $Lo = $PartMatch[$X] }; $Hi = $PartMatch[$X]; $Count++ } }
+                    if ($Count -eq 0) { continue }
+                    $IsFirst = $Part.Start -eq $PS; $IsLast = $Part.End -eq $PE
+                    $Pieces.Add([pscustomobject]@{ Start = $Part.Start; End = $Part.End; QuoteLetters = $Count
+                            QStart = $QS + $Lo; QEnd = $QS + $Hi + 1
+                            TailAdded = $(if ($IsLast) { $TailAdded } else { 0 }); MidWordEnd = ($IsLast -and $MidWordEnd)
+                            HeadPartial = ($IsFirst -and (Test-VerbatimHeadPartial -Text $EdgeText -At $PS)) })
+                }
+            }
+        }
+        if ($Placed) { continue }
         foreach ($Part in $Parts) {
             $PartLetters = ([regex]::Replace($Text.Substring($Part.Start, $Part.End - $Part.Start), '[^\p{L}\p{Nd}]', '')).Length
             if ($PartLetters -gt 0) {
@@ -1322,7 +1354,7 @@ function Resolve-VerbatimSegment {
                         }
                         # Only when the model's words go on after the last extra stretch.
                         $LastQuoteAt = -1; for ($X = $PieceWork.Length - 1; $X -ge 0; $X--) { if (& $IsQuote $X) { $LastQuoteAt = $X; break } }
-                        if ($Parts.Count -ge 2 -and $LastQuoteAt -ge $Cuts[$Cuts.Count - 1].To) {
+                        if ($Parts.Count -ge 1 -and $LastQuoteAt -ge $Cuts[$Cuts.Count - 1].To) {
                             $Parts[0].HeadPartial = $P.HeadPartial
                             $Parts[$Parts.Count - 1].TailAdded = $P.TailAdded; $Parts[$Parts.Count - 1].MidWordEnd = $P.MidWordEnd
                             for ($X = $Parts.Count - 1; $X -ge 0; $X--) { $Queue.Insert(0, $Parts[$X]) }
@@ -1479,6 +1511,13 @@ function Resolve-VerbatimSegment {
                 if ($null -ne $Mine) {
                     if ($Mine -cne $T) { $ModelTextDiffers = $true }
                     $T = $Mine
+                } elseif ($script:VerbatimRejectUncutPiece) {
+                    # The piece has no place in the model's quote, so its words cannot be taken from it, and the
+                    # source's text is not the model's. The quote fails.
+                    $script:VerbatimDiag.Add("piece has no place in the quote ($(if ($IsContiguous) { 'one piece' } else { 'interleaved' }))")
+                    $NoPlace = & $Result 'dropped' @() $Coverage $null
+                    Add-Member -InputObject $NoPlace -NotePropertyName Rejected -NotePropertyValue $true
+                    return $NoPlace
                 } else {
                     $script:VerbatimDiag.Add('model words not cut for a piece: source text stored')
                 }
