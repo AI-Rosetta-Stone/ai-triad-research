@@ -23,6 +23,8 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getStateRoot, getProjectRoot, STORAGE_MODE, isEmbeddingWorkerOffloadEnabled } from '../config.js';
 import { writeDump, isValidDumpId, readMergedDump } from '../flightRecorderDumps.js';
 import { escapeForInlineScript } from '../flightRecorderViewer.js';
+import { requireAdminOrOperator } from './adminGate.js';
+import { requireFlightRecorderAccess, resolveDumpFile } from './flightRecorderAccess.js';
 import { clientSafeMessage } from '../security/accessControl.js';
 import { getSessionBranchName } from '../security/userContext.js';
 import { filterSessionEvents } from './sessionScopedDump.js';
@@ -83,7 +85,9 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
   const { serverRecorder, appendServerLogs } = ctx;
 
   // ── Calibration log (per-debate metrics — JSONL from core/) ──
+  // t/592: admin-only in the handler (the anonymous gate, #5500, refused anonymous callers only).
   get('/api/calibration/log', (_req, res) => {
+    if (!requireAdminOrOperator(res)) return;
     try {
       const logPath = path.join(getStateRoot(), 'calibration', 'core', 'calibration-log.jsonl'); // t/2643: calibration is class-A writable state (read side)
       if (!fs.existsSync(logPath)) { json(res, { entries: [], validationReport: null }); return; }
@@ -104,7 +108,9 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
   });
 
   // ── Calibration parameter history ──
+  // t/592: admin-only in the handler (the anonymous gate, #5500, refused anonymous callers only).
   get('/api/calibration/history', async (_req, res) => {
+    if (!requireAdminOrOperator(res)) return;
     try {
       const { readParameterHistory, captureSnapshot } = await import('../../../../lib/debate/calibrationLogger.js');
       const history = readParameterHistory(getStateRoot()); // t/2643: calibration is class-A writable state
@@ -186,7 +192,9 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
   });
 
   // Server-side flight recorder dump
+  // t/579: admin-only. A server dump drains the server log buffer into a file; anyone could create one before.
   post('/api/flight-recorder/server-dump', (_req, res) => {
+    if (!requireFlightRecorderAccess(res)) return;
     try {
       const ndjson = appendServerLogs(serverRecorder.buildDump('manual').ndjson);
       const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
@@ -270,7 +278,9 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
     }
   });
 
+  // t/579: admin-only. The list named every client and server dump to any caller, anonymous included.
   get('/api/flight-recorder/list', (_req, res) => {
+    if (!requireFlightRecorderAccess(res)) return;
     try {
       const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
       if (!fs.existsSync(dumpDir)) { json(res, { files: [] }); return; }
@@ -294,16 +304,15 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
     }
   });
 
+  // t/579: admin-only, and the filename is confined to the dump directory. Before, the name was decoded twice and
+  // only regex-checked, so 'flight-recorder-%252F..%252F..%252Fx.jsonl' read any .jsonl the process could read.
   get('/api/flight-recorder/download/:filename', (req, res) => {
+    if (!requireFlightRecorderAccess(res)) return;
     try {
-      const filename = decodeURIComponent(param(req, 'filename', '/api/flight-recorder/download/:filename'));
-      // Sanitize: allow flight-recorder-*.jsonl and server-flight-recorder-*.jsonl
-      if (!/^(server-)?flight-recorder-.+\.jsonl$/.test(filename)) {
-        error(res, 'Invalid filename', 400);
-        return;
-      }
+      const filename = param(req, 'filename', '/api/flight-recorder/download/:filename');
       const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
-      const filePath = path.join(dumpDir, filename);
+      const filePath = resolveDumpFile(dumpDir, filename);
+      if (!filePath) { error(res, 'Invalid filename', 400); return; }
       if (!fs.existsSync(filePath)) { error(res, 'File not found', 404); return; }
       const content = fs.readFileSync(filePath, 'utf-8');
       res.writeHead(200, {
@@ -314,15 +323,14 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to download flight-recorder dump', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
   });
 
+  // t/579: admin-only, with the same filename confinement as download.
   get('/api/flight-recorder/view/:filename', (req, res) => {
+    if (!requireFlightRecorderAccess(res)) return;
     try {
-      const filename = decodeURIComponent(param(req, 'filename', '/api/flight-recorder/view/:filename'));
-      if (!/^(server-)?flight-recorder-.+\.jsonl$/.test(filename)) {
-        error(res, 'Invalid filename', 400);
-        return;
-      }
+      const filename = param(req, 'filename', '/api/flight-recorder/view/:filename');
       const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
-      const filePath = path.join(dumpDir, filename);
+      const filePath = resolveDumpFile(dumpDir, filename);
+      if (!filePath) { error(res, 'Invalid filename', 400); return; }
       if (!fs.existsSync(filePath)) { error(res, 'File not found', 404); return; }
 
       const viewerPath = path.join(getProjectRoot(), 'tools', 'flight-recorder-viewer.html');

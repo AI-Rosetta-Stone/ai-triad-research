@@ -82,7 +82,7 @@ function handleDefaultGithubApi(url: string, method: string): Response {
   if (method === 'GET' && path.includes('/git/trees/')) {
     return mockFetchResponse(200, {
       sha: TREE_SHA, truncated: false,
-      tree: [{ path: 'taxonomy/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 }],
+      tree: [{ path: 'conflicts/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 }],
     });
   }
   if (method === 'PUT' && path.includes('/contents/')) return mockFetchResponse(200, { content: { sha: 'new-blob-sha' } });
@@ -133,7 +133,7 @@ async function createBackend(recorder?: FlightRecorder) {
 function mockSessionBranchLookup(branch: string, sha: string, content = '{"test": true}'): void {
   const refQuery = `ref=${encodeURIComponent(branch)}`;
   apiHandlers.push((url, init) => {
-    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes(refQuery)) {
+    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/conflicts/nodes.json') || !url.includes(refQuery)) {
       return null;
     }
     return { status: 200, body: { content: Buffer.from(content).toString('base64'), encoding: 'base64', sha } };
@@ -150,13 +150,13 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondit
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
 
-    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const v1 = await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
     expect(v1.version).toBeTruthy();
-    const v2 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: v1.version });
+    const v2 = await backend.writeFile('/conflicts/nodes.json', '{"v": 2}', { baseSha: v1.version });
 
     expect(v2.version).toBeTruthy();
     expect(v2.version).not.toBe(v1.version);
-    expect(backend.getSessionOverlay('alice')?.get('taxonomy/nodes.json')).toBe('{"v": 2}');
+    expect(backend.getSessionOverlay('alice')?.get('conflicts/nodes.json')).toBe('{"v": 2}');
     backend.shutdown();
   });
 
@@ -164,14 +164,14 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondit
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
-    const err = await backend.writeFile('/taxonomy/nodes.json', '{"lost-update": true}', { baseSha: 'blob1' })
+    const err = await backend.writeFile('/conflicts/nodes.json', '{"lost-update": true}', { baseSha: 'blob1' })
       .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
 
     expect(err?.httpStatus).toBe(409);
     expect(err?.code).toBe('WRITE_CONFLICT');
-    expect(backend.getSessionOverlay('alice')?.get('taxonomy/nodes.json')).toBe('{"v": 1}');
+    expect(backend.getSessionOverlay('alice')?.get('conflicts/nodes.json')).toBe('{"v": 1}');
     backend.shutdown();
   });
 
@@ -180,9 +180,9 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondit
     const backend = await createBackend(recorder);
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
-    const result = await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}');
+    const result = await backend.writeFile('/conflicts/nodes.json', '{"v": 2}');
 
     expect(result.version).toBeTruthy();
     expect(recorder.events.find(e => e.type === 'storage.fallback')).toBeDefined();
@@ -209,7 +209,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondit
     const priorFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      if ((init?.method ?? 'GET') === 'GET' && url.includes('/contents/taxonomy/nodes.json') && url.includes(refQuery)) {
+      if ((init?.method ?? 'GET') === 'GET' && url.includes('/contents/conflicts/nodes.json') && url.includes(refQuery)) {
         lookupCalls++;
         if (lookupCalls === 1) {
           // Hold the first lookup open until the second save has also
@@ -225,8 +225,8 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondit
     }) as unknown as typeof fetch;
 
     const [a, b] = await Promise.allSettled([
-      backend.writeFile('/taxonomy/nodes.json', '{"from": "tab-a"}', { baseSha: 'blob1' }),
-      backend.writeFile('/taxonomy/nodes.json', '{"from": "tab-b"}', { baseSha: 'blob1' }),
+      backend.writeFile('/conflicts/nodes.json', '{"from": "tab-a"}', { baseSha: 'blob1' }),
+      backend.writeFile('/conflicts/nodes.json', '{"from": "tab-b"}', { baseSha: 'blob1' }),
     ]);
 
     expect(lookupCalls).toBe(2); // both saves actually overlapped at the live lookup
@@ -248,9 +248,9 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondit
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
-    await backend.deleteFile('/taxonomy/nodes.json');
+    await backend.deleteFile('/conflicts/nodes.json');
 
-    const err = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' })
+    const err = await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' })
       .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
 
     expect(err?.httpStatus).toBe(409);
@@ -269,15 +269,15 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion overl
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
 
-    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const v1 = await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
-    const got = await backend.readFileWithVersion('/taxonomy/nodes.json');
+    const got = await backend.readFileWithVersion('/conflicts/nodes.json');
     expect(got?.content).toBe('{"v": 1}');
     expect(got?.version).toBe(v1.version); // the overlay's own content hash, not main's stale blob1
 
-    const v2 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: got?.version });
+    const v2 = await backend.writeFile('/conflicts/nodes.json', '{"v": 2}', { baseSha: got?.version });
     expect(v2.version).toBeTruthy();
-    expect(backend.getSessionOverlay('alice')?.get('taxonomy/nodes.json')).toBe('{"v": 2}');
+    expect(backend.getSessionOverlay('alice')?.get('conflicts/nodes.json')).toBe('{"v": 2}');
     backend.shutdown();
   });
 });
@@ -305,7 +305,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion reads
     vi.mocked(fsPromises.readFile).mockResolvedValue(mainContent);
     (backend as unknown as { manifest: { version: 1; generation: number; lastCommitSha: string; lastUpdated: string; files: Record<string, { sha: string; etag: string; cachedAt: string }> } }).manifest = {
       version: 1, generation: 1, lastCommitSha: 'main-commit-sha', lastUpdated: new Date().toISOString(),
-      files: { 'taxonomy/nodes.json': { sha: mainSha, etag: 'main-etag', cachedAt: new Date().toISOString() } },
+      files: { 'conflicts/nodes.json': { sha: mainSha, etag: 'main-etag', cachedAt: new Date().toISOString() } },
     };
 
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
@@ -316,7 +316,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion reads
     const branchContent = JSON.stringify({ v: 'on-the-branch' });
     mockSessionBranchLookup('api-session/alice', 'branch-sha', branchContent);
 
-    const result = await backend.readFileWithVersion('/taxonomy/nodes.json');
+    const result = await backend.readFileWithVersion('/conflicts/nodes.json');
 
     expect(result).toEqual({ content: branchContent, version: 'branch-sha' });
     expect(result?.content).not.toBe(mainContent);
@@ -342,20 +342,20 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — 304 Not Modified session-
 
   it('a session-branch GET never sends If-None-Match for main\'s cached etag (root cause)', async () => {
     const backend = await createBackend();
-    seedMainEtagCache(backend, 'taxonomy/nodes.json', 'main-sha', 'main-etag');
+    seedMainEtagCache(backend, 'conflicts/nodes.json', 'main-sha', 'main-etag');
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
     let sawIfNoneMatch = false;
     const branchContent = JSON.stringify({ v: 'on-the-branch' });
     apiHandlers.push((url, init) => {
-      if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes('ref=api-session%2Falice')) {
+      if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/conflicts/nodes.json') || !url.includes('ref=api-session%2Falice')) {
         return null;
       }
       if (init.headers && 'If-None-Match' in (init.headers as Record<string, string>)) sawIfNoneMatch = true;
       return { status: 200, body: { content: Buffer.from(branchContent).toString('base64'), encoding: 'base64', sha: 'branch-sha' } };
     });
 
-    const result = await backend.readFileWithVersion('/taxonomy/nodes.json');
+    const result = await backend.readFileWithVersion('/conflicts/nodes.json');
 
     expect(sawIfNoneMatch).toBe(false);
     expect(result?.content).toBe(branchContent);
@@ -364,11 +364,11 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — 304 Not Modified session-
 
   it('a 304 against a session-branch read fails closed with the typed 503, not a raw TypeError crash (defense in depth)', async () => {
     const backend = await createBackend();
-    seedMainEtagCache(backend, 'taxonomy/nodes.json', 'main-sha', 'main-etag');
+    seedMainEtagCache(backend, 'conflicts/nodes.json', 'main-sha', 'main-etag');
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
     apiHandlers.push((url, init) => {
-      if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes('ref=api-session%2Falice')) {
+      if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/conflicts/nodes.json') || !url.includes('ref=api-session%2Falice')) {
         return null;
       }
       return { status: 304, body: null };
@@ -378,7 +378,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — 304 Not Modified session-
     // the same documented 503 VERSION_UNAVAILABLE any other unreachable-GitHub
     // case produces (getSessionBranchFileStatus's 'unavailable' kind) — a
     // handled failure, never a crash on null response data.
-    const err = await backend.readFileWithVersion('/taxonomy/nodes.json')
+    const err = await backend.readFileWithVersion('/conflicts/nodes.json')
       .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
     expect(err?.httpStatus).toBe(503);
     expect(err?.code).toBe('VERSION_UNAVAILABLE');

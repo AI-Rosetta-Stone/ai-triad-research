@@ -126,17 +126,75 @@ jobs:
     permissions:
       statuses: write
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - name: Post base-ref-record commit status
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_REF: ${{ github.base_ref }}
+        # t/238: this crashed bare on the 2026-11-10 13:04Z rate limit. Up to 3 attempts: a rate
+        # limit waits for the core reset (read from /rate_limit, which costs no quota), capped at
+        # 300 s; a 5xx/429 backs off 5 s, then 10 s; anything else (a permission 403, a 422) fails
+        # at once. Exhausted or capped fails the step, never a silent pass.
         run: |
-          gh api --method POST "repos/${REPO}/statuses/${HEAD_SHA}" \
-            -f state=success \
-            -f context="base-ref-record/ci.yml" \
-            -f description="${BASE_REF}"
+          set -uo pipefail
+          attempt=1
+          while :; do
+            if out=$(gh api --method POST "repos/${REPO}/statuses/${HEAD_SHA}" \
+                -f state=success \
+                -f context="base-ref-record/ci.yml" \
+                -f description="${BASE_REF}" 2>&1); then
+              echo "record-base-ref: posted base-ref-record/ci.yml=${BASE_REF} on ${HEAD_SHA} (attempt ${attempt})"
+              exit 0
+            fi
+            # SO t/238: gh's text is echoed inside ::error::/::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
+            if [ "$attempt" -ge 3 ]; then
+              echo "::error::record-base-ref: could not post the status after ${attempt} attempts. Last error: ${out}"
+              exit 1
+            fi
+            if printf '%s' "$out" | grep -qi 'rate limit'; then
+              reset=$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || true)
+              now=$(date +%s)
+              if [[ "$reset" =~ ^[0-9]+$ ]] && [ "$reset" -gt "$now" ]; then wait=$(( reset - now + 2 )); else wait=30; fi
+              if [ "$wait" -gt 300 ]; then
+                echo "::error::record-base-ref: rate limited and the reset is ${wait}s away, past the 300s cap. Last error: ${out}"
+                exit 1
+              fi
+              echo "::warning::WARN record-base-ref: attempt ${attempt} hit a rate limit -- waiting ${wait}s for the reset"
+            elif printf '%s' "$out" | grep -Eq 'HTTP (5[0-9][0-9]|429)'; then
+              wait=$(( attempt * 5 ))
+              echo "::warning::WARN record-base-ref: attempt ${attempt} failed (${out}) -- retrying in ${wait}s"
+            else
+              echo "::error::record-base-ref: not retryable (permission or input error): ${out}"
+              exit 1
+            fi
+            sleep "$wait"
+            attempt=$(( attempt + 1 ))
+          done
 
   # ── changes: paths-filter that gates which code jobs run per PR ────────────
   # LOAD-BEARING for branch protection (t/1962). `ci-gate` (below) treats a
@@ -1755,6 +1813,27 @@ jobs:
       contents: read
       issues: write
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
@@ -1795,6 +1874,10 @@ jobs:
 
       - name: Auto-close contrast-alert issue on green main (t/2818)
         if: success() && github.event_name == 'push'
+        # t/563: housekeeping only. On 2026-11-25 (main pushes 340fa9d7f, 9036352ed) this step hit the
+        # GITHUB_TOKEN GraphQL rate limit after contrast-check had PASSED, and failed contrast-check and
+        # so ci-gate on main. A failure to close the alert issue must never turn a green check red.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -2071,6 +2154,12 @@ jobs:
       - name: Dependabot docker digest-only gate suites
         run: node --test operations/devops/dependabot-docker-gate.test.mjs operations/devops/docker/docker-digest-only.test.mjs
 
+      # t/605: base-pin drift routing (issue vs security PR). Its strip-list pin reads the runtime stage
+      # of taxonomy-editor/Dockerfile, so a PR that adds or drops a strip fails HERE, not at the next
+      # drift run. Also the workflow-shape pins (only `repin` holds the author-app environment).
+      - name: Base pin drift + CVE routing suites
+        run: node --test operations/devops/docker/base-pin-drift.test.mjs operations/devops/docker/base-pin-cves.test.mjs
+
       # t/244: the advisory shared-input coverage step's crash path never fails the job, even
       # when its own comment post is rate-limited too.
       - name: shared-input coverage workflow crash-path suite
@@ -2079,6 +2168,11 @@ jobs:
       # t/357: pr-triage's last-activity clock counts the latest push (the head commit date).
       - name: pr-triage activity-facts suite
         run: node --test operations/devops/pr-triage-activity.test.mjs
+
+      # t/92: the staging Key Vault what-if guard (staging-keyvault.yml) allows only the vault, its
+      # diagnostics and one Secrets Officer role, and never a change naming the shared vault.
+      - name: staging Key Vault what-if guard suite
+        run: node --test operations/devops/staging-keyvault-whatif-guard.test.mjs
 
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
@@ -2094,7 +2188,7 @@ jobs:
       # t/4819: the shared GitHub 5xx/429 retry both workflows above load from the base tip, plus
       # end-to-end arms that run each workflow's real script against a mocked API.
       - name: github-retry helper + workflow retry suites
-        run: node --test operations/devops/github-retry.test.mjs operations/devops/github-retry-workflow.test.mjs
+        run: node --test operations/devops/github-retry.test.mjs operations/devops/github-retry-workflow.test.mjs operations/devops/record-base-ref-retry.test.mjs
 
       # t/314: the per-PR guards' inline rate-limit snapshot step stays identical to its canonical
       # copy, and its script records or WARNs without ever failing.
@@ -3164,6 +3258,27 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Check every SHA-pinned action resolves on its declared repo
         run: |
@@ -3708,6 +3823,27 @@ jobs:
       contents: read
       issues: write
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
       - name: Download complexity-budget violations
@@ -3870,6 +4006,27 @@ jobs:
     env:
       IMAGE: pr-scan/${{ matrix.name }}:${{ github.sha }}
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
           persist-credentials: false
@@ -4084,6 +4241,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - name: Report gated job results
         run: echo "gated results -> ${{ join(needs.*.result, ' ') }}"
 
@@ -4177,13 +4355,38 @@ jobs:
             const prNumber = context.payload.pull_request.number;
             const MARKER = '<!-- ci-shared-input-coverage:verdict -->';
 
+            // BEGIN github-retry-loader (t/238, same loader as tier-check t/4819): every GitHub call
+            // below goes through retry(): a 5xx/429 or a rate-limited 403 is retried (the 403 waits for
+            // the reset, capped); anything else, including a permission 403, rethrows into the catch.
+            // The helper comes from the DEFAULT BRANCH'S LIVE TIP via git show, never the PR tree.
+            // Missing (bootstrap) or unloadable: calls run once, unretried, with a WARN.
+            let retry = (label, fn) => fn();
+            try {
+              const defaultBranch = context.payload.repository?.default_branch || 'main';
+              execSync(`git fetch origin ${JSON.stringify(defaultBranch)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperSha = execSync('git rev-parse FETCH_HEAD', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+              const helperText = execSync(`git show ${helperSha}:operations/devops/github-retry.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-shared-input-coverage-retry-'));
+              const helperPath = path.join(helperDir, 'github-retry.mjs');
+              fs.writeFileSync(helperPath, helperText);
+              const { withGitHubRetry } = await import(pathToFileURL(helperPath).href);
+              retry = (label, fn) => withGitHubRetry(label, fn, {
+                warn: (m) => core.warning(m),
+                sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+                prefix: 'ci-shared-input-coverage',
+              });
+            } catch (err) {
+              core.warning(`WARN ci-shared-input-coverage: retry helper not loadable from the default branch tip (${String(err && err.message ? err.message : err).split('\n')[0]}) -- GitHub calls in this run are NOT retried.`);
+            }
+            // END github-retry-loader
+
             async function postComment(body, { createIfAbsent } = { createIfAbsent: true }) {
-              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
+              const comments = await retry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
               const existing = comments.find((c) => c.body?.includes(MARKER));
               if (existing) {
-                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: `${MARKER}\n${body}` });
+                await retry('issues.updateComment', () => github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: `${MARKER}\n${body}` }));
               } else if (createIfAbsent) {
-                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: `${MARKER}\n${body}` });
+                await retry('issues.createComment', () => github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: `${MARKER}\n${body}` }));
               }
             }
 
@@ -4252,7 +4455,7 @@ jobs:
               const { evaluateCoverage, formatCoverageComment } = await import(pathToFileURL(predicatePath).href);
 
               const registry = JSON.parse(registryText);
-              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
+              const files = await retry('pulls.listFiles', () => github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 }));
               const changedPaths = files.map((f) => f.filename);
               const filterOutputs = JSON.parse(process.env.FILTER_OUTPUTS);
 
@@ -4340,6 +4543,27 @@ jobs:
     permissions:
       pull-requests: read
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
       - name: Enumerate the group and refuse if any PR carries consult-hold
         env:
@@ -4411,6 +4635,27 @@ jobs:
     permissions:
       pull-requests: read
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
       - name: Enumerate the group and refuse if any PR carries joint-gv
         env:
@@ -4499,6 +4744,27 @@ jobs:
       issues: read
       contents: read
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
       - name: Re-evaluate t1-approval-guard for every PR in this batch
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9

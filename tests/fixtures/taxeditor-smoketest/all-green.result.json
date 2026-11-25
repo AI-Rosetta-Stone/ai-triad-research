@@ -13,17 +13,17 @@
   "IdentityAllowlistUnreachable": 2,
   "IdentityAllowlistKnownPendingCount": 2,
   "IdentityAllowlistStatus": "ok",
-  "EndpointsPassed": 9,
+  "EndpointsPassed": 7,
   "EndpointsFailed": 0,
-  "EndpointsTotal": 9,
-  "AvgResponseMs": 18.0,
+  "EndpointsTotal": 7,
+  "AvgResponseMs": 19.0,
   "MaxResponseMs": 42.0,
   "MinResponseMs": 10.0,
   "DurationSec": "<masked>",
   "Categories": [
     {
       "Category": "Analytics",
-      "Pass": 3,
+      "Pass": 1,
       "Fail": 0
     },
     {

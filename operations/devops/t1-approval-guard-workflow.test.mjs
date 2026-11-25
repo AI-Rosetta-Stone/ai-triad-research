@@ -7,7 +7,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
@@ -278,4 +279,29 @@ test('t/200 FAILURE PATH (old YAML): a predicate whose logic cannot load -> CANN
   assert.equal(log.failed.length, 1);
   assert.match(log.failed[0], /CANNOT EVALUATE/);
   assert.ok(verdictComments.some((b) => b.includes('CANNOT EVALUATE')));
+});
+
+// Security p/275#7: a plain-scalar `run:` value with ` #` in it is cut at the `#` by YAML (a comment),
+// so the shell got an unterminated quote and every review relay run exited 2. Pin it for EVERY
+// workflow: a `run:` that contains ` #` must be a block scalar (`run: |` / `run: >`).
+test('no workflow has a plain-scalar run: line containing " #" (YAML would truncate it as a comment)', () => {
+  const dir = path.join(root, '.github', 'workflows');
+  const bad = [];
+  for (const f of readdirSync(dir).filter((n) => /\.ya?ml$/.test(n))) {
+    readFileSync(path.join(dir, f), 'utf8').replace(/\r\n/g, '\n').split('\n').forEach((l, i) => {
+      if (/^\s*-?\s*run: (?![|>])/.test(l) && / #/.test(l.replace(/^\s*-?\s*run: /, ''))) bad.push(`${f}:${i + 1}: ${l.trim()}`);
+    });
+  }
+  assert.deepEqual(bad, []);
+});
+
+test('the review relay echo is a block scalar, and its shell line runs (exit 0) with the "#" intact', () => {
+  const relay = readFileSync(path.join(root, '.github', 'workflows', 't1-approval-review-relay.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const m = /\n {8}run: \|\n {10}(echo .*)\n/.exec(relay);
+  assert.ok(m, 'run: | with the echo on the next line');
+  assert.match(m[1], /on PR #\$PR at/);
+  const r = spawnSync('bash', ['-c', m[1]], { encoding: 'utf8', env: { ...process.env, ACTION: 'submitted', PR: '7', HEAD_SHA: 'abc' } });
+  if (r.error) return; // no bash on this machine; the text pin above still holds
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /review submitted on PR #7 at abc/);
 });

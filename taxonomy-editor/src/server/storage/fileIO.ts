@@ -32,6 +32,7 @@ import type { NodeSourceIndex } from '../../../../lib/sourceIndex/types.js';
 import { buildNodeSourceIndex } from './nodeSourceIndex.js';
 import { repairSnapshotMojibake } from '../../../../lib/sanitize/repairSnapshotMojibake.js';
 import { BASE_BRANCH_REF, baseBranchForLogs } from './baseBranchRef.js';
+import { FailClosedUserContentBackend, isPositivelyLocalBackend, isHostedProfile } from './failClosedUserContentBackend.js';
 
 // ── Extracted sub-modules (ADR-007, t/1688) — cohesion splits behind a stable
 // barrel: importers keep importing these symbols from './fileIO.js'. Each module
@@ -63,6 +64,8 @@ let backend: StorageBackend = new FilesystemBackend({
 });
 let userContentBackend: StorageBackend | null = null;
 let briefExportBackend: StorageBackend | null = null;
+/** t/639: the hosted fail-closed user-content backend, built once on first use. */
+let failClosedUserContent: FailClosedUserContentBackend | null = null;
 
 // Parsed-entities cache — memoizes entities.json so repeated public getEntity
 // (t/1786) hits, an UNAUTHENTICATED read tier, never re-parse the file per request
@@ -91,8 +94,18 @@ export function getBackend(): StorageBackend { return backend; }
 export function setTaxonomyBackend(b: StorageBackend): void { backend = b; entitiesCache = null; mentionsCache = null; }
 /** Set the backend for user content (chats/debates/community). */
 export function setUserContentBackend(b: StorageBackend): void { userContentBackend = b; }
-/** User-content backend; falls back to the taxonomy backend when unset. */
-export function getUserContentBackend(): StorageBackend { return userContentBackend ?? backend; }
+/** User-content backend; falls back to the taxonomy backend when unset, except in a hosted profile whose taxonomy
+ *  backend is not positively local: there, user content is refused (t/639, incident t/629; fail closed per SO p/269#14),
+ *  never committed to the public data repo. */
+export function getUserContentBackend(): StorageBackend {
+  if (userContentBackend) return userContentBackend;
+  if (isHostedProfile() && !isPositivelyLocalBackend(backend)) {
+    return failClosedUserContent ??= new FailClosedUserContentBackend('Azure Blob is not configured or failed validation');
+  }
+  return backend;
+}
+/** Test-only: forget the configured user-content backend, as on a server where Blob was never wired (t/639). */
+export function resetUserContentBackendForTests(): void { userContentBackend = null; failClosedUserContent = null; }
 /** Set the backend for brief-export artifacts (t/2850 — dedicated container for lifecycle rule). */
 export function setBriefExportBackend(b: StorageBackend): void { briefExportBackend = b; }
 
