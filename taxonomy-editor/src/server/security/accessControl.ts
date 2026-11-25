@@ -10,6 +10,8 @@ import crypto from 'crypto';
 import type { IncomingHttpHeaders } from 'http';
 import { isSafeId, isSafePov, isSafeFilename } from '../storage/fileIO.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
+import { ActionableError } from '../../../../lib/debate/errors.js';
+import { signAnonSessionId, verifyAnonSessionCookie } from './anonSessionSigning.js';
 
 // Review group ids are "domain:id" (e.g. "calibration:jpsnover") — allow the
 // colon, still block path separators / dots / encoded sequences.
@@ -95,17 +97,35 @@ export function isValidAnonSessionId(id: string): boolean {
 }
 
 /**
- * t/2464: reuse-not-rotate. Returns `existing` when it is a well-formed UUID v4
- * (the only shape this server ever mints), otherwise mints a fresh one.
+ * t/2464: reuse-not-rotate, with t/664's signed cookie. Returns `existing` when it is a validly SIGNED
+ * `<uuid>.<hmac>` under this environment's secret, otherwise mints a fresh signed one. A bare uuid (the
+ * pre-t/664 cookie), a forged or other-environment cookie, or one signed with a rotated-out secret is
+ * silently replaced by a fresh session (the hard cutover, TL t/500#11.2), never an error page.
+ *
+ * Fails closed: with no signing secret loaded it throws a 503 ActionableError instead of minting an unsigned
+ * cookie (t/664; the secret is `anon-session-hmac`, see anonSessionSecret.ts).
  *
  * INVARIANT: `existing` MUST come from parseCookies(req) — never from a query
  * parameter, request body, or header. The HttpOnly flag prevents JS from forging
  * the cookie; query/body/header inputs are untrusted and must never reach here.
  */
 export function resolveAnonSessionId(existing: string | undefined): string {
-  return (existing !== undefined && isValidAnonSessionId(existing))
-    ? existing
-    : crypto.randomUUID();
+  if (verifyAnonSessionCookie(existing) !== undefined) return existing as string;
+  try {
+    return signAnonSessionId(crypto.randomUUID());
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'anon-session-signing', level: 'error',
+      message: 'Anonymous session refused: the signing secret is not loaded (fail closed)',
+      error: { name: (err as Error).name ?? 'Error', message: (err as Error).message },
+    });
+    throw Object.assign(new ActionableError({
+      goal: 'Start an anonymous session',
+      problem: 'Anonymous sessions are unavailable: the anon-session-hmac signing secret is not loaded.',
+      location: 'security/accessControl.resolveAnonSessionId',
+      nextSteps: ['Create the anon-session-hmac secret in the Key Vault for this environment (t/664) and restart', 'Sign in instead of continuing anonymously'],
+    }), { statusCode: 503 });
+  }
 }
 
 /**
