@@ -14,8 +14,10 @@ contract (lib/debate/evidenceFromSummaries.ts) and docs/specs/source-identity.md
   - section 7: a group's evidence is the de-duplicated union of its members' links, and a link
     kept from a marked copy carries `via: <copy id>`. `via` is provenance only; entity extraction
     reads those facts like any other (7.6, t/373);
-  - sections 6.2 and 7.1 (t/355): a summary `<X>-N` with no source dir, whose `X` has one, is a
-    chunk of `X` and folds into resolve(X)'s group as one document. A link kept from a chunk of
+  - sections 6.2 and 7.1 (t/355): a summary is a chunk of its base only if the legacy-chunk
+    manifest (docs/specs/source-identity-legacy-chunks.json) names it. A chunk folds into
+    resolve(base)'s group as one document. Any other `<X>-N` summary with no source dir stays
+    its own document, with a WARN. A link kept from a chunk of
     the canonical carries `chunk_of: <chunk id>`; from a chunk of a marked copy, `via: <copy id>`.
     A kept chunk link also carries `chunk_generated_at` and `chunk_model` when the chunk
     summary records them (7.6a; nothing branches on them).
@@ -46,6 +48,7 @@ POINT_MAX = 250
 VERBATIM_MAX = 200
 N2_FIELDS = ("chunk_generated_at", "chunk_model")
 _CHUNK_RE = re.compile(r"^(.+)-(\d+)$")
+LEGACY_CHUNKS = _PROJECT_ROOT / "docs" / "specs" / "source-identity-legacy-chunks.json"
 
 
 def _log(msg):
@@ -241,16 +244,42 @@ def union_group(canonical, members, order=None):
 
 # ── Spec 6.2 / 7.1: summary-only chunks (t/355) ───────────────────────────────
 
-def chunk_base(doc, has_source):
-    """The base X when doc is a summary-only chunk <X>-N: doc has no source dir and X has one.
-    Otherwise None."""
-    m = _CHUNK_RE.match(doc)
-    if not m or doc in has_source:
+def load_manifest(path=LEGACY_CHUNKS):
+    """Spec 6.2: {chunk id: base id} from the legacy-chunk manifest, the same file the PowerShell
+    and TypeScript readers load. A missing file means no summary is a chunk, with a WARN."""
+    path = Path(path)
+    if not path.exists():
+        # Fallback: nothing folds, so no document is merged into another, but the legacy chunks
+        # count as separate documents until the file is there.
+        _log(f"WARN: legacy-chunk manifest {path} not found; no summary is treated as a chunk (spec 6.2)")
+        return {}
+    try:
+        chunks = json.loads(path.read_text(encoding="utf-8-sig"))["chunks"]
+    except (json.JSONDecodeError, OSError, KeyError, TypeError) as exc:
+        _fail("Load the legacy-chunk manifest (spec 6.2)", f"{path} is unreadable or has no 'chunks' object ({exc})",
+              "build-evidence-index.py load_manifest", "Restore the file from docs/specs on main.")
+    if not isinstance(chunks, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in chunks.items()):
+        _fail("Load the legacy-chunk manifest (spec 6.2)", f"{path}: 'chunks' must map chunk id to base id",
+              "build-evidence-index.py load_manifest", "Restore the file from docs/specs on main.")
+    return dict(chunks)
+
+
+def chunk_base(doc, manifest, known=None):
+    """Spec 6.2: the base the manifest names for doc, or None when doc is not listed. Chunks are
+    named, not inferred. known: the ids that exist (a summary or a source dir); a listed chunk
+    whose base is not among them is refused. None skips that check."""
+    base = manifest.get(doc)
+    if base is None:
         return None
-    return m.group(1) if m.group(1) in has_source else None
+    if known is not None and base not in known:
+        _fail("Resolve a legacy chunk to its base document (spec 6.2)",
+              f"the legacy-chunk manifest lists {doc!r} as a chunk of {base!r}, but {base!r} does not exist",
+              "build-evidence-index.py chunk_base",
+              f"Check that {base!r} has a summary or a source dir, or correct the manifest entry (a reviewed change).")
+    return base
 
 
-def resolve_doc(doc, marks, has_source):
+def resolve_doc(doc, marks, manifest, known=None):
     """Spec 6.2, transitive: follow a valid mark, or a chunk's base, to the end."""
     seen = []
     while True:
@@ -260,26 +289,27 @@ def resolve_doc(doc, marks, has_source):
                   "build-evidence-index.py resolve_doc",
                   "Remove or correct one mark in the loop (spec 6.1).")
         seen.append(doc)
-        nxt = marks.get(doc) or chunk_base(doc, has_source)
+        nxt = marks.get(doc) or chunk_base(doc, manifest, known)
         if not nxt:
             return doc
         doc = nxt
 
 
-def group_members(canonical, docs, marks, has_source):
+def group_members(canonical, docs, marks, manifest, known=None):
     """Spec 7.1: the non-canonical members of canonical's group among docs, in group order:
     marked copies by ordinal id, then the canonical's own chunks, then each copy's chunks in
     copy order, each block by N ascending. Each is {id, kind, via}; kind is 'copy', 'chunk_D'
     or 'chunk_copy' (via = that copy)."""
     copies, own_chunks, copy_chunks = [], [], []
     for d in docs:
-        if d == canonical or resolve_doc(d, marks, has_source) != canonical:
+        if d == canonical or resolve_doc(d, marks, manifest, known) != canonical:
             continue
-        base = chunk_base(d, has_source)
+        base = chunk_base(d, manifest, known)
         if base is None:
             copies.append(d)
             continue
-        n = int(_CHUNK_RE.match(d).group(2))
+        m = _CHUNK_RE.match(d)
+        n = int(m.group(2)) if m else 0
         (own_chunks if base == canonical else copy_chunks).append((base, n, d))
     out = [{"id": c, "kind": "copy", "via": None} for c in sorted(copies, key=ordinal_key)]
     out += [{"id": d, "kind": "chunk_D", "via": None}
@@ -287,6 +317,17 @@ def group_members(canonical, docs, marks, has_source):
     out += [{"id": d, "kind": "chunk_copy", "via": b}
             for b, _n, d in sorted(copy_chunks, key=lambda t: (ordinal_key(t[0]), t[1], ordinal_key(t[2])))]
     return out
+
+
+def unlisted_chunk_shaped(summaries, manifest, has_source):
+    """Summaries the old folder-only rule would have folded and the manifest does not name: <X>-N
+    with no source dir while X has one. They stay their own documents (spec 6.2)."""
+    out = []
+    for d in summaries:
+        m = _CHUNK_RE.match(d)
+        if m and d not in manifest and d not in has_source and m.group(1) in has_source:
+            out.append(d)
+    return sorted(out, key=ordinal_key)
 
 
 # ── Spec 6.1: valid marks ─────────────────────────────────────────────────────
@@ -351,18 +392,20 @@ def load_summaries(summaries_dir):
     return docs
 
 
-def build_index(summaries, marks, has_source=frozenset()):
+def build_index(summaries, marks, manifest=None, known_ids=frozenset()):
     """summaries: {doc_id: summary}; marks: {copy id: canonical id} (valid marks only);
-    has_source: the ids that have a source dir. A summary with no source dir whose base has
-    one is a chunk (6.2) and folds into its base's group; with the default empty set no
-    summary is a chunk."""
+    manifest: {chunk id: base id}, the legacy-chunk manifest (6.2). A listed chunk folds into
+    its base's group; with no manifest no summary is a chunk. known_ids: ids that exist besides
+    the summaries (source dirs), for the check that a listed chunk's base exists."""
+    manifest = manifest or {}
+    known = set(summaries) | set(known_ids)
     groups = {}
     for doc in summaries:
-        groups.setdefault(resolve_doc(doc, marks, has_source), []).append(doc)
+        groups.setdefault(resolve_doc(doc, marks, manifest, known), []).append(doc)
     index = {}
     for canonical in sorted(groups, key=ordinal_key):
         members = {m: summary_links(summaries[m]) for m in groups[canonical]}
-        order = group_members(canonical, groups[canonical], marks, has_source)
+        order = group_members(canonical, groups[canonical], marks, manifest, known)
         for member in order:
             if member["kind"] != "copy":
                 s = summaries[member["id"]]
@@ -392,6 +435,7 @@ def main(argv=None):
     ap.add_argument("--data-root")
     ap.add_argument("--sources-root")
     ap.add_argument("--summaries-dir", help="default: <data-root>/summaries")
+    ap.add_argument("--legacy-chunks", help=f"the legacy-chunk manifest (spec 6.2); default: {LEGACY_CHUNKS}")
     a = ap.parse_args(argv)
     data_root, sources_root = resolve_roots(a.data_root, a.sources_root)
     out = Path(a.out).resolve()
@@ -407,21 +451,27 @@ def main(argv=None):
               "build-evidence-index.py main", "Pass --data-root or --summaries-dir.")
     summaries = load_summaries(summaries_dir)
     marks, ids, errors = load_marks(sources_root)
-    index = build_index(summaries, marks, ids)
+    manifest = load_manifest(a.legacy_chunks or LEGACY_CHUNKS)
+    index = build_index(summaries, marks, manifest, ids)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(serialize(index), encoding="utf-8", newline="\n")
     records = [r for e in index.values() for r in e["facts"] + e["keyPoints"]]
     via = sum(1 for r in records if "via" in r)
     chunk_of = sum(1 for r in records if "chunk_of" in r)
-    chunks = sorted((d for d in summaries if chunk_base(d, ids)), key=ordinal_key)
-    orphans = sorted((d for d in summaries if d not in ids and not chunk_base(d, ids)), key=ordinal_key)
+    chunks = sorted((d for d in summaries if d in manifest), key=ordinal_key)
+    unlisted = unlisted_chunk_shaped(summaries, manifest, ids)
+    if unlisted:
+        _log(f"WARN: not_in_manifest: {len(unlisted)} summaries have no source dir while their stem has one, and are "
+             f"not in the legacy-chunk manifest; each stays its own document (spec 6.2). If a source dir is missing "
+             f"from this checkout, restore it: {', '.join(unlisted)}")
+    orphans = sorted((d for d in summaries if d not in ids and d not in manifest and d not in unlisted), key=ordinal_key)
     if orphans:
-        # t/355#9: a summary with no source dir and no base with one stays its own document.
-        _log(f"WARN: source_missing: {len(orphans)} summaries have no source dir and no chunk base; "
+        # t/355#9: a summary with no source dir that is not a listed chunk stays its own document.
+        _log(f"WARN: source_missing: {len(orphans)} summaries have no source dir and are not listed chunks; "
              f"each counts as its own document: {', '.join(orphans)}")
     _log(f"wrote {out}: {len(index)} nodes from {len(summaries)} summaries; "
          f"{sum(1 for d in summaries if d in marks)} marked copies folded, {via} via-tagged entries, "
-         f"{len(chunks)} summary-only chunks folded, {chunk_of} chunk_of-tagged entries, "
+         f"{len(chunks)} listed chunks folded, {chunk_of} chunk_of-tagged entries, "
          f"{len(errors)} invalid mark(s)")
     return 0
 
