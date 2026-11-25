@@ -184,12 +184,19 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         }
     }
 
-    It 'keeps the segment the source has, as a string, and removes the one it does not' {
+    It 'drops an elided quote when the segment the source has is under 0.9 of it (t/389#50)' {
         $Quote = 'Regulators in several countries have begun to ask for evaluation results [...] and every lab has already agreed to publish them in full.'
         $Out = & $script:Run $script:Long $Quote 'doc-elide-partial'
-        $Out.R.Snapped | Should -Be 1
+        # t/389#50: the found segment is about half the quote; a part under 0.9 misstates the claim, so the
+        # quote is dropped (it was stored under t/389#11, S23).
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
+    }
+
+    It 'stores an elided quote that loses only a small fragment: what is kept is 0.9 of it or more (t/389#50)' {
+        $Quote = 'Regulators in several countries have begun to ask for evaluation results [...] says he'
+        $Out = & $script:Run $script:Long $Quote 'doc-elide-small-loss'
         $Out.R.Dropped | Should -Be 0
-        $Out.Stored | Should -BeOfType [string]
         $Out.Stored | Should -Be 'Regulators in several countries have begun to ask for evaluation results'
     }
 
@@ -203,8 +210,9 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
     It 'never keeps a fragment shorter than one run, even when the source has those words' {
         $Quote = 'the model [...] Regulators in several countries have begun to ask for evaluation results'
         $Out = & $script:Run $script:Long $Quote 'doc-elide-short'
-        $Out.R.Dropped | Should -Be 0
-        $Out.Stored | Should -Be 'Regulators in several countries have begun to ask for evaluation results'
+        # The fragment is never stored; without it the rest is 0.887 of the quote, under 0.9, so the quote drops (t/389#50).
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
     }
 
     It 'keeps a list a list, and adds the segments of an elided entry in place' {
@@ -494,8 +502,8 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         # Two numbers-only lines, or a value that is not a bare number: a chart.
         (& $script:Run "$A`r`n`r`n64%`r`n`r`n39%`r`n`r`nSome text between the two.`r`n$B`r`n" "$A [...] $B" 'doc-elision-two-numbers').R.Dropped | Should -Be 1
         (& $script:Run "$A $Prose`r`n`r`n64%`r`n`r`nthe next page. $B`r`n" "$A [...] $B" 'doc-elision-percent').R.Dropped | Should -Be 1
-        # A bare number beside a short line that is not the page's running header: a label and its value.
-        (& $script:Run "$A`r`n`r`nSkills gaps reported`r`n`r`n17`r`n`r`nMore text about the survey follows here. $B`r`n" "$A [...] $B" 'doc-elision-label').R.Dropped | Should -Be 1
+        # Two footnote markers on one line inside a sentence are still one numbers-only line of bare numbers (J10).
+        (& $script:Run "$A It was documented in an election where generative AI`r`n`r`n5 5`r`n`r`nrobocalls aimed to discourage voters. $B`r`n" "$A [...] $B" 'doc-elision-footnote-markers').R.Dropped | Should -Be 0
     }
 
     It 'a page number with the running header beside it is one page boundary, not a chart (t/389#47, H06)' {
@@ -507,6 +515,23 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out = & $script:Run $Src "$A [...] $B" 'doc-elision-running-header'
         $Out.R.Dropped | Should -Be 0
         $Out.Stored | Should -Be @($A, $B)
+    }
+
+    It 'a doubly damaged quote mark at the end of the model''s quote is a quote mark, not a letter (t/389#50, i406)' {
+        $Src = "I am excited about the mundane tasks being automated`r`n`r`nby AI.$([char]0x00F6)`r`n`r`nMore text follows here.`r`n"
+        $Quote = "I am excited about the mundane tasks being automated by AI.$([char]0x00C3)$([char]0x00B6)"
+        $Out = & $script:Run $Src $Quote 'doc-double-mojibake'
+        $Out.R.Dropped | Should -Be 0
+    }
+
+    It 'a footnote reference glued to the quote''s first or last word is not part of the word (t/389#47 (3))' {
+        # "125Large-scale" and "SMEs3": the reference number is glued on by the converter. The quote's words are
+        # whole words of the source, so the edge rule does not reject it; the stored text is the source's.
+        $Src = "Earlier text ends here.125Large-scale AI training is highly resource intenxive and needs caps and subsidized insurance for SMEs3 (Figure 2).`r`n"
+        $Out = & $script:Run $Src 'Large-scale AI training is highly resource intensive and needs caps and subsidized insurance for SMEs.' 'doc-glued-footnote'
+        $Out.R.Dropped | Should -Be 0
+        $Out.R.Snapped | Should -Be 1
+        $Out.Stored | Should -Be 'Large-scale AI training is highly resource intenxive and needs caps and subsidized insurance for SMEs'
     }
 
     It 'a snapped quote whose first or last word is not the source''s is dropped, not stored with the source''s word (t/389#47 (3), H07)' {
