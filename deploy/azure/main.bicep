@@ -1231,19 +1231,11 @@ resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
-// Staging gets read-only Key Vault access (Secrets User, not Officer)
-// to prevent staging from modifying production user secrets (H5).
-var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
-
-resource kvRoleAssignmentStaging 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: keyVault
-  name: guid(keyVault.id, containerAppStaging.id, kvSecretsUserRoleId)
-  properties: {
-    principalId: containerAppStaging.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', kvSecretsUserRoleId)
-  }
-}
+// t/92 change B: staging has NO role on this (shared, prod) vault. Staging reads only its own vault,
+// kv-ait-stg-kvwl3nywge4iw (deploy/azure/staging-keyvault.bicep, A1), selected by stagingKeyVaultUrl (A2).
+// The former kvRoleAssignmentStaging (Secrets User here) let staging read prod secrets (t/626).
+// ARM incremental deploys don't delete a removed resource: Azure deletes the live assignment after
+// this merges, then reads back the role list (t/92#21 (b)).
 
 // ── Role assignment: container apps → Blob Storage ──
 // Grants 'Storage Blob Data Contributor' (read/write/delete blobs) to both
