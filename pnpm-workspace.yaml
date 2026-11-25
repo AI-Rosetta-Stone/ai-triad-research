@@ -53,9 +53,12 @@ overrides:
   # sync (sync-standalone-lockfile.mjs copies THIS block) needs for taxonomy-editor (t/3441).
   # NB — comment lines here must avoid a colon-then-space sequence; check-lockfile-overrides.mjs is
   # line-based and mis-reads any such line as an override entry (that caused the t/3440 gate red).
-  hono: ">=4.13.5 <5"
+  hono: ">=4.13.16 <5"
   morgan: ">=1.12.1 <2"
   joi: ">=18.3.1 <19"
+  # t/575 (Dependabot #476-#484): raised to the patched lines, capped to them. Each is transitive (pnpm why).
+  "@hono/node-server": ">=2.1.6 <3"
+  "@opentelemetry/instrumentation-http": ">=0.222.0 <0.223"
   # Security bumps (Dependabot #354-#406, 2026-10-02). Raised in place above for axios (1.20.0),
   # brace-expansion (5.0.12), js-yaml (5.4.1), image-size (2.0.3), fast-uri (3.1.8), morgan (1.12.1)
   # and joi (18.2.6); each graph already sat on that major, so the caps cost no major jump. undici
