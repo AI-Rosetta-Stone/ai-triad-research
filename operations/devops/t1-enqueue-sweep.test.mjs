@@ -450,6 +450,23 @@ test('t/602: the T0 path shares enqueueOne, so a budget refusal returns skipped 
   } finally { mocks.forEach((m) => m.mock.restore()); }
 });
 
+test('t/656 (SO p/136#75): an incident/* PR is skipped by the sweeps with a reason, before any live read or enqueue', async () => {
+  const logs = [];
+  const mocks = [mock.method(console, 'log', (l) => logs.push(String(l))), mock.method(console, 'error', (l) => logs.push(`ERR ${l}`))];
+  try {
+    let reads = 0;
+    let enqueues = 0;
+    const deps = { readLive: () => { reads++; return liveOpen; }, enqueue: async () => { enqueues++; return { ok: true }; }, ghFn: () => '' };
+    assert.equal(await enqueueOne('o/r', { number: 1, headRefOid: HEAD, armed: false, headRefName: 'incident/t650-key' }, { deps }), 'skipped');
+    assert.equal(reads, 0); assert.equal(enqueues, 0);
+    assert.ok(logs.some((l) => /^skip #1: an incident PR \(incident\/t650-key\) is enqueued by hand/.test(l)), logs.join('\n'));
+    assert.ok(!logs.some((l) => l.startsWith('ERR ')));
+    // Any other branch still goes through the live read and the enqueue.
+    assert.equal(await enqueueOne('o/r', { number: 1, headRefOid: HEAD, armed: false, headRefName: 'train/devops-20261126' }, { deps }), 'enqueued');
+    assert.equal(enqueues, 1);
+  } finally { mocks.forEach((m) => m.mock.restore()); }
+});
+
 test('shim (t/534 A): a failed approval read WARNs and skips the PR; nothing is enqueued', async () => {
   const logs = [];
   const mocks = [mock.method(console, 'log', (l) => logs.push(String(l))), mock.method(console, 'warn', (l) => logs.push(String(l)))];

@@ -39,7 +39,7 @@ import { enqueuePR } from './enqueue-pr.mjs';
 import { checkVerdict, classifyEnqueueFailure, disarmViaGraphql, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
 // t/602, kept for t/656: the refusals that mean "land it on the right vehicle" are the policy working,
 // logged as skips, never a failed sweep (landing-vehicle.mjs ROUTE_REASONS, the set enqueue-pr pings).
-import { ROUTE_REASONS as BUDGET_SKIP_REASONS } from './landing-vehicle.mjs';
+import { classifyBranch, ROUTE_REASONS as BUDGET_SKIP_REASONS } from './landing-vehicle.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { ejectedBatchVerdict, listMergeGroupRuns, listRunJobs, readJobLog } from './ejected-batch.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
@@ -470,6 +470,13 @@ function withRepinChecks(repo, prs) {
  */
 export async function enqueueOne(repo, pr, { enqueueOpts, deps = {} } = {}) {
   const { readLive = readLivePR, enqueue = enqueuePR, ghFn = gh } = deps;
+  // t/656 (SO p/136#75): an incident PR's vehicle check reads its ticket from the local Interweave
+  // daemon, which an Actions runner doesn't have, so the sweep would fail it as vehicle_read_failed on
+  // every run. Incident PRs are enqueued by hand with enqueue-pr.mjs; the sweeps skip them.
+  if (classifyBranch(pr.headRefName).kind === 'incident') {
+    console.log(`skip #${pr.number}: an incident PR (${pr.headRefName}) is enqueued by hand with enqueue-pr.mjs, never by a sweep (t/656)`);
+    return 'skipped';
+  }
   // Search results lag: re-read the PR directly right before acting (see live-pr-state.mjs).
   const before = liveEnqueueVerdict(readLive(repo, pr.number), pr.headRefOid);
   if (!before.ok) {
