@@ -86,3 +86,10 @@ export async function sharedOverlayDrainHealthField(
   const sharedOverlayDrain = await sharedOverlayDrainHealth(backend, env);
   return sharedOverlayDrain ? { sharedOverlayDrain } : {};
 }
+
+/** t/688#3 (Quality p/58#79): the boot-log fields, so the t/554 rollout reads from the log. `configured` = the store was
+ *  built (both env vars set); `enabled` = OVERLAY_SHARED_STATE_ENABLED=1; `active` = both (the backend's own gate). */
+export function sharedOverlayBootState(env: NodeJS.ProcessEnv, configured: boolean): { configured: boolean; enabled: boolean; active: boolean; draining: boolean } {
+  const enabled = env.OVERLAY_SHARED_STATE_ENABLED === '1';
+  return { configured, enabled, active: configured && enabled, draining: env.OVERLAY_SHARED_STATE_DRAINING === '1' };
+}
