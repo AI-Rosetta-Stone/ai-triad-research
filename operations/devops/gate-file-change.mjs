@@ -278,6 +278,7 @@ export const CODE_UNDER_TEST = [
   'operations/devops/actions-cache-budget.test.mjs', // test of actions-cache-budget.mjs
   'operations/devops/record-base-ref-retry.test.mjs', // t/238: unit test of the record-base-ref retry; reviewed as code
   'operations/devops/cancel-superseded-runs.test.mjs', // test of cancel-superseded-runs
+  'operations/devops/debate-tested-sweep-commit.test.mjs', // t/684: runs debate-tested-sweep.yml's commit step (the workflow is protected)
   'operations/devops/check-action-pin-resolution.test.mjs', // test of check-action-pin-resolution.mjs
   'operations/devops/check-dockerfile-store-mounts.test.mjs', // test of check-dockerfile-store-mounts.mjs
   'operations/devops/ci-filter-coverage.test.mjs', // drift test of ci.yml's changes filters (ci.yml is protected)
