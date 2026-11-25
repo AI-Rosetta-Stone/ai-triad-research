@@ -306,6 +306,17 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
     expect(pickDocumentFile).not.toHaveBeenCalled();
   });
 
+  it('t/467: anonymous users can enter a web page URL (no sign-in gate on URL sources)', () => {
+    h.anonymous = true;
+    open();
+    fireEvent.click(screen.getByRole('radio', { name: 'Web page' }));
+    const urlInput = screen.getByLabelText(/Web page URL/) as HTMLInputElement;
+    expect(urlInput.disabled).toBe(false);
+    expect(screen.queryByText('Sign in to use URL sources.')).toBeNull();
+    fireEvent.change(urlInput, { target: { value: 'https://example.com/post' } });
+    expect(urlInput.value).toBe('https://example.com/post');
+  });
+
   it('Remove moves focus to Choose a file', async () => {
     pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'notes.md', content: 'one two' });
     open();
