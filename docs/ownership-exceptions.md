@@ -20,6 +20,7 @@ Rulings by the TL (p/7#131, recorded on t/220). To change a row, get a TL ruling
 | `.github/workflows/nudge-container-build.yml` | Docker | | Image build and pin lifecycle |
 | `.github/workflows/deployed-image-scan.yml` | DeployAzure | | Image security scanning (Trivy, t/222) |
 | `.github/workflows/deploy-azure.yml` | Azure | DeployAzure | Production deploy pipeline (`operations/devops/azure`) |
+| `ai-triad-data` repo: `.github/workflows/*` (and `.github/scripts/*`) | DevOps Lead | | CI for the data repo, the same owner as this repo's workflows. `resolve-owner` has no answer outside this repo (TL ruling t/514#2, 2026-11-24) |
 
 **Everything else** under `.github/workflows/` with no row here stays with the team root, whatever
 `resolve-owner` answers, until a role claims it through a TL ruling recorded here.
