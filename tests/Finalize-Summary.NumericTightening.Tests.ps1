@@ -70,6 +70,21 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
         It 'accepts the percent sign on the line after its number' {
             Invoke-NumericDrop 'It will impact less than 5% of tasks.' "will impact less than 5`n% of all tasks" @{ Percent = $true } | Should -Be 0
         }
+        It 'accepts the word percent on the line after its number' {
+            Invoke-NumericDrop 'Exposure is 16% of wages.' "exposure of 16`npercent of wages" @{ Percent = $true } | Should -Be 0
+        }
+        It 'reads a number written as a word before percent: <Words> is <Figure>' -ForEach @(
+            @{ Words = 'twenty-five percent'; Figure = '25%' }, @{ Words = 'Twenty five per cent'; Figure = '25%' }
+            @{ Words = 'fourteen percent'; Figure = '14%' }, @{ Words = 'ninety percent'; Figure = '90%' }
+            @{ Words = 'one hundred percent'; Figure = '100%' }, @{ Words = 'seven percent'; Figure = '7%' }
+        ) {
+            Invoke-NumericDrop "The share was $Figure." "$Words of firms agreed." @{ Percent = $true } | Should -Be 0
+        }
+        It 'a number word that is not before percent grounds nothing, and the word number is exact' {
+            Invoke-NumericDrop 'The share was 25%.' 'Twenty-five firms agreed.' @{ Percent = $true } | Should -Be 1
+            Invoke-NumericDrop 'The share was 4%.' 'fourteen percent of firms agreed.' @{ Percent = $true } | Should -Be 1
+            Invoke-NumericDrop 'The share was 5%.' 'twenty-five percent of firms agreed.' @{ Percent = $true } | Should -Be 1
+        }
         It 'reads a claim as written: a damaged sign in the claim is not a percent' {
             Invoke-NumericDrop "Users grew 108 $([char]0xF9) in legal." 'Users grew 108 times.' @{ Percent = $true } | Should -Be 0
         }
