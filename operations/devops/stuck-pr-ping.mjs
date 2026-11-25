@@ -38,8 +38,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ticketRefs, majorityOwner } from './my-prs.mjs';
 import { ENQUEUE_REMEDY } from './stuck-pr-classifier.mjs';
-import { checkPrBudget } from './pr-budget.mjs';
-import { PING_REASONS as BUDGET_WAIT_REASONS } from './pr-budget-notify.mjs';
+import { checkLandingVehicle, classifyBranch, ROUTE_REASONS as VEHICLE_ROUTE_REASONS } from './landing-vehicle.mjs';
 
 export const SENDER = 'd6bbb177-724b-466d-8382-67dd16bb3bb9'; // DevOps Worker (Lead t/535#3 Q1)
 export const DEVOPS_LEAD = 'cad2074a-520d-414b-a665-d505a9d24de5';
@@ -189,17 +188,17 @@ export function planRun(items, ledger, nowMs) {
   const byOwner = new Map();
   const escalate = [];
   const stale = [];
-  const budget = [];
+  const vehicle = [];
   const own = [];
   for (const it of items) {
     const key = keyOf(it.pr, it.blocker);
     // An alert raised at an older head is not pinged (t/535#5): the PR moved since, so the blocker
     // may be fixed; pr-triage raises a new alert for the new head if it is still stuck.
     if (isStale(it)) { stale.push({ ...it, key }); continue; }
-    // t/535#24 (1): green and approved but waiting for the PR budget (enqueue-pr would refuse it today),
-    // or the budget could not be read: telling the owner to enqueue it is wrong. The budget report
-    // already tells over-budget owners. Not recorded, so it is reconsidered next run.
-    if (it.budgetWait) { budget.push({ ...it, key }); continue; }
+    // t/535 (t/656): green and approved, but the landing-vehicle check enqueue-pr runs would refuse it (or
+    // could not be read, or it is an incident PR, enqueued by hand): telling the owner to enqueue it is
+    // wrong. Not recorded, so it is reconsidered next run.
+    if (it.vehicleHold) { vehicle.push({ ...it, key }); continue; }
     // t/535#24 (3): chat refuses a send to the sender itself, which would retry forever. Listed, not pinged.
     if (it.owner.to === SENDER) { own.push({ ...it, key }); continue; }
     const seen = keys[key];
@@ -226,8 +225,8 @@ export function planRun(items, ledger, nowMs) {
         ...escalate.map((x) => `${line(x)}; owner pinged: ${x.pingedTo} at ${x.firstPingedAt}`)].join('\n'),
     });
   }
-  for (const l of [stale, budget, own]) l.sort((a, b) => a.pr.number - b.pr.number);
-  return { messages, stale, budget, own };
+  for (const l of [stale, vehicle, own]) l.sort((a, b) => a.pr.number - b.pr.number);
+  return { messages, stale, vehicle, own };
 }
 
 /** PURE. The ledger after `sent` messages were accepted (only those). */
@@ -381,28 +380,36 @@ export async function run(o, deps = {}) {
   }
 
   const nowMs = deps.nowMs ?? Date.now();
-  // t/535#24 (1), Lead p/233#180: an approved-not-armed PR may be green and approved yet waiting for the PR
-  // budget. Ask the SAME check enqueue-pr.mjs runs (checkPrBudget -> budgetVerdict), so the two cannot
-  // disagree. A budget wait (over_budget_today, pooled_no_slot, pool_expired) or an unreadable budget
-  // is listed, not pinged; any allow (within budget, a pooled slot, Dependabot) pings as before.
-  const budgetOf = deps.checkBudget ?? ((n) => checkPrBudget(o.repo, n, { now: nowMs, log: () => {}, warn: log }));
+  // t/535, Lead p/233#197 (t/656): an approved-not-armed PR is pinged to enqueue only if enqueue-pr.mjs would
+  // accept it. Ask the SAME check enqueue-pr runs (checkLandingVehicle -> vehicleVerdict), so the two cannot
+  // disagree. (The old daily-count check no longer gates and is gone from here.)
+  //  - allowed (train, feature, automated, dependabot, grandfathered): ping as before;
+  //  - a route refusal (not_a_vehicle, feature_too_small, incident_not_open): listed, not pinged;
+  //  - vehicle_read_failed (or no verdict): listed with a WARN, not pinged, reconsidered next run;
+  //  - any other reason: NOT a vehicle hold, so ping as usual with a WARN (Quality p/119#108).
+  // An incident/* PR is never checked here: its check reads a ticket from the local daemon, and incident PRs
+  // are enqueued by hand, never by a sweep (enqueueOne's rule, t/656); it is listed, not pinged.
+  const vehicleOf = deps.checkVehicle ?? ((n) => checkLandingVehicle(o.repo, n, { now: nowMs, log: () => {}, warn: log }));
   for (const it of items) {
     if (it.blocker?.class !== 'approved-not-armed' || isStale(it)) continue;
+    if (classifyBranch(it.pr.branch).kind === 'incident') { it.vehicleHold = 'incident (enqueued by hand with enqueue-pr.mjs)'; continue; }
     let v;
-    try { v = budgetOf(it.pr.number); } catch (e) { v = { allow: false, reason: 'budget_read_failed', detail: e.message }; }
+    try { v = await vehicleOf(it.pr.number); } catch (e) { v = { allow: false, reason: 'vehicle_read_failed', detail: e.message }; }
     if (v?.allow) continue;
-    if (BUDGET_WAIT_REASONS.includes(v?.reason)) it.budgetWait = v.reason;
-    else {
-      it.budgetWait = 'budget_read_failed';
-      log(`WARN: could not read the PR budget for #${it.pr.number} (${v?.reason ?? 'no verdict'}${v?.detail ? `: ${v.detail}` : ''}); not pinged this run, reconsidered next run.`);
+    if (VEHICLE_ROUTE_REASONS.includes(v?.reason)) it.vehicleHold = v.reason;
+    else if (!v || v.reason === 'vehicle_read_failed') {
+      it.vehicleHold = 'vehicle_read_failed';
+      log(`WARN: could not read the landing-vehicle check for #${it.pr.number} (${v?.reason ?? 'no verdict'}${v?.detail ? `: ${v.detail}` : ''}); not pinged this run, reconsidered next run.`);
+    } else {
+      log(`WARN: #${it.pr.number}'s landing-vehicle check refused for '${v.reason}', which is not a vehicle hold (${VEHICLE_ROUTE_REASONS.join(', ')}); pinging as usual.`);
     }
   }
 
   const ledgerPath = o.ledger;
   const ledger = deps.ledger ?? (existsSync(ledgerPath) ? JSON.parse(readFileSync(ledgerPath, 'utf8')) : { keys: {} });
-  const { messages, stale, budget, own } = planRun(items, ledger, nowMs);
+  const { messages, stale, vehicle, own } = planRun(items, ledger, nowMs);
   for (const x of stale) log(`stale alert, not pinged: #${x.pr.number} \`${x.blocker.class}\` raised at ${x.blocker.sha.slice(0, 9)}, head is now ${x.pr.head.slice(0, 9)} (owner would be ${x.owner.to}).`);
-  for (const x of budget) log(`waiting for the PR budget (${x.budgetWait}), not pinged: #${x.pr.number} \`${x.blocker.class}\` (owner ${x.owner.to}).`);
+  for (const x of vehicle) log(`would be refused by the landing-vehicle check (${x.vehicleHold}), not pinged: #${x.pr.number} \`${x.blocker.class}\` on ${x.pr.branch} (owner ${x.owner.to}).`);
   for (const x of own) log(`owner is the sender, not pinged: #${x.pr.number} \`${x.blocker?.class ?? 'unknown'}\` (${x.owner.why}).`);
 
   const sent = [];
@@ -427,7 +434,7 @@ export async function run(o, deps = {}) {
     else { mkdirSync(path.dirname(ledgerPath), { recursive: true }); writeFileSync(ledgerPath, JSON.stringify(next, null, 2)); }
   }
   log(`stuck-pr-ping: ${numbers.length} alerted PR(s); ${messages.length} message(s) ${o.send ? `sent ${sent.length}, failed ${failed.length}` : 'planned (dry-run, nothing sent; pass --send to send)'}.`);
-  return { messages, stale, budget, own, sent, failed, items };
+  return { messages, stale, vehicle, own, sent, failed, items };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
