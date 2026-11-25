@@ -97,6 +97,10 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/run-merge-guard-tests.sh',
   'operations/devops/run-schema-drift.ts',
   'operations/devops/scheduled-workflows.json',
+  'operations/devops/staging-keyvault-whatif-guard.mjs', // t/92: run by staging-keyvault.yml
+  // t/92 (SO p/44#102): the template staging-keyvault.yml applies. It grants Key Vault Secrets Officer, so an
+  // edit (another principal, another scope) needs the same second reader as the workflow itself.
+  'deploy/azure/staging-keyvault.bicep',
   'operations/devops/test-check-merge-queue-liveness-headgreen.sh',
   'operations/devops/test-check-merge-queue-liveness-lookup-failure.sh',
   'operations/devops/test-check-vitest-shard-blobs.sh',
@@ -272,6 +276,8 @@ export const CODE_UNDER_TEST = [
   'operations/devops/comment-filter-workflow.test.mjs', // test of the guard workflows' comment filters
   'operations/devops/dependabot-docker-gate.test.mjs', // test of dependabot-docker-gate.mjs
   'operations/devops/dependabot-enqueue-sweep.test.mjs', // test of dependabot-enqueue-sweep.mjs
+  'operations/devops/docker/base-pin-cves.test.mjs', // test of base-pin-cves.mjs, the drift issue-vs-PR routing (t/605)
+  'operations/devops/docker/base-pin-drift.test.mjs', // test of base-pin-drift.mjs, the runtime pin drift check (t/255)
   'operations/devops/docker/docker-digest-only.test.mjs', // test of the Docker digest pinning rule
   'operations/devops/ejected-batch.test.mjs', // test of ejected-batch.mjs
   'operations/devops/enqueue-pr.test.mjs', // test of enqueue-pr.mjs
@@ -290,6 +296,7 @@ export const CODE_UNDER_TEST = [
   'operations/devops/rate-limit-snapshot-step.test.mjs', // test of rate-limit-snapshot-step.yml
   'operations/devops/role-review-verdicts.test.mjs', // test of role-review-verdicts.mjs
   'operations/devops/scheduled-workflow-health.test.mjs', // test of scheduled-workflow-health.mjs
+  'operations/devops/staging-keyvault-whatif-guard.test.mjs', // test of staging-keyvault-whatif-guard (t/92)
   'operations/devops/stuck-pr-classifier.test.mjs', // test of stuck-pr-classifier
   'operations/devops/t0-enqueue-sweep.test.mjs', // test of t0-enqueue-sweep.mjs
   'operations/devops/t0-rule-order.test.mjs', // rule-order test of t0-enqueue-sweep.mjs
@@ -344,6 +351,7 @@ export function gateFileChangeVerdict({ files, headSha, override, reviewerLogin 
   if (!r || typeof r !== 'object') return { allow: false, reason: 'override_unreadable', gateFiles, detail: 'the named review could not be read' };
   const why = [];
   if (r.user?.login !== reviewerLogin) why.push(`it is from ${r.user?.login ?? 'an unknown account'}, not the reviewer App`);
+  // lint:review-state-ok: one review named by id (--gate-change-review), bound to the head; its role comes from the body
   if (r.state !== 'APPROVED') why.push(`its state is ${r.state ?? 'unknown'}, not APPROVED`);
   if (!headSha || r.commit_id !== headSha) why.push(`it is bound to ${String(r.commit_id).slice(0, 9)}, not the current head ${String(headSha).slice(0, 9)}`);
   const role = /^Approved \(([^)]+)\):/.exec(String(r.body ?? '').trimStart())?.[1] ?? null;

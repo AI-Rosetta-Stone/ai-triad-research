@@ -31,6 +31,7 @@ import { getDataRoot } from '../config.js';
 import { gitBlobSha } from './gitBlobSha.js';
 import { writeFramedNdjson, log } from '../logger.js';
 import { BlobLease } from './blobLease.js';
+import { isCommittableDataRepoPath, dataRepoPathClass, dataRepoPathRefusedError } from './dataRepoWriteAllowlist.js';
 import { SharedOverlayStore, type SharedOverlayEntry } from './sharedOverlayStore.js';
 import { BlobServiceClient, type ContainerClient, type BlockBlobClient, RestError } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
@@ -1505,6 +1506,7 @@ export class GitHubAPIBackend implements StorageBackend {
 
   async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }> {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'writeFile'); // t/638
     // opts.ref pins the write to a specific ref (e.g. 'main') for shared data
     // that must commit straight to main rather than the caller's session branch
     // — e.g. community submissions, which submitters (often without merge rights)
@@ -1739,6 +1741,7 @@ export class GitHubAPIBackend implements StorageBackend {
    */
   async writeFileIfAbsent(filePath: string, content: string, opts?: { ref?: string }): Promise<WriteIfAbsentResult> {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'writeFileIfAbsent'); // t/638
     const forceRef = opts?.ref;
     const ref = forceRef ?? this.getEffectiveRef();
     if (!forceRef && ref !== this.baseBranch && this.hasSessionContext()) {
@@ -1884,6 +1887,7 @@ export class GitHubAPIBackend implements StorageBackend {
 
   async writeBinaryFile(filePath: string, content: Buffer, opts?: { ref?: string }): Promise<void> {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'writeBinaryFile'); // t/638
     const ref = opts?.ref ?? this.getEffectiveRef();
 
     if (this.rest.isTripped()) {
@@ -2093,6 +2097,7 @@ export class GitHubAPIBackend implements StorageBackend {
 
   async deleteFile(filePath: string): Promise<void> {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'deleteFile'); // t/638
     const ref = this.getEffectiveRef();
 
     // When on a session branch, tombstone in overlay — no API call.
@@ -2451,6 +2456,7 @@ export class GitHubAPIBackend implements StorageBackend {
     files: FileChange[],
     message: string,
   ): Promise<string> {
+    for (const f of files) this.assertCommittablePath(f.path, 'createCommitFromTree'); // t/638: refused whole, before any call
     const creds = await this.getCredsCached();
     if (!creds) throw this.noCredsError('createCommitFromTree');
 
@@ -2603,6 +2609,8 @@ export class GitHubAPIBackend implements StorageBackend {
   ): Promise<{ commitSha: string; filesCommitted: number; conflictedPaths?: string[] } | null> {
     const entries = this.getOverlayEntries(userId);
     if (!entries) return null;
+    // t/638: a batch holding any refused path is refused whole, before any GitHub call.
+    for (const p of [...entries.writes.map(w => w.path), ...entries.deletes]) this.assertCommittablePath(p, 'commitOverlay');
 
     // t/4258/t/4277 (C3a): an explicit branchName is required for callers
     // running outside request scope (a debounced commit timer, a SIGTERM
@@ -2850,6 +2858,20 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   // ── Path contract ──────────────────────────────────────────────────────
+
+  /** t/638 (incident t/629): refuse a data-repo path that is not on the write allowlist, before any GitHub call. The
+   *  WARN names the path class only, never the content or the full path (which can carry a user id). */
+  private assertCommittablePath(repoPath: string, op: string): void {
+    if (isCommittableDataRepoPath(repoPath)) return;
+    const pathClass = dataRepoPathClass(repoPath);
+    log.storage.warn({ op, pathClass }, 'data-repo write refused: path class not on the allowlist (t/638)');
+    this.recordEvent({
+      type: 'system.error', component: 'github-api', level: 'warn',
+      message: `Data-repo write refused (${op}): path class ${pathClass} is not on the allowlist`,
+      data: { op, pathClass },
+    });
+    throw dataRepoPathRefusedError(repoPath, op);
+  }
 
   private toRepoPath(filePath: string): string {
     const refuse = (code: string, problem: string): never => {
@@ -4514,6 +4536,7 @@ export class GitHubAPIBackend implements StorageBackend {
    */
   writeToOverlay(filePath: string, content: string): void {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'writeToOverlay'); // t/638
     const userId = this.getEffectiveUserId();
     if (!userId) return;
     this.sessionWriteActivitySeq.set(userId, ++this.sessionWriteActivityCounter); // t/4215 budget addendum
@@ -4586,6 +4609,7 @@ export class GitHubAPIBackend implements StorageBackend {
    */
   async deleteFromOverlay(filePath: string, ref: string): Promise<void> {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'deleteFromOverlay'); // t/638
     const userId = this.getEffectiveUserId();
     if (!userId) return;
     this.sessionWriteActivitySeq.set(userId, ++this.sessionWriteActivityCounter); // t/4215 budget addendum

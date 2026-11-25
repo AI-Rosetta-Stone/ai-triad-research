@@ -20,12 +20,13 @@ import type { ServerCtx } from './context.js';
 import { json, error, getClientIp, query } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { log } from '../logger.js';
-import { deriveStorageUserId } from '../security/userContext.js';
+import { deriveStorageUserId, isAuthDisabledMode } from '../security/userContext.js';
 import { isSafeId } from '../storage/fileIO.js';
 import { getQuotaLimits } from '../security/quotas.js';
 import { resolveReadOnlyFlag } from '../readOnlyGuard.js';
 import { requireAdmin } from '../community/admin/reviewRegistry.js';
 import { isAdmin } from '../community/community.js';
+import { requireAdminOrOperator, isOwnSignedInId, forbid } from './adminGate.js';
 import * as analytics from '../community/analytics.js';
 import { parseCookies } from '../httpCookies.js';
 import { anonSessionCreatedCookie, readValidCreatedMs } from './anonSessionCreated.js';
@@ -105,6 +106,16 @@ async function serveEngagementTree(
   if (needsAdmin && !requireAdmin(res)) return;
   const { users, sessions, ...rest } = await analytics.queryEngagement(from, to, { user, session, includeSessions: admin, ...exclusion });
   json(res, admin ? { ...rest, users, ...(sessions ? { sessions } : {}) } : rest);
+}
+
+/** t/592: who may read GET /api/analytics/engagement. Admins (and the AUTH_DISABLED local operator) read everything;
+ *  a signed-in non-admin reads only their own activity (?user=<self>, YourActivityPanel), bound to their derived id.
+ *  An anonymous caller derives the '_local' id, which is the owner's, so it never matches. Returns whether the caller
+ *  is admin, or null when the request must be refused. */
+function engagementAccess(callerId: string, user: string | undefined, session: string | undefined, subject: string | undefined): boolean | null {
+  if (isAuthDisabledMode() || isAdmin(callerId)) return true;
+  if (subject !== undefined || session !== undefined) return null;
+  return isOwnSignedInId(user, callerId) ? false : null;
 }
 
 export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
@@ -271,7 +282,10 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
     res.end();
   });
 
+  // t/592: admin-only, aggregate included. The anonymous gate (#5500) refused anonymous callers only; any signed-in
+  // user could read the site-wide aggregate.
   get('/api/analytics/query', async (req, res) => {
+    if (!requireAdminOrOperator(res)) return;
     const url = new URL(req.url!, 'http://localhost');
     const from = url.searchParams.get('from') || new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
     const to = url.searchParams.get('to') || new Date().toISOString().slice(0, 10);
@@ -316,8 +330,10 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
     if ('invalid' in exclusion) { error(res, exclusion.invalid, 400); return; }
 
     const currentUserId = deriveRequestUserId(req);
+    const admin = engagementAccess(currentUserId, user, session, subject);
+    if (admin === null) { forbid(res); return; }
     if (subject !== undefined) { await serveSubjectBreakdown(res, from, to, subject, groupBy, user, exclusion); return; }
-    await serveEngagementTree(res, from, to, user, session, currentUserId, isAdmin(currentUserId), exclusion);
+    await serveEngagementTree(res, from, to, user, session, currentUserId, admin, exclusion);
   });
 
   // ── Focus node (inter-app communication) ──

@@ -119,7 +119,7 @@ describe('AzureBlobBackend.writeFileIfAbsent (t/181)', () => {
 
   it('uploads once with If-None-Match: * and reports created', async () => {
     const upload = vi.fn().mockResolvedValue({});
-    expect(await backendWith(upload).writeFileIfAbsent('users/u1/inquiry-jobs/job-1.json', '{"v":1}')).toBe('created');
+    expect(await backendWith(upload).writeFileIfAbsent('conflicts/job-1.json', '{"v":1}')).toBe('created');
     expect(upload).toHaveBeenCalledTimes(1);
     expect(upload.mock.calls[0][2]).toMatchObject({ conditions: { ifNoneMatch: '*' } });
   });
@@ -129,7 +129,7 @@ describe('AzureBlobBackend.writeFileIfAbsent (t/181)', () => {
     ['409 BlobAlreadyExists', 409, 'BlobAlreadyExists'],
   ])('%s → exists', async (_label, statusCode, code) => {
     const upload = vi.fn().mockRejectedValue(new RestError('exists', { statusCode, code }));
-    expect(await backendWith(upload).writeFileIfAbsent('users/u1/inquiry-jobs/job-1.json', '{}')).toBe('exists');
+    expect(await backendWith(upload).writeFileIfAbsent('conflicts/job-1.json', '{}')).toBe('exists');
   });
 
   it.each([
@@ -137,7 +137,7 @@ describe('AzureBlobBackend.writeFileIfAbsent (t/181)', () => {
     ['409 LeaseIdMissing (a conflict that is not "exists")', 409, 'LeaseIdMissing'],
   ])('%s throws — never reported as exists', async (_label, statusCode, code) => {
     const upload = vi.fn().mockRejectedValue(new RestError('boom', { statusCode, code }));
-    await expect(backendWith(upload).writeFileIfAbsent('users/u1/inquiry-jobs/job-1.json', '{}')).rejects.toThrow();
+    await expect(backendWith(upload).writeFileIfAbsent('conflicts/job-1.json', '{}')).rejects.toThrow();
   });
 });
 
@@ -145,7 +145,7 @@ describe('AzureBlobBackend.writeFileIfAbsent (t/181)', () => {
 
 describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
   type Internals = Record<string, unknown>;
-  const REPO_PATH = 'users/u1/inquiry-jobs/job-1.json';
+  const REPO_PATH = 'conflicts/job-1.json';
 
   function makeBackend(opts: { session: boolean }): { backend: GitHubAPIBackend; internals: Internals; request: ReturnType<typeof vi.fn> } {
     const backend = new GitHubAPIBackend({ cacheDir: path.join(os.tmpdir(), 'gh-wia-cache'), pollIntervalMs: 999_999_999, coherencyProbeRate: 0 });
@@ -165,7 +165,7 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
     it('PUT without sha → created, and the body carries no sha', async () => {
       const { backend, request } = makeBackend({ session: false });
       request.mockResolvedValue({ ok: true, status: 201, data: { content: { sha: 'new' } } });
-      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{"v":1}')).toBe('created');
+      expect(await backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{"v":1}')).toBe('created');
       const body = request.mock.calls[0][3] as Record<string, unknown>;
       expect(body).not.toHaveProperty('sha');
       expect(request.mock.calls[0][1]).toBe('PUT');
@@ -177,7 +177,7 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       const { backend, internals, request } = makeBackend({ session: false });
       request.mockResolvedValueOnce(SHA_422);
       internals.getSessionBranchFileStatus = vi.fn().mockResolvedValueOnce({ kind: 'present', content: '{}', sha: 's1' });
-      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{}')).toBe('exists');
+      expect(await backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).toBe('exists');
       expect(internals.getSessionBranchFileStatus).toHaveBeenCalledWith(REPO_PATH, 'main');
     });
 
@@ -185,14 +185,14 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       const { backend, internals, request } = makeBackend({ session: false });
       request.mockResolvedValueOnce({ ok: false, status: 422, data: null, error: 'sha is not a valid blob reference for this tree' });
       internals.getSessionBranchFileStatus = vi.fn().mockResolvedValueOnce({ kind: 'absent' });
-      await expect(backend.writeFileIfAbsent('/abs/job-1.json', '{}')).rejects.toThrow(/422/);
+      await expect(backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).rejects.toThrow(/422/);
     });
 
     it('422 that mentions sha but the file cannot be read → throws GITHUB_EXISTS_UNVERIFIED (503), never exists (t/268 item 3)', async () => {
       const { backend, internals, request } = makeBackend({ session: false });
       request.mockResolvedValueOnce(SHA_422);
       internals.getSessionBranchFileStatus = vi.fn().mockResolvedValueOnce({ kind: 'unavailable' });
-      await expect(backend.writeFileIfAbsent('/abs/job-1.json', '{}')).rejects.toThrow(expect.objectContaining({ code: 'GITHUB_EXISTS_UNVERIFIED', httpStatus: 503 }));
+      await expect(backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).rejects.toThrow(expect.objectContaining({ code: 'GITHUB_EXISTS_UNVERIFIED', httpStatus: 503 }));
     });
 
     it('409, absent, then the retry gets the sha 422: confirmed by a second read → exists (t/268 item 3)', async () => {
@@ -202,7 +202,7 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       internals.getSessionBranchFileStatus = vi.fn()
         .mockResolvedValueOnce({ kind: 'absent' })
         .mockResolvedValueOnce({ kind: 'present', content: '{}', sha: 's1' });
-      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{}')).toBe('exists');
+      expect(await backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).toBe('exists');
       expect(internals.getSessionBranchFileStatus).toHaveBeenCalledTimes(2);
     });
 
@@ -214,7 +214,7 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
         if (!opts?.unconditional) return { ok: true, status: 304, data: null };
         return { ok: true, status: 200, data: { type: 'file', encoding: 'base64', sha: 's1', size: 2, content: Buffer.from('{}').toString('base64') } };
       });
-      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{}')).toBe('exists');
+      expect(await backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).toBe('exists');
       const get = request.mock.calls.find(c => c[1] === 'GET');
       expect(get?.[5]).toMatchObject({ optional: true, unconditional: true });
     });
@@ -233,20 +233,20 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
     it('any other 422 is a real validation failure and throws — never exists', async () => {
       const { backend, request } = makeBackend({ session: false });
       request.mockResolvedValue({ ok: false, status: 422, data: null, error: 'path contains a malformed segment' });
-      await expect(backend.writeFileIfAbsent('/abs/job-1.json', '{}')).rejects.toThrow(/422/);
+      await expect(backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).rejects.toThrow(/422/);
     });
 
     it('a 5xx throws', async () => {
       const { backend, request } = makeBackend({ session: false });
       request.mockResolvedValue({ ok: false, status: 502, data: null, error: 'Bad gateway' });
-      await expect(backend.writeFileIfAbsent('/abs/job-1.json', '{}')).rejects.toThrow(/502/);
+      await expect(backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).rejects.toThrow(/502/);
     });
 
     it('409 (concurrent modification) with file now present → exists (t/181)', async () => {
       const { backend, internals, request } = makeBackend({ session: false });
       request.mockResolvedValueOnce({ ok: false, status: 409, data: null, error: 'Conflict' });
       internals.getSessionBranchFileStatus = vi.fn().mockResolvedValueOnce({ kind: 'present', content: '{}', sha: 's1' });
-      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{"new":true}')).toBe('exists');
+      expect(await backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{"new":true}')).toBe('exists');
       expect(internals.getSessionBranchFileStatus).toHaveBeenCalledWith(REPO_PATH, 'main');
     });
 
@@ -255,7 +255,7 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       request.mockResolvedValueOnce({ ok: false, status: 409, data: null, error: 'Conflict' });
       internals.getSessionBranchFileStatus = vi.fn().mockResolvedValueOnce({ kind: 'absent' });
       request.mockResolvedValueOnce({ ok: true, status: 201, data: { content: { sha: 'new' } } });
-      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{"v":1}')).toBe('created');
+      expect(await backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{"v":1}')).toBe('created');
       // Verify retry was called (2 REST requests total: initial + retry)
       expect(request).toHaveBeenCalledTimes(2);
     });
@@ -265,7 +265,7 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       request.mockResolvedValueOnce({ ok: false, status: 409, data: null, error: 'Conflict' });
       internals.getSessionBranchFileStatus = vi.fn().mockResolvedValueOnce({ kind: 'absent' });
       request.mockResolvedValueOnce({ ok: false, status: 409, data: null, error: 'Conflict' });
-      await expect(backend.writeFileIfAbsent('/abs/job-1.json', '{}')).rejects.toThrow(expect.objectContaining({ code: 'GITHUB_CONCURRENT_WRITE' }));
+      await expect(backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).rejects.toThrow(expect.objectContaining({ code: 'GITHUB_CONCURRENT_WRITE' }));
       expect(request).toHaveBeenCalledTimes(2);
     });
 
@@ -273,7 +273,7 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       const { backend, internals, request } = makeBackend({ session: false });
       request.mockResolvedValueOnce({ ok: false, status: 409, data: null, error: 'Conflict' });
       internals.getSessionBranchFileStatus = vi.fn().mockResolvedValueOnce({ kind: 'unavailable' });
-      await expect(backend.writeFileIfAbsent('/abs/job-1.json', '{}')).rejects.toThrow(expect.objectContaining({ code: 'GITHUB_CONFLICT_UNRESOLVED' }));
+      await expect(backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).rejects.toThrow(expect.objectContaining({ code: 'GITHUB_CONFLICT_UNRESOLVED' }));
     });
   });
 
@@ -286,8 +286,8 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       internals.getSessionBranchFileStatus = vi.fn().mockResolvedValue({ kind: 'absent' });
       internals.recordOverlayBaseShaOnce = vi.fn();
 
-      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{"v":1}')).toBe('created');
-      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{"v":2}')).toBe('exists');
+      expect(await backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{"v":1}')).toBe('created');
+      expect(await backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{"v":2}')).toBe('exists');
       expect(internals.writeToOverlay).toHaveBeenCalledTimes(1);
       expect(overlay.get(REPO_PATH)).toBe('{"v":1}');
     });
@@ -297,7 +297,7 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       internals.checkSessionOverlay = () => undefined;
       internals.writeToOverlay = vi.fn();
       internals.getSessionBranchFileStatus = vi.fn().mockResolvedValue({ kind: 'present', content: '{}', sha: 's1' });
-      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{}')).toBe('exists');
+      expect(await backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).toBe('exists');
       expect(internals.writeToOverlay).not.toHaveBeenCalled();
     });
 
@@ -307,7 +307,7 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       internals.checkSessionOverlay = () => staged;
       internals.writeToOverlay = vi.fn();
       internals.getSessionBranchFileStatus = vi.fn(async () => { staged = '{"other":true}'; return { kind: 'absent' }; });
-      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{}')).toBe('exists');
+      expect(await backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).toBe('exists');
       expect(internals.writeToOverlay).not.toHaveBeenCalled();
     });
 
@@ -316,7 +316,7 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       internals.checkSessionOverlay = () => GitHubAPIBackend.TOMBSTONE;
       internals.writeToOverlay = vi.fn();
       internals.getSessionBranchFileStatus = vi.fn();
-      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{}')).toBe('created');
+      expect(await backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).toBe('created');
       expect(internals.getSessionBranchFileStatus).not.toHaveBeenCalled();
     });
 
@@ -325,7 +325,7 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       internals.checkSessionOverlay = () => undefined;
       internals.writeToOverlay = vi.fn();
       internals.getSessionBranchFileStatus = vi.fn().mockResolvedValue({ kind: 'unavailable' });
-      await expect(backend.writeFileIfAbsent('/abs/job-1.json', '{}')).rejects.toThrow();
+      await expect(backend.writeFileIfAbsent('/abs/conflicts/job-1.json', '{}')).rejects.toThrow();
       expect(internals.writeToOverlay).not.toHaveBeenCalled();
     });
   });

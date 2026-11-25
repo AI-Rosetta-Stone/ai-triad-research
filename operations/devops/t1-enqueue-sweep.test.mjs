@@ -13,7 +13,8 @@ import {
 } from './t1-enqueue-sweep.mjs';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { selectT0Candidates } from './t0-enqueue-sweep.mjs';
+import { selectT0Candidates, enqueueOne } from './t0-enqueue-sweep.mjs';
+import { budgetRefusalMessage } from './pr-budget.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
 import { evaluateT1ApprovalGuard, latestRoleVerdicts as inlinedLatestRoleVerdicts } from './t1-approval-guard-predicate.mjs';
 
@@ -342,7 +343,12 @@ function harness({ listed, live }) {
     enqueueDeps: {
       readLive: () => live,
       enqueue: async (repo, n, opts) => { calls.enqueue.push({ n, opts }); return { ok: true, state: 'queued' }; },
-      ghFn: (args) => { calls.gh.push(args); return ''; },
+      ghFn: (args) => {
+        calls.gh.push(args);
+        // t/600: the disarm is GraphQL now; answer the node-id read.
+        if (args.join(' ').includes('pullRequest(number')) return JSON.stringify({ data: { repository: { pullRequest: { id: 'PR_1', autoMergeRequest: { enabledAt: 'x' } } } } });
+        return '';
+      },
     },
   };
   return { calls, deps };
@@ -390,6 +396,57 @@ test('shim: head moved between listing and enqueue -> no enqueue', async () => {
     const { calls, deps } = harness({ listed: [pr()], live: { state: 'OPEN', isInMergeQueue: false, isDraft: false, headRefOid: 'newhead' } });
     assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps }), { 1: 'skipped' });
     assert.equal(calls.enqueue.length, 0);
+  } finally { mocks.forEach((m) => m.mock.restore()); }
+});
+
+// t/602: enqueue-pr's real budget refusal message (pr-budget.mjs) drives these, so a change to its wording breaks them.
+const refusal = (reason) => Object.assign(
+  new Error(budgetRefusalMessage({ repo: 'o/r', prNumber: 1, verdict: { reason, rank: 21, budget: 20, day: '2026-11-24', dayBudget: 20 } })),
+  { name: 'ActionableError', reason });
+const liveOpen = { state: 'OPEN', isInMergeQueue: false, isDraft: false, headRefOid: HEAD };
+
+test('t/602: a budget refusal (over_budget_today, pooled_no_slot, pool_expired) is a logged skip; the sweep does not throw and nothing is re-armed', async () => {
+  for (const reason of ['over_budget_today', 'pooled_no_slot', 'pool_expired']) {
+    const logs = [];
+    const mocks = [mock.method(console, 'log', (l) => logs.push(String(l))), mock.method(console, 'warn', () => {}),
+      mock.method(console, 'error', (l) => logs.push(`ERR ${l}`))];
+    try {
+      const { calls, deps } = harness({ listed: [pr()], live: liveOpen });
+      deps.enqueueDeps.enqueue = async (repo, n, opts) => { calls.enqueue.push({ n, opts }); throw refusal(reason); };
+      assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps }), { 1: 'skipped' }, reason);
+      assert.equal(calls.enqueue.length, 1, reason);
+      assert.ok(logs.includes(`skip #1: over the PR budget (${reason}); waits for the next day's slots`), logs.join('\n'));
+      assert.ok(!logs.some((l) => l.startsWith('ERR ')), `no ::error:: for ${reason}`);
+      assert.ok(!calls.gh.some((a) => a.join(' ').includes('enablePullRequestAutoMerge')), 'never re-armed (t/600)');
+    } finally { mocks.forEach((m) => m.mock.restore()); }
+  }
+});
+
+test('t/602: every other refusal still fails the sweep (gate files, approval, budget_read_failed, budget_exempt_invalid) and a non-refusal error too', async () => {
+  const errs = [
+    new Error('enqueue-pr: refusing to arm/enqueue #1 on o/r (gate_files_changed).\n  Goal: x'),
+    new Error('enqueue-pr: refusing to arm/enqueue #1 on o/r (no_approval_at_head).'),
+    refusal('budget_read_failed'),
+    refusal('budget_exempt_invalid'),
+    new Error('gh: HTTP 502'),
+  ];
+  for (const err of errs) {
+    const mocks = [mock.method(console, 'log', () => {}), mock.method(console, 'warn', () => {}), mock.method(console, 'error', () => {})];
+    try {
+      const { deps } = harness({ listed: [pr()], live: liveOpen });
+      deps.enqueueDeps.enqueue = async () => { throw err; };
+      await assert.rejects(sweep('o/r', { enqueueEnabled: true, deps }), /t1-enqueue-sweep: failed to enqueue #1/, err.message.split('\n')[0]);
+    } finally { mocks.forEach((m) => m.mock.restore()); }
+  }
+});
+
+test('t/602: the T0 path shares enqueueOne, so a budget refusal returns skipped there too', async () => {
+  const mocks = [mock.method(console, 'log', () => {}), mock.method(console, 'error', () => {})];
+  try {
+    const deps = { readLive: () => liveOpen, enqueue: async () => { throw refusal('over_budget_today'); }, ghFn: () => '' };
+    assert.equal(await enqueueOne('o/r', { number: 1, headRefOid: HEAD, armed: false }, { deps }), 'skipped');
+    deps.enqueue = async () => { throw new Error('enqueue-pr: refusing to arm/enqueue #1 on o/r (gate_files_changed).'); };
+    assert.equal(await enqueueOne('o/r', { number: 1, headRefOid: HEAD, armed: false }, { deps }), 'failed');
   } finally { mocks.forEach((m) => m.mock.restore()); }
 });
 
@@ -473,7 +530,10 @@ test('gate ON: the same PR is enqueued (disarmed first, pinned to its head), wit
     assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps: h.deps }), { 1: 'enqueued' });
   } finally { h.restore(); }
   assert.deepEqual(h.calls.enqueue, [{ n: 1, opts: { expectedHeadOid: HEAD } }]);
-  assert.deepEqual(h.calls.gh, [['pr', 'merge', '1', '-R', 'o/r', '--disable-auto']]);
+  // t/600: disarmed through GraphQL (node-id read, then disablePullRequestAutoMerge); never `gh pr merge`.
+  assert.equal(h.calls.gh.length, 2);
+  assert.ok(h.calls.gh[1].join(' ').includes('disablePullRequestAutoMerge'));
+  assert.ok(h.calls.gh.every((a) => !(a[0] === 'pr' && a[1] === 'merge')));
   assert.equal(h.calls.readLive, 1);
   assert.ok(!h.logs.some((l) => l.startsWith('[enqueue off]')));
   assert.ok(h.logs.some((l) => /^T1 sweep: enqueue is ON/.test(l)));

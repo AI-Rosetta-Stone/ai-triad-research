@@ -2154,6 +2154,12 @@ jobs:
       - name: Dependabot docker digest-only gate suites
         run: node --test operations/devops/dependabot-docker-gate.test.mjs operations/devops/docker/docker-digest-only.test.mjs
 
+      # t/605: base-pin drift routing (issue vs security PR). Its strip-list pin reads the runtime stage
+      # of taxonomy-editor/Dockerfile, so a PR that adds or drops a strip fails HERE, not at the next
+      # drift run. Also the workflow-shape pins (only `repin` holds the author-app environment).
+      - name: Base pin drift + CVE routing suites
+        run: node --test operations/devops/docker/base-pin-drift.test.mjs operations/devops/docker/base-pin-cves.test.mjs
+
       # t/244: the advisory shared-input coverage step's crash path never fails the job, even
       # when its own comment post is rate-limited too.
       - name: shared-input coverage workflow crash-path suite
@@ -2162,6 +2168,11 @@ jobs:
       # t/357: pr-triage's last-activity clock counts the latest push (the head commit date).
       - name: pr-triage activity-facts suite
         run: node --test operations/devops/pr-triage-activity.test.mjs
+
+      # t/92: the staging Key Vault what-if guard (staging-keyvault.yml) allows only the vault, its
+      # diagnostics and one Secrets Officer role, and never a change naming the shared vault.
+      - name: staging Key Vault what-if guard suite
+        run: node --test operations/devops/staging-keyvault-whatif-guard.test.mjs
 
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs

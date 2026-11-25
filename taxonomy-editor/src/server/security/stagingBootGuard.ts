@@ -33,6 +33,48 @@ const DEFAULT_SESSION_BRANCH_PREFIX = 'api-session';
 /** The branch whose writes reach prod data. Staging must never write to it. */
 const PROD_BRANCH = 'main';
 
+/** t/92, t/626: the shared Key Vault holds prod's secrets (the prod data App's private key, per-user API keys).
+ *  Staging must never read it. Staging's own vault is the only one it may use. Hosts, lower-cased. */
+const SHARED_KEYVAULT_HOST = 'kv-ait-kvwl3nywge4iw.vault.azure.net';
+const STAGING_KEYVAULT_HOST = 'kv-ait-stg-kvwl3nywge4iw.vault.azure.net';
+
+/** The host of a Key Vault URL, lower-cased, without scheme, port, path or trailing dot; '' when unparseable. */
+function keyVaultHost(url: string): string {
+  const raw = url.trim();
+  if (!raw) return '';
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase().replace(/\.$/, '');
+  } catch (err) {
+    // An unparseable value is refused by the caller (fail closed); log the parse failure, never the value.
+    log.security.warn({ err: (err as Error).name }, 'Staging boot guard: AZURE_KEYVAULT_URL is not a parseable URL');
+    return '';
+  }
+}
+
+/**
+ * t/92 (SO condition p/44#99), t/626: a staging container must use the staging-only Key Vault. Refuses boot when
+ * AZURE_KEYVAULT_URL is unset (staging would fall back to a file key store) or names any host but the staging vault,
+ * in particular the shared vault holding prod's secrets. Bicep pins the value too (@allowed); this is the runtime check.
+ */
+function assertStagingKeyVault(): void {
+  const url = process.env.AZURE_KEYVAULT_URL ?? '';
+  const host = keyVaultHost(url);
+  if (host === STAGING_KEYVAULT_HOST) return;
+  const details = { containerAppName: process.env.CONTAINER_APP_NAME, keyVaultHost: host || '(unset or unparseable)' };
+  guardError(
+    'Keep staging out of the shared Key Vault that holds prod secrets',
+    host === SHARED_KEYVAULT_HOST
+      ? `Staging container points AZURE_KEYVAULT_URL at the shared vault (${SHARED_KEYVAULT_HOST}), which holds prod's secrets.`
+      : `Staging container's AZURE_KEYVAULT_URL is ${host ? `"${host}"` : 'unset or unparseable'}, not the staging vault ${STAGING_KEYVAULT_HOST}.`,
+    [
+      `Set AZURE_KEYVAULT_URL to https://${STAGING_KEYVAULT_HOST}/ on the staging container (main.bicep pins it).`,
+      'Check that the staging vault exists and holds the staging App key before deploying (t/92).',
+    ],
+    'staging Key Vault is not the staging-only vault',
+    details
+  );
+}
+
 /**
  * True when the platform says this container is staging. The Container App
  * name ends in "-staging" (for example "taxonomy-editor-staging").
@@ -170,6 +212,8 @@ export function validateStagingBootGuard(): void {
       details
     );
   }
+
+  assertStagingKeyVault();
 
   log.auth.info(details, 'Staging boot guard: staging identity verified ✓');
 }
