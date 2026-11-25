@@ -669,6 +669,32 @@ resource envStorageStagingState 'Microsoft.App/managedEnvironments/storages@2024
   dependsOn: [stagingStateShare]
 }
 
+// ── Prod Azure Files — prod-only writable state share (t/617 design A, t/624) ──
+// Prod's class-A state (flags, runtime config, telemetry, flight recorder, calibration logs)
+// moves here off 'taxonomy-data', which staging mounts read-only. ONLY the prod app may
+// reference this storage; tests/BicepProdStateShareIsolation.Tests.ps1 fails if staging does.
+// Phase 1 (this change) creates and mounts it, unused. Phase 3 sets prod's
+// AI_TRIAD_STATE_ROOT and ANON_SESSION_DIR to it, after the in-container copy
+// (deploy/azure/runbooks/prod-state-share-migration.md).
+resource prodStateShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' = {
+  name: '${storageAccount.name}/default/taxonomy-state-prod'
+  properties: { shareQuota: 100 }
+}
+
+resource envStorageProdState 'Microsoft.App/managedEnvironments/storages@2024-03-01' = {
+  parent: containerAppEnv
+  name: 'taxonomy-state-prod'
+  properties: {
+    azureFile: {
+      accountName: storageAccount.name
+      accountKey: storageAccount.listKeys().keys[0].value
+      shareName: 'taxonomy-state-prod'
+      accessMode: 'ReadWrite'
+    }
+  }
+  dependsOn: [prodStateShare]
+}
+
 // Read-only registration of the shared taxonomy-data share.
 // Always provisioned so the RO flip (stagingSharedReadOnly=true) is a
 // single-param redeploy — no resource creation race at flip time.
@@ -1012,6 +1038,12 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
               volumeName: 'shared-data'
               mountPath: '/mnt/shared'
             }
+            // t/624 phase 1: the prod-only state share, mounted but not yet used. Phase 3 points
+            // AI_TRIAD_STATE_ROOT and ANON_SESSION_DIR here (prod only).
+            {
+              volumeName: 'prod-state'
+              mountPath: '/mnt/prod-state'
+            }
           ]
         }
       ]
@@ -1022,6 +1054,12 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           // References the managed-environment storage 'taxonomy-data'
           // (Azure Files share on staitriadkvwl3nywge4iw, accessMode ReadWrite).
           storageName: 'taxonomy-data'
+        }
+        {
+          name: 'prod-state'
+          storageType: 'AzureFile'
+          // t/624: prod-only. Never reference 'taxonomy-state-prod' from the staging app.
+          storageName: 'taxonomy-state-prod'
         }
       ]
       scale: {
