@@ -123,6 +123,30 @@ describe.skipIf(!isUndiciMajorAlignedWithRuntime())('hosted profile without a wo
     expect.hasAssertions();
   });
 
+  // SO p/269#14: fail closed. Only a positively local backend keeps the fallback in a hosted profile; a wrapper that hides
+  // commitOverlay (so it doesn't look like GitHub) is still refused.
+  it('hosted: a wrapper backend that is not positively local is refused, not trusted as local', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const gh = await makeGithubPrimary();
+    const wrapper = {
+      backendName: 'wrapped-github',
+      readFile: gh.readFile.bind(gh), writeFile: gh.writeFile.bind(gh), listDirectory: gh.listDirectory.bind(gh),
+      deleteFile: gh.deleteFile.bind(gh), fileExists: gh.fileExists.bind(gh), readBinaryFile: gh.readBinaryFile.bind(gh),
+      writeBinaryFile: gh.writeBinaryFile.bind(gh),
+    };
+    fileIO.setBackend(wrapper);
+    await expectRefusedWithZeroGithubCalls();
+    expect.hasAssertions();
+  });
+
+  it('hosted: a filesystem primary backend keeps the fallback (writes local disk, not a repo)', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const { FilesystemBackend } = await import('../storage/filesystemBackend.js');
+    const fsb = new FilesystemBackend({ root: () => '/var/cache/taxonomy-test' });
+    fileIO.setBackend(fsb);
+    expect(fileIO.getUserContentBackend()).toBe(fsb);
+  });
+
   it('not hosted: the local fallback to the primary backend is unchanged', async () => {
     vi.stubEnv('NODE_ENV', 'test');
     vi.stubEnv('CONTAINER_APP_NAME', '');

@@ -9,6 +9,11 @@
  *
  * Each entry names the writer that needs it (inventory of primary-backend writes on main bccd88526, t/638#2). Paths are
  * data-repo relative, as GitHubAPIBackend.toRepoPath() produces them.
+ *
+ * **This file is a security control: changes need Security review** (Security p/228#32).
+ *
+ * Deliberately NOT listed: preferences/ (routes/preferences.ts per-user files; moving to the user-content backend). Any
+ * user-generated content stays out until the PI answers whether it belongs in the public repo (TL p/50#183).
  */
 
 import { ActionableError } from '../../../../lib/debate/errors.js';
@@ -29,11 +34,14 @@ const TAXONOMY_FILES = [
 const ALLOWED: ReadonlyArray<{ re: RegExp; writer: string }> = [
   { re: new RegExp(`^taxonomy/${SEG}/(?:${TAXONOMY_FILES.join('|')})\\.json$`), writer: 'taxonomy edits (writeTaxonomyFile, edges, cruxes, policy registry, POV tag proposals, harvest)' },
   { re: new RegExp(`^conflicts/${SEG}\\.json$`), writer: 'conflicts (conflictsFileIO conflicts.json; harvestStore conflict and verdict files)' },
+  { re: /^taxonomy-proposal[A-Za-z0-9_.-]*\.json$/, writer: 'fileIO.saveProposal (routes/sources.ts PUT /api/proposals/:filename)' },
+  // Security (p/228#34) checked the contents: metrics only, 0 id fields, 0 emails. Identity fields are dropped at promote
+  // time (calibrationStore.stripIdentityFields).
   { re: /^calibration\/integration-log\.jsonl$/, writer: 'calibrationStore.appendIntegrationRecord (admin promote/reject)' },
   { re: /^calibration\/core\/(?:calibration-log|extraction-metrics)\.jsonl$/, writer: 'calibrationStore.promoteCalibrationEntries' },
   { re: /^calibration\/core\/lineage-enrichments\.json$/, writer: 'calibrationStore.promoteLineageEnrichments' },
-  { re: /^harvests\/(?:concept|manifest)-\d+\.json$/, writer: 'harvestStore.harvestQueueConcept / harvestSaveManifest' },
-  { re: /^taxonomy-proposal[A-Za-z0-9_.-]*\.json$/, writer: 'fileIO.saveProposal (routes/sources.ts PUT /api/proposals/:filename)' },
+  // Security (p/228#34), TL (p/50#185): only the field set in harvestStore.HARVEST_COMMITTED_FIELDS is written; no user text.
+  { re: /^harvests\/(?:concept|manifest)-\d+\.json$/, writer: 'harvestStore.harvestQueueConcept / harvestSaveManifest (field-filtered)' },
 ];
 
 export const DATA_REPO_PATH_REFUSED = 'DATA_REPO_PATH_REFUSED';

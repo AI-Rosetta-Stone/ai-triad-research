@@ -16,6 +16,7 @@ import path from 'path';
 import { resolveDataPath } from '../config.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getBackend, assertSafeId, isSafeId } from './fileIO.js';
+import { log } from '../logger.js';
 
 /** A calibration log entry. Only `debate_id` is required for curation; the rest is opaque. */
 export interface CalibrationLogEntry {
@@ -149,8 +150,27 @@ function parseCalibrationSource(source: string): string {
   return origin;
 }
 
-/** Append a record to the integration audit log (read-modify-write via backend). */
+/** t/638 (incident t/629; Security p/228#34): field names that identify a person. Dropped from anything promoted to the
+ *  public data repo, at any depth. Security found none in today's contents; this keeps it that way. */
+const IDENTITY_FIELD_RE = /^(?:user|users|user_?id|uid|email|e_?mail|by|owner|author|ip|ip_?address|session_?id|origin_?user|name|display_?name)$/i;
+
+export function stripIdentityFields<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(v => stripIdentityFields(v)) as unknown as T;
+  if (!value || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (IDENTITY_FIELD_RE.test(k)) continue;
+    out[k] = stripIdentityFields(v);
+  }
+  return out as T;
+}
+
+/** Append a record to the integration audit log (read-modify-write via backend). t/638: the admin (`by`) and the
+ *  user log it came from (`source`) are identities, so the public log keeps neither; the server log records them. */
 async function appendIntegrationRecord(record: CalibrationIntegrationRecord): Promise<void> {
+  log.server.info({ action: record.action, by: record.by, source: record.source, entries: record.entries.length },
+    'calibration integration (identity kept in the server log, not the public data repo; t/638)');
+  record = { ...stripIdentityFields(record), source: 'users/*' } as CalibrationIntegrationRecord;
   const logPath = calibrationIntegrationLogPath();
   // t/4510: consultOverlayOnPin — a second append in the same request must
   // see the first append's write, which lands in the session overlay.
@@ -198,7 +218,7 @@ export async function promoteCalibrationEntries(
     // already appended here; the append lands in the session overlay.
     const existing = (await getBackend().readFile(corePath, { ref: 'main', optional: true, consultOverlayOnPin: true })) ?? '';
     const prefix = existing.length > 0 && !existing.endsWith('\n') ? existing + '\n' : existing;
-    const appended = toPromote.map(e => JSON.stringify(e)).join('\n') + '\n';
+    const appended = toPromote.map(e => JSON.stringify(stripIdentityFields(e))).join('\n') + '\n'; // t/638
     await getBackend().writeFile(corePath, prefix + appended);
   }
 
@@ -344,7 +364,7 @@ export async function promoteLineageEnrichments(
           ? { ...(base as Record<string, unknown>), ...patch }
           : patch;
       }
-      coreMap[k.toLowerCase()] = value; // case-normalized key in core
+      coreMap[k.toLowerCase()] = stripIdentityFields(value); // case-normalized key in core; t/638 strips identity fields
     }
     await getBackend().writeFile(corePath, JSON.stringify(coreMap, null, 2) + '\n');
 

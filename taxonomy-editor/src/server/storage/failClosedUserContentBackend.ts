@@ -24,10 +24,11 @@ export function isHostedProfile(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.NODE_ENV === 'production' || !!env.CONTAINER_APP_NAME;
 }
 
-/** True for a backend that commits to a remote git repo (GitHubAPIBackend). A filesystem backend writes local disk, so a
- *  hosted profile on it keeps today's fallback. Duck-typed to avoid importing the GitHub backend here. */
-export function commitsToRemoteRepo(b: StorageBackend): boolean {
-  return typeof (b as unknown as { commitOverlay?: unknown }).commitOverlay === 'function';
+/** SO (p/269#14): fail closed. A hosted profile keeps the user-content fallback ONLY for a backend that is positively
+ *  local (FilesystemBackend, backendName 'filesystem'). Anything else, including a future wrapper around
+ *  GitHubAPIBackend that hides commitOverlay, is treated as possibly remote and refused. */
+export function isPositivelyLocalBackend(b: StorageBackend): boolean {
+  return b.backendName === 'filesystem';
 }
 
 export class FailClosedUserContentBackend implements StorageBackend {

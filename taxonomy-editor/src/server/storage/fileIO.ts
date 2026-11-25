@@ -31,7 +31,7 @@ import { scheduleOverlayCommit } from './overlayCommitScheduler.js';
 import type { NodeSourceIndex } from '../../../../lib/sourceIndex/types.js';
 import { buildNodeSourceIndex } from './nodeSourceIndex.js';
 import { repairSnapshotMojibake } from '../../../../lib/sanitize/repairSnapshotMojibake.js';
-import { FailClosedUserContentBackend, commitsToRemoteRepo, isHostedProfile } from './failClosedUserContentBackend.js';
+import { FailClosedUserContentBackend, isPositivelyLocalBackend, isHostedProfile } from './failClosedUserContentBackend.js';
 
 // ── Extracted sub-modules (ADR-007, t/1688) — cohesion splits behind a stable
 // barrel: importers keep importing these symbols from './fileIO.js'. Each module
@@ -94,11 +94,11 @@ export function setTaxonomyBackend(b: StorageBackend): void { backend = b; entit
 /** Set the backend for user content (chats/debates/community). */
 export function setUserContentBackend(b: StorageBackend): void { userContentBackend = b; }
 /** User-content backend; falls back to the taxonomy backend when unset, except in a hosted profile whose taxonomy
- *  backend commits to a remote repo: there, user content is refused (t/639, incident t/629), never committed to the
- *  public data repo. */
+ *  backend is not positively local: there, user content is refused (t/639, incident t/629; fail closed per SO p/269#14),
+ *  never committed to the public data repo. */
 export function getUserContentBackend(): StorageBackend {
   if (userContentBackend) return userContentBackend;
-  if (isHostedProfile() && commitsToRemoteRepo(backend)) {
+  if (isHostedProfile() && !isPositivelyLocalBackend(backend)) {
     return failClosedUserContent ??= new FailClosedUserContentBackend('Azure Blob is not configured or failed validation');
   }
   return backend;
