@@ -37,8 +37,8 @@ $script:VerbatimInterleaveWindow = 6000 # letters around a place searched for in
 $script:VerbatimMaxInnerGap = 8        # source letters one skip inside a snapped span may hold (a corrupted word, not a header)
 $script:VerbatimFooterMinRepeats = 3
 $script:VerbatimFooterMaxChars = 80
-$script:VerbatimFooterMinWords = 3     # a repeated line of this many words is a page header at VerbatimFooterMinRepeats
-$script:VerbatimShortLineMinRepeats = 6 # a one- or two-word line (an author name) needs this many, at a page boundary
+$script:VerbatimFooterMinWords = 3     # a page header has at least this many words
+$script:VerbatimPageNumberPattern = '^(?i)(?:page\s+\d{1,4}(?:\s+of\s+\d{1,4})?|\d{1,4}\s*(?:of|/)\s*\d{1,4})$'
 $script:VerbatimHtmlTagPattern = '(?i)</?(?:a|abbr|article|aside|b|blockquote|br|caption|cite|code|div|em|figcaption|figure|footer|h[1-6]|header|hr|i|img|li|mark|nav|ol|p|pre|q|s|section|small|span|strong|sub|sup|table|tbody|td|th|thead|tr|u|ul)(?:\s[^<>\r\n]{0,400})?/?>'
 $script:VerbatimWordTail = 2           # source letters past a quote word's end that a stored piece may take (a plural)
 $script:VerbatimElisionPattern = '\[\s*(?:\.{3,}|\u2026)\s*\]|\(\s*(?:\.{3,}|\u2026)\s*\)|(?:\.[ \u00A0]){2,}\.|\.{3,}|\u2026'
@@ -66,16 +66,22 @@ function Get-VerbatimSource {
     $W = [regex]::Replace($W, '(?<!\p{Ll})\u00E1(?!\p{Ll})', ' ')
     $W = [regex]::Replace($W, '(?<=\s)\u00E0(?=\s)', ' ')
     $Lines = $W -split "(\r?\n)"
-    # A page header or footer: a short line that repeats, compared with case.
-    #   - A line of three or more words, at VerbatimFooterMinRepeats.
-    #   - A one- or two-word line, at VerbatimShortLineMinRepeats and only at a page boundary: the nearest
-    #     non-blank line before or after it is a header line of the first kind. A bare number line is not
-    #     a boundary: tables are full of them. A short line that repeats elsewhere is a table label or a
-    #     sidebar word, and is text (CL, t/389#20, #24, p/70#83).
-    # Blanking only hides text from matching. Only lines of the first kind are ever removed from a quote.
+    # A page header or footer (CL rulings t/389#20, #24, p/70#83, t/389#30): a line of at most
+    # VerbatimFooterMaxChars characters and at least VerbatimFooterMinWords words that occurs
+    # VerbatimFooterMinRepeats times or more, compared with case, AND sits at a page boundary:
+    #   - one of the first two or last two non-blank lines of a page, where pages are separated by form
+    #     feeds (what the PDF converters emit); or
+    #   - next to a page-number line of the form "Page 3", "3 of 9" or "3 / 9".
+    # A bare number line is not a boundary: tables are full of them. A repeated line anywhere else is
+    # document text (a table's row label, a note printed in every section). One- and two-word lines are
+    # never headers. Blanking only hides text from matching; stored text is never changed by it.
     $Counts = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
     $Trimmed = [string[]]::new($Lines.Count)
+    $PageOf = [int[]]::new($Lines.Count)
+    $PageNo = 0
     for ($I = 0; $I -lt $Lines.Count; $I += 2) {
+        if ($Lines[$I].IndexOf([char]12) -ge 0) { $PageNo++ }
+        $PageOf[$I] = $PageNo
         $T = $Lines[$I].Trim()
         $Trimmed[$I] = $T
         if ($T.Length -gt 0 -and $T.Length -le $script:VerbatimFooterMaxChars) {
@@ -84,14 +90,26 @@ function Get-VerbatimSource {
             $Counts[$T] = $N0 + 1
         }
     }
-    # 1 = a header line of the first kind, 0 = not. Lines sit at even indexes.
-    $Kind = [int[]]::new($Lines.Count)
-    for ($I = 0; $I -lt $Lines.Count; $I += 2) {
-        $T = $Trimmed[$I]
-        if ($T.Length -eq 0) { continue }
-        $Seen0 = 0
-        if ($Counts.TryGetValue($T, [ref]$Seen0) -and $Seen0 -ge $script:VerbatimFooterMinRepeats -and
-            $T.Split([char[]]" `t", [System.StringSplitOptions]::RemoveEmptyEntries).Count -ge $script:VerbatimFooterMinWords) { $Kind[$I] = 1 }
+    # The non-blank lines, in order; a line is at a page edge when it is one of the first two or last two
+    # of its page. With no form feed anywhere there are no pages to speak of, and no edges.
+    $NonBlank = [System.Collections.Generic.List[int]]::new()
+    for ($I = 0; $I -lt $Lines.Count; $I += 2) { if ($Trimmed[$I].Length -gt 0) { $NonBlank.Add($I) } }
+    $AtBoundary = [bool[]]::new($Lines.Count)
+    for ($J = 0; $J -lt $NonBlank.Count; $J++) {
+        $I = $NonBlank[$J]
+        $Edge = $false
+        if ($PageNo -gt 0) {
+            foreach ($D in 1, 2) {
+                if ($J - $D -lt 0 -or $PageOf[$NonBlank[$J - $D]] -ne $PageOf[$I]) { $Edge = $true }
+                if ($J + $D -ge $NonBlank.Count -or $PageOf[$NonBlank[$J + $D]] -ne $PageOf[$I]) { $Edge = $true }
+            }
+        }
+        if (-not $Edge) {
+            foreach ($N in ($J - 1), ($J + 1)) {
+                if ($N -ge 0 -and $N -lt $NonBlank.Count -and $Trimmed[$NonBlank[$N]] -match $script:VerbatimPageNumberPattern) { $Edge = $true }
+            }
+        }
+        $AtBoundary[$I] = $Edge
     }
     $Footers = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $Out = [System.Text.StringBuilder]::new($W.Length)
@@ -99,16 +117,13 @@ function Get-VerbatimSource {
     for ($I = 0; $I -lt $Lines.Count; $I++) {
         $L = $Lines[$I]
         $Blank = $false
-        if ($I % 2 -eq 0 -and $Trimmed[$I].Length -gt 0) {
+        if ($I % 2 -eq 0 -and $Trimmed[$I].Length -gt 0 -and $AtBoundary[$I]) {
             $T = $Trimmed[$I]
             $Seen0 = 0
-            if ($Kind[$I] -eq 1) { $Blank = $true; [void]$Footers.Add($T) }
-            elseif ($Kind[$I] -eq 0 -and $Counts.TryGetValue($T, [ref]$Seen0) -and $Seen0 -ge $script:VerbatimShortLineMinRepeats) {
-                $Prev = $I - 2
-                while ($Prev -ge 0 -and $Trimmed[$Prev].Length -eq 0) { $Prev -= 2 }
-                $Next = $I + 2
-                while ($Next -lt $Lines.Count -and $Trimmed[$Next].Length -eq 0) { $Next += 2 }
-                $Blank = ($Prev -ge 0 -and $Kind[$Prev] -ne 0) -or ($Next -lt $Lines.Count -and $Kind[$Next] -ne 0)
+            if ($Counts.TryGetValue($T, [ref]$Seen0) -and $Seen0 -ge $script:VerbatimFooterMinRepeats -and
+                $T.Split([char[]]" `t", [System.StringSplitOptions]::RemoveEmptyEntries).Count -ge $script:VerbatimFooterMinWords) {
+                $Blank = $true
+                [void]$Footers.Add($T)
             }
         }
         if ($Blank) {

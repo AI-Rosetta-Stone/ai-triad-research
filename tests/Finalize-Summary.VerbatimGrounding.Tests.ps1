@@ -121,7 +121,7 @@ Describe 'Repair-SummaryKeyPointVerbatim (t/389)' -Tag 'summarization' {
 
     It 'a page footer repeated on every page is not matched as quote text' {
         $Footer = 'Preprint under review at the venue'
-        $Src = "Body text on page 1 about models.`n$Footer`nBody text on page 2 about models.`n$Footer`nBody text on page 3 about models.`n$Footer`n"
+        $Src = "Body text on page 1 about models.`n$Footer`n$([char]12)Body text on page 2 about models.`n$Footer`n$([char]12)Body text on page 3 about models.`n$Footer`n"
         $Quote = $Footer
         $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = $Quote })
         $R = InModuleScope AITriad -Parameters @{ S = $Src; Sum = $Sum } {
@@ -286,7 +286,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
     It 'ignores a page header and a URL that the model copied into the quote' {
         $Header = 'Journal of Applied Policy 14(2)'
         $Body = 'Developers answer that the evaluations they run today were never designed to support a licensing decision.'
-        $Src = "$Header`nRegulators have begun to ask for results.`n$Header`n$Body`n$Header`nAuditors want access to the weights.`n"
+        $Src = "$Header`nRegulators have begun to ask for results.`n$([char]12)$Header`n$Body`n$([char]12)$Header`nAuditors want access to the weights.`n"
         $Quote = "Developers answer that the evaluations they run today $Header https://example.org/vol14/issue2 were never designed to support a licensing decision."
         $Out = & $script:Run $Src $Quote 'doc-header-url'
         $Out.R.Snapped | Should -Be 1
@@ -318,7 +318,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
 
     It 'a repeated page header inside the sentence makes the quote interleaved, and the header is not stored' {
         $Header = 'Journal of Applied Policy 14(2)'
-        $Src = "$Header`nRegulators have begun to ask for results.`n$Header`nDevelopers answer that the evaluations they run today`n$Header`nwere never designed to support a licensing decision.`n"
+        $Src = "$Header`nRegulators have begun to ask for results.`n$([char]12)$Header`nDevelopers answer that the evaluations they run today`n$([char]12)$Header`nwere never designed to support a licensing decision.`n"
         $Quote = 'Developers answer that the evaluations they run today were never designed to support the licensing decision.'
         $Out = & $script:Run $Src $Quote 'doc-header-inside'
         $Out.R.Interleaved | Should -Be 1
@@ -397,23 +397,30 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         ($Out2.Stored -join '|') | Should -Not -Match '\. \. \.'
     }
 
-    It 'does not strip a repeated line out of a quote that is mostly that line (t/389#20, D18)' {
+    It 'a line that repeats away from any page boundary is document text, not a header (t/389#30)' {
+        # A row label printed in every section: no form feed and no page-number line next to it.
         $Label = 'Skills gaps in the labour market'
         $Src = "$Label`n72% 63%`nOther barriers to transformation`n$Label`n51% 40%`nMore text about the survey.`n$Label`n"
         $Out = & $script:Run $Src "$Label 72% 63%" 'doc-row-label'
+        $Out.R.Dropped | Should -Be 0
         $Out.R.Snapped | Should -Be 0
-        $Out.R.Dropped | Should -Be 1
-        $Out.Stored | Should -BeNullOrEmpty
+        $Out.Stored | Should -Be "$Label 72% 63%"
     }
 
-    It 'an author name repeated at a page boundary is blanked, so a quote across it is still exact' {
-        $Page = "A printed page header here`nErik Torenberg`n"
-        $Src = "Lawmakers should enforce existing laws to prohibit`n$Page`nharms and punish bad actors.`n" + (("More text $([guid]::NewGuid().ToString('N')).`n$Page") * 6)
-        $Quote = 'Lawmakers should enforce existing laws to prohibit harms and punish bad actors.'
+    It 'a repeated line next to a page-number line is a header even with no form feed' {
+        $Header = 'Journal of Applied Policy 14(2)'
+        $Src = "Developers answer that the evaluations they run today`n$Header`nPage 2 of 9`nwere never designed to support a licensing decision.`n$Header`nPage 3 of 9`nOther text.`n$Header`nPage 4 of 9`n"
+        $Out = & $script:Run $Src 'Developers answer that the evaluations they run today were never designed to support the licensing decision.' 'doc-page-number'
+        $Out.R.Interleaved | Should -Be 1
+        ($Out.Stored -join ' ') | Should -Not -Match 'Journal'
+    }
+
+    It 'a one- or two-word repeated line is never a header: a quote across it is stored as pieces' {
+        $Src = "Lawmakers should enforce existing laws to prohibit`nErik Torenberg`n`nharms and punish bad actors in every case.`n" + (("More text $([guid]::NewGuid().ToString('N')).`n$([char]12)Erik Torenberg`n") * 6)
+        $Quote = 'Lawmakers should enforce existing laws to prohibit harms and punish bad actors in every case.'
         $Out = & $script:Run $Src $Quote 'doc-short-header'
-        $Out.R.Snapped | Should -Be 0
-        $Out.R.Interleaved | Should -Be 0
-        $Out.Stored | Should -Be $Quote
+        $Out.R.Interleaved | Should -Be 1
+        $Out.Stored | Should -Be @('Lawmakers should enforce existing laws to prohibit', 'harms and punish bad actors in every case')
     }
 
     It 'leaves code in angle brackets alone: only HTML tags are blanked' {
