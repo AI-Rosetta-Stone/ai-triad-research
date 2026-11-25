@@ -17,7 +17,7 @@ vi.mock('../logger.js', () => ({
 vi.mock('../storage/overlayCommitScheduler.js', () => ({ startSharedOverlayDrain: vi.fn(() => vi.fn()) }));
 vi.mock('../storage/sharedOverlayStore.js', () => ({ SharedOverlayStore: class { constructor(public opts: unknown) {} } }));
 
-import { sharedOverlayStateFromEnv, startSharedOverlayDrainFromEnv, sharedOverlayDrainHealth } from '../sharedOverlayWiring.js';
+import { sharedOverlayStateFromEnv, startSharedOverlayDrainFromEnv, sharedOverlayDrainHealth, sharedOverlayBootState } from '../sharedOverlayWiring.js';
 import { error } from '../httpKit.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 
@@ -125,5 +125,18 @@ describe('error(): a retryable save refusal passes through as 503 with its code'
     error(res, 'boom', 500, new ActionableError({ goal: 'g', problem: 'p', location: 'l', nextSteps: [], httpStatus: 503, code: 'OTHER' }));
     expect(out.status).toBe(500);
     expect(out.body?.code).toBeUndefined();
+  });
+});
+
+// t/688#3 (Quality p/58#79): configured (store built) and active (configured + ENABLED=1) are logged separately.
+describe('sharedOverlayBootState', () => {
+  it('configured with the flag off: configured, not active', () => {
+    expect(sharedOverlayBootState({}, true)).toEqual({ configured: true, enabled: false, active: false, draining: false });
+  });
+  it('configured with ENABLED=1: active', () => {
+    expect(sharedOverlayBootState({ OVERLAY_SHARED_STATE_ENABLED: '1' }, true)).toMatchObject({ configured: true, enabled: true, active: true });
+  });
+  it('ENABLED=1 but not configured: not active', () => {
+    expect(sharedOverlayBootState({ OVERLAY_SHARED_STATE_ENABLED: '1', OVERLAY_SHARED_STATE_DRAINING: '1' }, false)).toEqual({ configured: false, enabled: true, active: false, draining: true });
   });
 });
