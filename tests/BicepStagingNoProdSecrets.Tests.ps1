@@ -25,7 +25,9 @@ BeforeAll {
     }
 
     # The accepted-risk OAuth secrets, staging's own free-tier key, and the step-1 retained entry.
-    $script:AllowedSecretNameVars = @('googleClientSecretName', 'githubClientSecretName', 'aadClientSecretName', 'freeTierStagingSecretName')
+    # t/669: plus staging's OWN EasyAuth cookie keys, from staging's vault (never prod's; the vault test below pins it).
+    $script:AllowedSecretNameVars = @('googleClientSecretName', 'githubClientSecretName', 'aadClientSecretName', 'freeTierStagingSecretName',
+        'easyAuthEncryptionSecretName', 'easyAuthSigningSecretName')
     $script:Step1Retained = @('paidTierSecretName')
     # Prod secrets that must never reach staging.
     $script:ForbiddenSecretNameVars = @('githubTokenSecretName', 'githubWebhookSecretName', 'freeTierSecretName')
@@ -37,6 +39,13 @@ BeforeAll {
     foreach ($v in [regex]::Matches($script:StagingSecretsBody, '\b(staging\w+Secrets|stagingPaidKeyRetained)\b') | ForEach-Object { $_.Value } | Select-Object -Unique) {
         $script:Expanded += "`n" + (Get-VarBody $v)
     }
+    # t/669: easyAuthKeySecretsStaging is a multi-line conditional array, not a concat; take its whole body.
+    $script:EasyAuthStagingBody = [regex]::Match($script:Bicep, '(?s)(?m)^var easyAuthKeySecretsStaging = (.*?)\] : \[\]').Groups[1].Value
+    if ($script:StagingSecretsBody -match '\beasyAuthKeySecretsStaging\b') { $script:Expanded += "`n" + $script:EasyAuthStagingBody }
+    # Every bare var name concatenated into stagingSecrets (an identifier standing alone between commas), so a new
+    # var this parse doesn't expand fails the 'no silent gap' test instead of hiding its secrets.
+    $script:ConcatVars = @(($script:StagingSecretsBody -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[A-Za-z]\w*$' })
+    $script:UnexpandedVars = @($script:ConcatVars | Where-Object { $_ -notmatch '^(staging\w+Secrets|stagingPaidKeyRetained|easyAuthKeySecretsStaging)$' })
 }
 
 Describe 'staging holds no prod secret except the accepted OAuth three (t/654)' {
@@ -49,6 +58,18 @@ Describe 'staging holds no prod secret except the accepted OAuth three (t/654)' 
         $names = [regex]::Matches($script:Expanded, 'name:\s*(\w+)') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
         $extra = @($names | Where-Object { $_ -notin ($script:AllowedSecretNameVars + $script:Step1Retained) })
         $extra | Should -BeNullOrEmpty -Because 'a secret outside the allow-list reached staging'
+    }
+
+    It 't/669: staging''s EasyAuth keys come from STAGING''s vault, never the prod vault' {
+        $script:EasyAuthStagingBody | Should -Match 'easyAuthEncryptionSecretName'
+        $script:EasyAuthStagingBody | Should -Match 'stagingKeyVaultUrl'
+        $script:EasyAuthStagingBody | Should -Not -Match 'keyVault.properties'
+    }
+
+    It 'every var concatenated into stagingSecrets is expanded by this test (no silent gap)' {
+        $script:ConcatVars | Should -Contain 'stagingOauthSecrets' -Because 'the parse must see the concatenated vars (not vacuous)'
+        $script:ConcatVars | Should -Contain 'easyAuthKeySecretsStaging'
+        $script:UnexpandedVars | Should -BeNullOrEmpty
     }
 
     It 'staging''s secrets never include the prod token, webhook or prod free-tier key' {
