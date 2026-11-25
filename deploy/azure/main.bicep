@@ -359,14 +359,12 @@ resource keyVault 'Microsoft.KeyVault/vaults@2026-02-01' = {
     softDeleteRetentionInDays: 7
     enablePurgeProtection: true
     publicNetworkAccess: 'Enabled'
-    networkAcls: {
-      // Allow required for consumption-tier ACA — managed identity calls
-      // use unpredictable Azure SNAT IPs that can't be allowlisted, and
-      // ACA is not a Key Vault "trusted service" for bypass purposes.
-      // Still protected by RBAC (only the container app's MSI has access).
-      defaultAction: 'Allow'
-      bypass: 'AzureServices'
-    }
+    // No networkAcls, matching live (t/659): the vault stores none. Its access is Allow, which
+    // consumption-tier ACA needs: managed identity calls come from unpredictable Azure SNAT IPs
+    // that can't be allowlisted, and ACA is not a Key Vault "trusted service" for bypass.
+    // Protection is RBAC. The block this replaced (defaultAction Allow, bypass AzureServices,
+    // no rules) had the same effect, but ARM never stores it, so every what-if showed it as a
+    // Create. If rules are ever added, declare them here in full.
   }
 }
 
@@ -378,10 +376,22 @@ resource kvDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview
   name: 'kv-audit-logs'
   properties: {
     workspaceId: logAnalytics.id
+    // Declared as live has them (t/659), so an apply rewrites this setting unchanged.
+    // Diagnostic settings are written whole, so anything live has that the template omits is
+    // removed on apply. audit stays enabled; allLogs is a disabled entry live carries.
+    logAnalyticsDestinationType: 'AzureDiagnostics'
     logs: [
       {
         categoryGroup: 'audit'
         enabled: true
+        retentionPolicy: {
+          enabled: false
+          days: 0
+        }
+      }
+      {
+        categoryGroup: 'allLogs'
+        enabled: false
         retentionPolicy: {
           enabled: false
           days: 0
@@ -461,7 +471,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
       // VNet integration + private endpoints would allow Deny but exceed
       // the $0-5/month cost target. Still protected by shared-key auth.
       defaultAction: 'Allow'
-      bypass: 'AzureServices, Logging, Metrics'
+      bypass: 'Logging, Metrics, AzureServices'   // live's order, so the what-if shows no change (t/659)
     }
   }
 }
