@@ -115,21 +115,29 @@ describe('conflicts/proposal save routes — If-Match precondition (t/4190, t/41
     expect(res.headers.ETag).toBe('"conflicts-sha"');
   });
 
+  // t/641: the proposals PUT is admin/operator-only and schema-checked before the If-Match gate, so these cases run
+  // as the local operator (AUTH_DISABLED, outside production) with a valid proposal file.
+  const VALID_PROPOSAL_FILE = { generated_at: '2026-11-25T00:00:00Z', model: 'gemini-3.5-flash', taxonomy_version: '1.0', summary_count: 1, proposals: [] };
+  const asOperator = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const saved = process.env.AUTH_DISABLED; process.env.AUTH_DISABLED = '1';
+    try { return await fn(); } finally { if (saved === undefined) delete process.env.AUTH_DISABLED; else process.env.AUTH_DISABLED = saved; }
+  };
+
   it('PUT /api/proposals/:filename requires If-Match: 428 BASE_VERSION_REQUIRED, nothing saved', async () => {
-    const res = await invoke(
-      registerSourcesRoutes, 'PUT', '/api/proposals/:filename', { any: 'thing' }, {}, '/api/proposals/p1.json',
-    );
+    const res = await asOperator(() => invoke(
+      registerSourcesRoutes, 'PUT', '/api/proposals/:filename', VALID_PROPOSAL_FILE, {}, '/api/proposals/p1.json',
+    ));
     expect(res.status).toBe(428);
     expect(saveProposalMock).not.toHaveBeenCalled();
   });
 
   it('PUT /api/proposals/:filename with If-Match saves with the baseSha and returns the new ETag', async () => {
-    const res = await invoke(
-      registerSourcesRoutes, 'PUT', '/api/proposals/:filename', { any: 'thing' },
+    const res = await asOperator(() => invoke(
+      registerSourcesRoutes, 'PUT', '/api/proposals/:filename', VALID_PROPOSAL_FILE,
       { 'if-match': `"${TEST_BASE_SHA}"` }, '/api/proposals/p1.json',
-    );
+    ));
     expect(res.status).toBe(200);
-    expect(saveProposalMock).toHaveBeenCalledWith('p1.json', { any: 'thing' }, { baseSha: TEST_BASE_SHA });
+    expect(saveProposalMock).toHaveBeenCalledWith('p1.json', VALID_PROPOSAL_FILE, { baseSha: TEST_BASE_SHA });
     expect(res.headers.ETag).toBe('"new-sha"');
   });
 
