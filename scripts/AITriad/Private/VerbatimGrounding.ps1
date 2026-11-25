@@ -163,6 +163,7 @@ $script:VerbatimKeepQuoteWords = $true
 # snapshot is folded to match the source, and stays damaged in the stored text. Damaged marks and the damaged
 # no-break space are stored repaired; both are counted.
 $script:VerbatimStoreLettersAsWritten = $true
+$script:VerbatimUncheckedPieceFails = $true   # a piece whose spaces and case cannot be checked is not stored (CL p/70#193)
 $script:VerbatimRejectUncutPiece = $true
 $script:VerbatimSpaceMojibakePattern = ([string][char]0x393 + [char]0xC7) + '[' + (-join [char[]](0xC7, 0xFC, 0xE9, 0xE2, 0xE4, 0xE0, 0xE5, 0xE7, 0xEA, 0xEB, 0xE8, 0xEF, 0xBB)) + ']'
 $script:VerbatimSymbolRef = $true            # a footnote symbol read as a letter, glued to a word's end ("Mishra" + the section sign's mojibake)
@@ -1544,7 +1545,11 @@ function Resolve-VerbatimSegment {
                     $SGap = Get-VerbatimWordGap -Text $Shown.ToString()
                     if ($null -eq $QGap) { $QGap = Get-VerbatimWordGap -Text $Clean }
                     if ($SGap.Letters -cne $Want -or $QGap.Letters -cne $QLetters) {
+                        # The gap reading and the letter reading of the same piece disagree, so neither the space
+                        # rule nor the case rule can be applied to it. A piece that cannot be checked is not
+                        # stored (CL p/70#193): a source space inside a word of the quote would pass unseen.
                         $script:VerbatimDiag.Add('space check not run: letters differ between the two readings')
+                        if ($script:VerbatimUncheckedPieceFails) { $Why = 'space and case not checked' }
                     } else {
                         if ($script:VerbatimCaseRule) {
                             $WordStart = [bool[]]$SGap.Any.Clone(); $WordStart[0] = $true

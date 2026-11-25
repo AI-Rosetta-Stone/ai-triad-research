@@ -841,6 +841,42 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             }
         }
 
+        It 'the source has a segment only when a run of 12 of its letters is in the snapshot (Test-VerbatimRunInSource, CL t/389#103, #110)' {
+            $Src = "Regulators have begun to ask for evaluation results before release.`n`nMuch later in the document, auditors adopted the standard.`n"
+            $Run = { param($S, $Seg) InModuleScope AITriad -Parameters @{ S = $S; Seg = $Seg } { param($S, $Seg) Test-VerbatimRunInSource -Source (Get-VerbatimSource -Text $S) -Segment $Seg } }
+            # 'evaluationresults' is 17 letters of the source, in a segment that otherwise is not there.
+            & $Run $Src 'Nobody disputed the evaluation results at the hearing' | Should -BeTrue
+            # The run may be anywhere in the snapshot, not near the rest of the quote.
+            & $Run $Src 'Everyone agreed that they adopted the standard gladly' | Should -BeTrue
+            # Eleven letters of the source ('thestandard') and no twelve: the source does not have it.
+            & $Run $Src 'Nobody at all objected to the standard' | Should -BeFalse
+            # A segment shorter than twelve letters has no run to find, even when it is in the source whole.
+            & $Run $Src 'the standard' | Should -BeFalse
+            # Case, punctuation and white space are not part of a run.
+            & $Run $Src 'EVALUATION, results!' | Should -BeTrue
+        }
+
+        It 'a piece whose spaces and case cannot be checked is dropped, not stored (CL p/70#193)' {
+            # The source breaks a word over a line end, so the quote is not exact and goes through the piece
+            # walk. The two readings of a piece never disagree in practice (no corpus quote takes this
+            # branch), so the disagreement is forced here by a mocked gap reading.
+            $Src = "Regulators in several countries have begun to ask for evalu-`nation results before a model is released to the public.`n"
+            $Quote = 'Regulators in several countries have begun to ask for evaluation results before a model is released to the public.'
+            $Normal = & $script:Decide74 $Src $Quote
+            $Normal.Decision | Should -Be 'snapped'
+            $Forced = InModuleScope AITriad -Parameters @{ S = $Src; Q = $Quote } {
+                param($S, $Q)
+                Mock Get-VerbatimWordGap { [pscustomobject]@{ Letters = 'not the same letters'; Cased = 'not the same letters'; Any = [bool[]]::new(21); Space = [bool[]]::new(21) } }
+                $script:VerbatimDiag.Clear()
+                $R = Resolve-VerbatimQuote -Source (Get-VerbatimSource -Text $S) -Quote $Q
+                [pscustomobject]@{ Decision = $R.Decision; Texts = @($R.Texts); Diag = @($script:VerbatimDiag.ToArray()) }
+            }
+            $Forced.Decision | Should -Be 'dropped'
+            @($Forced.Texts).Count | Should -Be 0
+            $Forced.Diag | Should -Contain 'space check not run: letters differ between the two readings'
+            $Forced.Diag | Should -Contain 'space and case not checked (one piece)'
+        }
+
         It 'a label on a line of its own splits the piece when the quote has digits of its own after it' {
             $Src = "Foxconn, the largest contract electronics`n`nDemo`n`nmanufacturer, reported July revenue that`n`nexceeded 900 billion New Taiwan dollars for the first`n`ntime, a 54 percent year-over-year increase.`n"
             $R = & $script:Decide74 $Src 'Foxconn, the largest contract electronics manufacturer, reported July revenue that exceeded 900 billion New Taiwan dollars for the first time, a 54 percent year-over-year increase.'
