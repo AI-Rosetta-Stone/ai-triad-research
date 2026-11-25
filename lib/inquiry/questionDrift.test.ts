@@ -31,9 +31,22 @@ describe('t/285 question drift schema', () => {
     expect(parsed.success && parsed.data.campVerdicts[0].answeredLiteralQuestion).toBe(false);
   });
 
-  it('questionDrift requires a warning boolean when the block is present (TL t/285#3 item 4)', () => {
-    expect(QuestionDriftSchema.safeParse({ debatedTopic: 'x' }).success).toBe(false);
+  it('questionDrift.warning is optional: absent means not evaluated (TL t/285#50 item 2)', () => {
+    expect(QuestionDriftSchema.safeParse({ debatedTopic: 'x' }).success).toBe(true);
     expect(QuestionDriftSchema.safeParse({ warning: true }).success).toBe(true);
+    expect(QuestionDriftSchema.safeParse({ warning: 'yes' }).success).toBe(false);
+  });
+
+  it('directAnswer and questionDrift carry unknown keys through a round-trip (TL t/285#50 item 1)', () => {
+    const answer = DirectAnswerSchema.parse({ text: 'Yes.', agreement: 'consensus', laterField: 1 });
+    expect(answer).toHaveProperty('laterField', 1);
+    const drift = QuestionDriftSchema.parse({ debatedTopic: 'x', laterField: 'kept' });
+    expect(drift).toHaveProperty('laterField', 'kept');
+  });
+
+  it('debatedTopic is capped at 300 characters (TL t/285#50 item 3)', () => {
+    expect(QuestionDriftSchema.safeParse({ debatedTopic: 'a'.repeat(300) }).success).toBe(true);
+    expect(QuestionDriftSchema.safeParse({ debatedTopic: 'a'.repeat(301) }).success).toBe(false);
   });
 
   it('directAnswer.agreement is consensus or split only (TL t/285#3 item 6)', () => {

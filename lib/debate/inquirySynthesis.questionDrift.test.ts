@@ -12,6 +12,7 @@ import {
   DRIFT_WARN_THRESHOLD,
 } from './inquirySynthesis.js';
 import { inquirySynthesisPrompt } from './prompts/inquiry.js';
+import { QuestionDriftSchema } from '../inquiry/schema.js';
 
 describe('t/285 directAnswer', () => {
   it('keeps a valid answer', () => {
@@ -38,6 +39,18 @@ describe('t/285 debated topic', () => {
     expect(debatedTopicOf('What is harm?', 'How should harm be defined in policy?')).toBe(
       'How should harm be defined in policy?',
     );
+  });
+
+  it('omits an over-long topic rather than truncating it or failing the result (TL t/285#50 item 3)', () => {
+    expect(debatedTopicOf('What is harm?', 'a'.repeat(300))).toBe('a'.repeat(300));
+    expect(debatedTopicOf('What is harm?', 'a'.repeat(301))).toBeUndefined();
+    const drift = buildQuestionDrift({ debatedTopic: debatedTopicOf('What is harm?', 'a'.repeat(301)), campVerdicts: [] });
+    expect(drift).not.toHaveProperty('debatedTopic');
+    expect(QuestionDriftSchema.safeParse(drift).success).toBe(true);
+  });
+
+  it('omits an over-long direct answer rather than failing the result (TL t/285#50 item 3)', () => {
+    expect(buildDirectAnswerField({ text: 'a'.repeat(1001), agreement: 'consensus' })).toEqual({});
   });
 
   it('is absent when the session has no final topic', () => {
