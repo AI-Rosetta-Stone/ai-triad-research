@@ -38,7 +38,9 @@ Design A gives prod its own state share, which staging never mounts. Staging alr
 
 **Decision rule for the "stays" files and legacy directories** (Security addition 3): decide per file from step 0's counts. A file that carries ids or emails **moves now**, unless moving it breaks prod (a data-root read in code, before t/625). In that case it waits, and the TL sets a review date for it on t/624. A file without ids may stay.
 
-> **Open item for Security (condition 4).** Security asked that nothing left readable to staging carries ids or emails, and that `admin/` and `calibration/users` move in A. The files above are read through the **data** root, so moving them without t/625's code change would make prod fall back to defaults (for example, losing quota overrides). Step 0 checks each of them for ids and emails (counts only). If any carries them, there are two choices: (a) A waits for t/625 for that file, or (b) the TL sets a review date and accepts it in the interim (TL p/45#245: "the interim is acceptable"). `calibration/users/` (6 files) is read through the storage backend (GitHub), not the share. Step 0 also confirms whether the share copy is used at all; if not, it is deleted with the PI's go rather than moved.
+> **Step 0 result (t/624#6):** none of the "stays" files above exist on prod's share today, so nothing carrying ids waits on t/625. The item below is kept for the record.
+>
+> **Open item for Security (condition 4), now closed.** Security asked that nothing left readable to staging carries ids or emails, and that `admin/` and `calibration/users` move in A. The files above are read through the **data** root, so moving them without t/625's code change would make prod fall back to defaults (for example, losing quota overrides). Step 0 checks each of them for ids and emails (counts only). If any carries them, there are two choices: (a) A waits for t/625 for that file, or (b) the TL sets a review date and accepts it in the interim (TL p/45#245: "the interim is acceptable"). `calibration/users/` (6 files) is read through the storage backend (GitHub), not the share. Step 0 also confirms whether the share copy is used at all; if not, it is deleted with the PI's go rather than moved.
 
 ## Infrastructure (Bicep, T2)
 
@@ -72,7 +74,7 @@ The copy runs **inside the prod container**. After phase 1, prod mounts both `/m
 5. **Read-back on the new revision, before declaring done:**
    - `GET /api/flags` returns the same flag values as the inventory snapshot.
    - The runtime config has the same keys and values (admin route, read-only).
-   - The admin allowlist is non-empty, with the same count.
+   - The admin allowlist has the same count as before. Step 0 found no `admin/admin-allowlist.json` on prod (t/624#6), so it is empty before and must still be empty after.
    - New writes land in `/mnt/prod-state`: one telemetry or flight-recorder file has a fresh mtime under `/mnt/prod-state`, and none under `/mnt/shared`.
 6. **Delta:** re-hash the old side. Any append-only file that grew after the copy has its extra lines appended to the new side once, and the count is reported. Any config file that changed is a stop condition, because the write freeze was broken.
 7. **Delete** (**the PI's go**, Security condition 2), by name, from inside the prod container (prod mounts `/mnt/shared` read-write): the copied originals, the key file, and every legacy directory or file step 0 marked for deletion. Report counts per path.
