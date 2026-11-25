@@ -265,6 +265,19 @@ param githubAppPrivateKeySecretNameStaging string = 'github-app-private-key-stag
 ])
 param stagingKeyVaultUrl string = 'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net/'
 
+// t/669 (PI yes, t/669#11): each app's EasyAuth session cookie is encrypted and signed with OUR keys
+// from ITS OWN vault (easyauth-encryption-key, easyauth-signing-key; openssl rand -hex 32, generated
+// in the vault by Azure so no one sees them), instead of platform keys that may change per revision
+// and sign every user out at each deploy. One switch per app, so staging goes first and proves the
+// key format and a session surviving a revision; prod follows. ORDERING: a Key Vault-referenced
+// secret that does not exist makes ACA reject the WHOLE apply (prod included), so a switch may only
+// be true once that environment's pair exists in its vault (Azure's read-back on t/669).
+// tests/BicepEasyAuthKeys.Tests.ps1 pins each app to its own vault.
+@description('t/669: staging uses its own EasyAuth cookie keys from kv-ait-stg. True only after both secrets exist there.')
+param easyAuthOwnKeysStaging bool = false
+@description('t/669: prod uses its own EasyAuth cookie keys from kv-ait. True only after both secrets exist there, and after staging proved them.')
+param easyAuthOwnKeysProd bool = false
+
 @secure()
 @description('Optional GITHUB_TOKEN (PAT) fallback when no App is registered. Prefer the App for production.')
 param githubToken string = ''
@@ -337,7 +350,28 @@ var sharedOauthSecrets = concat(
   githubTokenProvided ? [ { name: githubTokenSecretName, value: githubToken } ] : [],
   githubWebhookSecretProvided ? [ { name: githubWebhookSecretName, value: githubWebhookSecret } ] : []
 )
-var oauthSecrets = concat(sharedOauthSecrets,
+// t/669: the EasyAuth key secrets are Key Vault references read by the app's system identity, so no
+// value is in this template. Prod reads the shared vault (keyVault, below); staging reads ONLY its own
+// vault (stagingKeyVaultUrl, pinned by @allowed). Same names in both vaults; different values.
+var easyAuthEncryptionSecretName = 'easyauth-encryption-key'
+var easyAuthSigningSecretName = 'easyauth-signing-key'
+var easyAuthKeySecretsProd = easyAuthOwnKeysProd ? [
+  { name: easyAuthEncryptionSecretName, keyVaultUrl: '${keyVault.properties.vaultUri}secrets/${easyAuthEncryptionSecretName}', identity: 'system' }
+  { name: easyAuthSigningSecretName, keyVaultUrl: '${keyVault.properties.vaultUri}secrets/${easyAuthSigningSecretName}', identity: 'system' }
+] : []
+var easyAuthKeySecretsStaging = easyAuthOwnKeysStaging ? [
+  { name: easyAuthEncryptionSecretName, keyVaultUrl: '${stagingKeyVaultUrl}secrets/${easyAuthEncryptionSecretName}', identity: 'system' }
+  { name: easyAuthSigningSecretName, keyVaultUrl: '${stagingKeyVaultUrl}secrets/${easyAuthSigningSecretName}', identity: 'system' }
+] : []
+var easyAuthEncryptionSettingsProd = easyAuthOwnKeysProd ? {
+  containerAppAuthEncryptionSecretName: easyAuthEncryptionSecretName
+  containerAppAuthSigningSecretName: easyAuthSigningSecretName
+} : {}
+var easyAuthEncryptionSettingsStaging = easyAuthOwnKeysStaging ? {
+  containerAppAuthEncryptionSecretName: easyAuthEncryptionSecretName
+  containerAppAuthSigningSecretName: easyAuthSigningSecretName
+} : {}
+var oauthSecrets = concat(sharedOauthSecrets, easyAuthKeySecretsProd,
   freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : [],
   paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : []
 )
@@ -346,7 +380,7 @@ var oauthSecrets = concat(sharedOauthSecrets,
 // then still references it. Prod's `secrets:` stays oauthSecrets, so prod can never reference
 // free-tier-gemini-key-staging (tests/BicepStagingFreeTierKey.Tests.ps1 asserts this).
 var stagingFallbackFreeTier = freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : []
-var stagingSecrets = concat(sharedOauthSecrets,
+var stagingSecrets = concat(sharedOauthSecrets, easyAuthKeySecretsStaging,
   paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : [],
   freeTierStagingKeyProvided ? [ { name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging } ] : stagingFallbackFreeTier)
 
@@ -1306,6 +1340,8 @@ resource authConfig 'Microsoft.App/containerApps/authConfigs@2024-10-02-preview'
     globalValidation: {
       unauthenticatedClientAction: 'AllowAnonymous'
     }
+    // t/669: our own cookie keys from this app's own vault when its switch is on; {} = platform keys.
+    encryptionSettings: easyAuthEncryptionSettingsProd
     identityProviders: {
       google: {
         enabled: googleEnabled
@@ -1379,6 +1415,8 @@ resource authConfigStaging 'Microsoft.App/containerApps/authConfigs@2024-10-02-p
     globalValidation: {
       unauthenticatedClientAction: 'AllowAnonymous'
     }
+    // t/669: our own cookie keys from this app's own vault when its switch is on; {} = platform keys.
+    encryptionSettings: easyAuthEncryptionSettingsStaging
     identityProviders: {
       google: {
         enabled: googleEnabled
