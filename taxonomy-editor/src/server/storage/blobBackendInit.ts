@@ -7,7 +7,8 @@
  * Extracted from server.ts to keep file size manageable. Handles:
  * - Validation of required container config in hosted profiles
  * - Wiring of Azure Blob Storage backends for user content
- * - Fallback to GitHub backend on validation failure or missing config
+ * - t/639: no GitHub fallback for user content in a hosted profile. Without a working Blob backend,
+ *   fileIO.getUserContentBackend() refuses user content with a 503 (FailClosedUserContentBackend).
  */
 
 import { validateBlobBackendConfig, areBlobBackendsWired } from './blobBackendBoot.js';
@@ -15,6 +16,7 @@ import { userContentContainer } from './userContentContainer.js';
 import { communityContainer } from './communityContainer.js';
 import { briefExportsContainer } from './briefExportsContainer.js';
 import * as fileIO from './fileIO.js';
+import { isHostedProfile } from './failClosedUserContentBackend.js';
 import { log } from '../logger.js';
 import type { FlightRecorder } from '../../../../lib/flight-recorder/flightRecorder.js';
 
@@ -41,17 +43,19 @@ export async function initAzureBlobBackends(serverRecorder: FlightRecorder): Pro
     });
   } else if (blobAccountUrl && !areBlobBackendsWired()) {
     // t/4756: fail-closed — account URL set but validation failed (missing container var in hosted mode).
-    // Blob backends not wired; user content falls back to GitHub. /readyz will return 503.
-    log.storage.error('AZURE_STORAGE_ACCOUNT_URL is set but required container config is missing — Blob backend not initialized; user content falls back to the primary GitHub backend.');
+    // Blob backends not wired. /readyz returns 503; a hosted profile refuses user content (t/639).
+    log.storage.error('AZURE_STORAGE_ACCOUNT_URL is set but required container config is missing — Blob backend not initialized; '
+      + (isHostedProfile() ? 'user content is refused with 503 (no GitHub fallback, t/639).' : 'user content falls back to the primary backend.'));
     serverRecorder.record({
       type: 'storage.mode', component: 'storage', level: 'error',
-      message: 'User content storage: github-api fallback (Azure Blob config failed validation)',
+      message: isHostedProfile() ? 'User content storage: refused (Azure Blob config failed validation; t/639)' : 'User content storage: primary-backend fallback (Azure Blob config failed validation)',
     });
   } else {
-    log.storage.warn('AZURE_STORAGE_ACCOUNT_URL is unset — Blob backend not initialized; user content will fall back to the primary GitHub backend.');
+    log.storage.warn('AZURE_STORAGE_ACCOUNT_URL is unset — Blob backend not initialized; '
+      + (isHostedProfile() ? 'user content is refused with 503 (no GitHub fallback, t/639).' : 'user content falls back to the primary backend.'));
     serverRecorder.record({
-      type: 'storage.mode', component: 'storage', level: 'warn',
-      message: 'User content storage: github-api fallback (Azure Blob not configured)',
+      type: 'storage.mode', component: 'storage', level: isHostedProfile() ? 'error' : 'warn',
+      message: isHostedProfile() ? 'User content storage: refused (Azure Blob not configured; t/639)' : 'User content storage: primary-backend fallback (Azure Blob not configured)',
     });
   }
 }

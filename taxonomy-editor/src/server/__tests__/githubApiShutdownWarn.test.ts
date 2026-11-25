@@ -92,7 +92,7 @@ function handleDefaultGithubApi(url: string, method: string): Response {
   if (method === 'GET' && path.includes('/git/trees/')) {
     return mockFetchResponse(200, {
       sha: TREE_SHA, truncated: false,
-      tree: [{ path: 'taxonomy/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 }],
+      tree: [{ path: 'conflicts/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 }],
     });
   }
   if (method === 'PUT' && path.includes('/contents/')) return mockFetchResponse(200, { content: { sha: 'new-blob-sha' } });
@@ -136,7 +136,7 @@ async function createBackend() {
 function mockSessionBranchLookup(branch: string, sha: string, content = '{"test": true}'): void {
   const refQuery = `ref=${encodeURIComponent(branch)}`;
   apiHandlers.push((url, init) => {
-    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes(refQuery)) {
+    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/conflicts/nodes.json') || !url.includes(refQuery)) {
       return null;
     }
     return { status: 200, body: { content: Buffer.from(content).toString('base64'), encoding: 'base64', sha } };
@@ -148,14 +148,14 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4302 uncommitted
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     backend.shutdown();
 
     expect(warnCalls.length).toBe(0);
     expect(infoCalls.length).toBe(1);
     const [meta] = infoCalls[0] as [{ summary: { userId: string; entryCount: number; paths: string[] }[] }];
-    expect(meta.summary).toEqual([{ userId: 'alice', entryCount: 1, paths: ['taxonomy/nodes.json'] }]);
+    expect(meta.summary).toEqual([{ userId: 'alice', entryCount: 1, paths: ['conflicts/nodes.json'] }]);
     expect(recordedEvents.length).toBe(1);
     expect((recordedEvents[0] as { level: string }).level).toBe('info');
   });
@@ -164,10 +164,10 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4302 uncommitted
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     expect(backend.getUncommittedOverlaySummary()).toEqual([
-      { userId: 'alice', entryCount: 1, paths: ['taxonomy/nodes.json'] },
+      { userId: 'alice', entryCount: 1, paths: ['conflicts/nodes.json'] },
     ]);
 
     backend.shutdown();
@@ -195,7 +195,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4302 uncommitted
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     // Force step 4 (ref update) to fail.
     apiHandlers.push((url, init) => {
@@ -210,7 +210,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4302 uncommitted
     expect(warnCalls.length).toBe(1);
     expect(recordedEvents.length).toBe(1);
     expect((recordedEvents[0] as { level: string }).level).toBe('warn');
-    expect(backend.getSessionOverlay('alice')?.get('taxonomy/nodes.json')).toBe('{"v": 1}');
+    expect(backend.getSessionOverlay('alice')?.get('conflicts/nodes.json')).toBe('{"v": 1}');
     backend.shutdown();
   });
 });

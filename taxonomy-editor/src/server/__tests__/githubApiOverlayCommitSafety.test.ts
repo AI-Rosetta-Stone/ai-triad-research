@@ -96,12 +96,12 @@ const TREE_SHA = 'tree-sha-000000000000000000000000000dead';
 // base against a live tree fetch, so this default mock must reflect what was
 // actually just committed — not a fixed 'blob1' forever — or the fence sees
 // a spurious mismatch against its own prior commit. Tracks only
-// 'taxonomy/nodes.json', the only path these tests write to by default.
+// 'conflicts/nodes.json', the only path these tests write to by default.
 let committedNodesJsonSha = 'blob1';
 let pendingNodesJsonTreeOp: { sha?: string | null; content?: string } | undefined;
 
 /** t/4312: tracks what the mock's recursive-tree GET should report for
- *  'taxonomy/nodes.json' — the commit-time base fence compares a recorded
+ *  'conflicts/nodes.json' — the commit-time base fence compares a recorded
  *  base against a live tree fetch, so this mock must reflect what was
  *  actually just committed, not a fixed 'blob1' forever, or the fence sees a
  *  spurious mismatch against its own prior commit. Runs ahead of apiHandlers
@@ -111,7 +111,7 @@ function trackCommittedNodesJsonSha(url: string, method: string, init?: RequestI
   const path = url.replace('https://api.github.com', '');
   if (method === 'POST' && path.includes('/git/trees')) {
     const body = init?.body ? JSON.parse(init.body as string) as { tree: { path: string; sha?: string | null; content?: string }[] } : null;
-    pendingNodesJsonTreeOp = body?.tree.find(e => e.path === 'taxonomy/nodes.json');
+    pendingNodesJsonTreeOp = body?.tree.find(e => e.path === 'conflicts/nodes.json');
   } else if (method === 'PATCH' && path.includes('/git/refs/heads/')) {
     if (pendingNodesJsonTreeOp?.content !== undefined) committedNodesJsonSha = gitBlobSha(pendingNodesJsonTreeOp.content);
     pendingNodesJsonTreeOp = undefined;
@@ -127,7 +127,7 @@ function handleDefaultGithubApi(url: string, method: string): Response {
   if (method === 'GET' && path.includes('/git/trees/')) {
     return mockFetchResponse(200, {
       sha: TREE_SHA, truncated: false,
-      tree: [{ path: 'taxonomy/nodes.json', mode: '100644', type: 'blob', sha: committedNodesJsonSha, size: 100 }],
+      tree: [{ path: 'conflicts/nodes.json', mode: '100644', type: 'blob', sha: committedNodesJsonSha, size: 100 }],
     });
   }
   if (method === 'GET' && path.includes('/contents/')) {
@@ -174,7 +174,7 @@ async function createBackend() {
 function mockSessionBranchLookup(branch: string, sha: string, content = '{"test": true}'): void {
   const refQuery = `ref=${encodeURIComponent(branch)}`;
   apiHandlers.push((url, init) => {
-    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes(refQuery)) {
+    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/conflicts/nodes.json') || !url.includes(refQuery)) {
       return null;
     }
     return { status: 200, body: { content: Buffer.from(content).toString('base64'), encoding: 'base64', sha } };
@@ -241,7 +241,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
-    const firstWrite = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const firstWrite = await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     const getRefStarted = onRequestStarted('GET', '/git/refs/heads/');
     const patch = gateRequest('PATCH', '/git/refs/heads/');
@@ -249,8 +249,8 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     await getRefStarted; // proof: the pre-commit snapshot has already been taken
 
     // Lands while the commit is blocked on the gated PATCH.
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: firstWrite.version });
-    backend.writeToOverlay('/taxonomy/other.json', '{"new": true}');
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 2}', { baseSha: firstWrite.version });
+    backend.writeToOverlay('/conflicts/other.json', '{"new": true}');
 
     patch.release();
     await commitPromise;
@@ -258,8 +258,8 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     // Neither the overwritten path nor the new path were part of what got
     // committed — both must still be staged.
     const overlay = backend.getSessionOverlay('alice');
-    expect(overlay?.get('taxonomy/nodes.json')).toBe('{"v": 2}');
-    expect(overlay?.get('taxonomy/other.json')).toBe('{"new": true}');
+    expect(overlay?.get('conflicts/nodes.json')).toBe('{"v": 2}');
+    expect(overlay?.get('conflicts/other.json')).toBe('{"new": true}');
 
     // A second commit persists them.
     const second = await backend.commitOverlay('alice');
@@ -271,7 +271,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'dave', branchName: 'api-session/dave' });
     mockSessionBranchLookup('api-session/dave', 'blob1');
-    const firstWrite = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const firstWrite = await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     // Patch the private clearing step to reproduce exactly what
     // commitOverlayImpl called at this point before C1 — clearSessionOverlay's
@@ -287,8 +287,8 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     const commitPromise = backend.commitOverlay('dave');
     await getRefStarted;
 
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: firstWrite.version });
-    backend.writeToOverlay('/taxonomy/other.json', '{"new": true}');
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 2}', { baseSha: firstWrite.version });
+    backend.writeToOverlay('/conflicts/other.json', '{"new": true}');
 
     patch.release();
     await commitPromise;
@@ -300,7 +300,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'bob', branchName: 'api-session/bob' });
     mockSessionBranchLookup('api-session/bob', 'blob1');
-    const firstWrite = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const firstWrite = await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     const getRefStarted = onRequestStarted('GET', '/git/refs/heads/');
     const patch = gateRequest('PATCH', '/git/refs/heads/');
@@ -310,7 +310,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
 
     // Second write + two triggers land while the first commit is still
     // running (provably — not assumed from timing).
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: firstWrite.version });
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 2}', { baseSha: firstWrite.version });
     const second = backend.commitOverlay('bob');
     const third = backend.commitOverlay('bob');
 
@@ -326,7 +326,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'carol', branchName: 'api-session/carol' });
     mockSessionBranchLookup('api-session/carol', 'blob1');
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     const patch = gateRequest('PATCH', '/git/refs/heads/');
     // commitOverlayImpl is the unguarded inner method the public
