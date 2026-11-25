@@ -25,6 +25,7 @@ Target: **≤20 new PRs a day** team-wide (7-day average). PRs are few and big (
 - **Own PR only** for broken `main`, an incident, a security fix, or a PI request, with the TL's recorded go. These still count against the budget.
 - **Experiment and throwaway PRs** don't go on this repo. They go to the sandbox repo (t/569, needs the PI).
 - **Backstop:** the t/564 budget counts each `feat/` or `train/` PR as one, however many tickets it carries.
+- **Moving commits onto a train (t/608, TL p/7#225).** Moving commits from a PR onto a train (or another PR) carries that PR's CI result. A commit from a PR with a red required check is not clean until the failure is fixed or shown to be unrelated, and that is said in the move comment. The train owner runs the full suite for the train's area before the train PR opens.
 
 **Budget numbers (unchanged):**
 
@@ -36,8 +37,6 @@ Target: **≤20 new PRs a day** team-wide (7-day average). PRs are few and big (
 - **Docs edits go on the weekly docs train** (`docs/weekly-YYYY-WW`), as listed above. An urgent rule change, such as an incident, can still go alone with a TL go.
   - Overlay-only guidance (role AGENTS.md, playbooks, Interweave apps) never needs a main-repo PR: commit it with `ogit`.
 - **Team daily budget (t/564, PI directive 2026-11-25):** `enqueue-pr.mjs` refuses non-exempt PRs past 20 new PRs in a UTC day (`feat/` and `train/` branches count once). At 15 the TL and that day's authors are warned. Over-budget PRs wait, oldest first, for a later day's free slots (t/564). DevOps Lead's metric job still posts the day's count at 12:00Z and 18:00Z.
-
-**Moving commits onto a train (t/608, TL p/7#225).** Moving commits from a PR onto a train (or another PR) carries that PR's CI result. A commit from a PR with a red required check is not clean until the failure is fixed or shown to be unrelated, and that is said in the move comment. The train owner runs the full suite for the train's area before the train PR opens.
 
 ## Data repo PRs (ai-triad-data, TL p/7#221)
 
