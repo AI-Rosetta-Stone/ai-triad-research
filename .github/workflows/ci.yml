@@ -2183,6 +2183,11 @@ jobs:
       - name: pr-triage activity-facts suite
         run: node --test operations/devops/pr-triage-activity.test.mjs
 
+      # t/627: the staging data account what-if guard (staging-data-account.yml) allows only the
+      # account and its share, and never a change naming the prod account.
+      - name: staging data account what-if guard suite
+        run: node --test operations/devops/staging-data-account-whatif-guard.test.mjs
+
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
 
