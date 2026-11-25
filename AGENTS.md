@@ -42,6 +42,7 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 
 - **Ownership:** for `.github/workflows/*` and other paths `resolve-owner` can't express, `docs/ownership-exceptions.md` wins.
 - **Landing code:** see `docs/pr-landing.md`.
+  - Every ticket lands in a feature PR (`feat/t<N>`) or an area train (`train/<area>-YYYYMMDD`); open your own PR only for broken main, an incident, a security fix or a PI request with the TL's go (`docs/pr-landing.md`).
   - Merge through a PR to `main` via the merge queue.
   - Enqueue only pinned, with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`. If it refuses, stop and escalate; never fall back to the raw `enablePullRequestAutoMerge` mutation, and never run `gh pr merge` in any form (with or without `--auto`): on a merge-queue branch even a plain `gh pr merge` arms auto-merge and enters the queue, skipping the approval guard (PI-approved 2026-11-09, t/4939; t/537).
   - **Never push to a queued PR.**
