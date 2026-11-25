@@ -446,6 +446,23 @@ test('t/116(b) arm 1b: an approved TL, then a later changes-request from a HUMAN
   assert.equal(checkR6(true, [], [SO_MARK], reviews, HEAD, APP_LOGIN, PUSH_AT), true);
 });
 
+test('t/116(b) PI ruling (t/116#31): an App COMMENT "Approved (PI):" or "Approved (Tech Lead):" does NOT satisfy R6 -- reviews only', () => {
+  for (const body of ['Approved (PI): go.', 'Approved (Tech Lead): go.']) {
+    const comments = [SO_MARK, { login: APP_LOGIN, body, createdAt: '2026-10-19T12:06:00Z' }];
+    assert.equal(checkR6(true, [], comments, [], HEAD, APP_LOGIN, PUSH_AT), true, `App comment "${body}" must not approve`);
+  }
+});
+
+test('t/116(b) PI ruling control: the same approval as an App REVIEW at the head satisfies R6', () => {
+  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (PI): go.', submittedAt: '2026-10-19T12:06:00Z' }];
+  assert.equal(checkR6(true, [], [SO_MARK], reviews, HEAD, APP_LOGIN, PUSH_AT), false);
+});
+
+test('t/116(b) PI ruling: an App comment still BLOCKS (comments stay in the blocks call)', () => {
+  const comments = [SO_MARK, { login: APP_LOGIN, body: 'Changes requested (Quality): no.', createdAt: '2026-10-19T12:10:00Z' }];
+  assert.equal(checkR6(true, [], comments, [TL_AT_HEAD], HEAD, APP_LOGIN, PUSH_AT), true);
+});
+
 test('t/116(b) arm 2: changes-requested by Quality, then Quality re-approves at the head -> UNBLOCKED (with TL approval and SO marker)', () => {
   const comments = [
     SO_MARK,

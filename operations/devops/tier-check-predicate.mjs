@@ -300,14 +300,15 @@ export function checkR6(tierOrR1, labels, comments, reviews, headSha, reviewerAp
 
   // t/116(b) (TL p/12#58): the approval comes from the shared gate-mode verdicts, not from a review's
   // state. Approvals are head-bound. A changes-request is sticky across pushes and blocks whatever
-  // other approvals exist. Only reviewer-App reviews and comments clear a role verdict, so a
-  // shared-login comment cannot lift a block (Quality t/116#12, t/116#14).
+  // other approvals exist. Only reviewer-App reviews clear a role verdict, so no comment (shared login
+  // or App) can lift a block or approve (Quality t/116#12, t/116#14; PI ruling t/116#31).
   // Any outstanding changes-request blocks, from any reviewer and through any comment path.
   const blocks = latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSha, lastPushAt, mode: 'gate' });
   if ([...blocks.values()].some((v) => v.kind === 'changes_requested')) return true;
-  // Approvals count only from the reviewer App. A shared-login comment can't clear a role (t/116#12).
-  const appComments = (comments ?? []).filter((c) => c.login === reviewerAppLogin);
-  const approvals = latestRoleVerdicts({ reviews, comments: appComments, reviewerAppLogin, headSha, lastPushAt, mode: 'gate' });
+  // Approvals count only from reviewer-App REVIEWS bound to the head. No comment approves, not even
+  // one posted by the App: PI ruling t/116#31 ('only a reviewer-App review counts ... never an
+  // Approved (PI): comment'), the same rule enqueue-pr applies (t/534). Comments still BLOCK above.
+  const approvals = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin, headSha, lastPushAt, mode: 'gate' });
   const approved = [...approvals].some(([role, v]) => v.kind === 'approved' && TL_OR_PI_ROLE_RE.test(role));
 
   const soCleared = (comments ?? []).some((c) => {
