@@ -13,6 +13,8 @@
 // Every other case keeps the all-clear procedure (docs/shared-tree-divergence.md): this exits 2 and the
 // caller pings the Lead as it does today.
 //
+// The merge runs with HOOKS OFF (`-c core.hooksPath=<empty temp dir>`), so .githooks/post-merge and its
+// worktree sweep never run unattended from the just-landed tree; this script runs no sweep either.
 // NEVER resets, stashes, cleans or moves files. Fails closed: an unreadable condition, a failed notice
 // or a failed hold read means no fast-forward, and the Lead is pinged.
 //
@@ -26,6 +28,7 @@
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -129,11 +132,16 @@ export async function appRun(app, command, input, { fetchFn = fetch } = {}) {
 
 const short = (sha) => String(sha ?? '').slice(0, 9);
 
+/** PURE. The fast-forward's argv: hooks disabled via an empty core.hooksPath, merge to the exact SHA. */
+export function ffArgv(hooksDir, target) {
+  return ['-c', `core.hooksPath=${hooksDir}`, 'merge', '--ff-only', '-q', target];
+}
+
 /**
  * One run. `deps`: { git, fsx, app (appRun-shaped), sleep(ms), now() }. Returns { exit, action, ... }.
  */
 export async function run({ root, sender, lead, noticeMinutes = NOTICE_MINUTES, dryRun = false, deps }) {
-  const { git, fsx, app, sleep, now } = deps;
+  const { git, fsx, app, sleep, now, hooks } = deps;
   const log = (m) => console.log(m);
   const pingLead = async (body) => {
     try { await app('chat', 'send', { sender, to: lead, body }); } catch (err) { console.warn(`WARN: could not ping the Lead: ${err.message}`); }
@@ -193,12 +201,24 @@ export async function run({ root, sender, lead, noticeMinutes = NOTICE_MINUTES, 
     await pingLead(`Shared-checkout fast-forward (t/604) STOPPED at the re-check: ${v2.reasons.join('; ')}. Not fast-forwarding.`);
     return { exit: 3, action: 'stopped', reasons: v2.reasons, notices };
   }
+  // Hooks OFF (Security on #5517, Lead p/233#144): a merge fires .githooks/post-merge, which would run
+  // sweep-landed-worktrees.sh from the just-landed tree, unattended. Point core.hooksPath at an empty
+  // temp dir (Windows git rejects /dev/null). No hooks dir means no merge: fail closed.
+  let hooksDir;
   try {
-    git(['merge', '--ff-only', '-q', again.target]);
+    hooksDir = hooks.make();
+  } catch (err) {
+    await pingLead(`Shared-checkout fast-forward (t/604) STOPPED: could not make an empty hooks dir (${err.message}), and the merge never runs with hooks on. Not fast-forwarding.`);
+    return { exit: 3, action: 'stopped', reasons: [`no-hooks-dir: ${err.message}`], notices };
+  }
+  try {
+    git(ffArgv(hooksDir, again.target));
   } catch (err) {
     const why = String(err?.stderr || err?.message || err).trim().split('\n')[0];
     await pingLead(`Shared-checkout fast-forward (t/604) FAILED: \`git merge --ff-only\` refused (${why}). Nothing else was touched.`);
     return { exit: 3, action: 'stopped', reasons: [`ff-failed: ${why}`], notices };
+  } finally {
+    try { hooks.remove(hooksDir); } catch { console.warn(`WARN: could not remove the empty hooks dir ${hooksDir}; harmless, left in the temp folder.`); }
   }
   const after = String(git(['rev-parse', 'HEAD'])).trim();
   const body = `**Shared checkout fast-forwarded (t/604, TL standing rule p/9#583).** ${short(again.head)} → ${short(after)} = origin/main (${again.behind} commits). ` +
@@ -230,6 +250,10 @@ if (isCliEntry) {
     app: (a, c, i) => appRun(a, c, i),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     now: () => Date.now(),
+    hooks: {
+      make: () => fs.mkdtempSync(path.join(os.tmpdir(), 'aitriad-nohooks-')),
+      remove: (d) => fs.rmdirSync(d), // rmdir, not rm -r: it is empty, and stays a no-op if anything appeared in it
+    },
   };
   const noticeMinutes = Number(opt('--notice-minutes') ?? NOTICE_MINUTES);
   run({ root, sender, lead, noticeMinutes, dryRun: args.includes('--dry-run'), deps })

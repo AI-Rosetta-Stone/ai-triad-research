@@ -8,7 +8,9 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { collectFacts, findHolds, run, safeCaseVerdict, writersSince, NOTICE_TEXT, TICKET } from './shared-checkout-ff.mjs';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { collectFacts, ffArgv, findHolds, run, safeCaseVerdict, writersSince, NOTICE_TEXT, TICKET } from './shared-checkout-ff.mjs';
 
 const ROOT = path.resolve('/repo');
 const SENDER = 'worker-id';
@@ -29,8 +31,11 @@ function world(o = {}) {
     calls: [],
     ...o,
   };
-  w.git = (args) => {
-    w.calls.push(args.join(' '));
+  w.git = (argv) => {
+    w.calls.push(argv.join(' '));
+    // Leading `-c key=value` pairs are config for this one call (the ff's core.hooksPath); route on the rest.
+    let args = argv;
+    while (args[0] === '-c') args = args.slice(2);
     const a = args.join(' ');
     if (args[0] === 'fetch') { if (w.fetchFails) throw Object.assign(new Error('fatal: no network'), { stderr: 'fatal: no network' }); return ''; }
     if (a === 'rev-parse --abbrev-ref HEAD') return `${w.branch}\n`;
@@ -87,12 +92,17 @@ async function go(w, app, extra = {}) {
   const logs = [];
   const mocks = [mock.method(console, 'log', (l) => logs.push(String(l))), mock.method(console, 'warn', (l) => logs.push(String(l)))];
   try {
-    const out = await run({ root: ROOT, sender: SENDER, lead: LEAD, deps: { git: w.git, fsx: w.fsx, app, sleep: async (ms) => { sleeps.push(ms); if (extra.duringWait) extra.duringWait(w); }, now: () => NOW }, ...extra });
-    return { out, sleeps, logs };
+    const hooks = extra.hooks ?? {
+      made: [], removed: [],
+      make() { if (extra.hooksFail) throw new Error('EACCES'); const d = path.join(path.resolve('/tmp'), `nohooks-${this.made.length}`); this.made.push(d); return d; },
+      remove(d) { this.removed.push(d); },
+    };
+    const out = await run({ root: ROOT, sender: SENDER, lead: LEAD, deps: { git: w.git, fsx: w.fsx, app, hooks, sleep: async (ms) => { sleeps.push(ms); if (extra.duringWait) extra.duringWait(w); }, now: () => NOW }, ...extra });
+    return { out, sleeps, logs, hooks };
   } finally { mocks.forEach((m) => m.mock.restore()); }
 }
 const sends = (app) => app.calls.filter((c) => c.appName === 'chat' && c.command === 'send');
-const merged = (w) => w.calls.some((c) => c.startsWith('merge --ff-only'));
+const merged = (w) => w.calls.some((c) => /(^| )merge --ff-only/.test(c));
 
 // ---- the five conditions (pure verdict over collected facts) ----
 test('safe: on main, behind, clean, nothing in the way, no locks, fast-forwardable', () => {
@@ -154,13 +164,16 @@ test('happy path: notice the writers and the Lead, wait 5 min, re-check, ff-only
   const w = world({ others: ['engineering/tech-lead/decisions/d.md', 'agent-devops/x.md'],
     files: { 'engineering/tech-lead/decisions/d.md': { mtimeMs: NOW - 600000 }, 'agent-devops/x.md': { mtimeMs: NOW - 9000000 } } });
   const app = fakeApp({ owners: { 'engineering/tech-lead/decisions': TL } });
-  const { out, sleeps } = await go(w, app);
+  const { out, sleeps, hooks } = await go(w, app);
   assert.equal(out.exit, 0, JSON.stringify(out));
   assert.equal(out.action, 'fast-forwarded');
   assert.deepEqual(sleeps, [5 * 60 * 1000]);
   assert.deepEqual(sends(app).map((s) => s.input.to), [LEAD, TL], 'the Lead plus the recent writer (the old write is outside 2 h)');
   assert.ok(sends(app).every((s) => s.input.body.startsWith(NOTICE_TEXT) && s.input.sender === SENDER));
-  assert.ok(w.calls.includes(`merge --ff-only -q ${TARGET}`), w.calls.join('\n'));
+  // Hooks OFF (Security on #5517): the exact argv, with core.hooksPath at the empty dir made for it.
+  assert.equal(hooks.made.length, 1);
+  assert.ok(w.calls.includes(`-c core.hooksPath=${hooks.made[0]} merge --ff-only -q ${TARGET}`), w.calls.join('\n'));
+  assert.deepEqual(hooks.removed, hooks.made, 'the empty hooks dir is removed afterwards');
   assert.equal(w.calls.filter((c) => c === 'fetch -q origin').length, 2, 'the conditions are read again (with a fetch) right before');
   const post = app.calls.find((c) => c.appName === 'tickets');
   assert.equal(post.input.id, TICKET);
@@ -232,7 +245,7 @@ test('re-check: origin/main moved during the wait -> ff to the NEW target, colli
   const app = fakeApp();
   const { out } = await go(w, app, { duringWait: (x) => { x.target = 'ccccccccc3333'; x.behind = 4; } });
   assert.equal(out.exit, 0);
-  assert.ok(w.calls.includes('merge --ff-only -q ccccccccc3333'));
+  assert.ok(w.calls.some((c) => c.endsWith('merge --ff-only -q ccccccccc3333')));
 });
 
 test('ff-only refusal is reported, never retried another way', async () => {
@@ -260,4 +273,36 @@ test('the sender is never noticed (chat refuses a send to yourself); dry-run sen
   assert.deepEqual(out.recipients, [LEAD]);
   assert.deepEqual(sends(app), []);
   assert.equal(merged(w), false);
+});
+
+// ---- hooks off (Security on #5517, Lead p/233#144, t/604) ----
+test('ffArgv: hooks disabled through an empty core.hooksPath, then merge --ff-only to the exact SHA', () => {
+  assert.deepEqual(ffArgv('/tmp/nohooks-x', TARGET), ['-c', 'core.hooksPath=/tmp/nohooks-x', 'merge', '--ff-only', '-q', TARGET]);
+});
+
+test('every merge the run makes carries core.hooksPath (no bare merge), on the happy path and on a refusal', async () => {
+  for (const o of [{}, { mergeFails: true }]) {
+    const w = world(o);
+    const { hooks } = await go(w, fakeApp());
+    const merges = w.calls.filter((c) => /(^| )merge --ff-only/.test(c));
+    assert.equal(merges.length, 1, JSON.stringify(o));
+    assert.ok(merges[0].startsWith(`-c core.hooksPath=${hooks.made[0]} `), merges[0]);
+    assert.deepEqual(hooks.removed, hooks.made, `removed even when the merge failed: ${JSON.stringify(o)}`);
+  }
+});
+
+test('fail closed: no empty hooks dir -> no merge (never with hooks on), the Lead is told', async () => {
+  const w = world();
+  const app = fakeApp();
+  const { out } = await go(w, app, { hooksFail: true });
+  assert.equal(out.exit, 3);
+  assert.deepEqual(out.reasons, ['no-hooks-dir: EACCES']);
+  assert.equal(merged(w), false);
+  assert.match(sends(app).at(-1).input.body, /could not make an empty hooks dir/);
+});
+
+test('the script runs no worktree sweep and no hook itself (code lines, comments excluded)', () => {
+  const src = readFileSync(fileURLToPath(new URL('./shared-checkout-ff.mjs', import.meta.url)), 'utf8');
+  const code = src.split('\n').filter((l) => !/^\s*(\/\/|\*)/.test(l)).join('\n');
+  assert.doesNotMatch(code, /sweep-landed-worktrees|post-merge|\.githooks/);
 });
