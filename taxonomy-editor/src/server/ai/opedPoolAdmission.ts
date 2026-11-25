@@ -4,7 +4,8 @@
 // t/616 (t/501, TL p/16#374 and p/16#376, Security p/93#69 and p/93#71): an op-ed run on the free key pool is
 // admitted against the shared daily pool budget BEFORE its SSE stream opens, then draws the pool down per call.
 //
-//   - Admission is sized from the run's own worst case: voices x stages x (prompt bound + maxTokens), capped at the
+//   - Admission is sized from the run's own worst case: calls x (prompt bound + maxTokens), calls = voices x 7
+//     (8 with source, the reflection retry) + 1 source brief, capped at the
 //     tokens $5 can buy on the run's model (ANON_OPED_PER_RUN_CAP_USD). If the pool can't hold it, the run is
 //     refused with 429 free_pool_exhausted before any provider call (Security p/93#71 (a)).
 //   - Each call draws down against the admission (the debate design, t/4485). Past 2x the admission, a call falls
@@ -28,8 +29,13 @@ import {
 } from './freePoolBudgetGate.js';
 
 /** Provider calls one voice can make in lib/oped/generate.ts: generation, coherence judge, rewrite and re-judge,
- *  readability edit and its one retry, grounding reflection. Keep in step with generate.ts's callStage sites. */
+ *  readability edit and its one retry, grounding reflection. Keep in step with generate.ts's callStage sites
+ *  (opedAdmissionSizing.test.ts counts them). */
 export const OPED_MAX_CALLS_PER_VOICE = 7;
+/** t/616 (SO p/252#54): with source material, a voice can make one more: the reflection retry (generate.ts
+ *  runReflection(0), t/2919), taken when the first reflection returns no claims but the source brief has key claims.
+ *  Without source there are no key claims, so the retry can't happen. */
+export const OPED_SOURCE_EXTRA_CALLS_PER_VOICE = 1;
 /** The set-level source brief, made once when the run has source material. */
 export const OPED_SET_CALLS_WITH_SOURCE = 1;
 /** The largest maxTokens any op-ed stage asks for, outside generation (reflection's floor is 4000; it grows with
@@ -65,8 +71,9 @@ export function tokensForRunCap(registry: ModelRegistry, model: string): number 
 /** The run's worst case in calls and tokens, with tokens capped at what $5 buys. Tokens are bounded by bytes
  *  (every token covers at least one byte), as in opedAdapter's per-call ceiling. */
 export function opedAdmissionEstimate(shape: OpEdRunShape, capTokens: number | undefined): { calls: number; tokens: number } {
-  const voiceCalls = shape.voices * OPED_MAX_CALLS_PER_VOICE;
-  const calls = voiceCalls + (shape.sourceBytes > 0 ? OPED_SET_CALLS_WITH_SOURCE : 0);
+  const hasSource = shape.sourceBytes > 0;
+  const voiceCalls = shape.voices * (OPED_MAX_CALLS_PER_VOICE + (hasSource ? OPED_SOURCE_EXTRA_CALLS_PER_VOICE : 0));
+  const calls = voiceCalls + (hasSource ? OPED_SET_CALLS_WITH_SOURCE : 0);
   const promptBound = shape.sourceBytes + OPED_PROMPT_TEMPLATE_BOUND_BYTES;
   const maxOut = Math.max(shape.generationMaxTokens, OPED_STAGE_MAX_TOKENS_FLOOR);
   const worst = calls * (promptBound + maxOut);
