@@ -40,6 +40,7 @@ describe('t/632: documentPickErrorLine', () => {
     ['Failed to extract text from document', 'Invalid PDF structure', SCANNED_PDF_LINE],
     ['Failed to extract text from document', "Cannot find module 'mammoth'", appFaultLine()],
     ['Failed to extract text from document', 'spawn EPERM', appFaultLine()],
+    ['the extraction process exited (1) without a result', '', appFaultLine()],
   ])('%s / %s', (problem, inner, expected) => {
     expect(documentPickErrorLine(new Error(ipc(problem, inner)))).toBe(expected);
   });

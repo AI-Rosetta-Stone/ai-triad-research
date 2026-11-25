@@ -22,8 +22,9 @@ function isRawErrorText(text: string): boolean {
   return /Error invoking remote method/.test(text) || /\bGoal:\s/.test(text) || /\bResolve:\s/.test(text);
 }
 
-/** A failure that isn't caused by the file: missing modules, file-system permissions, the isolated child, busy. */
-const APP_FAULT = /ENOENT|Cannot find module|MODULE_NOT_FOUND|EACCES|EPERM|ERR_ACCESS_DENIED|spawn|isolated|EXTRACTION_BUSY|EXTRACTION_MEMORY_LIMIT/i;
+/** A failure that isn't caused by the file: missing modules, file-system permissions, the isolated child dying
+ *  without a reply (isolatedParse: "the extraction process exited (N) without a result"), busy. */
+const APP_FAULT = /ENOENT|Cannot find module|MODULE_NOT_FOUND|EACCES|EPERM|ERR_ACCESS_DENIED|spawn|isolated|EXTRACTION_BUSY|EXTRACTION_MEMORY_LIMIT|extraction process exited/i;
 
 function lineForRaw(text: string, name?: string): string {
   if (/password-protected|encrypted/i.test(text)) return 'This file is password-protected. Remove the password, then choose it again.';
