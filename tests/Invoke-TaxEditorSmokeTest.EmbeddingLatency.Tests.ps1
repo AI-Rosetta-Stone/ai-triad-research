@@ -38,6 +38,25 @@ Describe 'Measure-EmbeddingLatency — timed probe arms (t/3088)' -Tag 'health' 
         }
     }
 
+    It 'DEGRADED (no vectors): a fast 200 that returns no vectors measured nothing (t/621)' {
+        InModuleScope AITriad {
+            # Prod, run 45617524758: `109ms (ceiling 2s, 0 vectors, http 200)` was reported as PASS.
+            Mock Invoke-RemoteCheck -MockWith {
+                [PSCustomObject]@{ Success = $true; StatusCode = 200; ResponseMs = 109
+                    Body = [PSCustomObject]@{ vectors = @() }; ContentType = 'application/json'; RawBody = ''; Error = $null }
+            }
+            $r = Measure-EmbeddingLatency -BaseUrl 'https://stub' -CeilingSec 2
+            $r.Status | Should -Be 'degraded' -Because 'a response that looked nothing up is fast whatever state the cache is in'
+            $r.Count  | Should -Be 0
+            $r.Error  | Should -Be 'no vectors returned; latency not measured'
+            # A body with no vectors field at all reads the same way.
+            Mock Invoke-RemoteCheck -MockWith {
+                [PSCustomObject]@{ Success = $true; StatusCode = 200; ResponseMs = 90; Body = [PSCustomObject]@{ ok = $true }; ContentType = 'application/json'; RawBody = ''; Error = $null }
+            }
+            (Measure-EmbeddingLatency -BaseUrl 'https://stub' -CeilingSec 2).Status | Should -Be 'degraded'
+        }
+    }
+
     It 'DEGRADED (slow): a 200 OVER the ceiling → Status degraded (the correct-but-100x-slow catch)' {
         InModuleScope AITriad {
             Mock Invoke-RemoteCheck -MockWith {
@@ -177,6 +196,40 @@ Describe 'Invoke-TaxEditorSmokeTest — embedding probe is its OWN category, NON
             $script:EmbMs = 5000
             $out = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' -HealthMaxAttempts 1 6>&1 | Out-String
             $out | Should -Match '::warning::Embedding latency degraded'
+        }
+    }
+
+    It 'the phase gives the probe an anonymous session (t/621: without one the route answers 401 or returns no vectors)' {
+        InModuleScope AITriad {
+            $script:EmbMs = 150
+            $script:ProbeSession = 'not called'
+            Mock Measure-EmbeddingLatency -MockWith {
+                $script:ProbeSession = $Session
+                [PSCustomObject]@{ DurationMs = 150; Status = 'ok'; Count = 4; HttpStatus = 200; CeilingSec = 2; NodeIds = @('x'); Error = $null }
+            }
+            $null = Invoke-SmokeEmbeddingLatencyPhase -BaseUrl 'https://stub' -TimeoutSec 5 -CeilingSec 2 6>$null
+            $script:ProbeSession | Should -BeOfType ([Microsoft.PowerShell.Commands.WebRequestSession])
+            # No session to be had: the probe still runs, with none, and the phase says so.
+            Mock New-AnonymousWebSession -MockWith { $null }
+            $script:ProbeSession = 'not called'
+            $out = Invoke-SmokeEmbeddingLatencyPhase -BaseUrl 'https://stub' -TimeoutSec 5 -CeilingSec 2 6>&1 | Out-String
+            $script:ProbeSession | Should -BeNullOrEmpty
+            $out | Should -Match 'anonymous session not established'
+        }
+    }
+
+    It 'a probe that returns no vectors is a warning with the reason, and does not sink OverallPass (t/621)' {
+        InModuleScope AITriad {
+            Mock Measure-EmbeddingLatency -MockWith {
+                [PSCustomObject]@{ DurationMs = 109; Status = 'degraded'; Count = 0; HttpStatus = 200; CeilingSec = 2; NodeIds = @('x'); Error = 'no vectors returned; latency not measured' }
+            }
+            $out = Invoke-SmokeEmbeddingLatencyPhase -BaseUrl 'https://stub' -TimeoutSec 5 -CeilingSec 2 6>&1 | Out-String
+            $out | Should -Match '\[DEGRADED\] embeddings\.compute'
+            $out | Should -Match 'no vectors returned, latency not measured'
+            $out | Should -Match '::warning::Embedding latency degraded'
+            $result = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' -HealthMaxAttempts 1 6>$null
+            $result.EmbeddingStatus | Should -Be 'degraded'
+            $result.OverallPass | Should -BeTrue -Because 'the probe is a monitoring signal; it never fails a deploy'
         }
     }
 

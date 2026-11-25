@@ -413,13 +413,23 @@ function Invoke-SmokeEmbeddingLatencyPhase {
     Write-Host '=== Embedding Latency ===' -ForegroundColor Cyan
     $Status = 'ok'
     $Ms     = 0
+    # An anonymous session, as the Analytics and DataPresence phases use (t/621). Without it the
+    # compute route answers 401 in the CI container, and in prod it answered 200 with no vectors,
+    # so the probe timed a request that looked nothing up and reported PASS.
+    $Session = New-AnonymousWebSession -BaseUrl $BaseUrl -TimeoutSec $TimeoutSec
+    if (-not $Session) {
+        Write-Host '  (anonymous session not established — the embedding probe may be refused or return no vectors)' -ForegroundColor DarkYellow
+    }
     try {
-        $Perf = Measure-EmbeddingLatency -BaseUrl $BaseUrl -CeilingSec $CeilingSec -TimeoutSec $TimeoutSec
+        $ProbeParams = @{ BaseUrl = $BaseUrl; CeilingSec = $CeilingSec; TimeoutSec = $TimeoutSec }
+        if ($Session) { $ProbeParams.Session = $Session }
+        $Perf = Measure-EmbeddingLatency @ProbeParams
         $Status = $Perf.Status
         $Ms     = $Perf.DurationMs
         $PerfIcon  = if ($Perf.Status -eq 'ok') { '[PASS]' } else { '[DEGRADED]' }
         $PerfColor = if ($Perf.Status -eq 'ok') { 'Green' } else { 'Yellow' }
-        Write-Host "  $PerfIcon embeddings.compute — $($Perf.DurationMs)ms (ceiling $($CeilingSec)s, $($Perf.Count) vectors, http $($Perf.HttpStatus))" -ForegroundColor $PerfColor
+        $PerfWhy   = if ($Perf.Status -ne 'ok' -and $Perf.Count -eq 0 -and $Perf.HttpStatus -eq 200) { '; no vectors returned, latency not measured' } else { '' }
+        Write-Host "  $PerfIcon embeddings.compute — $($Perf.DurationMs)ms (ceiling $($CeilingSec)s, $($Perf.Count) vectors, http $($Perf.HttpStatus)$PerfWhy)" -ForegroundColor $PerfColor
     } catch {
         # New-ActionableError from an unreachable server — report degraded, do NOT crash the smoke.
         $Status = 'unreachable'
