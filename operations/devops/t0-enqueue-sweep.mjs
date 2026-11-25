@@ -36,7 +36,7 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
-import { checkVerdict, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
+import { checkVerdict, disarmViaGraphql, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { ejectedBatchVerdict, listMergeGroupRuns, listRunJobs, readJobLog } from './ejected-batch.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
@@ -477,7 +477,8 @@ export async function enqueueOne(repo, pr, { enqueueOpts, deps = {} } = {}) {
   try {
     // An arm that never reached the queue (the silent-miss class, t/4740) is a no-op to
     // re-arm, so clear it first.
-    if (pr.armed) ghFn(['pr', 'merge', String(pr.number), '-R', repo, '--disable-auto']);
+    // t/600: disarm through GraphQL; no `gh pr merge` outside enqueue-pr.mjs (Security p/131#66).
+    if (pr.armed) disarmViaGraphql(repo, pr.number, ghFn);
     const result = enqueueOpts ? await enqueue(repo, pr.number, enqueueOpts) : await enqueue(repo, pr.number);
     console.log(`enqueued #${pr.number} (${JSON.stringify(result)})`);
     return 'enqueued';

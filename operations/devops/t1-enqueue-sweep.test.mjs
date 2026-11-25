@@ -342,7 +342,12 @@ function harness({ listed, live }) {
     enqueueDeps: {
       readLive: () => live,
       enqueue: async (repo, n, opts) => { calls.enqueue.push({ n, opts }); return { ok: true, state: 'queued' }; },
-      ghFn: (args) => { calls.gh.push(args); return ''; },
+      ghFn: (args) => {
+        calls.gh.push(args);
+        // t/600: the disarm is GraphQL now; answer the node-id read.
+        if (args.join(' ').includes('pullRequest(number')) return JSON.stringify({ data: { repository: { pullRequest: { id: 'PR_1', autoMergeRequest: { enabledAt: 'x' } } } } });
+        return '';
+      },
     },
   };
   return { calls, deps };
@@ -473,7 +478,10 @@ test('gate ON: the same PR is enqueued (disarmed first, pinned to its head), wit
     assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps: h.deps }), { 1: 'enqueued' });
   } finally { h.restore(); }
   assert.deepEqual(h.calls.enqueue, [{ n: 1, opts: { expectedHeadOid: HEAD } }]);
-  assert.deepEqual(h.calls.gh, [['pr', 'merge', '1', '-R', 'o/r', '--disable-auto']]);
+  // t/600: disarmed through GraphQL (node-id read, then disablePullRequestAutoMerge); never `gh pr merge`.
+  assert.equal(h.calls.gh.length, 2);
+  assert.ok(h.calls.gh[1].join(' ').includes('disablePullRequestAutoMerge'));
+  assert.ok(h.calls.gh.every((a) => !(a[0] === 'pr' && a[1] === 'merge')));
   assert.equal(h.calls.readLive, 1);
   assert.ok(!h.logs.some((l) => l.startsWith('[enqueue off]')));
   assert.ok(h.logs.some((l) => /^T1 sweep: enqueue is ON/.test(l)));

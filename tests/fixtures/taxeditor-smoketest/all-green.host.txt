@@ -15,10 +15,8 @@ Smoke testing: https://stub
 === GitHub Services ===
   [PASS] Status page — all systems
 
-=== Analytics Round-Trip ===
+=== Analytics Write ===
   [PASS] POST /api/analytics/event — 200 10ms
-  [PASS] GET /api/analytics/query (delta read-back) — 200 20ms
-  [PASS] GET /api/analytics/query (view.dwell eventType) — 200 10ms
 
 === Data Presence ===
   [PASS] GET /api/entities — 200 (3 rows) 10ms
@@ -42,6 +40,6 @@ Smoke testing: https://stub
   Health:  Healthy
   Azure:   Healthy
   GitHub:  Healthy
-  Endpoints: 9/9 passed
-  Response: avg=18ms min=10ms max=42ms
+  Endpoints: 7/7 passed
+  Response: avg=19ms min=10ms max=42ms
   Duration: <masked>s

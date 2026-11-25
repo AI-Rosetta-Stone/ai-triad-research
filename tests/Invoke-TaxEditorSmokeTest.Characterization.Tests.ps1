@@ -154,23 +154,35 @@ Describe 'Invoke-TaxEditorSmokeTest characterization (t/3910)' -Tag 'health' {
 
     Context 'analytics arms not covered by the Analytics tests' {
 
+        # t/579: the smoke no longer reads /api/analytics/query, so these two arms can't be reached through
+        # Invoke-TaxEditorSmokeTest. The helpers are kept for the admin read-back (t/592); their wording is
+        # pinned here directly.
         It 'eventTypes missing from the read-back → dwell error names the missing field' {
-            $r = InModuleScope AITriad {
-                $script:Q = @((New-RC -Body (New-QueryBody -Total 5 -EventTypes $null)), (New-RC -Body (New-QueryBody -Total 6 -EventTypes $null)))
-                Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null
-            }
-            $dwell = @($r.FailedEndpoints | Where-Object Endpoint -eq 'GET /api/analytics/query (view.dwell eventType)')[0]
+            $dwell = InModuleScope AITriad { Get-SmokeAnalyticsDwellResult (New-RC -Body (New-QueryBody -Total 6 -EventTypes $null)) }
+            $dwell.Pass | Should -BeFalse
             $dwell.Error | Should -BeExactly 'eventTypes field missing from /api/analytics/query response'
         }
 
         It 'read-back fails → delta "Read-back failed" with the http error, dwell "after-read failed"' {
             $r = InModuleScope AITriad {
-                $script:Q = @((New-RC -Body (New-QueryBody -Total 5 -EventTypes @{})), (New-RC -Success $false -Status 500 -Err 'HTTP 500'))
-                Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null
+                $before = New-RC -Body (New-QueryBody -Total 5 -EventTypes @{})
+                $after = New-RC -Success $false -Status 500 -Err 'HTTP 500'
+                @{ Delta = (Get-SmokeAnalyticsDeltaResult -BaselineCheck $before -AfterCheck $after -Before 5 -After $null); Dwell = (Get-SmokeAnalyticsDwellResult $after) }
             }
-            $byEp = @{}; foreach ($f in $r.FailedEndpoints) { $byEp[$f.Endpoint] = $f }
-            $byEp['GET /api/analytics/query (delta read-back)'].Error | Should -BeExactly 'Read-back failed (status=500) — cannot confirm write landed: HTTP 500'
-            $byEp['GET /api/analytics/query (view.dwell eventType)'].Error | Should -BeExactly 'after-read failed (status=500) — cannot check eventTypes'
+            $r.Delta.Error | Should -BeExactly 'Read-back failed (status=500) — cannot confirm write landed: HTTP 500'
+            $r.Dwell.Error | Should -BeExactly 'after-read failed (status=500) — cannot check eventTypes'
+        }
+
+        It 'the smoke never reads the query route: a refused read changes nothing (t/579)' {
+            $r = InModuleScope AITriad {
+                $script:Q = @((New-RC -Success $false -Status 403 -Err 'HTTP 403'), (New-RC -Success $false -Status 403 -Err 'HTTP 403'))
+                $script:QIdx = 0
+                $res = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null 3>$null
+                @{ Result = $res; QueryReads = $script:QIdx }
+            }
+            $r.QueryReads | Should -Be 0
+            $r.Result.OverallPass | Should -BeTrue
+            @($r.Result.FailedEndpoints | Where-Object Category -eq 'Analytics').Count | Should -Be 0
         }
 
         It 'write returns 200 but ok:false and no error text → "Unexpected write response"' {
