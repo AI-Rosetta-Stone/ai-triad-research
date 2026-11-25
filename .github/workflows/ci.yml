@@ -3830,9 +3830,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Run F4 shim test
         run: |
-          chmod +x operations/devops/get-merge-group-prs.sh operations/devops/test-get-merge-group-prs-f4.sh operations/devops/test-get-merge-group-prs-ejected.sh
+          chmod +x operations/devops/get-merge-group-prs.sh operations/devops/test-get-merge-group-prs-f4.sh operations/devops/test-get-merge-group-prs-ejected.sh operations/devops/test-get-merge-group-prs-ratelimit.sh
           operations/devops/test-get-merge-group-prs-f4.sh
           operations/devops/test-get-merge-group-prs-ejected.sh
+          operations/devops/test-get-merge-group-prs-ratelimit.sh
       - name: Run C5 liveness lookup-failure shim test (SO P2)
         run: |
           chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-lookup-failure.sh
@@ -4335,7 +4336,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.ci-gate.result == 'success' }}
     needs: [ci-gate]
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
+    timeout-minutes: 25  # t/562: get-merge-group-prs.sh may wait up to 15 min for a GraphQL rate-limit reset; was 10 (longest green run under 5m)
     permissions:
       pull-requests: read
     steps:
@@ -4406,7 +4407,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.ci-gate.result == 'success' }}
     needs: [ci-gate]
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
+    timeout-minutes: 25  # t/562: get-merge-group-prs.sh may wait up to 15 min for a GraphQL rate-limit reset; was 10 (longest green run under 5m)
     permissions:
       pull-requests: read
     steps:
@@ -4492,7 +4493,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.ci-gate.result == 'success' }}
     needs: [ci-gate]
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # same budget as consult-hold-guard/joint-gv-guard above
+    timeout-minutes: 25  # same budget as consult-hold-guard/joint-gv-guard above (t/562: up to a 15-min rate-limit wait)
     permissions:
       pull-requests: read
       issues: read

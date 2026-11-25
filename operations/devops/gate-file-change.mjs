@@ -86,6 +86,7 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/test-check-vitest-shard-blobs.sh',
   'operations/devops/test-get-merge-group-prs-ejected.sh',
   'operations/devops/test-get-merge-group-prs-f4.sh',
+  'operations/devops/test-get-merge-group-prs-ratelimit.sh',
   'operations/devops/test-powershell-shard-durations.json',
 ];
 
