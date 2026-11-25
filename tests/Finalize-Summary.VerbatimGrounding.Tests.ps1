@@ -405,4 +405,20 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.R.Dropped | Should -Be 1
         $Out.Stored | Should -BeNullOrEmpty
     }
+
+    It 'an author name repeated on every page is blanked, so a quote across it is still exact' {
+        $Src = "Lawmakers should enforce existing laws to prohibit`nErik Torenberg`n`nharms and punish bad actors.`n" + (("Erik Torenberg`nMore text $([guid]::NewGuid().ToString('N')).`n") * 6)
+        $Quote = 'Lawmakers should enforce existing laws to prohibit harms and punish bad actors.'
+        $Out = & $script:Run $Src $Quote 'doc-short-header'
+        $Out.R.Snapped | Should -Be 0
+        $Out.R.Interleaved | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+    }
+
+    It 'leaves code in angle brackets alone: only HTML tags are blanked' {
+        $Src = 'The listing declares std::vector<int> to_activate; before the loop that fills it.'
+        $Out = & $script:Run $Src 'std::vector<int> to_activate;' 'doc-code'
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be 'std::vector<int> to_activate;'
+    }
 }

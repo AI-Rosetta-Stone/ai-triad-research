@@ -37,7 +37,9 @@ $script:VerbatimInterleaveWindow = 6000 # letters around a place searched for in
 $script:VerbatimMaxInnerGap = 8        # source letters one skip inside a snapped span may hold (a corrupted word, not a header)
 $script:VerbatimFooterMinRepeats = 3
 $script:VerbatimFooterMaxChars = 80
-$script:VerbatimFooterMinWords = 3     # a repeated one- or two-word line is a table cell or sidebar word, not a page header
+$script:VerbatimFooterMinWords = 3     # a repeated line of this many words is a page header at VerbatimFooterMinRepeats
+$script:VerbatimShortLineMinRepeats = 6 # a one- or two-word line (an author name, a section label) needs this many
+$script:VerbatimHtmlTagPattern = '(?i)</?(?:a|abbr|article|aside|b|blockquote|br|caption|cite|code|div|em|figcaption|figure|footer|h[1-6]|header|hr|i|img|li|mark|nav|ol|p|pre|q|s|section|small|span|strong|sub|sup|table|tbody|td|th|thead|tr|u|ul)(?:\s[^<>\r\n]{0,400})?/?>'
 $script:VerbatimWordTail = 2           # source letters past a quote word's end that a stored piece may take (a plural)
 $script:VerbatimElisionPattern = '\[\s*(?:\.{3,}|\u2026)\s*\]|\(\s*(?:\.{3,}|\u2026)\s*\)|(?:\.[ \u00A0]){2,}\.|\.{3,}|\u2026'
 $script:VerbatimUrlPattern = '(?i)\b(?:https?://|www\.)[^\s<>"\)\]]+'
@@ -60,17 +62,18 @@ function Get-VerbatimSource {
     foreach ($P in $script:EvidenceMojibakeSingles) { $W = $W.Replace($P[0], $P[1]) }
     # Same-length blanking of what is not text (t/389#20): HTML tags, and two mojibake forms of a
     # no-break space and an ellipsis that read as letters ("N.<a-acute>Li", "Ma, <a-grave> D. Hendrycks").
-    $W = [regex]::Replace($W, '</?[A-Za-z][^<>\r\n]{0,400}>', { param($M) ' ' * $M.Length })
+    $W = [regex]::Replace($W, $script:VerbatimHtmlTagPattern, { param($M) ' ' * $M.Length })
     $W = [regex]::Replace($W, '(?<=[\.,;:\)\]\d])\u00E1(?=[\p{Lu}\d\(\[])', ' ')
     $W = [regex]::Replace($W, '(?<=\s)\u00E0(?=\s)', ' ')
     $Lines = $W -split "(\r?\n)"
-    # A page header or footer: a short line of at least VerbatimFooterMinWords words, repeated, compared
-    # with case. One- and two-word lines repeat in tables and sidebars and are document text (S07, t/389#20).
+    # A page header or footer: a short line that repeats, compared with case. A line of three or more
+    # words needs VerbatimFooterMinRepeats; a one- or two-word line needs VerbatimShortLineMinRepeats,
+    # because words repeat as lines in sidebars and tables (S07, t/389#20). Blanking only hides text from
+    # matching. Only the longer lines are ever removed from a quote (Footers).
     $Counts = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
     foreach ($L in $Lines) {
         $T = $L.Trim()
-        if ($T.Length -gt 0 -and $T.Length -le $script:VerbatimFooterMaxChars -and
-            $T.Split([char[]]" `t", [System.StringSplitOptions]::RemoveEmptyEntries).Count -ge $script:VerbatimFooterMinWords) {
+        if ($T.Length -gt 0 -and $T.Length -le $script:VerbatimFooterMaxChars) {
             $N0 = 0
             [void]$Counts.TryGetValue($T, [ref]$N0)
             $Counts[$T] = $N0 + 1
@@ -82,8 +85,10 @@ function Get-VerbatimSource {
     foreach ($L in $Lines) {
         $T = $L.Trim()
         $Seen0 = 0
-        if ($T.Length -gt 0 -and $Counts.TryGetValue($T, [ref]$Seen0) -and $Seen0 -ge $script:VerbatimFooterMinRepeats) {
-            [void]$Footers.Add($T)
+        $Long = $T.Split([char[]]" `t", [System.StringSplitOptions]::RemoveEmptyEntries).Count -ge $script:VerbatimFooterMinWords
+        $Need = if ($Long) { $script:VerbatimFooterMinRepeats } else { $script:VerbatimShortLineMinRepeats }
+        if ($T.Length -gt 0 -and $Counts.TryGetValue($T, [ref]$Seen0) -and $Seen0 -ge $Need) {
+            if ($Long) { [void]$Footers.Add($T) }
             $BlankedAt.Add($Out.Length)
             [void]$Out.Append((' ' * $L.Length))
         } else {
