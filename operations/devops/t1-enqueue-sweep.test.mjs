@@ -504,9 +504,8 @@ test('parseCliArgs: each gate is on only with its own exact flag, independently 
   assert.equal(parseCliArgs(['--enqueue', '--nudge']).repo, null);
 });
 
-// Flipping T1_NUDGE to 'on' lets the sweep comment on real PRs; flipping T1_ENQUEUE to 'on' arms
-// auto-enqueue on the next sweep. Each is a separate, reviewed (T2) commit, and it has to change
-// this test in the same commit.
+// Flipping T1_ENQUEUE to 'on' arms auto-enqueue on the next sweep. That is a separate, reviewed (T2)
+// commit, and it has to change this test in the same commit. (T1_NUDGE is gone: t/534 part A.)
 function t1StepOfWorkflow() {
   const yml = readFileSync(new URL('../../.github/workflows/enqueue-sweep.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const code = yml.split('\n').filter((l) => !/^\s*#/.test(l)); // comments don't count
@@ -520,51 +519,38 @@ function t1StepOfWorkflow() {
   return { code, step, env: step.slice(step.indexOf('        env:') + 1, runAt).map((l) => l.trim()), run: step.slice(runAt + 1).map((l) => l.trim()) };
 }
 
-test('enqueue-sweep.yml SHIPS REPORT-ONLY: T1_NUDGE and T1_ENQUEUE are the literal \'off\', and each flag is passed only when its switch is \'on\'', () => {
+test('enqueue-sweep.yml SHIPS REPORT-ONLY: T1_ENQUEUE is the literal \'off\', its flag is passed only when it is \'on\', and the nudge plumbing is gone', () => {
   const { code, step, env, run } = t1StepOfWorkflow();
-  assert.equal(step[0], "      - name: T1 sweep (report-only unless T1_NUDGE / T1_ENQUEUE is 'on')");
+  assert.equal(step[0], "      - name: T1 sweep (report-only unless T1_ENQUEUE is 'on')");
 
-  // Each switch: a literal in the step's env, assigned once in the whole file, never an expression.
+  // The switch: a literal in the step's env, assigned once in the whole file, never an expression.
   assert.deepEqual(code.filter((l) => /T1_ENQUEUE\s*:/.test(l)).map((l) => l.trim()), ["T1_ENQUEUE: 'off'"]);
-  assert.deepEqual(code.filter((l) => /T1_NUDGE\s*:/.test(l)).map((l) => l.trim()), ["T1_NUDGE: 'off'"]);
-  // The whole env of the step. NUDGE_PR is read only on workflow_dispatch.
+  // The whole env of the step.
   assert.deepEqual(env, [
     'GH_TOKEN: ${{ steps.app.outputs.token }}',
     "DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}",
-    "NUDGE_PR: ${{ github.event_name == 'workflow_dispatch' && inputs.nudge_pr || '' }}",
-    "T1_NUDGE: 'off'",
     "T1_ENQUEUE: 'off'",
   ]);
-  // The whole run block: each flag exists only behind its own test, and the sweep is called once.
+  // The whole run block: the flag exists only behind its own test, and the sweep is called once.
   assert.deepEqual(run, [
-    "NUDGE_FLAG=''",
-    'if [ "$T1_NUDGE" = "on" ]; then NUDGE_FLAG=\'--nudge\'; fi',
-    "NUDGE_PR_FLAG=''",
-    'case "$NUDGE_PR" in \'\'|*[!0-9]*) ;; *) NUDGE_PR_FLAG="--nudge-pr=$NUDGE_PR" ;; esac',
     "ENQUEUE_FLAG=''",
     'if [ "$T1_ENQUEUE" = "on" ]; then ENQUEUE_FLAG=\'--enqueue\'; fi',
-    'node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN $NUDGE_FLAG $NUDGE_PR_FLAG $ENQUEUE_FLAG',
+    'node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN $ENQUEUE_FLAG',
   ]);
-  // Nowhere else in the workflow can a flag, the script or the dispatch input appear.
+  // Nowhere else in the workflow can the flag or the script appear.
   assert.equal(code.filter((l) => l.includes('--enqueue')).length, 1);
-  assert.equal(code.filter((l) => l.includes('--nudge')).length, 2, '--nudge once, --nudge-pr= once');
-  assert.equal(code.filter((l) => /--nudge'/.test(l)).length, 1);
   assert.equal(code.filter((l) => l.includes('t1-enqueue-sweep.mjs')).length, 1);
   assert.equal(code.filter((l) => l.includes('ENQUEUE_FLAG=')).length, 2);
-  assert.equal(code.filter((l) => /(^|[^_])NUDGE_FLAG=/.test(l)).length, 2);
-  assert.equal(code.filter((l) => l.includes('NUDGE_PR_FLAG=')).length, 2);
-  assert.equal(code.filter((l) => l.includes('inputs.nudge_pr')).length, 1);
-  // The dispatch input: a string that defaults to empty. No dispatch input mentions enqueue.
-  const at = code.indexOf('      nudge_pr:');
-  assert.notEqual(at, -1);
-  assert.deepEqual(code.slice(at + 2, at + 5).map((l) => l.trim()), ['required: false', "default: ''", 'type: string']);
+  // t/534 part A retired guard nudges (t/438 cancelled): no nudge switch, flag or dispatch input is left.
+  assert.equal(code.filter((l) => /nudge|NUDGE/.test(l)).length, 0, code.filter((l) => /nudge|NUDGE/.test(l)).join('\n'));
+  // The dispatch inputs: dry_run only. No dispatch input mentions enqueue.
   const inputsAt = code.indexOf('    inputs:');
   const inputNames = code.slice(inputsAt + 1, code.indexOf('permissions:')).filter((l) => /^      [a-z_]+:$/.test(l)).map((l) => l.trim());
-  assert.deepEqual(inputNames, ['dry_run:', 'nudge_pr:']);
+  assert.deepEqual(inputNames, ['dry_run:']);
 });
 
 // The step's shell, really run: the node call is replaced by an echo of its arguments.
-test('enqueue-sweep.yml T1 step shell: as shipped it passes no flag; no NUDGE_PR value can add --enqueue or --nudge', (t) => {
+test('enqueue-sweep.yml T1 step shell: as shipped it passes no flag; only T1_ENQUEUE exactly \'on\' adds --enqueue', (t) => {
   const { run } = t1StepOfWorkflow();
   const probe = spawnSync('sh', ['-c', 'exit 0']);
   if (probe.status !== 0) {
@@ -575,27 +561,16 @@ test('enqueue-sweep.yml T1 step shell: as shipped it passes no flag; no NUDGE_PR
   const script = run.join('\n').replace('node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}"', 'printf "[%s]" o/r');
   assert.ok(!script.includes('${{'), script);
   const args = (env) => {
-    const r = spawnSync('sh', ['-c', script], { encoding: 'utf8', env: { PATH: process.env.PATH, DRY_RUN: '', NUDGE_PR: '', T1_NUDGE: 'off', T1_ENQUEUE: 'off', ...env } });
+    const r = spawnSync('sh', ['-c', script], { encoding: 'utf8', env: { PATH: process.env.PATH, DRY_RUN: '', T1_ENQUEUE: 'off', ...env } });
     assert.equal(r.status, 0, r.stderr);
     return r.stdout.slice(1, -1).split('][');
   };
   assert.deepEqual(args({}), ['o/r'], 'as shipped: report-only');
   assert.deepEqual(args({ DRY_RUN: '--dry-run' }), ['o/r', '--dry-run']);
-  assert.deepEqual(args({ T1_NUDGE: 'on' }), ['o/r', '--nudge']);
   assert.deepEqual(args({ T1_ENQUEUE: 'on' }), ['o/r', '--enqueue']);
-  assert.deepEqual(args({ T1_NUDGE: 'on', T1_ENQUEUE: 'on' }), ['o/r', '--nudge', '--enqueue']);
-  assert.deepEqual(args({ NUDGE_PR: '5170' }), ['o/r', '--nudge-pr=5170']);
   // Fails closed on anything other than exactly 'on'.
   for (const v of ['', 'ON', 'On', 'true', '1', 'yes', 'on ', ' on', 'off', "'on'"]) {
-    assert.deepEqual(args({ T1_NUDGE: v, T1_ENQUEUE: v }), ['o/r'], JSON.stringify(v));
-  }
-  // A NUDGE_PR that is not all digits is dropped whole, so it cannot smuggle in another flag.
-  for (const v of ['1 --enqueue', '--enqueue', '--nudge', '1;--enqueue', '1\n--enqueue', '12a', '-1', '1.5', ' 7', '7 ', '$(echo 7)', '*']) {
-    assert.deepEqual(args({ NUDGE_PR: v }), ['o/r'], JSON.stringify(v));
-  }
-  // Every output of the shell, parsed by the CLI: enqueue is on only when T1_ENQUEUE is 'on'.
-  for (const env of [{}, { T1_NUDGE: 'on' }, { NUDGE_PR: '5170' }, { NUDGE_PR: '1 --enqueue' }, { DRY_RUN: '--dry-run', NUDGE_PR: '9', T1_NUDGE: 'on' }]) {
-    assert.equal(parseCliArgs(args(env)).enqueueEnabled, false, JSON.stringify(env));
+    assert.deepEqual(args({ T1_ENQUEUE: v }), ['o/r'], JSON.stringify(v));
   }
   assert.deepEqual(parseCliArgs(args({})), { repo: 'o/r', dryRun: false, enqueueEnabled: false, nudgeEnabled: false, nudgeOnlyPr: null });
 });
