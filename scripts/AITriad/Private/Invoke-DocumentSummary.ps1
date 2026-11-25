@@ -765,7 +765,7 @@ function Finalize-Summary {
         }
     }
 
-    # -- Verbatim grounding (t/389): keep each key_point quote in the source text, snap or drop the rest --
+    # -- Verbatim grounding (t/389): keep each key_point quote that is in the source text, as the model wrote it; drop the rest --
     # Same fallback as the numeric guard: no snapshot text means no guard, and the counts stay null.
     $VerbatimSnapped = $null
     $VerbatimDropped = $null

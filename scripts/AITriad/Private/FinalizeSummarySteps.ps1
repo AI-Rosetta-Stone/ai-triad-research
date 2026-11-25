@@ -657,9 +657,10 @@ function New-SummaryModelInfo {
         # t/389: forensic/additive, nothing branches on them; $null when the guard couldn't run (no snapshot).
         verbatim_snapped           = $VerbatimSnapped
         verbatim_dropped           = $VerbatimDropped
-        # t/389#11 (CL): quotes kept as written because their text is in the snapshot in order but not as
-        # one span (a two-column or table layout). Count and share of the quotes examined; provenance
-        # quality, forensic/additive, nothing branches on them. $null when the guard couldn't run.
+        # t/389#11 (CL): quotes stored as several strings, one per source piece, because their text is in
+        # the snapshot in order but not as one passage (a two-column or table layout). Count and share of
+        # the quotes examined; provenance quality, forensic/additive, nothing branches on them. $null when
+        # the guard couldn't run.
         verbatim_interleaved       = $VerbatimInterleaved
         verbatim_interleaved_rate  = $InterleavedRate
     }

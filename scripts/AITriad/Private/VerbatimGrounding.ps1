@@ -3,28 +3,51 @@
 
 # t/389: quote-grounding guard for key_points[].verbatim. A quote is meant to be an exact source
 # quote, but chunked and FIRE runs return near-quotes (grounding 0.42 chunked vs 0.68 single-call, t/358#9).
+# The rules are stipulated by the Comp-Linguist (t/389#8 to t/389#92) and the guard was turned on by the
+# PI at the drop rate they give on the corpus (15.16% of 13,683 quotes, p/37#242).
 #
-# A quote is first split at its elision marks ("[...]", "...", the ellipsis character) into segments
-# (CL audit t/389#8 a). Each segment is decided on its own, under the spec 7.2 key (ConvertTo-EvidenceKey):
-#   - EXACT: the segment's key is a contiguous run of the source's key. Kept unchanged.
-#   - SNAPPED: the segment aligns to one source span that covers >= 0.9 of its letters and is about as
-#     long as the segment. The stored text is the source's own text, in whole source words.
-#   - INTERLEAVED: the segment's letters are in the source in order, in runs of at least 12 that cover
-#     >= 0.9 of it inside one window of about 6,000 letters, but not as one passage: other text sits
-#     between them (a two-column or table layout, a page header, or sentences the model skipped without
-#     an elision mark). It is stored as its source pieces, each the source's own text, and counted
-#     (t/389#8 b; CL rulings t/389#11, t/389#15, p/70#77).
-#   - otherwise DROPPED.
-# Each kept segment or piece is stored as its own quote, so every stored string is in the source. An
-# elision mark is never stored, because the model added it (t/389#11). A quote with no kept segment is dropped; the key point is kept, and its verbatim is
-# removed when no quote is left.
+# WHAT IS STORED. Always the model's own words, never the source's text in their place (t/389#64 (3)).
+# A quote is first split at its elision marks ("[...]", "...", ". . .", the ellipsis character) into
+# segments; a mark is never stored, because the model added it (t/389#11). Each segment is decided on its
+# own, under the spec 7.2 key (ConvertTo-EvidenceKey: case, punctuation and white space folded):
+#   - EXACT: the segment's key is a contiguous run of the source's key. Stored as written.
+#   - SNAPPED: the segment's letters are one passage of the source, letter for letter, once layout is
+#     mended (line breaks, a word hyphenated over a line end, page furniture, references the quote does
+#     not have). Stored as the model wrote it, with damaged marks repaired.
+#   - INTERLEAVED: the segment's letters are in the source in order, in runs of at least 12, inside one
+#     window of about 6,000 letters, but not as one passage: other text sits between them (a two-column
+#     or table layout, a header, lines of their own, sentences the model skipped). It is stored as
+#     SEVERAL STRINGS, one per source piece, each the model's words for that piece (CL p/70#77).
+#   - otherwise DROPPED. The key point is kept, and its verbatim is removed when no quote is left.
+# So `verbatim` is one string, or an array of strings (the form of t/296). The strings of an array are
+# separate quotes: a reader that joins them, with "..." or anything else, shows text that was not
+# stored and that the model did not write (t/389#81, #85).
 #
-# Thresholds are stipulated by CL (t/389). Matching runs on a working copy of the snapshot with the
-# t/4394 mojibake repaired, HTML tags blanked, and repeated page footers and headers blanked; a copy of such a line inside
-# a quote, and a URL inside a quote, are removed before matching (t/389#8 c). The working copy has the
-# same length as the source, so every match maps back to the source's own text. Alignment is over
-# letters and digits only, so PDF-glued words ("morecomputeisavailable") and corrupted characters
-# inside a word still match (t/389#5, t/389#8 d).
+# WHAT FAILS A SEGMENT, even when nearly all of it is in the source:
+#   - a word that differs from the source's, or that the source has and the quote leaves out with no
+#     elision mark (t/389#52 (4), #56);
+#   - a word of the model's that would not be stored: every letter of a segment must be in a stored piece
+#     (t/389#86). The 0.9 threshold says how much of an ELIDED quote must survive, not which words;
+#   - its first or last word not standing where the passage begins or ends (t/389#47 (3));
+#   - a letter whose case differs, except the quote's first letter, a source word in capitals, or a
+#     letter the model or the source put in brackets (t/389#70, #72, #74). A capital at the start of a
+#     later segment is not excepted, and the guard never adds brackets itself (PI, p/37#242);
+#   - a source space inside a word of the quote (t/389#64 (2)); source words printed with no space
+#     between them are accepted, since only spaces are missing (t/389#69);
+#   - a label followed by chart or table values on lines of their own (p/70#93, t/389#40), and list
+#     items on lines of their own joined with commas of the model's (t/389#76, #78);
+#   - a URL or a running-header line the model wrote that is not in the passage (t/389#88).
+# A ligature the converter dropped ("e ective") is not restored, so such a quote fails (t/389#63).
+#
+# HOW THE SOURCE IS READ. Matching runs on a working copy of the snapshot with mojibake repaired, HTML
+# tags blanked and repeated page footers and headers blanked. It has the same length as the snapshot, so
+# every match maps back to the snapshot's own offsets. Text only the source has inside a passage is
+# stepped over and never stored: reference digits and parenthesised reference lists, footnote symbols,
+# page and footnote numbers, a damaged no-break space. Damage in the model's own quote: marks and the
+# no-break space are stored repaired; letters are stored as the model wrote them (t/389#90).
+#
+# $script:VerbatimDiag records why each quote was changed or dropped. It is for audit scripts only; the
+# switches below let an audit count one rule at a time. Nothing in the product reads either.
 
 $script:VerbatimSnapThreshold = 0.9
 $script:VerbatimAnchorK = 6            # characters of an anchor looked up in the source
@@ -1796,16 +1819,24 @@ function Resolve-VerbatimQuote {
 function Repair-SummaryKeyPointVerbatim {
     <#
     .SYNOPSIS
-        Keeps each key_point verbatim quote grounded in the snapshot (t/389): exact quotes stay, near
-        quotes are snapped to the source's own text, an elided quote becomes its grounded segments, a
-        quote found in order but not as one passage becomes its source pieces, and the rest are dropped
-        with the key point kept.
+        Keeps each key_point verbatim quote grounded in the snapshot (t/389). What is stored is always
+        the model's own words: a quote that is in the source as written stays; one that is a passage of
+        the source once layout is mended stays, with damaged marks repaired; an elided quote becomes its
+        grounded segments; a quote found in order but not as one passage becomes several strings, one
+        per source piece; the rest are dropped with the key point kept.
+    .DESCRIPTION
+        `verbatim` ends up as one string, an array of strings, or $null. The strings of an array are
+        separate quotes and must be shown as such: joining them shows text that was not stored. The
+        rules are in the comment at the top of this file.
     .OUTPUTS
         [hashtable] @{ Quotes = <int>; Snapped = <int>; Dropped = <int>; Interleaved = <int> }
-        Quotes is the number of quotes examined.
+        Quotes is the number of quotes examined. Snapped counts quotes whose stored text differs from
+        what the model returned (a repaired mark, a segment removed, an elided quote split at its marks).
     #>
     param([object]$SummaryObject, [string]$SnapshotText, [string]$ThisDocId)
     $Result = @{ Quotes = 0; Snapped = 0; Dropped = 0; Interleaved = 0 }
+    # The audit record holds one document's reasons at most: a long batch must not grow it without end.
+    $script:VerbatimDiag.Clear()
     if (-not (Test-SummaryField $SummaryObject 'pov_summaries')) { return $Result }
     $Pov = Get-SummaryField $SummaryObject 'pov_summaries'
     if (-not $Pov) { return $Result }
@@ -1834,17 +1865,17 @@ function Repair-SummaryKeyPointVerbatim {
                     'snapped' {
                         if ($R.Texts.Count -ne 1 -or $R.Texts[0] -cne $Quote) {
                             $Result.Snapped++
-                            $What = if ($R.Segments -gt 1) { "kept as $($R.KeptSegments) of its $($R.Segments) segments, in the source's text" } else { 'snapped to the source text' }
+                            $What = if ($R.Segments -gt 1) { "kept as $($R.KeptSegments) of its $($R.Segments) segments, without its elision marks" } else { 'stored with its damaged marks repaired' }
                             Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim $What (t/389): $Preview"
                         }
                     }
                     'interleaved' {
                         $Result.Interleaved++
-                        Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim stored as $($R.Texts.Count) source piece(s): its text is in the snapshot in order but not as one passage, as in a two-column or table layout or where sentences were skipped (t/389): $Preview"
+                        Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim stored as $($R.Texts.Count) separate quote(s), each the model's words: its text is in the snapshot in order but not as one passage, as in a two-column or table layout or where sentences were skipped (t/389): $Preview"
                     }
                     default {
                         $Result.Dropped++
-                        Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim dropped, not found in the snapshot (t/389): $Preview"
+                        Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim dropped, not in the snapshot as written (t/389): $Preview"
                     }
                 }
             }
