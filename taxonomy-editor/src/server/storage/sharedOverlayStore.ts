@@ -597,6 +597,33 @@ export class SharedOverlayStore {
    *  calls this only after `getGeneration()` shows a change since the
    *  caller's last-seen value; the commit path calls it unconditionally to
    *  find everything to commit. */
+  /** t/552: every user with staged entries, and how many, across the whole store. One flat listing; the `_gen` and
+   *  `_status` blobs are not entries. For the DRAINING rollback: the store is empty when this returns no users. Throws a
+   *  wrapped error on a store failure. */
+  async countStagedEntriesByUser(): Promise<Map<string, number>> {
+    const prefix = `${this.blobPrefix}/`;
+    const counts = new Map<string, number>();
+    try {
+      for await (const blob of this.containerClient.listBlobsFlat({ prefix })) {
+        const rest = blob.name.slice(prefix.length);
+        const slash = rest.indexOf('/');
+        if (slash <= 0) continue;
+        const name = rest.slice(slash + 1);
+        if (name.includes('/') || !name.endsWith('.json')) continue;
+        const userId = rest.slice(0, slash);
+        counts.set(userId, (counts.get(userId) ?? 0) + 1);
+      }
+      return counts;
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'error',
+        message: `countStagedEntriesByUser failed: ${prefix}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw err instanceof ActionableError ? err : wrapOverlayError(err, 'countStagedEntriesByUser', prefix);
+    }
+  }
+
   async listEntries(userId: string): Promise<Array<{ repoPath: string; pathKey: string; entry: SharedOverlayEntry; etag: string }>> {
     const prefix = `${this.blobPrefix}/${userId}/`;
     const out: Array<{ repoPath: string; pathKey: string; entry: SharedOverlayEntry; etag: string }> = [];

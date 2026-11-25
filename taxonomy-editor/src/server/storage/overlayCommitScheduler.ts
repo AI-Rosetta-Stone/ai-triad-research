@@ -140,6 +140,74 @@ async function readSharedStatusBounded(backend: SharedCommitStatusBackend, userI
   }
 }
 
+// ── t/552: the DRAINING rollback's commit loop ──
+
+/** A backend that can report what is left in the shared store (GitHubAPIBackend with shared state). */
+interface DrainableBackend {
+  getSharedOverlayDrainStatus(): Promise<{ draining: boolean; usersWithEntries: string[]; stagedEntries: number } | null>;
+}
+function supportsDrain(b: StorageBackend): b is StorageBackend & DrainableBackend & OverlayCommittable {
+  return supportsOverlayCommit(b) && typeof (b as unknown as Partial<DrainableBackend>).getSharedOverlayDrainStatus === 'function';
+}
+
+/** t/552: one drain round. Commits every user who still has staged entries (each under its commit lease; 'busy' is
+ *  left for the next round), then reports what is left. A user whose batch conflicts stays until "Use theirs" or
+ *  "Keep mine" resolves it, and is listed in `remainingUsers`. Never throws. */
+export async function drainSharedOverlayOnce(): Promise<{ committed: number; busy: number; failed: number; remainingEntries: number; remainingUsers: string[] } | null> {
+  const backend = getBackend();
+  if (!supportsDrain(backend)) return null;
+  let status: Awaited<ReturnType<DrainableBackend['getSharedOverlayDrainStatus']>>;
+  try {
+    status = await backend.getSharedOverlayDrainStatus();
+  } catch (err) {
+    log.storage.warn({ err: String(err) }, 'drain: could not read the shared store; next round retries (t/552)');
+    return null;
+  }
+  if (!status) return null;
+  const { committed, busy, failed } = await commitEachDrainUser(backend, status.usersWithEntries);
+  const after = await readDrainStatusOr(backend, status);
+  const remainingEntries = after.stagedEntries;
+  const remainingUsers = after.usersWithEntries;
+  if (remainingEntries === 0) {
+    log.storage.info('shared overlay DRAINED: the store is empty; the flag can be turned off (t/552)');
+  } else {
+    log.storage.info({ committed, busy, failed, remainingEntries, remainingUsers: remainingUsers.length }, 'drain round done (t/552)');
+  }
+  return { committed, busy, failed, remainingEntries, remainingUsers };
+}
+
+async function commitEachDrainUser(backend: OverlayCommittable, userIds: string[]): Promise<{ committed: number; busy: number; failed: number }> {
+  let committed = 0, busy = 0, failed = 0;
+  for (const userId of userIds) {
+    try {
+      const result = await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
+      if (result && !(result.conflictedPaths?.length)) committed++;
+    } catch (err) {
+      log.storage.warn({ userId, busy: isCommitBusy(err), err: String(err) }, 'drain: a user\'s commit did not complete; next round retries (t/552)');
+      if (isCommitBusy(err)) busy++; else failed++;
+    }
+  }
+  return { committed, busy, failed };
+}
+
+async function readDrainStatusOr(
+  backend: DrainableBackend, fallback: { usersWithEntries: string[]; stagedEntries: number },
+): Promise<{ usersWithEntries: string[]; stagedEntries: number }> {
+  try {
+    return (await backend.getSharedOverlayDrainStatus()) ?? fallback;
+  } catch (err) {
+    log.storage.warn({ err: String(err) }, 'drain: could not re-read the shared store after the round; reporting the pre-round view (t/552)');
+    return fallback;
+  }
+}
+
+/** t/552: run drain rounds on a timer while DRAINING is on (server.ts wires it; TaxonomyServer). Returns a stop. */
+export function startSharedOverlayDrain(intervalMs = 30_000): () => void {
+  const timer = setInterval(() => { void drainSharedOverlayOnce(); }, intervalMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
 /** Surfaced by the sync-status route so the UI can show "not yet saved to GitHub". */
 export function getOverlayCommitStatus(userId: string): OverlayCommitStatus | undefined {
   return overlayCommitStatus.get(userId);

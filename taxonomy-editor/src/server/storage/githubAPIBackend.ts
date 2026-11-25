@@ -101,6 +101,10 @@ export interface GitHubAPIBackendConfig {
   sharedOverlayState?: {
     store: SharedOverlayStore;
     forceActiveForTesting?: boolean;
+    /** t/552: DRAINING rollback. With shared state active, saves are refused (503 OVERLAY_DRAINING) while commits and
+     *  reads go on, so the store empties and the flag can then be turned off without losing an edit. Defaults to env
+     *  OVERLAY_SHARED_STATE_DRAINING=1. */
+    draining?: boolean;
     /** t/549 (t/503 PR 1, interface only; used from t/550): the per-user commit lease, in the same
      *  container as the store (one grant scope, t/503#5 ruling 4). `maxHoldMs` caps how long one
      *  commit may keep renewing, so a hung GitHub call lets the lease lapse instead of starving the
@@ -349,6 +353,8 @@ export class GitHubAPIBackend implements StorageBackend {
   // for a read once synced (t/4311#30 R1), refreshed whenever `_gen` moves.
   private readonly sharedOverlayStore: SharedOverlayStore | null = null;
   private readonly sharedOverlayStateActive: boolean = false;
+  /** t/552: DRAINING rollback in progress (only meaningful while shared state is active). */
+  private readonly sharedOverlayDraining: boolean = false;
   /** t/550: the per-user commit lease settings (sharedOverlayState.commitLock), or null when not configured. */
   private readonly sharedCommitLock: NonNullable<NonNullable<GitHubAPIBackendConfig['sharedOverlayState']>['commitLock']> | null = null;
   // t/549: `listedAt` is when the entries were last listed from the store (0 = never); see SHARED_OVERLAY_RELIST_MS.
@@ -523,6 +529,7 @@ export class GitHubAPIBackend implements StorageBackend {
     this.sharedOverlayStore = sharedOverlay.store;
     this.sharedOverlayStateActive = sharedOverlay.active;
     this.sharedCommitLock = config.sharedOverlayState?.commitLock ?? null;
+    this.sharedOverlayDraining = GitHubAPIBackend.resolveDraining(config, this.sharedOverlayStateActive);
     if (sharedOverlay.warnInert) {
       log.storage.warn(
         'OVERLAY_SHARED_STATE_ENABLED=1 is set, but OVERLAY_SHARED_STATE_COMMIT_READY is false — '
@@ -537,6 +544,13 @@ export class GitHubAPIBackend implements StorageBackend {
    *  (t/4311 follow-up). Pure function of `config` — no `this` access, so
    *  it can run before `this.sharedOverlayStore`/`sharedOverlayStateActive`
    *  (both `readonly`) are assigned in the constructor body itself. */
+  /** t/552: DRAINING is on only while shared state is active. Extracted to keep the constructor under budget. */
+  private static resolveDraining(config: GitHubAPIBackendConfig, active: boolean): boolean {
+    const draining = active && (config.sharedOverlayState?.draining ?? process.env.OVERLAY_SHARED_STATE_DRAINING === '1');
+    if (draining) log.storage.warn('shared overlay DRAINING: saves are refused, commits continue until the store is empty (t/552)');
+    return draining;
+  }
+
   private static resolveSharedOverlayState(config: GitHubAPIBackendConfig): { store: SharedOverlayStore | null; active: boolean; warnInert: boolean } {
     if (!config.sharedOverlayState) return { store: null, active: false, warnInert: false };
     const active = config.sharedOverlayState.forceActiveForTesting
@@ -4792,6 +4806,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async stageSharedOverlaySave(
     userId: string, repoPath: string, content: string | null, ref: string, mode: SharedSaveMode,
   ): Promise<'staged' | 'exists'> {
+    if (this.sharedOverlayDraining) this.throwDraining(repoPath);
     const store = this.sharedOverlayStore!;
     if (content !== null) this.assertOverlayCap(userId, repoPath, content);
     const stagedAt = new Date().toISOString();
@@ -4868,6 +4883,30 @@ export class GitHubAPIBackend implements StorageBackend {
     entries.set(repoPath, entry);
     // A failed `_gen` bump leaves gen null, so the next read re-lists (t/549).
     this.sharedOverlayReadCache.set(userId, { gen, entries, listedAt: cached?.listedAt ?? 0 });
+  }
+
+  /** t/552: a save while DRAINING. Nothing is staged and nothing is kept locally, so nothing can be lost when the flag
+   *  is turned off. */
+  private throwDraining(repoPath: string): never {
+    log.storage.warn({ repoPath }, 'save refused: shared overlay is DRAINING for maintenance (t/552)');
+    throw new ActionableError({
+      goal: `Save ${repoPath}`,
+      problem: 'Saving is paused for a few minutes while pending changes are written out. Nothing was saved.',
+      location: 'GitHubAPIBackend.stageSharedOverlaySave',
+      nextSteps: ['Retry the save in a few minutes'],
+      httpStatus: 503,
+      code: 'OVERLAY_DRAINING',
+    });
+  }
+
+  /** t/552: whether DRAINING is on, and what is left in the shared store: users with staged entries and their count.
+   *  The flag may be turned off once `stagedEntries` is 0. Null when shared state is off. Throws on a store failure. */
+  async getSharedOverlayDrainStatus(): Promise<{ draining: boolean; usersWithEntries: string[]; stagedEntries: number } | null> {
+    if (!this.sharedOverlayStateActive || !this.sharedOverlayStore) return null;
+    const counts = await this.sharedOverlayStore.countStagedEntriesByUser();
+    let stagedEntries = 0;
+    for (const n of counts.values()) stagedEntries += n;
+    return { draining: this.sharedOverlayDraining, usersWithEntries: [...counts.keys()].sort(), stagedEntries };
   }
 
   private throwSharedStageFailed(repoPath: string, why: string): never {

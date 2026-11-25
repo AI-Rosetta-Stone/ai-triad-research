@@ -132,7 +132,7 @@ function makeStore(): SharedOverlayStore {
   return new SharedOverlayStore({ accountUrl: ACCOUNT_URL, container: CONTAINER, blobPrefix: prefix, serviceClient: service });
 }
 
-async function createReplica(lock: { leaseSeconds?: number; maxHoldMs?: number } = {}) {
+async function createReplica(lock: { leaseSeconds?: number; maxHoldMs?: number; draining?: boolean } = {}) {
   const { GitHubAPIBackend } = await import('../storage/githubAPIBackend');
   const backend = new GitHubAPIBackend({
     cacheDir: `/var/cache/taxonomy-test-${++counter}`,
@@ -140,7 +140,7 @@ async function createReplica(lock: { leaseSeconds?: number; maxHoldMs?: number }
     pollIntervalMs: 999_999_999,
     coherencyProbeRate: 0,
     sharedOverlayState: {
-      store: makeStore(), forceActiveForTesting: true,
+      store: makeStore(), forceActiveForTesting: true, draining: lock.draining ?? false,
       commitLock: { accountUrl: ACCOUNT_URL, container: `${CONTAINER}-locks-${prefix}`.toLowerCase().replace(/_/g, '-'), serviceClient: service, leaseSeconds: lock.leaseSeconds ?? 15, maxHoldMs: lock.maxHoldMs },
     },
   });
@@ -321,5 +321,67 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — shared overlay commit und
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+
+  // ── t/552: the DRAINING rollback ──────────────────────────────────────────────────────────────
+
+  it('DRAINING: a save is refused with 503 OVERLAY_DRAINING and nothing is staged or kept locally', async () => {
+    const a = await createReplica({ draining: true });
+    await expect(a.writeFile(FILE, 'during the drain')).rejects.toMatchObject({ httpStatus: 503, code: 'OVERLAY_DRAINING' });
+    await expect(a.deleteFile(FILE)).rejects.toMatchObject({ code: 'OVERLAY_DRAINING' });
+    expect(await makeStore().listEntries(USER)).toEqual([]);
+    expect(await a.readFile(FILE)).toBeNull();
+  });
+
+  it('DRAINING: commits go on, and the drain status counts what is left in the store', async () => {
+    const writer = await createReplica();
+    await writer.writeFile(FILE, 'pending before the drain');
+    writer.setSessionContext({ userId: 'bob', branchName: 'api-session/bob' });
+    await writer.writeFile('/conflicts/bob.json', 'bob pending');
+    const drainer = await createReplica({ draining: true });
+    expect(await drainer.getSharedOverlayDrainStatus()).toEqual({ draining: true, usersWithEntries: [USER, 'bob'].sort(), stagedEntries: 2 });
+    expect(await drainer.commitOverlay(USER, undefined, { branchName: BRANCH })).toMatchObject({ filesCommitted: 1 });
+    expect(await drainer.getSharedOverlayDrainStatus()).toMatchObject({ usersWithEntries: ['bob'], stagedEntries: 1 });
+  });
+
+  it('DRAINING: one drain round commits every user with staged entries and reports the store empty', async () => {
+    const writer = await createReplica();
+    await writer.writeFile(FILE, 'alice pending');
+    writer.setSessionContext({ userId: 'bob', branchName: 'api-session/bob' });
+    await writer.writeFile('/conflicts/bob.json', 'bob pending');
+    const drainer = await createReplica({ draining: true });
+    const fileIO = await import('../storage/fileIO.js');
+    const { drainSharedOverlayOnce } = await import('../storage/overlayCommitScheduler.js');
+    const previous = fileIO.getBackend();
+    fileIO.setBackend(drainer);
+    try {
+      expect(await drainSharedOverlayOnce()).toEqual({ committed: 2, busy: 0, failed: 0, remainingEntries: 0, remainingUsers: [] });
+    } finally {
+      fileIO.setBackend(previous);
+    }
+    expect(gh.committed.get(REPO_PATH)).toBe(blobSha('alice pending'));
+    expect(gh.committed.get('conflicts/bob.json')).toBe(blobSha('bob pending'));
+  });
+
+  it('DRAINING: a conflicted user stays in the store, listed, until resolved', async () => {
+    const writer = await createReplica();
+    await writer.writeFile(FILE, 'mine'); // staged against an absent file
+    gh.committed.set(REPO_PATH, blobSha('someone else committed this'));
+    const drainer = await createReplica({ draining: true });
+    const fileIO = await import('../storage/fileIO.js');
+    const { drainSharedOverlayOnce } = await import('../storage/overlayCommitScheduler.js');
+    const previous = fileIO.getBackend();
+    fileIO.setBackend(drainer);
+    try {
+      expect(await drainSharedOverlayOnce()).toMatchObject({ committed: 0, remainingEntries: 1, remainingUsers: [USER] });
+    } finally {
+      fileIO.setBackend(previous);
+    }
+  });
+
+  it('not draining: saves are staged as usual (control)', async () => {
+    const a = await createReplica({ draining: false });
+    await a.writeFile(FILE, 'normal');
+    expect((await a.getSharedOverlayDrainStatus())).toMatchObject({ draining: false, stagedEntries: 1 });
   });
 });
