@@ -188,15 +188,14 @@ test('end to end: the script reads real files from a git repo (FAIL found, still
   }
 });
 
-// ── Wiring: warn-only in ci.yml ─────────────────────────────────────────────────────────────────
+// ── Wiring: blocking in ci.yml (t/420 T2 flip) ──────────────────────────────────────────────────
 
-test('ci.yml runs the check warn-only: no --strict, continue-on-error, an id for its outputs', () => {
+test('ci.yml runs the check blocking: --strict, no continue-on-error, an id for its outputs', () => {
   const yml = readFileSync(join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
   const m = yml.match(/- name: CSS brace check[^\n]*\n((?:        [^\n]*\n)+)/);
   assert.ok(m, 'ci.yml has no "CSS brace check" step');
   const step = m[1];
   assert.match(step, /id: css-brace-check/);
-  assert.match(step, /continue-on-error: true/);
-  assert.match(step, /run: node operations\/devops\/css-brace-check\.mjs\s*\n/);
-  assert.doesNotMatch(step, /--strict/);
+  assert.doesNotMatch(step, /continue-on-error/);
+  assert.match(step, /run: node operations\/devops\/css-brace-check\.mjs --strict\s*\n/);
 });

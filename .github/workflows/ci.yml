@@ -2246,14 +2246,13 @@ jobs:
         run: node --test operations/devops/*.test.mjs
 
       # t/420: brace balance in every tracked .css file (nothing else in the gate parses CSS).
-      # WARN-ONLY: the script exits 0 on every verdict and the step is continue-on-error, so it
-      # cannot fail this job or ci-gate. The verdict (PASS, FAIL or GATE-UNREADABLE) is in the step
-      # outputs, the step summary, and a ::warning:: for anything but PASS. Making it blocking
-      # (adding --strict) is a separate T2 change after a clean run on main (gate-signal-integrity §3).
-      - name: CSS brace check (warn-only, t/420)
+      # BLOCKING since t/420's T2 flip, after clean runs on main (CI 45519299663 and later: PASS,
+      # 260 files; gate-signal-integrity §3). --strict exits 1 on FAIL and 2 on GATE-UNREADABLE, so
+      # an unbalanced brace or an unreadable file list fails this job and ci-gate; it never passes
+      # silently. The verdict is also in the step outputs and the step summary.
+      - name: CSS brace check (blocking, t/420)
         id: css-brace-check
-        continue-on-error: true
-        run: node operations/devops/css-brace-check.mjs
+        run: node operations/devops/css-brace-check.mjs --strict
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
