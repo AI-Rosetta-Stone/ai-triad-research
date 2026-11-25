@@ -596,17 +596,19 @@ function t1StepOfWorkflow() {
   return { code, step, env: step.slice(step.indexOf('        env:') + 1, runAt).map((l) => l.trim()), run: step.slice(runAt + 1).map((l) => l.trim()) };
 }
 
-test('enqueue-sweep.yml SHIPS REPORT-ONLY: T1_ENQUEUE is the literal \'off\', its flag is passed only when it is \'on\', and the nudge plumbing is gone', () => {
+// t/73 (TL p/12#274, after t/655): T1 auto-enqueue is ON. Every enqueue still goes through enqueuePR unchanged
+// (vehicle check, approval at head, gate-file refusal). Turning it off again is a reviewed commit that changes this test.
+test('enqueue-sweep.yml T1 ENQUEUE IS ON (t/73): T1_ENQUEUE is the literal \'on\', its flag is passed only when it is \'on\', and the nudge plumbing is gone', () => {
   const { code, step, env, run } = t1StepOfWorkflow();
-  assert.equal(step[0], "      - name: T1 sweep (report-only unless T1_ENQUEUE is 'on')");
+  assert.equal(step[0], "      - name: T1 sweep (enqueues only when T1_ENQUEUE is 'on')");
 
   // The switch: a literal in the step's env, assigned once in the whole file, never an expression.
-  assert.deepEqual(code.filter((l) => /T1_ENQUEUE\s*:/.test(l)).map((l) => l.trim()), ["T1_ENQUEUE: 'off'"]);
+  assert.deepEqual(code.filter((l) => /T1_ENQUEUE\s*:/.test(l)).map((l) => l.trim()), ["T1_ENQUEUE: 'on'"]);
   // The whole env of the step.
   assert.deepEqual(env, [
     'GH_TOKEN: ${{ steps.app.outputs.token }}',
     "DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}",
-    "T1_ENQUEUE: 'off'",
+    "T1_ENQUEUE: 'on'",
   ]);
   // The whole run block: the flag exists only behind its own test, and the sweep is called once.
   assert.deepEqual(run, [
@@ -642,7 +644,7 @@ test('enqueue-sweep.yml T1 step shell: as shipped it passes no flag; only T1_ENQ
     assert.equal(r.status, 0, r.stderr);
     return r.stdout.slice(1, -1).split('][');
   };
-  assert.deepEqual(args({}), ['o/r'], 'as shipped: report-only');
+  assert.deepEqual(args({}), ['o/r'], 'with T1_ENQUEUE off (the harness default): report-only');
   assert.deepEqual(args({ DRY_RUN: '--dry-run' }), ['o/r', '--dry-run']);
   assert.deepEqual(args({ T1_ENQUEUE: 'on' }), ['o/r', '--enqueue']);
   // Fails closed on anything other than exactly 'on'.
