@@ -129,6 +129,30 @@ describe('node source index: legacy-chunk manifest (t/586, spec 6.2)', () => {
     expect(warnSpy.mock.calls.some(([, msg]) => typeof msg === 'string' && msg.includes('legacy-chunk manifest not found'))).toBe(true);
   });
 
+  // Parity with lib, PowerShell, Python and the desktop builder (t/585): the shared fixture's chunk_union_cases, run
+  // straight through the hosted builder. Per node, the quotes attributed to the canonical must equal the fixture's
+  // expected union, in order.
+  const fixture = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../../tests/fixtures/evidence-union-cases.json'), 'utf-8')) as {
+    chunk_union_cases: Array<{
+      name: string; canonical: string; manifest: Record<string, string>;
+      docs: Record<string, { has_source: boolean; mark?: string | null; summary: { pov_summaries: Record<string, { key_points: Array<{ taxonomy_node_id: string; verbatim: string }> }> } }>;
+      expected: Record<string, Array<{ quote: string }>>;
+    }>;
+  };
+
+  it.each(fixture.chunk_union_cases.map(c => [c.name, c] as const))('fixture chunk_union_cases: %s', async (_name, c) => {
+    useManifest(c.manifest);
+    for (const [id, doc] of Object.entries(c.docs)) {
+      if (doc.has_source) writeSourceMeta(id, { title: id, ...(doc.mark ? { duplicate_of: doc.mark } : {}) });
+      fs.writeFileSync(path.join(dataRoot, 'summaries', `${id}.json`), JSON.stringify(doc.summary));
+    }
+    const index = await fileIO.buildNodeSourceIndex();
+    for (const [nodeId, expected] of Object.entries(c.expected)) {
+      const got = (index[nodeId] ?? []).filter(r => r.docId === c.canonical).map(r => r.verbatim);
+      expect(got, `${c.name} / ${nodeId}`).toEqual(expected.map(e => e.quote));
+    }
+  });
+
   it('the shipped manifest is found at the repo root (docs/specs) and loads', async () => {
     setLegacyChunkManifestPathForTests(null);
     const warnSpy = vi.spyOn(log.server, 'warn').mockImplementation(() => undefined as unknown as ReturnType<typeof log.server.warn>);
