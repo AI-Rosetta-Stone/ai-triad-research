@@ -6,7 +6,7 @@
 # WHAT CHANGED from the inline step, and why:
 #   1. CI is judged by ANY completed run on the deploy SHA (or its nearest ancestor that has CI runs,
 #      accepted ONLY when every file changed since it is in ci.yml's paths-ignore) whose test-container
-#      job is success or skipped, AND whose event is TRUSTED: a push to main or epic/**, merge_group, or
+#      job is success (or skipped, from a push to main only: t/599), AND whose event is TRUSTED: a push to main or epic/**, merge_group, or
 #      workflow_dispatch. Not by recency: in the incident
 #      the newest run was a QUEUED pull_request run from an accidental PR on the hotfix branch, and it
 #      displaced a green workflow_dispatch run. A pull_request run never counts, green or not.
@@ -90,6 +90,15 @@ trusted() { # event head_branch
   esac
 }
 
+# Does test-container's result count as green? (t/599, SO p/273#4 and #6) `success` from any trusted event.
+# `skipped` (ci.yml's paths filter found no container-relevant change) ONLY from a push to main: a
+# workflow_dispatch, merge_group or epic/** run judges with ITS OWN ref's ci.yml, whose filter could differ
+# from main's, so its skip proves nothing about the image.
+counts_green() { # status event head_branch
+  [ "$1" = "success" ] && return 0
+  [ "$1" = "skipped" ] && [ "$2" = "push" ] && [ "$3" = "main" ]
+}
+
 # ci.yml's `on.push.paths-ignore`: a push that changes ONLY these paths runs no CI. One list, pinned to
 # ci.yml by test-verify-deploy-ci.sh (it fails if the two ever differ).
 CI_PATHS_IGNORE=('**.md' 'docs/**' 'deploy/azure/runbooks/**')
@@ -145,7 +154,7 @@ if [ "$JUDGED" != "$DEPLOY_SHA" ]; then
   echo "Commit ${DEPLOY_SHA} has no CI run, and the ${NFILES} file(s) changed since ${JUDGED} are all ignored by ci.yml (docs-only). Judging ancestor ${JUDGED}."
 fi
 
-SEEN=""; WAIT_ID=""
+SEEN=""; WAIT_ID=""; WAIT_EVENT=""; WAIT_BRANCH=""
 # '|' and not a tab: tab is whitespace to `read`, so an empty conclusion would shift the columns.
 while IFS='|' read -r id event status conclusion branch; do
   [ -n "$id" ] || continue
@@ -153,13 +162,16 @@ while IFS='|' read -r id event status conclusion branch; do
   trusted "$event" "$branch" || continue
   if [ "$status" = "completed" ]; then
     st=$(container_status "$id") || exit 1
-    if [ "$st" = "success" ] || [ "$st" = "skipped" ]; then
+    if counts_green "$st" "$event" "$branch"; then
       echo "  test-container: ${st} in CI run ${id} (${event}${branch:+ on ${branch}})"
       echo "Container-relevant CI passed for this commit"
       exit 0
     fi
+    if [ "$st" = "skipped" ]; then
+      echo "  test-container: skipped in CI run ${id} (${event}${branch:+ on ${branch}}), not counted: only a push to main's skip proves the image is unchanged (t/599)."
+    fi
   elif [ -z "$WAIT_ID" ]; then
-    WAIT_ID="$id"   # runs are listed newest first
+    WAIT_ID="$id"; WAIT_EVENT="$event"; WAIT_BRANCH="$branch"   # runs are listed newest first
   fi
 done <<< "$RUNS"
 
@@ -167,12 +179,12 @@ if [ -n "$WAIT_ID" ]; then
   echo "No completed green trusted CI run yet; CI run ${WAIT_ID} is still running. Waiting for it..."
   ${RUN_WATCH:-gh run watch} "$WAIT_ID" >/dev/null 2>&1 || true
   st=$(container_status "$WAIT_ID") || exit 1
-  if [ "$st" = "success" ] || [ "$st" = "skipped" ]; then
+  if counts_green "$st" "$WAIT_EVENT" "$WAIT_BRANCH"; then
     echo "  test-container: ${st} in CI run ${WAIT_ID}"
     echo "Container-relevant CI passed for this commit"
     exit 0
   fi
-  block "CI run ${WAIT_ID} finished with test-container '${st:-not found}'. Container-relevant CI must pass before deploying."
+  block "CI run ${WAIT_ID} (${WAIT_EVENT}${WAIT_BRANCH:+ on ${WAIT_BRANCH}}) finished with test-container '${st:-not found}'$( [ "$st" = "skipped" ] && echo ", and only a push to main's skip counts (t/599)" ). Container-relevant CI must pass before deploying."
 fi
 
-block "No completed green CI run (test-container success or skipped) from a trusted event (push to main or epic/**, merge_group, workflow_dispatch) on ${JUDGED}. Runs seen:${SEEN}. Pull-request runs never count. Fix: dispatch ci.yml on a branch whose head is ${JUDGED} (or fix the failing run), then re-run the deploy."
+block "No completed green CI run (test-container success from a trusted event: push to main or epic/**, merge_group, workflow_dispatch; or skipped from a push to main) on ${JUDGED}. Runs seen:${SEEN}. Pull-request runs never count. Fix: dispatch ci.yml on a branch whose head is ${JUDGED} (or fix the failing run), then re-run the deploy."
