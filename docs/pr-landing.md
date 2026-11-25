@@ -32,7 +32,7 @@ Batch your work into a vehicle: every change lands in one of three. We measure t
 **Monitor, not gate (t/655, PI correction 2026-11-25):**
 
 - **The budget report** measures tickets per PR and alerts the TL when it falls below 3. The alert is a prompt to look at why, not a refusal.
-- **`enqueue-pr.mjs` stops refusing on the count when t/656 lands.** Until then the t/564 daily refusal still applies.
+- **`enqueue-pr.mjs` no longer refuses on the count (t/656, #5533).** It checks the landing vehicle instead: an area train, a feature PR with 3+ tickets or 2+ owners, an incident PR for an open INCIDENT ticket, Dependabot, or docker/base-repin-*. Anything else is refused, and the refusal names the trains.
 - **Add to an open PR before opening a new one.** If you already have an open PR in the same area that isn't queued, the change goes there.
 - **Minimum size:** a non-urgent change under ~50 lines waits to be combined with your next change in the same area, or goes into the feature PR or the area train. Exempt as above.
 - **No separate PRs for review nits or small follow-ups.** Fix review findings in the same PR; the reviewer re-stamps the delta only (`docs/review-routing.md` § Delta re-stamp). A follow-up that really needs its own change goes into your next substantive PR or the area train, never a standalone PR.

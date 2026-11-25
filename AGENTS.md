@@ -43,7 +43,7 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 
 - **Ownership:** for `.github/workflows/*` and other paths `resolve-owner` can't express, `docs/ownership-exceptions.md` wins.
 - **Landing code:** see `docs/pr-landing.md`.
-  - Land in a vehicle: your area train (`train/<area>-YYYYMMDD`, closing 06:00Z and 18:00Z), a feature PR (`feat/t<N>`, for 2+ owners or 3+ tickets), or an incident PR (an open INCIDENT ticket). Security fixes ride `train/security-YYYYMMDD`. No own PRs otherwise. The PR count is monitored, not gated (`docs/pr-landing.md`).
+  - Land in a vehicle: your area train (`train/<area>-YYYYMMDD`, closing 06:00Z and 18:00Z), a feature PR (`feat/t<N>`, for 2+ owners or 3+ tickets), or an incident PR (`incident/t<N>-<slug>`, for an open INCIDENT ticket). Security fixes ride `train/security-YYYYMMDD`. No own PRs otherwise. The PR count is monitored, not gated (`docs/pr-landing.md`).
   - Merge through a PR to `main` via the merge queue.
   - Enqueue only pinned, with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`. If it refuses, stop and escalate; never fall back to the raw `enablePullRequestAutoMerge` mutation, and never run `gh pr merge` in any form (with or without `--auto`): on a merge-queue branch even a plain `gh pr merge` arms auto-merge and enters the queue, skipping the approval guard (this rule is for ai-triad-research only; the data repo's exception is in `docs/pr-landing.md`) (PI-approved 2026-11-09, t/4939; t/537).
   - **Never push to a queued PR.**

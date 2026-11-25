@@ -9,7 +9,7 @@ The full rules behind root `AGENTS.md` → "Incident Response". This text moved 
 
 ## Prod hotfix path (t/610, t/609)
 
-1. The fix lands on `main` through the merge queue, with a Tech Lead or Security `budget-exempt:` review.
+1. The fix lands on `main` through the merge queue, as an incident PR (`incident/t<N>-<slug>`) for an open ticket titled INCIDENT. `enqueue-pr` accepts it with no budget exemption. A Tech Lead or Security `budget-exempt:` review is only the fallback when the ticket can't be read (t/656).
 2. The prod deploy runs from `main`, since the production environment only accepts `main`.
 3. DeployAzure posts the what-if from the exact SHA before the PI's go, and stops if it shows any prod resource change beyond the image that the PI has not approved.
 4. Any route that deploys from another ref is checked against the environment's deployment-branch policy before it is proposed. Widening that policy is a PI decision.
