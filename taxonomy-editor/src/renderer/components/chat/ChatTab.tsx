@@ -1085,21 +1085,31 @@ function CommunityChatMetaGrid({ metadataExpanded, full, chat }: { metadataExpan
   );
 }
 
+/** t/595: whether an answer carries anything for Why (grounding refs) or How (raw prompt/response). */
+function hasAnswerProvenance(entry: ChatEntry): boolean {
+  if (entry.speaker === 'user') return false;
+  return (entry.taxonomy_refs?.length ?? 0) > 0 || Boolean(entry.raw_prompt || entry.raw_response);
+}
+
 /** t/595: an answer's Why (BDI grounding) and How (raw prompt and response) in the read-only community
- *  view, using the same shared components as the chat workspace. Each part shows only when the entry
- *  carries it. An entry that carries neither returns null, and the caller then renders the answer
- *  exactly as before (no wrapper), so a chat saved without refs or raw fields is unchanged. */
-function communityAnswerProvenance(entry: ChatEntry) {
-  if (entry.speaker === 'user') return null;
-  const hasRefs = (entry.taxonomy_refs?.length ?? 0) > 0;
+ *  view, using the same shared components as the chat workspace. Both are disclosures, collapsed by
+ *  default, with their toggles on one row under the answer, Why first (Design, p/53#61). Each shows
+ *  only when the entry carries it; the caller renders nothing of this for an entry that carries neither. */
+function CommunityAnswerProvenance({ entry }: { entry: ChatEntry }) {
+  const [whyOpen, setWhyOpen] = useState(false);
+  const refs = entry.taxonomy_refs ?? [];
   const hasRaw = Boolean(entry.raw_prompt || entry.raw_response);
-  if (!hasRefs && !hasRaw) return null;
   return (
-    <>
-      {hasRefs && <span className="chat-message-why-eyebrow">Why</span>}
-      {hasRefs && <TaxonomyRefsSection refs={entry.taxonomy_refs} />}
+    <div className="community-answer-provenance">
+      {refs.length > 0 && (
+        <button type="button" className="how-toggle" aria-expanded={whyOpen} onClick={() => setWhyOpen(open => !open)}>
+          <span className={`how-chevron${whyOpen ? ' expanded' : ''}`} aria-hidden="true">▸</span>
+          Why ({refs.length})
+        </button>
+      )}
       {hasRaw && <HowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} methodsLinks={CHAT_HOW_METHODS_LINKS} />}
-    </>
+      {whyOpen && refs.length > 0 && <TaxonomyRefsSection refs={refs} />}
+    </div>
   );
 }
 
@@ -1112,7 +1122,7 @@ function CommunityChatTranscript({ full }: { full: ChatSession | null }) {
         {full.transcript.map((entry) => {
           const color = speakerColor(entry.speaker);
           const isUser = entry.speaker === 'user';
-          const provenance = communityAnswerProvenance(entry);
+          const provenance = hasAnswerProvenance(entry) ? <CommunityAnswerProvenance entry={entry} /> : null;
           const content = (
             <div className="chat-message-content markdown-body">
               <Markdown remarkPlugins={[remarkGfm, remarkColorizePov]}>{entry.content}</Markdown>
