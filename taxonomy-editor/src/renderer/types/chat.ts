@@ -23,6 +23,16 @@ export interface ChatEntry {
   /** t/4848: the model's raw response before rendering/filtering, for the How panel's "Raw
    *  Response" section. Same write-once/optional contract as `raw_prompt`. */
   raw_response?: string;
+  /** t/348: the BDI node ids injected into this turn's prompt, in injection order. Additive trace only;
+   *  nothing branches on it. Written on the POVer entry, absent on user and older entries. */
+  context_node_ids?: string[];
+  /** t/348 (t/348#4 rule 4): the statement index and text chosen for each injected BDI node. */
+  context_statements?: { node_id: string; index: number; text: string }[];
+  /** t/348: the situation ids injected into this turn's prompt. */
+  context_situation_ids?: string[];
+  /** t/348 (TL p/10#250): the injected nodes whose prompt line uses their label, because the statement route was not
+   *  used for this session or failed. Absent or empty when every line has a statement. */
+  label_only_node_ids?: string[];
 }
 
 export interface ChatSession {

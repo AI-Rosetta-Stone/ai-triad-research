@@ -9,7 +9,7 @@
 // cancelOpEdSet / onOpEdProgress) is Electron-only; web keeps the disabled affordance.
 
 import { useState, useMemo, useEffect, useRef, useLayoutEffect, useId } from 'react';
-import type { TextareaHTMLAttributes } from 'react';
+import type { TextareaHTMLAttributes, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useDialog, useFocusTrap } from '../shared/useDialog'; // t/4909
 import { api } from '@bridge';
 import type { CreateOpEdParams, CreateOpEdPayload, OpEdProgressEvent } from '../../bridge/types';
@@ -28,6 +28,10 @@ import { OpEdTagPicker, opEdTagBlocksStart, opEdTagSelection, type OpEdTagChoice
 import { registryOrNull } from '../debate/SeatTagPicker';
 import type { PovNode } from '@lib/debate/taxonomyTypes';
 import './NewOpEdDialog.css';
+import {
+  SOURCE_MODES, SourceSelector, DocumentField, hasSourceFor, sourceStartReason, useDocumentSource, useDocumentExtractionAvailable,
+  type SourceMode, type DocumentState, type DocumentChoice,
+} from './NewOpEdSource';
 
 // ── Outlets (t/3864) ───────────────────────────────────────────────────────────
 // The option SET and the default come from the SSOT (lib/oped/outlets.json, t/3861) — never
@@ -456,8 +460,18 @@ interface CreateFormProps {
   /** Whether the URL/source create path is offered. False on web (v1 topic-only) — the
    *  server rejects URL create, so we never present a submit path it can't run (t/2614). */
   allowUrlSource: boolean;
-  fromWebPage: boolean;
-  setFromWebPage: (v: boolean) => void;
+  /** t/276: the Document segment. Gated like URL mode; web stays off until the create route accepts documentSource (t/2614). */
+  allowDocumentSource: boolean;
+  sourceMode: SourceMode;
+  setSourceMode: (v: SourceMode) => void;
+  /** The chosen document (name and word count), or null. `reading` = picker and extraction in progress. */
+  docFile: DocumentChoice | null;
+  docState: DocumentState;
+  docError: string | null;
+  onPickDocument: () => void;
+  onRemoveDocument: () => void;
+  /** Why Start is off, shown as a visible line beside it (Design t/272#7). */
+  startReason: string | undefined;
   topic: string;
   setTopic: (v: string) => void;
   url: string;
@@ -482,7 +496,6 @@ interface CreateFormProps {
   canStart: boolean;
   /** The optional one-voice POV tag picker (t/3992), rendered by the dialog. */
   tagPicker: React.ReactNode;
-  hasSource: boolean;
   modelHasKey: boolean;
   submitLabel: string;
 }
@@ -491,8 +504,14 @@ function OpEdCreateForm(p: CreateFormProps) {
   return (
     <>
       <div className="oped-dialog-body">
-        {/* Topic OR URL — mutually exclusive */}
-        {!p.fromWebPage ? (
+        {/* One source at a time (Design t/272#1): a segmented selector, then the field for the active mode */}
+        <SourceSelector
+          sourceMode={p.sourceMode}
+          setSourceMode={p.setSourceMode}
+          modes={SOURCE_MODES.filter(m => (m !== 'web' || p.allowUrlSource) && (m !== 'document' || p.allowDocumentSource))}
+        />
+
+        {p.sourceMode === 'topic' && (
           <div>
             <label className="oped-field-label" htmlFor="oped-topic">
               Topic <span className="oped-required-mark" aria-hidden="true">*</span>
@@ -507,15 +526,10 @@ function OpEdCreateForm(p: CreateFormProps) {
               autoFocus
               aria-required="true"
             />
-            {p.allowUrlSource && (
-              <button type="button" className="oped-source-toggle" onClick={() => p.setFromWebPage(true)}>
-                ⌥ From a web page instead →
-              </button>
-            )}
             {p.allowUrlSource && p.topicLooksLikeUrl && (
               <div className="oped-url-steer" role="status">
                 <span className="oped-url-steer-text">
-                  This looks like a web page. Switch to “From web page” to extract and link its claims.
+                  This looks like a web page. Switch to “Web page” to extract and link its claims.
                 </span>
                 <button type="button" className="oped-url-steer-action" onClick={p.onMigrateTopicToUrl}>
                   Use as web page →
@@ -523,7 +537,9 @@ function OpEdCreateForm(p: CreateFormProps) {
               </div>
             )}
           </div>
-        ) : (
+        )}
+
+        {p.sourceMode === 'web' && (
           <div>
             <label className="oped-field-label" htmlFor="oped-url">
               Web page URL <span className="oped-required-mark" aria-hidden="true">*</span>
@@ -539,10 +555,18 @@ function OpEdCreateForm(p: CreateFormProps) {
               autoFocus
             />
             {p.isAnonymous && <p className="oped-signin-note">Sign in to use URL sources.</p>}
-            <button type="button" className="oped-source-toggle" onClick={() => { p.setFromWebPage(false); p.setUrl(''); }}>
-              ← Use a topic instead
-            </button>
           </div>
+        )}
+
+        {p.sourceMode === 'document' && (
+          <DocumentField
+            docFile={p.docFile}
+            docState={p.docState}
+            docError={p.docError}
+            isAnonymous={p.isAnonymous}
+            onPick={p.onPickDocument}
+            onRemove={p.onRemoveDocument}
+          />
         )}
 
         {/* Voices — multi-select camp chips */}
@@ -622,13 +646,16 @@ function OpEdCreateForm(p: CreateFormProps) {
         )}
         <div className="oped-footer-actions">
           <div className="oped-footer-right">
+            {p.startReason && <p className="oped-start-reason" id="oped-start-reason">{p.startReason}</p>}
             <button type="button" className="btn" onClick={p.onClose}>Cancel</button>
+            {/* aria-disabled, not disabled: the button stays focusable so the reason line can be reached (Design t/272#7). */}
             <button
               type="button"
               className="btn btn-primary"
-              onClick={p.onDraft}
-              disabled={!p.canStart}
-              title={!p.hasSource ? 'Enter a topic or URL' : p.orderedVoices.length < 1 ? 'Select at least one voice' : !p.modelHasKey ? 'No API key configured for the selected model' : undefined}
+              onClick={() => { if (p.canStart) p.onDraft(); }}
+              aria-disabled={!p.canStart}
+              aria-describedby={p.startReason ? 'oped-start-reason' : undefined}
+              title={p.startReason}
             >
               {p.submitLabel}
             </button>
@@ -653,7 +680,13 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
   initialTopic?: string;
 }) {
   // Screen A
-  const [fromWebPage, setFromWebPage] = useState(false);
+  const [sourceMode, setSourceMode] = useState<SourceMode>('topic');
+  // t/634: hide the Document segment until extraction is known to work here; never sit on a hidden segment.
+  const documentAvailable = useDocumentExtractionAvailable(open);
+  const allowDocumentSource = allowUrlSource && documentAvailable === true;
+  useEffect(() => { if (sourceMode === 'document' && !allowDocumentSource) setSourceMode('topic'); }, [sourceMode, allowDocumentSource]);
+  const fromWebPage = sourceMode === 'web';
+  const { docFile, docState, docError, pick: handlePickDocument, remove: handleRemoveDocument } = useDocumentSource();
   const [topic, setTopic] = useState('');
 
   useEffect(() => {
@@ -749,18 +782,20 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
 
   const orderedVoices = useMemo(() => POV_KEYS.filter(v => voices.has(v)), [voices]);
 
-  const hasSource = fromWebPage ? url.trim().length > 0 : topic.trim().length > 0;
+  const hasSource = hasSourceFor(sourceMode, topic, url, docState, docFile);
   // t/3992: a tag below its minimum refuses at setup (TL t/3957#7 B(a)), never mid-generation.
   const canStart = hasSource && orderedVoices.length >= 1 && modelHasKey && !opEdTagBlocksStart(tagChoice, orderedVoices, nodesFor);
+  const startReason = sourceStartReason(sourceMode, docState, hasSource, orderedVoices.length, modelHasKey);
 
   // A URL pasted into the topic box → FromTopic → no source brief → no claims, silently (t/2899).
   // Detect it so we can steer the user to the web-page path (desktop only; web has no URL path).
-  const topicLooksLikeUrl = !fromWebPage && /^https?:\/\//i.test(topic.trim());
+  const topicLooksLikeUrl = sourceMode === 'topic' && /^https?:\/\//i.test(topic.trim());
   const handleMigrateTopicToUrl = () => {
-    setFromWebPage(true);
+    setSourceMode('web');
     setUrl(topic.trim());
     setTopic('');
   };
+
 
   const settingsDiffCount = SETTINGS_SECTIONS.filter(s =>
     sectionHasDiff(s.id, { outlet, wordCount, thesis, authorBio, ground, maxGroundingNodes, maxSituations, model, temperature }, globalModel),
@@ -800,10 +835,14 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
     if (wordCount != null) params.wordCount = wordCount;
     if (!ground) params.voiceOnly = true;
     else { params.maxGroundingNodes = maxGroundingNodes; params.maxSituations = maxSituations; }
-    const sourceUrl = fromWebPage && url.trim() ? url.trim() : undefined;
     const tagSelection = opEdTagSelection(tagChoice, orderedVoices); // t/3992
     if (tagSelection) params.tagSelection = tagSelection;
-    return { topic: topic.trim(), url: sourceUrl, params, voices: orderedVoices };
+    // Exactly one source: only the active mode is submitted (Design t/272#1).
+    if (sourceMode === 'document' && docFile) {
+      return { documentSource: { text: docFile.text, name: docFile.name }, params, voices: orderedVoices };
+    }
+    if (sourceMode === 'web') return { url: url.trim(), params, voices: orderedVoices };
+    return { topic: topic.trim(), params, voices: orderedVoices };
   };
 
   const handleCancel = () => {
@@ -814,8 +853,9 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
 
   const handleDraft = async () => {
     if (!canStart || creating) return;
-    if (fromWebPage && isAnonymous) {
-      setStartError({ problem: 'URL sources require sign-in.', nextSteps: ['Sign in with GitHub or Google', 'Or switch to a topic instead of a web page'] });
+    if ((fromWebPage || sourceMode === 'document') && isAnonymous) {
+      const what = sourceMode === 'document' ? 'Document sources' : 'URL sources';
+      setStartError({ problem: `${what} require sign-in.`, nextSteps: ['Sign in with GitHub or Google', 'Or switch to a topic instead'] });
       return;
     }
     setCreating(true);
@@ -873,8 +913,15 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
         ) : (
           <OpEdCreateForm
             allowUrlSource={allowUrlSource}
-            fromWebPage={fromWebPage}
-            setFromWebPage={setFromWebPage}
+            allowDocumentSource={allowDocumentSource}
+            sourceMode={sourceMode}
+            setSourceMode={setSourceMode}
+            docFile={docFile}
+            docState={docState}
+            docError={docError}
+            onPickDocument={handlePickDocument}
+            onRemoveDocument={handleRemoveDocument}
+            startReason={startReason}
             topic={topic}
             setTopic={setTopic}
             url={url}
@@ -896,7 +943,6 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
             onDraft={handleDraft}
             canStart={canStart}
             tagPicker={<OpEdTagPicker voices={orderedVoices} registry={tagRegistry} choice={tagChoice} onChange={setTagChoice} nodesFor={nodesFor} />}
-            hasSource={hasSource}
             modelHasKey={modelHasKey}
             submitLabel={submitLabel}
           />

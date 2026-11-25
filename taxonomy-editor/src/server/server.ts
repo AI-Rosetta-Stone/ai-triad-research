@@ -43,6 +43,8 @@ import {
 import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool, computeEmbeddingsOffThread } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
+import { pollLeaseConfigFromEnv } from './pollLeaseConfig.js';
+import { writeLifecycleDump, lifecycleDumpPruneSince, LIFECYCLE_DUMP_MAX_COUNT, LIFECYCLE_DUMP_MAX_AGE_MS } from './lifecycleDumps.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
@@ -51,6 +53,8 @@ import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchNa
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
 import { anonRouteDecision } from './anonAiRoutes.js';
+import { enforceAuthGate, enforceAnonRouteGuard, type AuthGateCtx, type AuthGateDeps } from './authGates.js';
+import { resolveAllowlist, type AuthorizedUsersFile } from './authorizedUsers.js';
 import { getRollbackStatus } from './rollbackStatus.js';
 import { getErrorSummaryCached, type ErrorEntry } from './errorAggregation.js';
 import { isCaseStatus } from './support/types.js';
@@ -257,9 +261,15 @@ if (STORAGE_MODE === 'github-api') {
   validateStagingBootGuard();
   validateStagingBranchPrefix();
 
+  // t/509 (t/504): pass the poll lease. Inert at one replica (the backend arms it only when maxReplicas > 1).
+  const pollLease = pollLeaseConfigFromEnv(process.env, getMaxReplicas());
+  // t/613: the shutdown/crash dump cap and its prune floor, so the live retention rule is visible in the boot log.
+  { const since = lifecycleDumpPruneSince(); log.server.info({ maxCount: LIFECYCLE_DUMP_MAX_COUNT, maxAgeDays: LIFECYCLE_DUMP_MAX_AGE_MS / 86_400_000, pruneSince: since === null ? 'none' : new Date(since).toISOString() }, 'lifecycle dump retention at boot (t/613)'); }
+  log.server.info({ pollLease: pollLease ? { maxReplicas: pollLease.maxReplicas, armed: pollLease.maxReplicas > 1 } : null }, 'GitHub poll lease config at boot (t/509)');
   githubBackend = new GitHubAPIBackend({
     cacheDir: CACHE_DIR,
     recorder: serverRecorder,
+    ...(pollLease ? { pollLease } : {}),
   });
   sessionManager = new SessionBranchManager(githubBackend, serverRecorder);
   fileIO.setBackend(githubBackend);
@@ -434,43 +444,7 @@ function getCorsOrigin(req: http.IncomingMessage): string {
 // Azure Easy Auth sets X-MS-CLIENT-PRINCIPAL-NAME and X-MS-CLIENT-PRINCIPAL-IDP
 // after successful login. We match against emails, GitHub username, or display name.
 
-interface AuthorizedUser {
-  name: string;
-  emails?: string[];
-  github?: string;
-}
-
-interface AuthorizedUsersFile {
-  users: AuthorizedUser[];
-}
-
-function loadAuthorizedUsers(): AuthorizedUsersFile | null {
-  // Only load from the data volume — auth is opt-in per deployment.
-  // Drop authorized-users.json into /data/ (Azure Files) to enable the gate.
-  const candidates = [
-    path.join(getDataRoot(), 'authorized-users.json'),
-  ];
-  for (const p of candidates) {
-    try {
-      if (fs.existsSync(p)) {
-        // eslint-disable-next-line local/no-raw-data-root-read -- auth allowlist is mount-sourced (/data volume) with an existsSync fallback loop BY DESIGN; routing through readDataFile would flip the trust source from the mount to the data-repo-via-API (auth surface — t/3093#3, ServerAPI route-b)
-        const data = JSON.parse(fs.readFileSync(p, 'utf-8')) as AuthorizedUsersFile;
-        log.auth.info({ count: data.users.length, path: p }, 'Loaded authorized users');
-        return data;
-      }
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        component: 'server',
-        level: 'error',
-        message: 'Operation failed',
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      log.auth.error({ path: p, err }, 'Failed to parse authorized users file');
-    }
-  }
-  return null; // No file found = no restriction
-}
+// t/625: the allowlist loader and its types live in authorizedUsers.ts (testable without starting the server).
 
 let authorizedUsersCache: AuthorizedUsersFile | null | undefined;
 let authorizedUsersCacheTime = 0;
@@ -479,7 +453,7 @@ const AUTH_CACHE_TTL = 30_000; // Re-read file every 30s
 function getAuthorizedUsers(): AuthorizedUsersFile | null {
   const now = Date.now();
   if (authorizedUsersCache === undefined || now - authorizedUsersCacheTime > AUTH_CACHE_TTL) {
-    authorizedUsersCache = loadAuthorizedUsers();
+    authorizedUsersCache = resolveAllowlist(); // t/625: hosted required-auth with no file → an empty list (deny all)
     authorizedUsersCacheTime = now;
   }
   return authorizedUsersCache;
@@ -506,20 +480,9 @@ function isUserAuthorized(principalName: string, idp: string): boolean {
   return false;
 }
 
-// ── Anonymous route guard ──
-// When AUTH_OPTIONAL is enabled, anonymous users get read-only, non-AI access.
-// Auth-gate 403 rejection reason codes, surfaced in the response and the flight
-// recorder so a 403 can be triaged without reading the auth code (t/763).
-type AuthDenyReason = 'anon_route_blocked' | 'no_auth_header' | 'user_not_in_allowlist' | 'no_session';
+/** t/616: the allowlist lookups the extracted auth gates (authGates.ts) need; they stay here, used below too. */
+const AUTH_GATE_DEPS: AuthGateDeps = { getAuthorizedUsers, isUserAuthorized };
 
-function recordAuthDenied(reason: AuthDenyReason, method: string, urlPath: string): void {
-  getGlobalRecorder()?.record({
-    type: 'system.error',
-    component: 'auth',
-    level: 'warn',
-    message: `Auth gate 403 (${reason}): ${method} ${urlPath}`,
-  });
-}
 
 // S9: Only trust Easy Auth headers when running on Azure with auth enabled.
 // Without this gate, clients can spoof X-MS-CLIENT-PRINCIPAL-NAME if the
@@ -597,7 +560,7 @@ async function handleRequestInner(
   clearAnonCookiesOnSignin(req, res, principalName);
 
   const authGateCtx: AuthGateCtx = { urlPath, isPublicPath, authDisabled, authOptional, principalName, idp };
-  if (enforceAuthGate(req, res, authGateCtx)) return;
+  if (enforceAuthGate(req, res, authGateCtx, AUTH_GATE_DEPS)) return;
   if (enforceAnonRouteGuard(req, res, authGateCtx)) return;
 
   // Run the remainder of request handling inside a user context so that
@@ -788,104 +751,6 @@ function clearAnonCookiesOnSignin(req: http.IncomingMessage, res: http.ServerRes
   }
 }
 
-/** Read-mostly context shared by the auth-gate helpers. */
-interface AuthGateCtx {
-  urlPath: string;
-  isPublicPath: boolean;
-  authDisabled: boolean;
-  authOptional: boolean;
-  principalName: string;
-  idp: string;
-}
-
-/** AUTH_OPTIONAL mode gate: show login page / 401 unless signed in or anonymous. */
-function enforceOptionalAuthGate(req: http.IncomingMessage, res: http.ServerResponse, ctx: AuthGateCtx): boolean {
-  const { principalName, urlPath } = ctx;
-  // Optional mode: show login page unless user signed in or chose anonymous
-  if (principalName) return false;
-  const isAnonymousSession = parseCookies(req).get('auth_anonymous') === '1';
-  if (isAnonymousSession) return false;
-  // t/1473: API clients can't act on an HTML login page — anonymous /api/*
-  // calls (no auth_anonymous cookie) were getting 200 text/html, which the
-  // client mis-parsed as "corrupted data" and got permanently stuck. Return
-  // a structured 401 so the client can re-establish an anonymous session and
-  // retry (client recovery is the child ticket). Mirrors the required-mode
-  // /api/ check (t/763) but 401 (a session CAN be established here) not 403.
-  // t/1501: skip 401 for routes that don't need a session — isAnonAllowedRoute
-  // and freeTierRoute are designed for truly cookie-less anonymous access.
-  if (urlPath.startsWith('/api/')) {
-    const m = req.method || 'GET';
-    // t/475: the one anonymous-route decision (anonRouteDecision), shared with the guard below.
-    if (!anonRouteDecision(m, urlPath, proxyTiers.freeTierEnabled(), isAnonAllowedRoute)) {
-      recordAuthDenied('no_session', m, urlPath);
-      res.writeHead(401, { 'Content-Type': 'application/json', 'X-Auth-Reason': 'no_session' });
-      res.end(JSON.stringify({ error: 'Anonymous session required', reason: 'no_session' }));
-      return true;
-    }
-  }
-  res.writeHead(200, loginPageHeaders(req));
-  res.end(buildLoginPage(true));
-  return true;
-}
-
-/** Required-auth mode gate: must sign in and be in the allowlist. */
-function enforceRequiredAuthGate(req: http.IncomingMessage, res: http.ServerResponse, ctx: AuthGateCtx): boolean {
-  const { principalName, idp, urlPath } = ctx;
-  // Required mode: must sign in and be in the allowlist
-  if (!principalName) {
-    // API clients can't act on an HTML login page — return a structured 403
-    // with a machine-readable reason (t/763). Browser routes keep the login
-    // page so the sign-in flow is unchanged.
-    if (urlPath.startsWith('/api/')) {
-      recordAuthDenied('no_auth_header', req.method || 'GET', urlPath);
-      res.writeHead(403, { 'Content-Type': 'application/json', 'X-Auth-Reason': 'no_auth_header' });
-      res.end(JSON.stringify({ error: 'Sign in required', reason: 'no_auth_header' }));
-      return true;
-    }
-    res.writeHead(200, loginPageHeaders(req));
-    res.end(buildLoginPage(false));
-    return true;
-  }
-
-  if (!isUserAuthorized(principalName, idp)) {
-    recordAuthDenied('user_not_in_allowlist', req.method || 'GET', urlPath);
-    // Browser-facing forbidden page; reason exposed via header for triage.
-    res.writeHead(403, { 'Content-Type': 'text/html', 'X-Auth-Reason': 'user_not_in_allowlist' });
-    res.end(FORBIDDEN_PAGE(principalName));
-    return true;
-  }
-  return false;
-}
-
-/** Auth gate. Same control flow as before: public / kill-switch paths fall through;
- *  AUTH_OPTIONAL takes the optional gate; else the required gate runs iff authorized-users.json
- *  is present (original `else if (getAuthorizedUsers())`). Returns true when a response was sent. */
-function enforceAuthGate(req: http.IncomingMessage, res: http.ServerResponse, ctx: AuthGateCtx): boolean {
-  if (ctx.isPublicPath || ctx.authDisabled) return false;
-  if (ctx.authOptional) return enforceOptionalAuthGate(req, res, ctx);
-  if (getAuthorizedUsers()) return enforceRequiredAuthGate(req, res, ctx);
-  return false;
-}
-
-/** Anonymous route guard: in AUTH_OPTIONAL mode, block AI + write routes. */
-function enforceAnonRouteGuard(req: http.IncomingMessage, res: http.ServerResponse, ctx: AuthGateCtx): boolean {
-  const { authOptional, principalName, isPublicPath, urlPath } = ctx;
-  // Anonymous route guard: in AUTH_OPTIONAL mode, block AI + write routes
-  if (authOptional && !principalName && !isPublicPath) {
-    const method = req.method || 'GET';
-    // Free tier (t/793): when configured, keyless users may reach AI generation;
-    // the handler enforces the free-tier model pin, per-IP limits, and key. Inert
-    // until FREE_TIER_GEMINI_KEY is set, so the AI block otherwise stands.
-    // t/475: the one anonymous-route decision (anonRouteDecision), shared with the optional-auth gate above.
-    if (!anonRouteDecision(method, urlPath, proxyTiers.freeTierEnabled(), isAnonAllowedRoute)) {
-      recordAuthDenied('anon_route_blocked', method, urlPath);
-      res.writeHead(403, { 'Content-Type': 'application/json', 'X-Auth-Reason': 'anon_route_blocked' });
-      res.end(JSON.stringify({ error: 'Sign in required', reason: 'anon_route_blocked', detail: 'AI features and editing require authentication. Sign in at /.auth/login/github to unlock full access.' }));
-      return true;
-    }
-  }
-  return false;
-}
 
 /** Resolve the per-request user context (session branch, storage id, anon session).
  *  Returns null when it already sent a 403 (cross-provider binding mismatch) — caller returns. */
@@ -1239,9 +1104,8 @@ function shutdown(signal: string) {
   try {
     serverRecorder.record({ type: 'lifecycle', component: 'server', level: 'info', message: `Shutdown: ${signal}` });
     const ndjson = appendServerLogs(serverRecorder.buildDump('manual').ndjson);
-    const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
-    fs.mkdirSync(dumpDir, { recursive: true });
-    fs.writeFileSync(path.join(dumpDir, `server-shutdown-${Date.now()}.jsonl`), ndjson);
+    // t/613: write, then prune old shutdown/crash dumps (newest 200, under 14 days). Never throws.
+    writeLifecycleDump(path.join(getStateRoot(), 'flight-recorder'), 'shutdown', ndjson); // t/2643: class-A writable state
   } catch { /* telemetry — silent by design;  best effort */ }
 
   // 1a. Stop GitHubAPIBackend polling (also logs the immediate uncommitted-overlay snapshot, t/4258 Part 1)
@@ -1298,9 +1162,7 @@ process.on('uncaughtException', (err) => {
   try {
     serverRecorder.record({ type: 'system.error', component: 'server', level: 'fatal', message: err.message, error: { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) } });
     const { ndjson } = serverRecorder.buildDump('uncaught_error', { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) });
-    const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
-    fs.mkdirSync(dumpDir, { recursive: true });
-    fs.writeFileSync(path.join(dumpDir, `server-crash-${Date.now()}.jsonl`), ndjson);
+    writeLifecycleDump(path.join(getStateRoot(), 'flight-recorder'), 'crash', ndjson); // t/613 + t/2643: pruned, never throws
   } catch { /* telemetry — silent by design;  best effort */ }
   log.server.fatal({ err }, 'Uncaught exception');
   process.exit(1);

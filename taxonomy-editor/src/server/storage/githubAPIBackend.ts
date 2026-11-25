@@ -31,6 +31,7 @@ import { getDataRoot } from '../config.js';
 import { gitBlobSha } from './gitBlobSha.js';
 import { writeFramedNdjson, log } from '../logger.js';
 import { BlobLease } from './blobLease.js';
+import { isCommittableDataRepoPath, dataRepoPathClass, dataRepoPathRefusedError } from './dataRepoWriteAllowlist.js';
 import { SharedOverlayStore, type SharedOverlayEntry, type SharedOverlayEntryWithEtag, type SharedOverlayStageExpect } from './sharedOverlayStore.js';
 import { BlobServiceClient, type ContainerClient, type BlockBlobClient, RestError } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
@@ -154,7 +155,8 @@ const POLL_INTERVAL_MS = 60_000;
  *  deployment whose base branch is something else (staging) a pinned read reads that branch. Before
  *  this mapping such a read went to the repository's default branch, a different branch from the tree,
  *  the listings and the strict reads. */
-export const BASE_BRANCH_REF = 'main';
+export { BASE_BRANCH_REF } from './baseBranchRef.js';
+import { BASE_BRANCH_REF } from './baseBranchRef.js';
 const ERROR_BUFFER_CAPACITY = 100;
 
 // t/4179 (TL R1/R2/R3): single-holder poll coordination constants.
@@ -1516,6 +1518,7 @@ export class GitHubAPIBackend implements StorageBackend {
 
   async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }> {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'writeFile'); // t/638
     // opts.ref pins the write to a specific ref (e.g. 'main') for shared data
     // that must commit straight to main rather than the caller's session branch
     // — e.g. community submissions, which submitters (often without merge rights)
@@ -1747,6 +1750,7 @@ export class GitHubAPIBackend implements StorageBackend {
    */
   async writeFileIfAbsent(filePath: string, content: string, opts?: { ref?: string }): Promise<WriteIfAbsentResult> {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'writeFileIfAbsent'); // t/638
     const forceRef = opts?.ref;
     const ref = forceRef ?? this.getEffectiveRef();
     if (!forceRef && ref !== this.baseBranch && this.hasSessionContext()) {
@@ -1896,6 +1900,7 @@ export class GitHubAPIBackend implements StorageBackend {
 
   async writeBinaryFile(filePath: string, content: Buffer, opts?: { ref?: string }): Promise<void> {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'writeBinaryFile'); // t/638
     const ref = opts?.ref ?? this.getEffectiveRef();
 
     if (this.rest.isTripped()) {
@@ -2105,6 +2110,7 @@ export class GitHubAPIBackend implements StorageBackend {
 
   async deleteFile(filePath: string): Promise<void> {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'deleteFile'); // t/638
     const ref = this.getEffectiveRef();
 
     // When on a session branch, tombstone in overlay — no API call.
@@ -2463,6 +2469,7 @@ export class GitHubAPIBackend implements StorageBackend {
     files: FileChange[],
     message: string,
   ): Promise<string> {
+    for (const f of files) this.assertCommittablePath(f.path, 'createCommitFromTree'); // t/638: refused whole, before any call
     const creds = await this.getCredsCached();
     if (!creds) throw this.noCredsError('createCommitFromTree');
 
@@ -2610,12 +2617,22 @@ export class GitHubAPIBackend implements StorageBackend {
     }
   }
 
+  /** The local batch for commitOverlayImpl, checked against the data-repo allowlist (t/638: refused whole, before any
+   *  GitHub call). 'nothing' means there is nothing to commit. With shared state active the local map is only a read
+   *  cache (t/550), so its being empty says nothing, and the shared batch is checked in commitSharedBatch instead
+   *  (SO p/269#14). Extracted to keep commitOverlayImpl under the complexity budget. */
+  private localCommitBatch(userId: string): ReturnType<GitHubAPIBackend['getOverlayEntries']> | 'nothing' {
+    const entries = this.getOverlayEntries(userId);
+    if (!entries) return this.sharedSavesActive(userId) ? null : 'nothing';
+    for (const p of [...entries.writes.map(w => w.path), ...entries.deletes]) this.assertCommittablePath(p, 'commitOverlay');
+    return entries;
+  }
+
   private async commitOverlayImpl(
     userId: string, message?: string, branchName?: string,
   ): Promise<{ commitSha: string; filesCommitted: number; conflictedPaths?: string[] } | null> {
-    // t/550: with shared state active the local map is only a read cache, so its being empty says nothing.
-    const entries = this.getOverlayEntries(userId);
-    if (!entries && !this.sharedSavesActive(userId)) return null;
+    const entries = this.localCommitBatch(userId);
+    if (entries === 'nothing') return null;
 
     // t/4258/t/4277 (C3a): an explicit branchName is required for callers
     // running outside request scope (a debounced commit timer, a SIGTERM
@@ -2866,6 +2883,20 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   // ── Path contract ──────────────────────────────────────────────────────
+
+  /** t/638 (incident t/629): refuse a data-repo path that is not on the write allowlist, before any GitHub call. The
+   *  WARN names the path class only, never the content or the full path (which can carry a user id). */
+  private assertCommittablePath(repoPath: string, op: string): void {
+    if (isCommittableDataRepoPath(repoPath)) return;
+    const pathClass = dataRepoPathClass(repoPath);
+    log.storage.warn({ op, pathClass }, 'data-repo write refused: path class not on the allowlist (t/638)');
+    this.recordEvent({
+      type: 'system.error', component: 'github-api', level: 'warn',
+      message: `Data-repo write refused (${op}): path class ${pathClass} is not on the allowlist`,
+      data: { op, pathClass },
+    });
+    throw dataRepoPathRefusedError(repoPath, op);
+  }
 
   private toRepoPath(filePath: string): string {
     const refuse = (code: string, problem: string): never => {
@@ -4164,24 +4195,33 @@ export class GitHubAPIBackend implements StorageBackend {
     return !this.blobLease || this.blobLease.isHolder();
   }
 
+  /** The startup diff, run by loadFromHead after the new tree has loaded (t/483 order). t/555: it used
+   *  getChangedFiles, which answers [] for a failed compare and for a list cut at GitHub's cap, so the
+   *  manifest kept entries for changed files and served their old blob after a restart; on a 404/422 it
+   *  also ran fullCacheInvalidation, emptying the tree loadFromHead had just loaded. Now an unknown set
+   *  of changed paths (compareChangedPaths returns null) drops every cached entry and leaves the tree. */
   private async invalidateChangedFiles(fromSha: string, toSha: string): Promise<void> {
-    const changed = await this.getChangedFiles(fromSha, toSha);
-    if (changed.length === 0) return;
+    if (!fromSha || fromSha === toSha) return;
+    const changed = await this.compareChangedPaths(fromSha, toSha);
+    if (changed === null) {
+      log.storage.warn({ fromSha, toSha },
+        'initialize: the changed paths since the cached commit are unknown; falling back to invalidating every cached file (t/555)');
+    }
 
     await this.withManifestLock(async () => {
-      for (const filePath of changed) {
-        if (this.manifest?.files[filePath]) {
-          delete this.manifest.files[filePath];
-        }
-      }
+      if (!this.manifest) return;
+      if (changed === null) this.manifest.files = {};
+      else for (const filePath of changed) delete this.manifest.files[filePath];
     });
 
     this.recordEvent({
       type: 'cache.invalidate',
       component: 'cache',
-      level: 'info',
-      message: `Invalidated ${changed.length} files on startup diff`,
-      data: { paths: changed.slice(0, 20), trigger: 'startup' },
+      level: changed === null ? 'warn' : 'info',
+      message: changed === null
+        ? 'Startup diff: changed paths unknown, all cached files invalidated'
+        : `Invalidated ${changed.length} files on startup diff`,
+      data: { paths: (changed ?? []).slice(0, 20), trigger: 'startup', full: changed === null },
     });
   }
 
@@ -4611,6 +4651,8 @@ export class GitHubAPIBackend implements StorageBackend {
   ): Promise<{ commitSha: string; filesCommitted: number; conflictedPaths?: string[] } | null> {
     const listed = await store.listEntries(userId);
     if (listed.length === 0) return null;
+    // t/638 (SO p/269#14): the shared batch is refused whole if any entry is off the allowlist, before any GitHub call.
+    for (const e of listed) this.assertCommittablePath(e.repoPath, 'commitOverlay');
     const entries = {
       writes: listed.filter(e => e.entry.content !== null).map(e => ({ path: e.repoPath, content: e.entry.content as string })),
       deletes: listed.filter(e => e.entry.content === null).map(e => e.repoPath),
@@ -4925,6 +4967,7 @@ export class GitHubAPIBackend implements StorageBackend {
    */
   writeToOverlay(filePath: string, content: string): void {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'writeToOverlay'); // t/638
     const userId = this.getEffectiveUserId();
     if (!userId) return;
     this.sessionWriteActivitySeq.set(userId, ++this.sessionWriteActivityCounter); // t/4215 budget addendum
@@ -5001,6 +5044,7 @@ export class GitHubAPIBackend implements StorageBackend {
    */
   async deleteFromOverlay(filePath: string, ref: string): Promise<void> {
     const repoPath = this.toRepoPath(filePath);
+    this.assertCommittablePath(repoPath, 'deleteFromOverlay'); // t/638
     const userId = this.getEffectiveUserId();
     if (!userId) return;
     if (this.sharedSavesActive(userId)) {

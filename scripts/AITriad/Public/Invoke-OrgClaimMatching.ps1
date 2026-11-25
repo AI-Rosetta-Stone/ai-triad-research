@@ -69,7 +69,7 @@ function Invoke-OrgClaimMatching {
         .DirectionConflict (CL t/4523#5 condition 2) is set when .Endorsement is
         'endorses' or 'partial' but the directional-reconciled .EdgeType is
         'OPPOSES' — the two gates disagree about which way the org's position
-        points. NEVER AUTO-RESOLVED: surfaced in .Rationale for a human reviewer.
+        points. NEVER AUTO-RESOLVED: surfaced in .Diagnostics and match_meta.direction_conflict for a human reviewer.
         Feeds t/4546 (the directional gate's own type-flip-stability finding).
     .PARAMETER ClaimsPath
         Stage 1 claims JSON. Defaults to <taxonomy-dir>/organization_stance_claims.json.
@@ -350,6 +350,7 @@ function Invoke-OrgClaimMatching {
 
     # ── Existing edges to skip ───────────────────────────────────────────
     $existingKeys = @{}
+    $publishedKeys = @{}   # "<org>::<source>" with an approved PUBLISHED edge: the org's own documents (t/584)
     try {
         $edgeStore = Get-OrganizationEdgesStore
         if ($edgeStore -and $edgeStore.PSObject.Properties['edges']) {
@@ -359,6 +360,8 @@ function Invoke-OrgClaimMatching {
                     -not $e.PSObject.Properties['type']) { continue }
                 $k = "$([string]$e.source)::$([string]$e.target)::$([string]$e.type)"
                 $existingKeys[$k] = $true
+                $st = if ($e.PSObject.Properties['status']) { [string]$e.status } else { 'approved' }
+                if ([string]$e.type -eq 'PUBLISHED' -and $st -eq 'approved') { $publishedKeys["$([string]$e.source)::$([string]$e.target)"] = $true }
             }
         }
     } catch {
@@ -457,7 +460,15 @@ function Invoke-OrgClaimMatching {
             Independent = $independence
             ClaimCount  = $items.Count
             SourceRefs  = @($srcRefs)
-            Rationale   = $summary
+            # t/584: Diagnostics is the pipeline's own summary (what `rationale` used to hold). Rationale is
+            # the sentence a researcher reads and MatchMeta the stored diagnostics; both are set once the
+            # gates have settled the edge type.
+            Diagnostics = $summary
+            Rationale   = ''
+            MatchMeta   = $null
+            RepItem     = $repItem
+            OrgNameKnown = $true
+            DirectionalFlip = ''
             Items       = @($items)
         })
     }
@@ -546,10 +557,11 @@ function Invoke-OrgClaimMatching {
                 # Claim asserts ¬(node) → flip the provisional polarity-derived edge.
                 $finalType = if ($prop.EdgeType -eq 'ADVOCATES_FOR') { 'OPPOSES' } else { 'ADVOCATES_FOR' }
                 $directionalFlipped++
-                $prop.Rationale = "$($prop.Rationale) directional_flip=$($prop.EdgeType)->$finalType nli_dir=opposes reps=$($repVerdicts.Count)"
+                $prop.Diagnostics = "$($prop.Diagnostics) directional_flip=$($prop.EdgeType)->$finalType nli_dir=opposes reps=$($repVerdicts.Count)"
+                $prop.DirectionalFlip = "$($prop.EdgeType)->$finalType"
                 $prop.EdgeType = $finalType
             } else {
-                $prop.Rationale = "$($prop.Rationale) directional_ok nli_dir=$direction reps=$($repVerdicts.Count)"
+                $prop.Diagnostics = "$($prop.Diagnostics) directional_ok nli_dir=$direction reps=$($repVerdicts.Count)"
             }
         }
     }
@@ -613,7 +625,7 @@ function Invoke-OrgClaimMatching {
             $prop.DirectionConflict = ($tag -in @('endorses', 'partial')) -and ($prop.EdgeType -eq 'OPPOSES')
 
             $flagNote = if ($prop.DirectionConflict) { ' direction_conflict=true' } else { '' }
-            $prop.Rationale = "$($prop.Rationale) endorsement=$tag reps=$($repVerdicts.Count)$flagNote"
+            $prop.Diagnostics = "$($prop.Diagnostics) endorsement=$tag reps=$($repVerdicts.Count)$flagNote"
         }
     }
 
@@ -647,6 +659,43 @@ function Invoke-OrgClaimMatching {
         foreach ($p in $skip) { $dropped.Add($p) }
     }
 
+    # ── Rationale and match_meta (t/584) ─────────────────────────────────
+    # What a researcher reads under the edge is a sentence about the representative claim (wording agreed
+    # on t/584#8); the diagnostics are stored beside it in match_meta. Built after the gates, because the
+    # sentence states the FINAL edge type. The org's own words are quoted only for a claim whose text is
+    # verbatim and whose document the org published (an approved PUBLISHED edge to it).
+    if ($capped.Count -gt 0) {
+        $orgNameById = Get-OrgDisplayNameMap
+        $titleBySource = @{}
+        foreach ($p in $capped) {
+            $rep = $p.RepItem
+            $sid = [string]$rep.SourceId
+            if (-not $titleBySource.ContainsKey($sid)) { $titleBySource[$sid] = Get-OrgEdgeDocumentTitle -SourceId $sid }
+            # With no display name the sentence would name the org by its id. A dry run reports that with a
+            # WARN; a write refuses the proposal instead (see the write loop).
+            $p.OrgNameKnown = $orgNameById.ContainsKey([string]$p.OrgId)
+            $orgName = if ($p.OrgNameKnown) { $orgNameById[[string]$p.OrgId] } else { [string]$p.OrgId }
+            if (-not $p.OrgNameKnown) { Write-Warning "Invoke-OrgClaimMatching: no display name for $($p.OrgId) in the organization registry; its rationale names it by id and will not be written (t/584)" }
+            $p.Rationale = New-OrgEdgeRationale -Kind Matched -OrgName $orgName -EdgeType $p.EdgeType `
+                -ClaimText ([string]$rep.Verbatim) -Proposition ([string]$rep.Proposition) `
+                -DocumentTitle $titleBySource[$sid] -DocumentId $sid `
+                -OwnDocument ($publishedKeys.ContainsKey("$([string]$p.OrgId)::$sid"))
+            $metaArgs = @{
+                Stage = 3; Basis = [string]$p.Reason; Families = [int]$p.Independent; BestCosine = [double]$p.BestCosine
+                ClaimSourceId = $sid
+                ClaimText = $(if ([string]::IsNullOrWhiteSpace([string]$rep.Verbatim)) { [string]$rep.Proposition } else { [string]$rep.Verbatim })
+                DirectionConflict = [bool]$p.DirectionConflict
+            }
+            if ($p.Direction -ne 'skipped') {
+                $metaArgs['NliDirection'] = [string]$p.Direction
+                if ($null -ne $p.DirConfidence) { $metaArgs['NliMargin'] = [double]$p.DirConfidence }
+            }
+            if ($p.DirectionalFlip) { $metaArgs['DirectionalFlip'] = [string]$p.DirectionalFlip }
+            if ($p.Endorsement -ne 'skipped') { $metaArgs['Endorsement'] = [string]$p.Endorsement }
+            $p.MatchMeta = New-OrgEdgeMatchMeta @metaArgs
+        }
+    }
+
     # ── Emit or dry-run report ──────────────────────────────────────────
     $written = 0
     $failed  = [System.Collections.Generic.List[string]]::new()
@@ -662,6 +711,10 @@ function Invoke-OrgClaimMatching {
     if ($EffectiveWriteProposals) {
         foreach ($p in $capped) {
             $target = "$($p.OrgId)->$($p.NodeId) [$($p.EdgeType)]"
+            if (-not $p.OrgNameKnown) {
+                $failed.Add("$($p.OrgId)->$($p.NodeId): no display name for the organization, so no rationale can be written (t/584)")
+                continue
+            }
             if ($PSCmdlet.ShouldProcess($target, 'Propose org→node edge')) {
                 try {
                     $null = Import-OrganizationEdge -InputObject ([PSCustomObject]@{
@@ -669,6 +722,7 @@ function Invoke-OrgClaimMatching {
                         target        = $p.NodeId
                         type          = $p.EdgeType
                         rationale     = $p.Rationale
+                        match_meta    = $p.MatchMeta
                         source_refs   = @($p.SourceRefs)
                         status        = 'proposed'
                         discovered_at = (Get-Date).ToString('yyyy-MM-dd')

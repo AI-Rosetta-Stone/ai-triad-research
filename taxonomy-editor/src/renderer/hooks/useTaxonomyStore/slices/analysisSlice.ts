@@ -192,7 +192,7 @@ export const createAnalysisSlice: StateCreator<TaxonomyStore, [], [], AnalysisSl
       set({ analysisResult: text, analysisLoading: false, analysisStep: 0, analysisCached: false });
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'error', message: 'Failed to run distinction analysis', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      set({ analysisLoading: false, analysisError: mapErrorToUserMessage(err), analysisStep: 0, analysisRetry: null });
+      set({ analysisLoading: false, analysisError: mapErrorToUserMessage(err, { kind: 'ai' }), analysisStep: 0, analysisRetry: null });
     } finally {
       unsubscribe();
     }
@@ -299,7 +299,7 @@ export const createAnalysisSlice: StateCreator<TaxonomyStore, [], [], AnalysisSl
       set({ analysisResult: text, analysisLoading: false, analysisStep: 0 });
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'error', message: 'Failed to run node critique', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      set({ analysisLoading: false, analysisError: mapErrorToUserMessage(err), analysisStep: 0, analysisRetry: null });
+      set({ analysisLoading: false, analysisError: mapErrorToUserMessage(err, { kind: 'ai' }), analysisStep: 0, analysisRetry: null });
     } finally {
       unsubscribe();
     }
@@ -391,7 +391,7 @@ export const createAnalysisSlice: StateCreator<TaxonomyStore, [], [], AnalysisSl
       set({ conflictClusters: multiClusters, conflictClusterLoading: false });
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'error', message: 'Failed to run conflict cluster view', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      set({ conflictClusterLoading: false, conflictClusterError: mapErrorToUserMessage(err) });
+      set({ conflictClusterLoading: false, conflictClusterError: mapErrorToUserMessage(err, { kind: 'ai' }) });
     }
   },
 
@@ -549,7 +549,7 @@ export const createAnalysisSlice: StateCreator<TaxonomyStore, [], [], AnalysisSl
       set({ clusterView: { clusters: multiClusters, misfits: misfits.size > 0 ? misfits : undefined }, clusterLoading: false });
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'error', message: 'Failed to run POV cluster view', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      set({ clusterLoading: false, clusterError: mapErrorToUserMessage(err) });
+      set({ clusterLoading: false, clusterError: mapErrorToUserMessage(err, { kind: 'ai' }) });
     }
   },
 });

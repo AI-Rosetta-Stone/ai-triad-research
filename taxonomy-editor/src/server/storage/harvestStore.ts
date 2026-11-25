@@ -181,11 +181,39 @@ export async function harvestAddVerdict(conflictId: string, verdict: Record<stri
   }
 }
 
+/** t/638 (incident t/629; Security p/228#34, TL p/50#185): the only harvest fields committed to the public data repo.
+ *  debate_title is the user's own text, so it stays out; so does anything else a request body carries. */
+export const HARVEST_COMMITTED_FIELDS = ['debate_id', 'harvested_at', 'items'] as const;
+export const HARVEST_COMMITTED_ITEM_FIELDS = ['type', 'action', 'id', 'status'] as const;
+
+function pick(obj: unknown, keys: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+  for (const k of keys) if (Object.prototype.hasOwnProperty.call(obj, k)) out[k] = (obj as Record<string, unknown>)[k];
+  return out;
+}
+
+/** Keep only the committed field set; items keep only their committed fields, and scalar values only. */
+export function filterHarvestRecord(record: Record<string, unknown>): Record<string, unknown> {
+  const out = pick(record, HARVEST_COMMITTED_FIELDS);
+  for (const k of ['debate_id', 'harvested_at']) if (k in out && typeof out[k] !== 'string' && typeof out[k] !== 'number') delete out[k];
+  if ('items' in out) {
+    out.items = Array.isArray(out.items)
+      ? out.items.map(i => {
+        const kept = pick(i, HARVEST_COMMITTED_ITEM_FIELDS);
+        for (const [k, v] of Object.entries(kept)) if (typeof v !== 'string' && typeof v !== 'number') delete kept[k];
+        return kept;
+      })
+      : [];
+  }
+  return out;
+}
+
 export async function harvestQueueConcept(concept: Record<string, unknown>): Promise<boolean> {
   const dir = resolveDataPath('harvests');
   await getBackend().writeFile(
     path.join(dir, `concept-${Date.now()}.json`),
-    JSON.stringify(concept, null, 2),
+    JSON.stringify(filterHarvestRecord(concept), null, 2),
   );
   return true;
 }
@@ -194,7 +222,7 @@ export async function harvestSaveManifest(manifest: Record<string, unknown>): Pr
   const dir = resolveDataPath('harvests');
   await getBackend().writeFile(
     path.join(dir, `manifest-${Date.now()}.json`),
-    JSON.stringify(manifest, null, 2),
+    JSON.stringify(filterHarvestRecord(manifest), null, 2),
   );
   return true;
 }

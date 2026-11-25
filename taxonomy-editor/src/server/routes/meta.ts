@@ -23,6 +23,8 @@ import * as proxyTiers from '../ai/proxyTiers.js';
 import { getEmbeddingsCacheStatus, getEmbeddingsResolution } from '../ai/aiBackends.js';
 import * as community from '../community/community.js';
 import * as fileIO from '../storage/fileIO.js';
+import { allowlistRequiredButMissing } from '../authorizedUsers.js';
+import { requireAdminOrOperator } from './adminGate.js';
 import { getFreePoolBudget, getFreePoolBudgetConfig } from '../storage/freePoolBudget.js';
 import { isFreePoolBudgetEnforced } from '../featureFlags.js';
 import { areBlobBackendsWired } from '../storage/blobBackendBoot.js';
@@ -94,6 +96,13 @@ function logDataRootReadyzFailure(reason: string | undefined): void {
 function nodeSourceIndexPublicFields(status: ReturnType<typeof getNodeSourceIndexStatus>): { nodeSourceIndexEmpty: boolean | null; nodeSourceIndexEntryCount: number | null } {
   if (status === null) return { nodeSourceIndexEmpty: null, nodeSourceIndexEntryCount: null };
   return { nodeSourceIndexEmpty: status.empty, nodeSourceIndexEntryCount: status.entryCount };
+}
+
+/** t/640: the requested taxonomy dir, or null unless it is one safe path segment that names an existing directory. */
+async function validTaxonomyDirName(body: unknown): Promise<string | null> {
+  const dirName = (body as { dirName?: unknown } | null)?.dirName;
+  if (typeof dirName !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(dirName)) return null;
+  return (await fileIO.getTaxonomyDirs()).includes(dirName) ? dirName : null;
 }
 
 export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
@@ -175,6 +184,13 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     }
     // Reset the failure-log throttle so a later re-failure (flap: failed → ready → failed) re-logs.
     lastReadyzDataRootFailed = false;
+    // t/625 (Security p/93#100): a hosted, required-auth deployment with no readable allowlist denies every sign-in
+    // (authorizedUsers.resolveAllowlist). Report it as not ready, so the warm gate blocks promoting a misprovisioned
+    // revision and the old one keeps serving. A late mount clears it on a later probe.
+    if (allowlistRequiredButMissing()) {
+      json(res, { status: 'failed', reason: 'allowlist-missing' }, 503);
+      return;
+    }
     if (dr.state === 'validating') {
       json(res, { status: 'warming', reason: 'data-root-validating' }, 503);
       return;
@@ -344,8 +360,12 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     json(res, fileIO.getActiveTaxonomyDirName());
   });
 
-  put('/api/taxonomy-dir/active', (_req, res, body) => {
-    const { dirName } = body as { dirName: string };
+  put('/api/taxonomy-dir/active', async (_req, res, body) => {
+    // t/640 (Security p/93#85): this sets a process-global that redirects every taxonomy read and write, so it is
+    // admin or operator only, and dirName must be one safe segment naming an existing taxonomy directory.
+    if (!requireAdminOrOperator(res)) return;
+    const dirName = await validTaxonomyDirName(body);
+    if (dirName === null) { error(res, 'dirName must be the name of an existing taxonomy directory', 400); return; }
     const previous = fileIO.getActiveTaxonomyDirName();
     try {
       fileIO.setActiveTaxonomyDir(dirName);

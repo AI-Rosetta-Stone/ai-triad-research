@@ -1,12 +1,24 @@
 # ─── Base Pin Drift ───
 # What:  Compares taxonomy-editor/Dockerfile's runtime pin (ai-triad-base tag AND digest) with
-#        the newest date tag in GHCR. On drift, opens a re-pin PR as the author App; until that
-#        App's credentials are in Actions, it opens (or updates) one tracking issue instead.
+#        the newest date tag in GHCR. On drift (t/605, TL p/9#585), the DEFAULT is one updating
+#        tracking issue, NOT a PR: a re-pin belongs on a train, and an auto-PR spent a PR-budget unit
+#        (#5504, whose CVEs were all npm's, which the runtime image strips). Its own re-pin PR opens
+#        only when the drift fixes a CVE that REACHES the shipped image, or when that can't be
+#        decided (any scan failure counts as reaching it). That PR names the CVEs, or the failure,
+#        so it can take a Tech Lead/Security `budget-exempt:` review.
 #        Re-pin PRs declare `Tier: T0` (PI decision 4, t/305), so the T0 enqueue sweep merges
 #        them once ci-gate (incl. test-container) is green -- but ONLY when the committed diff is
 #        exactly the runtime ai-triad-base tag/digest line; anything else opens as T1.
 #        Verdict is three-state (PASS / FAIL / GATE-UNREADABLE, t/4496): an unreadable
 #        Dockerfile or registry fails the run rather than passing quietly.
+# Jobs:  check  - the drift verdict; closes the drift issue on PASS.             No secrets.
+#        cves   - Trivy (setup-trivy pin + v0.74.0, as container.yml/ci.yml) on the PINNED and the
+#                 LATEST base digests; operations/devops/docker/base-pin-cves.mjs routes issue|pr.
+#                 No environment, no secrets, read-only.
+#        issue  - route=issue: open or update the ONE "Base image pin drift" issue.  No secrets.
+#        repin  - route=pr, or the cves job did not succeed: the author-App re-pin PR.  The ONLY job
+#                 with `environment: author-app` (main-only), so the App key never sits beside
+#                 Trivy or any PR-controlled code.
 # Why:   On 2026-11-08 base-image.yml's rebuild fixed CVE-2026-76844, but the pin stayed old and
 #        container builds failed Trivy for days with no alert (Orca t/4943, t/255). A same-day
 #        re-push moves the digest under an unchanged tag, so the check compares digests too.
@@ -15,9 +27,9 @@
 #        not at repo level, so they resolve only in a job that declares `environment: author-app`.
 #        They belong to the author App (ai-triad-author-jpsnover, docs/agent-pr-approval.md),
 #        with Contents and Pull requests write. Its pushes trigger CI; GITHUB_TOKEN's don't. If
-#        either is missing the job logs a WARN and falls back to the issue.
+#        either is missing the repin job logs a WARN and falls back to the issue.
 # Scope: taxonomy-editor/Dockerfile only (TL decision, t/255). Logic and tests:
-#        operations/devops/docker/base-pin-drift.mjs (+ .test.mjs).
+#        operations/devops/docker/base-pin-drift.mjs, base-pin-cves.mjs (+ .test.mjs).
 
 name: Base Pin Drift
 
@@ -48,15 +60,18 @@ jobs:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # The only job, and it mints the App token, so it carries the environment (main-only branch
-    # policy). The key is still referenced only by the mint step.
-    environment: author-app
     permissions:
       contents: read
       issues: write
-      actions: read  # find the Base Image run for the re-pin PR body
+    outputs:
+      verdict: ${{ steps.drift.outputs.verdict }}
+      reason: ${{ steps.drift.outputs.reason }}
+      branch: ${{ steps.drift.outputs.branch }}
+      latest_tag: ${{ steps.drift.outputs.latest_tag }}
+      latest_digest: ${{ steps.drift.outputs.latest_digest }}
+      pinned_tag: ${{ steps.drift.outputs.pinned_tag }}
+      pinned_digest: ${{ steps.drift.outputs.pinned_digest }}
     steps:
-      # Always main: the App key is in this job, so no PR-controlled code runs here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
           ref: main
@@ -68,126 +83,13 @@ jobs:
 
       - name: Drift check unit tests
         id: tests
-        run: node --test operations/devops/docker/base-pin-drift.test.mjs
+        run: |
+          node --test operations/devops/docker/base-pin-drift.test.mjs
+          node --test operations/devops/docker/base-pin-cves.test.mjs
 
       - name: Compare pin with GHCR
         id: drift
         run: node operations/devops/docker/base-pin-drift.mjs check "$DOCKERFILE"
-
-      - name: Author App configured?
-        id: cfg
-        if: steps.drift.outputs.verdict == 'FAIL'
-        env:
-          APP_CLIENT_ID: ${{ vars.AUTHOR_APP_CLIENT_ID }}
-          APP_KEY_PRESENT: ${{ secrets.AUTHOR_APP_PRIVATE_KEY != '' }}
-        run: |
-          if [ -z "$APP_CLIENT_ID" ] || [ "$APP_KEY_PRESENT" != "true" ]; then
-            echo "::warning::WARN: base-pin-drift: AUTHOR_APP_CLIENT_ID (variable) or AUTHOR_APP_PRIVATE_KEY (secret) is not set, so no re-pin PR. Falling back to a tracking issue."
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Mint author App token
-        id: app
-        if: steps.cfg.outputs.configured == 'true'
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
-        with:
-          client-id: ${{ vars.AUTHOR_APP_CLIENT_ID }}
-          private-key: ${{ secrets.AUTHOR_APP_PRIVATE_KEY }}
-
-      - name: Open re-pin PR
-        if: steps.cfg.outputs.configured == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          APP_SLUG: ${{ steps.app.outputs.app-slug }}
-          BRANCH: ${{ steps.drift.outputs.branch }}
-          LATEST_TAG: ${{ steps.drift.outputs.latest_tag }}
-          LATEST_DIGEST: ${{ steps.drift.outputs.latest_digest }}
-          PINNED_TAG: ${{ steps.drift.outputs.pinned_tag }}
-          PINNED_DIGEST: ${{ steps.drift.outputs.pinned_digest }}
-          REASON: ${{ steps.drift.outputs.reason }}
-          READ_TOKEN: ${{ github.token }}
-          WORKFLOW_RUN_URL: ${{ github.event.workflow_run.html_url }}
-          DRIFT_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            echo "Re-pin PR #$existing for $BRANCH is already open; nothing to do."
-            exit 0
-          fi
-          node operations/devops/docker/base-pin-drift.mjs repin "$DOCKERFILE" "$LATEST_TAG" "$LATEST_DIGEST"
-          bot_id=$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)
-          git config user.name "${APP_SLUG}[bot]"
-          git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
-          git switch -c "$BRANCH"
-          git commit -m "fix(docker): re-pin runtime base to ai-triad-base:${LATEST_TAG} (t/255)" -- "$DOCKERFILE"
-
-          # The Base Image run behind the new digest: the triggering run on workflow_run, else
-          # the newest successful base-image.yml run on main.
-          BASE_IMAGE_RUN="$WORKFLOW_RUN_URL"
-          if [ -z "$BASE_IMAGE_RUN" ]; then
-            BASE_IMAGE_RUN=$(GH_TOKEN="$READ_TOKEN" gh run list --workflow base-image.yml --branch main --status success -L 1 --json url --jq '.[0].url // empty' || true)
-            [ -n "$BASE_IMAGE_RUN" ] || echo "::warning::WARN: base-pin-drift: no successful base-image.yml run found for the PR body."
-          fi
-          export BASE_IMAGE_RUN
-
-          # Tier is judged on the COMMITTED diff (t/305, TL guardrail p/103#19): T0 only when the
-          # commit touches nothing but $DOCKERFILE and only its runtime ai-triad-base pin line.
-          git show "HEAD~1:${DOCKERFILE}" > "$RUNNER_TEMP/before.Dockerfile"
-          node operations/devops/docker/base-pin-drift.mjs pr-body "$RUNNER_TEMP/before.Dockerfile" "$DOCKERFILE" "$RUNNER_TEMP/pr-body.md"
-          changed=$(git diff --name-only HEAD~1 HEAD)
-          if [ "$changed" != "$DOCKERFILE" ]; then
-            echo "::warning::WARN: base-pin-drift: commit changed '${changed//$'\n'/ }', not only $DOCKERFILE; forcing Tier: T1."
-            sed -i '1s/^Tier: T0$/Tier: T1/' "$RUNNER_TEMP/pr-body.md"
-            printf "\n**Forced to T1:** the commit changed %s, not only \`%s\`.\n" "${changed//$'\n'/, }" "$DOCKERFILE" >> "$RUNNER_TEMP/pr-body.md"
-          fi
-          echo "PR tier: $(head -n 1 "$RUNNER_TEMP/pr-body.md")" | tee -a "$GITHUB_STEP_SUMMARY"
-
-          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"
-          url=$(gh pr create --base main --head "$BRANCH" --title "fix(docker): re-pin runtime base to ai-triad-base:${LATEST_TAG}" --body-file "$RUNNER_TEMP/pr-body.md")
-          echo "Opened $url"
-          echo "Re-pin PR: $url" >> "$GITHUB_STEP_SUMMARY"
-          # An older re-pin PR is superseded by this one.
-          gh pr list --state open --limit 300 --json number,headRefName \
-            --jq ".[] | select(.headRefName != \"$BRANCH\" and (.headRefName | startswith(\"docker/base-repin-\"))) | .number" |
-            while read -r n; do
-              gh pr close "$n" --delete-branch --comment "Superseded by $url (newer base)."
-            done
-
-      - name: Open or update drift issue (fallback)
-        if: steps.cfg.outputs.configured == 'false'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          LATEST_TAG: ${{ steps.drift.outputs.latest_tag }}
-          LATEST_DIGEST: ${{ steps.drift.outputs.latest_digest }}
-          PINNED_TAG: ${{ steps.drift.outputs.pinned_tag }}
-          PINNED_DIGEST: ${{ steps.drift.outputs.pinned_digest }}
-          REASON: ${{ steps.drift.outputs.reason }}
-        run: |
-          set -euo pipefail
-          {
-            echo "base-pin-drift FAIL: ${REASON}."
-            echo
-            echo "- pinned in \`${DOCKERFILE}\`: \`${PINNED_TAG}@${PINNED_DIGEST}\`"
-            echo "- newest in GHCR: \`${LATEST_TAG}@${LATEST_DIGEST}\`"
-            echo
-            echo "Re-pin the runtime \`FROM\` line: \`node operations/devops/docker/base-pin-drift.mjs repin ${DOCKERFILE} ${LATEST_TAG} ${LATEST_DIGEST}\`"
-            echo
-            echo "Owner: Docker. (No author App credentials in Actions, so no automatic PR; see t/255.) Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          } > "$RUNNER_TEMP/issue.md"
-          n=$(gh issue list --state open --search 'in:title "Base image pin drift"' --json number,title \
-                --jq '[.[] | select(.title | startswith("Base image pin drift"))][0].number // empty')
-          if [ -z "$n" ]; then
-            url=$(gh issue create --title "Base image pin drift: taxonomy-editor runtime base is stale" --body-file "$RUNNER_TEMP/issue.md")
-            echo "Opened $url" | tee -a "$GITHUB_STEP_SUMMARY"
-          elif gh issue view "$n" --json body,comments --jq '[.body] + [.comments[].body] | join("\n")' | grep -qF "$LATEST_DIGEST"; then
-            echo "Issue #$n already reports $LATEST_DIGEST; nothing to add." | tee -a "$GITHUB_STEP_SUMMARY"
-          else
-            gh issue comment "$n" --body-file "$RUNNER_TEMP/issue.md"
-            echo "Updated issue #$n" | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
 
       - name: Close drift issue when the pin is current
         if: steps.drift.outputs.verdict == 'PASS'
@@ -203,7 +105,7 @@ jobs:
 
       # t/306 (Quality, t/255#5): a GATE-UNREADABLE verdict (or any failed step) fails the run, but
       # on the cron a failed-run email was its only signal. Track it in its own issue, titled
-      # "Base pin drift check failing" so the "Base image pin drift" steps above never match it;
+      # "Base pin drift check failing" so the "Base image pin drift" steps never match it;
       # comment only when the reason is new, and close it on the next run that completes.
       - name: Open or update check-failing issue
         if: failure()
@@ -246,3 +148,251 @@ jobs:
             while read -r n; do
               gh issue close "$n" --comment "base-pin-drift completed with verdict ${VERDICT}. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             done
+
+  # t/605: which CVEs does the drift fix, and does any reach the shipped image? No environment, no
+  # secrets, read-only: it runs a third-party scanner on registry images. Every failure (Trivy DB,
+  # image pull, scan timeout, unparseable JSON) is UNDECIDABLE and routes to the PR (base-pin-cves.mjs).
+  cves:
+    needs: check
+    if: needs.check.outputs.verdict == 'FAIL'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      route: ${{ steps.scan.outputs.route }}
+      undecidable: ${{ steps.scan.outputs.undecidable }}
+      runtime_cves: ${{ steps.scan.outputs.runtime_cves }}
+      buildonly_cves: ${{ steps.scan.outputs.buildonly_cves }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
+        with:
+          node-version: '22'
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567  # v0.3.1
+        with:
+          version: v0.74.0  # same pinned binary as container.yml and ci.yml's dockerfile-trivy (t/3520 C4)
+
+      - name: Scan the pinned and the latest base, and route
+        id: scan
+        env:
+          PINNED_DIGEST: ${{ needs.check.outputs.pinned_digest }}
+          LATEST_DIGEST: ${{ needs.check.outputs.latest_digest }}
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+        run: node operations/devops/docker/base-pin-cves.mjs scan "$PINNED_DIGEST" "$LATEST_DIGEST"
+
+  issue:
+    needs: [check, cves]
+    if: needs.check.outputs.verdict == 'FAIL' && needs.cves.result == 'success' && needs.cves.outputs.route == 'issue'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
+        with:
+          node-version: '22'
+
+      - name: Open or update the drift issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST_TAG: ${{ needs.check.outputs.latest_tag }}
+          LATEST_DIGEST: ${{ needs.check.outputs.latest_digest }}
+          PINNED_TAG: ${{ needs.check.outputs.pinned_tag }}
+          PINNED_DIGEST: ${{ needs.check.outputs.pinned_digest }}
+          REASON: ${{ needs.check.outputs.reason }}
+          ROUTE: ${{ needs.cves.outputs.route }}
+          UNDECIDABLE: ${{ needs.cves.outputs.undecidable }}
+          RUNTIME_CVES: ${{ needs.cves.outputs.runtime_cves }}
+          BUILDONLY_CVES: ${{ needs.cves.outputs.buildonly_cves }}
+          CVES_RESULT: ${{ needs.cves.result }}
+        run: |
+          set -euo pipefail
+          {
+            echo "base-pin-drift FAIL: ${REASON}."
+            echo
+            echo "- pinned in \`${DOCKERFILE}\`: \`${PINNED_TAG}@${PINNED_DIGEST}\`"
+            echo "- newest in GHCR: \`${LATEST_TAG}@${LATEST_DIGEST}\`"
+            echo
+            echo "Re-pin the runtime \`FROM\` line on a train (no auto-PR, t/605): \`node operations/devops/docker/base-pin-drift.mjs repin ${DOCKERFILE} ${LATEST_TAG} ${LATEST_DIGEST}\`"
+            node operations/devops/docker/base-pin-cves.mjs section issue
+            echo
+            echo "Owner: Docker. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "$RUNNER_TEMP/issue.md"
+          n=$(gh issue list --state open --search 'in:title "Base image pin drift"' --json number,title \
+                --jq '[.[] | select(.title | startswith("Base image pin drift"))][0].number // empty')
+          if [ -z "$n" ]; then
+            url=$(gh issue create --title "Base image pin drift: taxonomy-editor runtime base is stale" --body-file "$RUNNER_TEMP/issue.md")
+            echo "Opened $url" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif gh issue view "$n" --json body,comments --jq '[.body] + [.comments[].body] | join("\n")' | grep -qF "$LATEST_DIGEST"; then
+            echo "Issue #$n already reports $LATEST_DIGEST; nothing to add." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            gh issue comment "$n" --body-file "$RUNNER_TEMP/issue.md"
+            echo "Updated issue #$n" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+  repin:
+    # route=pr, OR the cves job didn't succeed (failed, cancelled, timed out): undecidable counts as
+    # reaching the shipped image (t/605). `always()` so a failed cves job still reaches this job.
+    needs: [check, cves]
+    if: >-
+      always() && needs.check.result == 'success' && needs.check.outputs.verdict == 'FAIL' &&
+      !(needs.cves.result == 'success' && needs.cves.outputs.route == 'issue')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The only job that mints the App token, so the only one with the environment (main-only
+    # branch policy). The key is still referenced only by the mint step.
+    environment: author-app
+    permissions:
+      contents: read
+      issues: write
+      actions: read  # find the Base Image run for the re-pin PR body
+    steps:
+      # Always main: the App key is in this job, so no PR-controlled code runs here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
+        with:
+          node-version: '22'
+
+      - name: Author App configured?
+        id: cfg
+        env:
+          APP_CLIENT_ID: ${{ vars.AUTHOR_APP_CLIENT_ID }}
+          APP_KEY_PRESENT: ${{ secrets.AUTHOR_APP_PRIVATE_KEY != '' }}
+        run: |
+          if [ -z "$APP_CLIENT_ID" ] || [ "$APP_KEY_PRESENT" != "true" ]; then
+            echo "::warning::WARN: base-pin-drift: AUTHOR_APP_CLIENT_ID (variable) or AUTHOR_APP_PRIVATE_KEY (secret) is not set, so no re-pin PR. Falling back to a tracking issue."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mint author App token
+        id: app
+        if: steps.cfg.outputs.configured == 'true'
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc  # v3.4.0
+        with:
+          client-id: ${{ vars.AUTHOR_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTHOR_APP_PRIVATE_KEY }}
+
+      - name: Open re-pin PR
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          BRANCH: ${{ needs.check.outputs.branch }}
+          LATEST_TAG: ${{ needs.check.outputs.latest_tag }}
+          LATEST_DIGEST: ${{ needs.check.outputs.latest_digest }}
+          PINNED_TAG: ${{ needs.check.outputs.pinned_tag }}
+          PINNED_DIGEST: ${{ needs.check.outputs.pinned_digest }}
+          REASON: ${{ needs.check.outputs.reason }}
+          ROUTE: ${{ needs.cves.outputs.route }}
+          UNDECIDABLE: ${{ needs.cves.outputs.undecidable }}
+          RUNTIME_CVES: ${{ needs.cves.outputs.runtime_cves }}
+          BUILDONLY_CVES: ${{ needs.cves.outputs.buildonly_cves }}
+          CVES_RESULT: ${{ needs.cves.result }}
+          READ_TOKEN: ${{ github.token }}
+          WORKFLOW_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          DRIFT_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            echo "Re-pin PR #$existing for $BRANCH is already open; nothing to do."
+            exit 0
+          fi
+          node operations/devops/docker/base-pin-drift.mjs repin "$DOCKERFILE" "$LATEST_TAG" "$LATEST_DIGEST"
+          bot_id=$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git commit -m "fix(docker): re-pin runtime base to ai-triad-base:${LATEST_TAG} (t/255)" -- "$DOCKERFILE"
+
+          # The Base Image run behind the new digest: the triggering run on workflow_run, else
+          # the newest successful base-image.yml run on main.
+          BASE_IMAGE_RUN="$WORKFLOW_RUN_URL"
+          if [ -z "$BASE_IMAGE_RUN" ]; then
+            BASE_IMAGE_RUN=$(GH_TOKEN="$READ_TOKEN" gh run list --workflow base-image.yml --branch main --status success -L 1 --json url --jq '.[0].url // empty' || true)
+            [ -n "$BASE_IMAGE_RUN" ] || echo "::warning::WARN: base-pin-drift: no successful base-image.yml run found for the PR body."
+          fi
+          export BASE_IMAGE_RUN
+
+          # Tier is judged on the COMMITTED diff (t/305, TL guardrail p/103#19): T0 only when the
+          # commit touches nothing but $DOCKERFILE and only its runtime ai-triad-base pin line.
+          git show "HEAD~1:${DOCKERFILE}" > "$RUNNER_TEMP/before.Dockerfile"
+          node operations/devops/docker/base-pin-drift.mjs pr-body "$RUNNER_TEMP/before.Dockerfile" "$DOCKERFILE" "$RUNNER_TEMP/pr-body.md"
+          changed=$(git diff --name-only HEAD~1 HEAD)
+          if [ "$changed" != "$DOCKERFILE" ]; then
+            echo "::warning::WARN: base-pin-drift: commit changed '${changed//$'\n'/ }', not only $DOCKERFILE; forcing Tier: T1."
+            sed -i '1s/^Tier: T0$/Tier: T1/' "$RUNNER_TEMP/pr-body.md"
+            printf "\n**Forced to T1:** the commit changed %s, not only \`%s\`.\n" "${changed//$'\n'/, }" "$DOCKERFILE" >> "$RUNNER_TEMP/pr-body.md"
+          fi
+          # t/605: why this drift has its own PR: the CVEs that reach the shipped image, or the failure.
+          node operations/devops/docker/base-pin-cves.mjs section pr >> "$RUNNER_TEMP/pr-body.md"
+          echo "PR tier: $(head -n 1 "$RUNNER_TEMP/pr-body.md")" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"
+          url=$(gh pr create --base main --head "$BRANCH" --title "fix(docker): re-pin runtime base to ai-triad-base:${LATEST_TAG}" --body-file "$RUNNER_TEMP/pr-body.md")
+          echo "Opened $url"
+          echo "Re-pin PR: $url" >> "$GITHUB_STEP_SUMMARY"
+          # An older re-pin PR is superseded by this one.
+          gh pr list --state open --limit 300 --json number,headRefName \
+            --jq ".[] | select(.headRefName != \"$BRANCH\" and (.headRefName | startswith(\"docker/base-repin-\"))) | .number" |
+            while read -r n; do
+              gh pr close "$n" --delete-branch --comment "Superseded by $url (newer base)."
+            done
+
+      - name: Open or update drift issue (fallback, no author App)
+        if: steps.cfg.outputs.configured == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST_TAG: ${{ needs.check.outputs.latest_tag }}
+          LATEST_DIGEST: ${{ needs.check.outputs.latest_digest }}
+          PINNED_TAG: ${{ needs.check.outputs.pinned_tag }}
+          PINNED_DIGEST: ${{ needs.check.outputs.pinned_digest }}
+          REASON: ${{ needs.check.outputs.reason }}
+          ROUTE: ${{ needs.cves.outputs.route }}
+          UNDECIDABLE: ${{ needs.cves.outputs.undecidable }}
+          RUNTIME_CVES: ${{ needs.cves.outputs.runtime_cves }}
+          BUILDONLY_CVES: ${{ needs.cves.outputs.buildonly_cves }}
+          CVES_RESULT: ${{ needs.cves.result }}
+        run: |
+          set -euo pipefail
+          {
+            echo "base-pin-drift FAIL: ${REASON}. **This drift needs its own re-pin PR (t/605), but there are no author App credentials in Actions** (t/255)."
+            echo
+            echo "- pinned in \`${DOCKERFILE}\`: \`${PINNED_TAG}@${PINNED_DIGEST}\`"
+            echo "- newest in GHCR: \`${LATEST_TAG}@${LATEST_DIGEST}\`"
+            echo
+            echo "Re-pin the runtime \`FROM\` line: \`node operations/devops/docker/base-pin-drift.mjs repin ${DOCKERFILE} ${LATEST_TAG} ${LATEST_DIGEST}\`"
+            node operations/devops/docker/base-pin-cves.mjs section pr
+            echo
+            echo "Owner: Docker. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "$RUNNER_TEMP/issue.md"
+          n=$(gh issue list --state open --search 'in:title "Base image pin drift"' --json number,title \
+                --jq '[.[] | select(.title | startswith("Base image pin drift"))][0].number // empty')
+          if [ -z "$n" ]; then
+            url=$(gh issue create --title "Base image pin drift: taxonomy-editor runtime base is stale" --body-file "$RUNNER_TEMP/issue.md")
+            echo "Opened $url" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif gh issue view "$n" --json body,comments --jq '[.body] + [.comments[].body] | join("\n")' | grep -qF "$LATEST_DIGEST"; then
+            echo "Issue #$n already reports $LATEST_DIGEST; nothing to add." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            gh issue comment "$n" --body-file "$RUNNER_TEMP/issue.md"
+            echo "Updated issue #$n" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi

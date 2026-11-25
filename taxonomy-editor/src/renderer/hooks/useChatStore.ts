@@ -15,10 +15,11 @@ import type { CommunityChat } from './useCommunityStore';
 import { extractHttpUrls } from '../../../../lib/url-fetch/extractHttpUrls';
 import { mapErrorToUserMessage } from '../utils/errorMessages';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { ActionableError } from '@lib/debate/errors';
 import { api } from '@bridge';
 import type { UrlContextMetadata } from '@lib/ai-client/index';
-import { formatTaxonomyContext } from '../utils/taxonomyContext';
-import type { TaxonomyContext, FormatContextConfig } from '../utils/taxonomyContext';
+import type { TaxonomyContext } from '../utils/taxonomyContext';
+import { buildChatTaxonomyTurn, type ChatTurnQuery, type ChatTurnResult } from '../utils/chatTaxonomyTurn';
 import { applyTagSelection, checkTagScope } from '@lib/debate/relevanceSelection';
 import type { SeatTag, TagSelection } from '@lib/debate/types/session';
 import { resolvePoverInfo } from '@lib/debate/tagSoulRegistry';
@@ -137,11 +138,6 @@ export async function streamChatWithProgress(
   }
 }
 
-function stripCodeFences(text: string): string {
-  return text.replace(/```json\s*/g, '').replace(/```/g, '').trim();
-}
-
-const CHAT_CONTEXT_CONFIG: FormatContextConfig = { maxNodes: 9999, maxDesires: 9999 };
 
 /** The soul the chat's POVer speaks as: the tag soul when the chat is tagged (spec §1: it replaces the POV
  *  soul), else the base soul. Browser-safe tagSoulRegistry, never soulDocLoader. Throws if the tag has no
@@ -157,7 +153,7 @@ export function chatTagSelection(chat: Pick<ChatSession, 'pov_tag' | 'tag_mode'>
 
 /** The taxonomy a chat is given. Chat has no relevance ranking: every POV node is sent, except that a
  *  Scope-tagged chat is given only its tagged nodes (t/3995). Prioritize keeps every node; its ordering is
- *  applied by chatTaxonomyBlock through formatTaxonomyContext (t/3996). */
+ *  applied by the chat turn builder (t/3996). */
 function getTaxonomyContext(pov: string, chat: Pick<ChatSession, 'id' | 'pov_tag' | 'tag_mode'>): TaxonomyContext {
   const state = useTaxonomyStore.getState();
   const povFile = state[pov as 'accelerationist' | 'safetyist' | 'skeptic'];
@@ -180,26 +176,43 @@ function getTaxonomyContext(pov: string, chat: Pick<ChatSession, 'id' | 'pov_tag
   return { povNodes, situationNodes };
 }
 
-/** The formatted taxonomy block for a chat turn. A Prioritize chat passes its tagged ids (the shared
- *  applyTagSelection boost set) to formatTaxonomyContext, which sorts them first within each BDI category
- *  and marks them ▲ (t/3996). Scope was already narrowed by getTaxonomyContext. */
-function chatTaxonomyBlock(pov: string, chat: Pick<ChatSession, 'id' | 'pov_tag' | 'tag_mode'>): string {
+/** The taxonomy block for a chat turn (t/348): per-turn relevance selection, the 12-node and 4-situation
+ *  caps, statements instead of descriptions, and the trace. See utils/chatTaxonomyTurn.ts. */
+/** The POVer's most recent turn text, for the selection query. */
+function lastPoverText(transcript: ChatEntry[]): string {
+  return [...transcript].reverse().find(e => e.speaker !== 'user')?.content ?? '';
+}
+
+async function chatTaxonomyTurnFor(
+  pov: string,
+  chat: Pick<ChatSession, 'id' | 'pov_tag' | 'tag_mode' | 'topic' | 'transcript'>,
+  lastUserMessage: string,
+): Promise<ChatTurnResult> {
+  const query: ChatTurnQuery = { topic: chat.topic, previousPoverText: lastPoverText(chat.transcript), lastUserMessage };
   const ctx = getTaxonomyContext(pov, chat);
   const tagSelection = chatTagSelection(chat);
-  if (tagSelection?.mode !== 'prioritize') return formatTaxonomyContext(ctx, pov, undefined, CHAT_CONTEXT_CONFIG);
-  const { boostIds } = applyTagSelection(ctx.povNodes, tagSelection);
   // Setup refuses a Prioritize tag with no tagged nodes (t/3959), but tags can change after a chat starts.
-  if (boostIds.length === 0) {
+  if (tagSelection?.mode === 'prioritize' && applyTagSelection(ctx.povNodes, tagSelection).boostIds.length === 0) {
     getGlobalRecorder()?.record({
       type: 'state.change', component: 'chat-store', level: 'warn',
       message: 'Prioritize-tagged chat has no tagged nodes left; nothing is ordered first',
       data: { chat_session_id: chat.id, pov, tag: tagSelection.tag },
     });
   }
-  return formatTaxonomyContext(ctx, pov, undefined, {
-    ...CHAT_CONTEXT_CONFIG,
-    tagSelection: { taggedIds: new Set(boostIds), mode: 'prioritize' },
-  });
+  // An anonymous session is refused by the statement route in advance (TL p/10#250): it is not called, and labels are used.
+  // A failed check counts as available: the route is tried, and a failure there falls back to labels with a WARN (CL p/166#45).
+  const statementsAvailable = !(await api.checkAnonymousSession().catch(() => false));
+  return buildChatTaxonomyTurn(
+    { pov: pov as 'accelerationist' | 'safetyist' | 'skeptic', ctx, tagSelection, query, statementsAvailable },
+    {
+      computeQueryVector: (text) => api.computeQueryEmbedding(text),
+      fetchRelevantNodes: (payload) => api.fetchRelevantNodes(payload),
+      chatSyntheticStatements: (payload) => api.chatSyntheticStatements(payload),
+      warn: (message) => {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message });
+      },
+    },
+  );
 }
 
 /** Remove reasoning-model `<think>…</think>` / `<thinking>…</thinking>` blocks that
@@ -209,7 +222,202 @@ function stripThinkingBlocks(text: string): string {
   return text.replace(/<think(?:ing)?[\s\S]*?<\/think(?:ing)?>/gi, '').trim();
 }
 
-/** Parse the POVer's JSON response into content + taxonomy refs */
+/** Strips a JSON code fence in any letter case, and any bare fence. */
+/** The four parts the chat prompt is built from: both POV files it can cite, the situations, and the policy
+ *  registry it can cite (t/490). A chat prompt built before these have loaded drops ids it could have cited. */
+function taxonomyPartsLoaded(): boolean {
+  const state = useTaxonomyStore.getState();
+  return state.accelerationist !== null && state.safetyist !== null && state.skeptic !== null
+    && state.situations !== null && state.policyRegistry !== null;
+}
+
+const TAXONOMY_START_GOAL = 'Chat: start a conversation';
+/** The chat error text for a failed send. A wait on the taxonomy (t/490) is shown as written, with no prefix:
+ *  its copy is complete. Any other failure keeps the prefix. */
+export function chatErrorText(err: unknown, prefix: string): string {
+  if (err instanceof ActionableError && err.goal === TAXONOMY_START_GOAL) return err.problem;
+  return `${prefix}: ${mapErrorToUserMessage(err, { kind: 'ai' })}`;
+}
+
+/** Plain copy for the two ways a send can wait on the taxonomy and not start (t/490, Design p/25#115). */
+const TAXONOMY_LOAD_FAILED_COPY = "The taxonomy couldn't load, so the chat can't start. Check your connection, then send again.";
+const TAXONOMY_STILL_LOADING_COPY = "The taxonomy is still loading, so the chat can't start. Try again in a moment.";
+
+/** An error whose text is shown to the user exactly as written. */
+function taxonomyStartError(problem: string, nextSteps: string[]): ActionableError {
+  return new ActionableError({ goal: TAXONOMY_START_GOAL, problem, location: 'useChatStore.waitForTaxonomy', nextSteps });
+}
+
+/** t/490: resolves once the taxonomy has fully loaded. Starts a load if none is running, rejects if the load fails,
+ *  and rejects after timeoutMs, so a send never waits forever. */
+export function waitForTaxonomy(timeoutMs = 30_000): Promise<void> {
+  if (taxonomyPartsLoaded()) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    let unsubscribe: () => void = () => undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (error?: Error): void => {
+      clearTimeout(timer);
+      unsubscribe();
+      if (error) reject(error); else resolve();
+    };
+    timer = setTimeout(() => finish(taxonomyStartError(TAXONOMY_STILL_LOADING_COPY, ['Try again in a moment'])), timeoutMs);
+    unsubscribe = useTaxonomyStore.subscribe(state => {
+      if (state.loadError) {
+        // The raw loader error goes to the recorder for developers; the user sees the plain copy only (t/490, Design).
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Taxonomy failed to load before the chat could start', error: { name: 'Error', message: state.loadError, stack: undefined } });
+        finish(taxonomyStartError(TAXONOMY_LOAD_FAILED_COPY, ['Check your connection', 'Send again']));
+      } else if (taxonomyPartsLoaded()) finish();
+    });
+    const { loading, loadAll } = useTaxonomyStore.getState();
+    if (!loading) void loadAll();
+  });
+}
+
+/** The activity line shown while a chat reply streams. */
+function chatActivityLabel(fetchingUrl: boolean, label: string): string {
+  return fetchingUrl ? `Fetching page for ${label}…` : `${label} is thinking…`;
+}
+
+function stripCodeFences(text: string): string {
+  return text.replace(/```json\s*/gi, '').replace(/```/g, '').trim();
+}
+
+/** Which parse path produced the reply. Recorded as a WARN for every path except `direct`, so a
+ *  dump shows how a reply was read (t/490). */
+type ChatParsePath = 'direct' | 'fence' | 'embedded' | 'truncated-salvage' | 'prose';
+
+/** A JSON object (not an array or a scalar), or null. */
+function parseObjectStrict(text: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  } catch { /* telemetry — silent by design: this candidate is not JSON, so the caller tries the next one */
+    return null;
+  }
+}
+
+const CONTROL_ESCAPES: Record<string, string> = { '\n': '\\n', '\r': '\\r', '\t': '\\t', '\b': '\\b', '\f': '\\f' };
+
+/** t/490 follow-up (t/167#30): models sometimes put literal newlines or other control characters inside a JSON
+ *  string value, which JSON.parse rejects ("Bad control character"). Escapes U+0000–U+001F inside string literals
+ *  only; text outside strings, and characters already escaped, are left as they are. */
+export function escapeControlCharsInStrings(text: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (const ch of text) {
+    if (inString) {
+      if (escaped) { escaped = false; out += ch; continue; }
+      if (ch === '\\') { escaped = true; out += ch; continue; }
+      if (ch === '"') { inString = false; out += ch; continue; }
+      const code = ch.charCodeAt(0);
+      if (code < 0x20) { out += CONTROL_ESCAPES[ch] ?? `\\u${code.toString(16).padStart(4, '0')}`; continue; }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    out += ch;
+  }
+  return out;
+}
+
+function parseObject(text: string): Record<string, unknown> | null {
+  const strict = parseObjectStrict(text);
+  if (strict) return strict;
+  const repaired = escapeControlCharsInStrings(text);
+  if (repaired === text) return null;
+  const object = parseObjectStrict(repaired);
+  if (object) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message: 'WARN: chat reply had raw control characters inside a JSON string; parsed after escaping them' });
+  }
+  return object;
+}
+
+/** The first balanced {...} span that parses, scanning string-aware so braces inside a string don't count. */
+function firstEmbeddedObject(text: string): Record<string, unknown> | null {
+  for (let start = text.indexOf('{'); start !== -1; start = text.indexOf('{', start + 1)) {
+    let depth = 0;
+    let inString = false;
+    for (let i = start; i < text.length; i++) {
+      const c = text[i];
+      if (inString) {
+        if (c === '\\') i++;
+        else if (c === '"') inString = false;
+        continue;
+      }
+      if (c === '"') inString = true;
+      else if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) {
+          const object = parseObject(text.slice(start, i + 1));
+          if (object) return object;
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** The answer text of a reply cut off before its end: the `response` string, when it closed. */
+function salvageResponse(text: string): string | null {
+  const match = /"response"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text);
+  if (!match) return null;
+  try {
+    return JSON.parse(`"${match[1]}"`) as string;
+  } catch { /* telemetry — silent by design: this candidate is not JSON, so the caller tries the next one */
+    return null;
+  }
+}
+
+/** Finds the reply object in the text, and the path that found it. Tried in order: the whole text, the first
+ *  fenced block, the first balanced object. A reply cut off mid-object yields its response text, no refs. */
+function readReply(stripped: string): { path: ChatParsePath; object: Record<string, unknown> | null; salvaged?: string } {
+  const whole = parseObject(stripCodeFences(stripped));
+  if (whole) return { path: 'direct', object: whole };
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(stripped);
+  const fencedObject = fenced ? parseObject(fenced[1].trim()) : null;
+  if (fencedObject) return { path: 'fence', object: fencedObject };
+  const embedded = firstEmbeddedObject(stripped);
+  if (embedded) return { path: 'embedded', object: embedded };
+  const salvaged = salvageResponse(stripped);
+  if (salvaged !== null) return { path: 'truncated-salvage', object: null, salvaged };
+  return { path: 'prose', object: null };
+}
+
+/** t/490: a taxonomy id is unresolvable only when the part of the taxonomy that would hold it has loaded. Returns
+ *  whether that part has loaded, or null for an id whose prefix is not one of the known kinds. */
+function holderLoaded(id: string): boolean | null {
+  const state = useTaxonomyStore.getState();
+  if (id.startsWith('acc-')) return state.accelerationist !== null;
+  if (id.startsWith('saf-')) return state.safetyist !== null;
+  if (id.startsWith('skp-')) return state.skeptic !== null;
+  if (id.startsWith('sit-') || id.startsWith('cc-')) return state.situations !== null;
+  if (id.startsWith('pol-')) return state.policyRegistry !== null;
+  return null;
+}
+
+/** Keeps the refs that resolve. A ref that does not resolve is dropped only when its part of the taxonomy has
+ *  loaded (t/4675); otherwise it is kept, so it can resolve on the next load (t/490). */
+function resolvableRefs(refs: TaxonomyRef[]): TaxonomyRef[] {
+  const getLabelForId = useTaxonomyStore.getState().getLabelForId;
+  return refs.filter(ref => {
+    if (getLabelForId(ref.node_id) !== '') return true;
+    const loaded = holderLoaded(ref.node_id);
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'chat-store',
+      level: 'warn',
+      message: loaded === false
+        ? `Chat response cited an id whose taxonomy part has not loaded yet; kept: '${ref.node_id}'`
+        : `Chat response cited an unresolvable taxonomy id, dropped: '${ref.node_id}'`,
+    });
+    return loaded === false;
+  });
+}
+
+/** Parse the POVer's JSON response into content + taxonomy refs (t/490). Never shows raw JSON as the answer. */
 export function parseChatResponse(text: string, model?: string): { response: string; taxonomyRefs: TaxonomyRef[] } {
   const stripped = stripThinkingBlocks(text);
   // Observability (t/2454): a stripped-vs-input difference means a reasoning model
@@ -224,40 +432,24 @@ export function parseChatResponse(text: string, model?: string): { response: str
       data: { model: model ?? null, blockLength: text.length - stripped.length },
     });
   }
-  try {
-    const parsed = JSON.parse(stripCodeFences(stripped));
-    const response = parsed.response || stripped;
-    // t/4675: the model sometimes returns a label-slugged id (e.g. "sit-153-ensuring-ai-
-    // alignment-and-control" instead of "sit-153") that passes the string-shape check below but
-    // never resolves in the taxonomy lookup, so the ref permanently shows "not found" to the
-    // user. Mirror lib/debate/inquirySynthesis.ts's resolveNodeRefs: exact-match against the
-    // known ids and drop+WARN on mismatch, rather than passing an unresolvable id downstream.
-    const getLabelForId = useTaxonomyStore.getState().getLabelForId;
-    const taxonomyRefs: TaxonomyRef[] = Array.isArray(parsed.taxonomy_refs)
-      ? parsed.taxonomy_refs
-        .filter((r: Record<string, unknown>) => r.node_id && typeof r.node_id === 'string')
-        .map((r: Record<string, unknown>) => ({
-          node_id: r.node_id as string,
-          relevance: (r.relevance as string) || '',
-        }))
-        .filter((ref: TaxonomyRef) => {
-          const resolves = getLabelForId(ref.node_id) !== '';
-          if (!resolves) {
-            getGlobalRecorder()?.record({
-              type: 'system.error',
-              component: 'chat-store',
-              level: 'warn',
-              message: `Chat response cited an unresolvable taxonomy id, dropped: '${ref.node_id}'`,
-            });
-          }
-          return resolves;
-        })
-      : [];
-    return { response, taxonomyRefs };
-  } catch (err) {
-    getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'debug', message: 'Chat response JSON parse failed, using raw text', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-    return { response: stripped, taxonomyRefs: [] };
+  const reply = readReply(stripped);
+  if (reply.path !== 'direct') {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message: `Chat reply read via ${reply.path}`, data: { model: model ?? null } });
   }
+  if (reply.object) {
+    const response = typeof reply.object.response === 'string' && reply.object.response ? reply.object.response : stripped;
+    // t/4675: the model sometimes returns a label-slugged id (e.g. "sit-153-ensuring-ai-
+    // alignment-and-control" instead of "sit-153"). It is dropped when it can't resolve in a loaded part of the taxonomy.
+    const raw = Array.isArray(reply.object.taxonomy_refs) ? reply.object.taxonomy_refs : [];
+    const refs: TaxonomyRef[] = raw
+      .filter((r: Record<string, unknown>) => r.node_id && typeof r.node_id === 'string')
+      .map((r: Record<string, unknown>) => ({ node_id: r.node_id as string, relevance: (r.relevance as string) || '' }));
+    return { response, taxonomyRefs: resolvableRefs(refs) };
+  }
+  if (reply.salvaged !== undefined) return { response: reply.salvaged, taxonomyRefs: [] };
+  // A reply that starts as a JSON object but could not be read: never show the raw JSON.
+  if (stripped.startsWith('{')) return { response: 'The reply was cut off before the answer was complete.', taxonomyRefs: [] };
+  return { response: stripped, taxonomyRefs: [] };
 }
 
 /** Build transcript text for context window */
@@ -475,14 +667,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     let outcome: RunOutcome = 'aborted';
 
     try {
+      if (!taxonomyPartsLoaded()) await waitForTaxonomy();
       const info = chatSoul(activeChat);
-      const taxonomyBlock = chatTaxonomyBlock(info.pov, activeChat);
+      const turn = await chatTaxonomyTurnFor(info.pov, activeChat, '');
+      if (!isStillValid()) return;
       const model = getConfiguredModel();
       const temperature = resolveChatTemperature(activeChat);
 
       const systemInstruction = chatSystemPrompt(
         info.label, info.pov, info.personality,
-        activeChat.mode, activeChat.topic, taxonomyBlock,
+        activeChat.mode, activeChat.topic, turn.block,
       );
       const userContent = chatOpeningPrompt(activeChat.mode, activeChat.topic);
 
@@ -510,6 +704,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         content: response,
         taxonomy_refs: taxonomyRefs,
         ...rawFields,
+        ...turn.trace,
       };
 
       const updated = {
@@ -527,7 +722,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     } catch (err) {
       outcome = 'error';
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Failed to generate opening message', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      set({ chatError: `Failed to start conversation: ${mapErrorToUserMessage(err)}`, chatStreamingText: null });
+      set({ chatError: chatErrorText(err, 'Failed to start conversation'), chatStreamingText: null });
       // createChat pre-saved an empty session before generation; the opening never landed, so remove
       // it from storage + the sidebar list rather than leaving a stale empty chat (t/2491). Cleanup
       // failures must not mask the original error, so they're swallowed after being recorded.
@@ -585,8 +780,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
 
     try {
+      if (!taxonomyPartsLoaded()) await waitForTaxonomy();
       const info = chatSoul(activeChat);
-      const taxonomyBlock = chatTaxonomyBlock(info.pov, activeChat);
+      const turn = await chatTaxonomyTurnFor(info.pov, activeChat, message.trim());
       const model = getConfiguredModel();
       const temperature = resolveChatTemperature(activeChat);
 
@@ -608,7 +804,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       });
       const systemInstruction = chatSystemPrompt(
         info.label, info.pov, info.personality,
-        activeChat.mode, activeChat.topic, taxonomyBlock,
+        activeChat.mode, activeChat.topic, turn.block,
         urlContext,
       );
       const transcriptText = formatTranscriptForContext(
@@ -625,9 +821,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         .filter(Boolean);
       const userContent = chatContinuationPrompt(message.trim(), transcriptText, priorClaims);
 
-      const activity = urlContext
-        ? `Fetching page for ${info.label}…`
-        : `${info.label} is thinking…`;
+      const activity = chatActivityLabel(urlContext, info.label);
       const { text: fullText, urlContextMetadata, rawFields } = await streamChatWithProgress(
         systemInstruction,
         [{ role: 'user', content: userContent }],
@@ -653,6 +847,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         taxonomy_refs: taxonomyRefs,
         ...(urlContextMetadata && { url_context_metadata: urlContextMetadata }),
         ...rawFields,
+        ...turn.trace,
       };
 
       const updated = {
@@ -671,7 +866,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (!isStillValid()) return;
       outcome = 'error';
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Failed to send chat message', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      set({ chatError: `Response failed: ${mapErrorToUserMessage(err)}`, chatStreamingText: null });
+      set({ chatError: chatErrorText(err, 'Response failed'), chatStreamingText: null });
     } finally {
       finishRun(outcome);
       set({ chatGenerating: false });

@@ -485,11 +485,16 @@ describe('SharedOverlayStore (Azurite, t/4311 store-module PR)', () => {
   // to exercise this path (same pattern as freePoolBudget.test.ts's AC5).
   // No test after this needs Azurite; afterAll's proc.kill() is a safe
   // no-op on an already-dead process.
+  // t/583: the store client under test gets one try with a short timeout. With the SDK's default retry
+  // policy (4 tries, exponential backoff from 4 s) the run time depended on that backoff and reached the
+  // old 20 s test timeout on a slow CI runner. The property under test is "fails closed", not "after how long".
   it('stage on an unreachable store fails closed (storage_unavailable), never throws', async () => {
     proc.kill();
-    const prefix = `_test-${++counter}`;
-    const store = makeStore(container, prefix);
+    const fastFail = BlobServiceClient.fromConnectionString(CONN, { retryOptions: { maxTries: 1, tryTimeoutInMs: 2_000 } });
+    const store = new SharedOverlayStore({ accountUrl: ACCOUNT_URL, container, blobPrefix: `_test-${++counter}`, serviceClient: fastFail });
+    const started = Date.now();
     const result = await store.stage('alice', 'taxonomy/foo.json', withId({ content: 'x', baseSha: 'unknown', stagedAt: new Date().toISOString() }), LW);
     expect(result).toEqual({ ok: false, reason: 'storage_unavailable' });
-  }, 20000);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  }, 10_000);
 });

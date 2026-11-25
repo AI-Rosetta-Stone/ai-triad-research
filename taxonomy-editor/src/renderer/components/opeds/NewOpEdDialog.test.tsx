@@ -15,8 +15,11 @@ const h = vi.hoisted(() => {
   const state: { cb: ((e: ProgressEvent) => void) | null } = { cb: null };
   return {
     state,
+    anonymous: false,
     hasApiKey: vi.fn().mockResolvedValue(true),
     createOpEdSet: vi.fn(),
+    pickDocumentFile: vi.fn(),
+    documentExtractionAvailable: vi.fn().mockResolvedValue(true),
     cancelOpEdSet: vi.fn(),
     refreshAIModels: vi.fn().mockResolvedValue(undefined),
     onOpEdProgress: vi.fn((cb: (e: ProgressEvent) => void) => {
@@ -26,13 +29,15 @@ const h = vi.hoisted(() => {
   };
 });
 
-const { hasApiKey, createOpEdSet, cancelOpEdSet, onOpEdProgress } = h;
+const { hasApiKey, createOpEdSet, cancelOpEdSet, onOpEdProgress, pickDocumentFile } = h;
 const fireProgress = (e: ProgressEvent) => h.state.cb?.(e);
 
 vi.mock('@bridge', () => ({
   api: {
     hasApiKey: h.hasApiKey,
     createOpEdSet: h.createOpEdSet,
+    pickDocumentFile: h.pickDocumentFile,
+    documentExtractionAvailable: h.documentExtractionAvailable,
     cancelOpEdSet: h.cancelOpEdSet,
     refreshAIModels: h.refreshAIModels,
     onOpEdProgress: h.onOpEdProgress,
@@ -41,7 +46,7 @@ vi.mock('@bridge', () => ({
 }));
 
 vi.mock('../../hooks/useAuthStatus', () => ({
-  useAuthStatus: () => ({ user: 'u', anonymous: false, idp: 'github' }),
+  useAuthStatus: () => ({ user: 'u', anonymous: h.anonymous, idp: 'github' }),
 }));
 
 function open(props: Partial<Parameters<typeof NewOpEdDialog>[0]> = {}) {
@@ -53,7 +58,9 @@ function open(props: Partial<Parameters<typeof NewOpEdDialog>[0]> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   hasApiKey.mockResolvedValue(true);
+  h.documentExtractionAvailable.mockResolvedValue(true);
   h.state.cb = null;
+  h.anonymous = false;
 });
 
 describe('NewOpEdDialog — visibility', () => {
@@ -151,25 +158,46 @@ describe('NewOpEdDialog — Draft enablement', () => {
     open();
     const draft = () => screen.getByRole('button', { name: /Draft/ });
     // voices default-selected, but no topic yet → disabled
-    expect((draft() as HTMLButtonElement).disabled).toBe(true);
+    // aria-disabled, not disabled: Start stays focusable so its reason line can be reached (Design t/272#7)
+    expect(draft().getAttribute('aria-disabled')).toBe('true');
     fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'Mandatory audits' } });
     // topic + default voices → enabled
-    expect((draft() as HTMLButtonElement).disabled).toBe(false);
+    expect(draft().getAttribute('aria-disabled')).toBe('false');
     // deselect every voice → disabled again (needs a voice)
     ['Accelerationist', 'Safetyist', 'Skeptic'].forEach(name =>
       fireEvent.click(screen.getByRole('button', { name })));
-    expect((draft() as HTMLButtonElement).disabled).toBe(true);
+    expect(draft().getAttribute('aria-disabled')).toBe('true');
   });
 });
 
-describe('NewOpEdDialog — topic / URL toggle', () => {
+describe('NewOpEdDialog — source selector', () => {
   it('swaps the topic textarea for a URL input and back', () => {
     open();
     expect(screen.getByLabelText(/Topic/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /From a web page instead/ }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Web page' }));
     expect(screen.getByLabelText(/Web page URL/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Use a topic instead/ }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Topic' }));
     expect(screen.getByLabelText(/Topic/)).toBeTruthy();
+  });
+
+  it('keeps each mode\'s value when switching away and back', () => {
+    open();
+    fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'Mandatory audits' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Web page' }));
+    fireEvent.change(screen.getByLabelText(/Web page URL/), { target: { value: 'https://example.com/post' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Topic' }));
+    expect((screen.getByLabelText(/Topic/) as HTMLTextAreaElement).value).toBe('Mandatory audits');
+    fireEvent.click(screen.getByRole('radio', { name: 'Web page' }));
+    expect((screen.getByLabelText(/Web page URL/) as HTMLInputElement).value).toBe('https://example.com/post');
+  });
+
+  it('offers the Document segment on desktop only (web has no create path for it yet)', async () => {
+    const { unmount } = open();
+    expect(await screen.findByRole('radio', { name: 'Document' })).toBeTruthy();
+    unmount();
+    open({ allowUrlSource: false });
+    expect(screen.queryByRole('radio', { name: 'Document' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'Web page' })).toBeNull();
   });
 });
 
@@ -203,7 +231,7 @@ describe('NewOpEdDialog — URL-in-topic steer (t/2899)', () => {
 
   it('is absent in URL mode even if the topic previously looked like a URL', () => {
     open();
-    fireEvent.click(screen.getByRole('button', { name: /From a web page instead/ }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Web page' }));
     fireEvent.change(screen.getByLabelText(/Web page URL/), { target: { value: 'https://example.com/post' } });
     expect(screen.queryByText(STEER)).toBeNull();
   });
@@ -212,6 +240,132 @@ describe('NewOpEdDialog — URL-in-topic steer (t/2899)', () => {
     open({ allowUrlSource: false });
     fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'https://example.com/post' } });
     expect(screen.queryByText(STEER)).toBeNull();
+  });
+});
+
+describe('NewOpEdDialog — Document source (t/276)', () => {
+  const chooseFile = () => fireEvent.click(screen.getByRole('button', { name: 'Choose a file…' }));
+  // t/634: the Document segment shows once the capability check passes.
+  const selectDocument = async () => fireEvent.click(await screen.findByRole('radio', { name: 'Document' }));
+
+  it('extracts the picked document, shows the chip, and submits documentSource only', async () => {
+    pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'report.pdf', content: 'alpha beta gamma' });
+    createOpEdSet.mockResolvedValue({ set_id: 's1' });
+    open();
+    await selectDocument();
+    chooseFile();
+    await waitFor(() => expect(screen.getByText('~3 words')).toBeTruthy());
+    expect(screen.getByText('report.pdf')).toBeTruthy();
+    const draft = screen.getByRole('button', { name: /Draft/ });
+    await waitFor(() => expect(draft.getAttribute('aria-disabled')).toBe('false'));
+    fireEvent.click(draft);
+    await waitFor(() => expect(createOpEdSet).toHaveBeenCalledTimes(1));
+    const payload = createOpEdSet.mock.calls[0][0];
+    expect(payload.documentSource).toEqual({ text: 'alpha beta gamma', name: 'report.pdf' });
+    expect(payload).not.toHaveProperty('topic');
+    expect(payload).not.toHaveProperty('url');
+  });
+
+  it('t/632: a desktop pick with a full path shows and sends only the file name', async () => {
+    pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'C:\\Users\\someone\\Documents\\report.pdf', content: 'alpha beta gamma' });
+    createOpEdSet.mockResolvedValue({ set_id: 's1' });
+    open();
+    await selectDocument();
+    chooseFile();
+    await waitFor(() => expect(screen.getByText('report.pdf')).toBeTruthy());
+    expect(screen.queryByText(/Users/)).toBeNull();
+    const draft = screen.getByRole('button', { name: /Draft/ });
+    await waitFor(() => expect(draft.getAttribute('aria-disabled')).toBe('false'));
+    fireEvent.click(draft);
+    await waitFor(() => expect(createOpEdSet).toHaveBeenCalledTimes(1));
+    expect(createOpEdSet.mock.calls[0][0].documentSource).toEqual({ text: 'alpha beta gamma', name: 'report.pdf' });
+  });
+
+  it('says why Start is off until a document is chosen', async () => {
+    open();
+    await selectDocument();
+    expect(screen.getByText('Choose a document')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Draft/ }).getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('reports an empty extraction and keeps Start off', async () => {
+    pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'scan.pdf', content: '   ' });
+    open();
+    await selectDocument();
+    chooseFile();
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/no readable text/));
+    expect(screen.getByText('Choose a readable document')).toBeTruthy();
+  });
+
+  it('shows a picker or extraction error and keeps the zone for another pick', async () => {
+    pickDocumentFile.mockRejectedValue(new Error('“big.pdf” is 14.8 MB. The limit is 10 MB.'));
+    open();
+    await selectDocument();
+    chooseFile();
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/limit is 10 MB/));
+    expect(screen.getByRole('button', { name: 'Choose a file…' })).toBeTruthy();
+  });
+
+  it('a cancelled pick leaves the source empty', async () => {
+    pickDocumentFile.mockResolvedValue({ cancelled: true });
+    open();
+    await selectDocument();
+    chooseFile();
+    await waitFor(() => expect(pickDocumentFile).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText('Choose a document')).toBeTruthy());
+  });
+
+  it('anonymous users see the Document zone disabled with the sign-in note, and no picker runs', async () => {
+    h.anonymous = true;
+    open();
+    await selectDocument();
+    expect(screen.getByText('Sign in to upload a document.')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Choose a file…' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('Choose a document')).toBeTruthy();
+    expect(pickDocumentFile).not.toHaveBeenCalled();
+  });
+
+  it('t/634: the Document segment stays hidden while the capability check runs (no flash)', () => {
+    h.documentExtractionAvailable.mockReturnValue(new Promise(() => {}));
+    open();
+    expect(screen.queryByRole('radio', { name: 'Document' })).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Topic' })).toBeTruthy();
+  });
+
+  it('t/634: when extraction is unavailable the segment is hidden (Topic and Web page only)', async () => {
+    h.documentExtractionAvailable.mockResolvedValue(false);
+    open();
+    await waitFor(() => expect(h.documentExtractionAvailable).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByRole('radio', { name: 'Document' })).toBeNull();
+    expect(screen.getAllByRole('radio').map(r => r.textContent)).toEqual(['Topic', 'Web page']);
+  });
+
+  it('t/634: the segment comes back when the check passes', async () => {
+    h.documentExtractionAvailable.mockResolvedValue(true);
+    open();
+    expect(await screen.findByRole('radio', { name: 'Document' })).toBeTruthy();
+  });
+
+  it('Remove moves focus to Choose a file', async () => {
+    pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'notes.md', content: 'one two' });
+    open();
+    await selectDocument();
+    chooseFile();
+    await waitFor(() => expect(screen.getByText('notes.md')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Remove notes.md' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Choose a file…' })));
+  });
+
+  it('Remove returns to the empty zone', async () => {
+    pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'notes.md', content: 'one two' });
+    open();
+    await selectDocument();
+    chooseFile();
+    await waitFor(() => expect(screen.getByText('notes.md')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Remove notes.md' }));
+    expect(screen.getByRole('button', { name: 'Choose a file…' })).toBeTruthy();
+    expect(screen.queryByText('notes.md')).toBeNull();
   });
 });
 
@@ -358,7 +512,7 @@ describe('NewOpEdDialog — POV tag (t/3992)', () => {
     open();
     fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'Licensing' } });
     pickCritical();
-    expect((screen.getByRole('button', { name: /Draft/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /Draft/ }).getAttribute('aria-disabled')).toBe('true');
     expect(screen.getByRole('alert').textContent).toMatch(/minimum 5/);
   });
 

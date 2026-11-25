@@ -1,6 +1,111 @@
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
+function Get-CILogContentLine {
+    # Strip ANSI colour codes and gh's "job<TAB>step<TAB>ISO-timestamp " prefix, then trim.
+    # No-op (beyond trim) when the caller pipes an already-clean log line.
+    param(
+        [AllowEmptyString()][string]$Raw,
+        [string]$AnsiPattern
+    )
+    (($Raw -replace $AnsiPattern, '') -replace '^.*?\d{4}-\d{2}-\d{2}T[0-9:.]+Z\s+', '').Trim()
+}
+
+function Test-CIVitestBoundary {
+    # vitest run-summary / block-boundary lines. Mutates $State (InVitestBlock,
+    # VitestFailedCount) and returns $true when the line was fully handled.
+    param($Line, $State)
+    if ($Line -match '^Tests\s+(\d+)\s+failed\b') {
+        $State.VitestFailedCount = [int]$Matches[1]
+        $State.InVitestBlock = $false
+        return $true
+    }
+    if ($Line -match '^Test Files\s+\d+\s+failed\b') { $State.InVitestBlock = $false; return $true }
+    if ($Line -match 'Failed (?:Tests|Suites) \d+') { $State.InVitestBlock = $true; return $true }
+    return $false
+}
+
+function New-CIVitestFailureEntry {
+    # Build a vitest failure record from a "FAIL <file> > <describe> > <test>" spec.
+    param($Spec)
+    $Clean = ($Spec -replace '\s+\[\s*[^\]]*\]\s*$', '').Trim()
+    $Parts = @($Clean -split '\s+>\s+')
+    [PSCustomObject]@{
+        PSTypeName = 'AITriad.CITestFailure'
+        Runner     = 'vitest'
+        File       = $Parts[0]
+        TestName   = if ($Parts.Count -gt 1) { $Parts[-1] } else { $null }
+        Suite      = if ($Parts.Count -gt 2) { ($Parts[1..($Parts.Count - 2)] -join ' > ') } else { $null }
+        FullName   = $Clean
+        Error      = $null
+        Location   = $null
+    }
+}
+
+function Add-CIVitestLine {
+    # Consume one line inside the vitest "Failed Tests/Suites" block, filling the
+    # pending FAIL entries with their shared error message and location.
+    param($Line, $VitestFailures, $FailingTests, $PendingError, $PendingLocation, $LocationMark)
+    if ($Line -match '^FAIL\s+(.+)$') {
+        $Entry = New-CIVitestFailureEntry -Spec $Matches[1]
+        $VitestFailures.Add($Entry)
+        $FailingTests.Add($Entry.FullName)
+        $PendingError.Add($Entry)
+        return
+    }
+    if ($PendingError.Count -gt 0) {
+        foreach ($E in $PendingError) { $E.Error = $Line }
+        $PendingLocation.AddRange($PendingError)
+        $PendingError.Clear()
+        return
+    }
+    if ($PendingLocation.Count -gt 0 -and $Line.StartsWith($LocationMark) -and
+        $Line -match '\s(\S+:\d+:\d+)\s*$') {
+        foreach ($E in $PendingLocation) { $E.Location = $Matches[1] }
+        $PendingLocation.Clear()
+    }
+}
+
+function Update-CIPesterAndInfra {
+    # Handle a non-vitest line: a Pester "[-]" failure, its assertion detail, the
+    # Pester run summary, or a real "##[error]" infrastructure error. Mutates $State
+    # (InAssertionBlock, FailedCount) and the given collections.
+    param($Line, $State, $FailingTests, $PesterFailureLines, $InfraErrorLines)
+
+    # A Pester FAILING test line: "[-] <name> <ms>", optionally prefixed with ##[error].
+    if ($Line -match '\[-\]\s+(.+?)(?:\s+\d+(?:\.\d+)?\s*ms)?\s*$') {
+        $Name = ($Matches[1] -replace '^.*##\[error\]', '').Trim()
+        $FailingTests.Add($Name)
+        $PesterFailureLines.Add(($Line -replace '^.*##\[error\]', '').Trim())
+        $State.InAssertionBlock = $true
+        return
+    }
+
+    # Assertion detail that belongs to the failing test just above it.
+    if ($State.InAssertionBlock -and
+        $Line -match 'Expected|But was|but got|Should\s|##\[group\]Message|at .+:\d+') {
+        $PesterFailureLines.Add(($Line -replace '^.*##\[error\]', '').Trim())
+        return
+    }
+    $State.InAssertionBlock = $false
+
+    # Pester's own run summary — pull the failed count if present.
+    if ($Line -match 'Tests? (?:Passed|completed).*Failed:\s*(\d+)' -or
+        $Line -match 'Failed:\s*(\d+)\b') {
+        $State.FailedCount = [int]$Matches[1]
+        return
+    }
+
+    # Everything else carrying ##[error] that is NOT a test failure/assertion and NOT
+    # the generic step-wrapper marker is a real infrastructure error.
+    if ($Line -match '##\[error\]' -and
+        $Line -notmatch '\[-\]' -and
+        $Line -notmatch 'Process completed with exit code') {
+        $Msg = ($Line -replace '^.*##\[error\]', '').Trim()
+        if ($Msg) { $InfraErrorLines.Add($Msg) }
+    }
+}
+
 function ConvertFrom-CILog {
     <#
     .SYNOPSIS
@@ -43,8 +148,14 @@ function ConvertFrom-CILog {
     $PesterFailureLines = [System.Collections.Generic.List[string]]::new()
     $InfraErrorLines    = [System.Collections.Generic.List[string]]::new()
     $VitestFailures     = [System.Collections.Generic.List[object]]::new()
-    $FailedCount        = $null
-    $VitestFailedCount  = $null
+
+    # Mutable parse state, shared with the per-line helpers (hashtable is passed by reference).
+    $State = @{
+        InVitestBlock     = $false
+        InAssertionBlock  = $false
+        FailedCount       = $null
+        VitestFailedCount = $null
+    }
 
     # vitest's colour codes arrive either as real ESC bytes or as the literal text "^[" (how gh
     # renders them); strip both (t/4271).
@@ -55,101 +166,26 @@ function ConvertFrom-CILog {
     # gh prefixes each line with "job<TAB>step<TAB>timestamp "; strip a leading
     # "<stuff>##[error]" and any leading timestamp so matching is prefix-agnostic.
     $Lines = $LogText -split "\r?\n"
-    $InAssertionBlock = $false
-    # vitest state: inside the "Failed Tests N" / "Failed Suites N" block, and the FAIL entries
-    # still waiting for their error line / location. vitest groups failures with an identical
-    # error under one error, so several entries can be pending at once.
-    $InVitestBlock = $false
+    # vitest state: FAIL entries still waiting for their error line / location. vitest groups
+    # failures with an identical error under one error, so several entries can be pending at once.
     $PendingError = [System.Collections.Generic.List[object]]::new()
     $PendingLocation = [System.Collections.Generic.List[object]]::new()
 
     foreach ($Raw in $Lines) {
-        # `gh run view --log` prefixes each line with "job<TAB>step<TAB>ISO-timestamp ".
-        # Strip up to and including that timestamp so content matches cleanly (no-op when
-        # the caller pipes an already-clean log).
-        $Line = (($Raw -replace $AnsiPattern, '') -replace '^.*?\d{4}-\d{2}-\d{2}T[0-9:.]+Z\s+', '').Trim()
+        $Line = Get-CILogContentLine -Raw $Raw -AnsiPattern $AnsiPattern
         if ([string]::IsNullOrWhiteSpace($Line)) { continue }
 
-        # vitest run summary: "Tests  2 failed | 11637 passed ...". Checked before the block
-        # logic because it also ends the failure block.
-        if ($Line -match '^Tests\s+(\d+)\s+failed\b') {
-            $VitestFailedCount = [int]$Matches[1]
-            $InVitestBlock = $false
-            continue
-        }
-        if ($Line -match '^Test Files\s+\d+\s+failed\b') { $InVitestBlock = $false; continue }
-        if ($Line -match 'Failed (?:Tests|Suites) \d+') { $InVitestBlock = $true; continue }
+        # vitest run summary / block boundaries are checked first because they also end the block.
+        if (Test-CIVitestBoundary -Line $Line -State $State) { continue }
 
-        if ($InVitestBlock) {
-            # "FAIL  <file> > <describe> > <test>"; a suite-level failure has no " > " part and
-            # may end with " [ <file> ]".
-            if ($Line -match '^FAIL\s+(.+)$') {
-                $Spec = ($Matches[1] -replace '\s+\[\s*[^\]]*\]\s*$', '').Trim()
-                $Parts = @($Spec -split '\s+>\s+')
-                $Entry = [PSCustomObject]@{
-                    PSTypeName = 'AITriad.CITestFailure'
-                    Runner     = 'vitest'
-                    File       = $Parts[0]
-                    TestName   = if ($Parts.Count -gt 1) { $Parts[-1] } else { $null }
-                    Suite      = if ($Parts.Count -gt 2) { ($Parts[1..($Parts.Count - 2)] -join ' > ') } else { $null }
-                    FullName   = $Spec
-                    Error      = $null
-                    Location   = $null
-                }
-                $VitestFailures.Add($Entry)
-                $FailingTests.Add($Spec)
-                $PendingError.Add($Entry)
-                continue
-            }
-            if ($PendingError.Count -gt 0) {
-                # The first line after the FAIL line(s) is the error message.
-                foreach ($E in $PendingError) { $E.Error = $Line }
-                $PendingLocation.AddRange($PendingError)
-                $PendingError.Clear()
-                continue
-            }
-            if ($PendingLocation.Count -gt 0 -and $Line.StartsWith($LocationMark) -and
-                $Line -match '\s(\S+:\d+:\d+)\s*$') {
-                foreach ($E in $PendingLocation) { $E.Location = $Matches[1] }
-                $PendingLocation.Clear()
-                continue
-            }
-            # Diff, code frame and separator lines belong to the failure; nothing else to take.
+        if ($State.InVitestBlock) {
+            Add-CIVitestLine -Line $Line -VitestFailures $VitestFailures -FailingTests $FailingTests `
+                -PendingError $PendingError -PendingLocation $PendingLocation -LocationMark $LocationMark
             continue
         }
 
-        # A Pester FAILING test line: "[-] <name> <ms>", optionally prefixed with ##[error].
-        if ($Line -match '\[-\]\s+(.+?)(?:\s+\d+(?:\.\d+)?\s*ms)?\s*$') {
-            $Name = ($Matches[1] -replace '^.*##\[error\]', '').Trim()
-            $FailingTests.Add($Name)
-            $PesterFailureLines.Add(($Line -replace '^.*##\[error\]', '').Trim())
-            $InAssertionBlock = $true
-            continue
-        }
-
-        # Assertion detail that belongs to the failing test just above it.
-        if ($InAssertionBlock -and
-            $Line -match 'Expected|But was|but got|Should\s|##\[group\]Message|at .+:\d+') {
-            $PesterFailureLines.Add(($Line -replace '^.*##\[error\]', '').Trim())
-            continue
-        }
-        $InAssertionBlock = $false
-
-        # Pester's own run summary — pull the failed count if present.
-        if ($Line -match 'Tests? (?:Passed|completed).*Failed:\s*(\d+)' -or
-            $Line -match 'Failed:\s*(\d+)\b') {
-            $FailedCount = [int]$Matches[1]
-            continue
-        }
-
-        # Everything else carrying ##[error] that is NOT a test failure/assertion and NOT
-        # the generic step-wrapper marker is a real infrastructure error.
-        if ($Line -match '##\[error\]' -and
-            $Line -notmatch '\[-\]' -and
-            $Line -notmatch 'Process completed with exit code') {
-            $Msg = ($Line -replace '^.*##\[error\]', '').Trim()
-            if ($Msg) { $InfraErrorLines.Add($Msg) }
-        }
+        Update-CIPesterAndInfra -Line $Line -State $State -FailingTests $FailingTests `
+            -PesterFailureLines $PesterFailureLines -InfraErrorLines $InfraErrorLines
     }
 
     # vitest re-emits each failure's error as a GitHub "##[error]" annotation after the run; those
@@ -159,6 +195,8 @@ function ConvertFrom-CILog {
         $InfraErrorLines = @($InfraErrorLines | Where-Object { -not $TestErrors.Contains($_) })
     }
 
+    $FailedCount       = $State.FailedCount
+    $VitestFailedCount = $State.VitestFailedCount
     # Pester and vitest counts can both be present when --log-failed spans several jobs.
     if ($null -ne $VitestFailedCount) {
         $FailedCount = if ($null -ne $FailedCount) { $FailedCount + $VitestFailedCount } else { $VitestFailedCount }

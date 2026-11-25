@@ -248,6 +248,20 @@
 
 .oped-footer-right { display: flex; gap: 0.5rem; }
 
+/* t/276 (Design p/25#136): the blocked Start uses aria-disabled so it stays focusable and its reason is
+   announced, which drops .btn:disabled's look. Restore the design-system disabled treatment, with no
+   hover change. The reason line beside it keeps full strength. */
+.oped-dialog-footer .btn[aria-disabled="true"] {
+  opacity: 0.35;
+  filter: grayscale(40%);
+  cursor: not-allowed;
+}
+.oped-dialog-footer .btn[aria-disabled="true"]:hover { background: var(--bg-panel); }
+.oped-dialog-footer .btn-primary[aria-disabled="true"]:hover { background: var(--success); }
+
+/* "Draft 3 op-eds" must not break at the hyphen at 390px (Design p/25#136). */
+.oped-footer-right .btn { white-space: nowrap; }
+
 .oped-start-error {
   border: 1px solid var(--danger, var(--warning));
   border-radius: 4px;
@@ -439,5 +453,49 @@
 }
 
 .oped-progress-actions { display: flex; justify-content: flex-end; }
+
+/* t/276: source selector and Document field (Design t/272). Tokens only, so all four themes follow. */
+.oped-source-selector { display: flex; flex-wrap: wrap; gap: 6px; }
+.oped-source-seg {
+  padding: 4px 12px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.oped-source-seg.is-selected { background: var(--focus-ring); color: var(--text-on-focus-ring); border-color: var(--focus-ring); }
+.oped-source-seg:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.oped-doc-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 88px;
+  padding: 12px;
+  border: 1px dashed var(--input-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+.oped-doc-zone.is-disabled { opacity: 0.6; }
+.oped-doc-hint, .oped-doc-status, .oped-doc-meta { font-size: var(--text-xs); color: var(--text-secondary); margin: 0; }
+.oped-doc-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+}
+.oped-doc-chip.is-error { border-color: var(--error-border); background: var(--error-bg); }
+.oped-doc-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.oped-doc-remove { border: none; background: none; color: var(--text-secondary); font-size: 1.1rem; cursor: pointer; }
+.oped-doc-error { font-size: var(--text-xs); color: var(--error-text); background: var(--error-bg); padding: 6px 8px; border-radius: var(--radius-sm); margin: 6px 0 0; }
+.oped-start-reason { font-size: var(--text-xs); color: var(--text-secondary); margin: 0; align-self: center; }
 
 /* Reduced-motion: no animated spinner is used; the panel is static text updates. */

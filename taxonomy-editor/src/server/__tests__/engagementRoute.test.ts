@@ -135,16 +135,11 @@ describe('GET /api/analytics/engagement — route layer (t/2559)', () => {
   });
 
   // ── Response shaping / gating of users + sessions (§7.2) ──
-  it('strips users and sessions for a non-admin base request', async () => {
+  it('t/592: refuses a non-admin base request (the site aggregate is admin-only), with no query', async () => {
     const res = fakeRes();
     await engagement(fakeReq(''), res, undefined);
-    expect(res._status ?? 200).toBe(200);
-    // non-admin → includeSessions:false
-    expect(queryEngagement).toHaveBeenCalledWith(expect.any(String), expect.any(String), { user: undefined, session: undefined, includeSessions: false });
-    const body = JSON.parse(res._body!);
-    expect(body).toHaveProperty('aggregate');
-    expect(body).not.toHaveProperty('users');
-    expect(body).not.toHaveProperty('sessions');
+    expect(res._status).toBe(403);
+    expect(queryEngagement).not.toHaveBeenCalled();
   });
 
   it('includes users and sessions for an admin base request', async () => {

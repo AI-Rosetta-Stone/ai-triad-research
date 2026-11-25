@@ -26,6 +26,7 @@ import { runModeratorSelection, executeTurnWithRetry, type ModeratorSelectionCal
 import { pruneSessionData, pruneModeratorState } from '../../sessionPruning.js';
 import type { DriftTelemetryEntry } from '../../calibrationLogger/schema.js';
 import { getGlobalRecorder } from '../../../flight-recorder/index.js';
+import { embedTexts } from '../embedTexts.js';
 import { runTurnPipeline, assemblePipelineResult, type TurnPipelineInput } from '../../turnPipeline.js';
 import { DEFAULT_TEMPERATURE } from '../../../ai-client/defaults.js';
 import { resolveStageModel, resolveModelForSpeaker, recordRateLimit, clearRateLimitBackoff, isRateLimitError } from '../modelResolution.js';
@@ -59,6 +60,7 @@ export async function runFixedCrossRespond(engine: DebateEngineInternals): Promi
   const midpointRound = Math.min(MIDPOINT_NEUTRAL_EVAL_ROUND_CAP, Math.ceil(engine.config.rounds / 2));
   const w = loadProvisionalWeights();
   let gcRan = false;
+  let roundsCompleted = 0;
 
   for (let round = 1; round <= engine.config.rounds; round++) {
     engine.checkAborted();
@@ -109,7 +111,11 @@ export async function runFixedCrossRespond(engine: DebateEngineInternals): Promi
     if (shouldTriggerDiversityRound(engine, round, phase)) {
       await runDiversityRound(engine, round + 1);
     }
+    roundsCompleted = round;
   }
+
+  // t/580: the fixed loop writes no adaptive diagnostics, so record what it ran for deriveTerminationReason.
+  engine.session.fixed_rounds_diagnostics = { rounds_configured: engine.config.rounds, rounds_completed: roundsCompleted };
 }
 
 export async function runAdaptiveCrossRespond(engine: DebateEngineInternals): Promise<void> {
@@ -1054,9 +1060,8 @@ export async function runCrossRespondRound(engine: DebateEngineInternals, round:
   // Compute per-(frame,turn) cosine similarity series for frame survival metrics — t/2045
   if (engine.session.frame_embeddings && Object.keys(engine.session.frame_embeddings).length > 0) {
     try {
-      const { computeEmbeddings } = await import('../../../embeddings/onnxEmbedding.js');
       const paras = entry.content.split(/\n\n+/).filter(p => p.trim().length > 0);
-      const paraVecs = paras.length > 0 ? await computeEmbeddings(paras) : [];
+      const paraVecs = paras.length > 0 ? await embedTexts(engine.adapter, paras, engine.session.id) : [];
       engine.session.frame_similarity_series ??= {};
       for (const [speakerKey, frameData] of Object.entries(engine.session.frame_embeddings)) {
         engine.session.frame_similarity_series[speakerKey] ??= frameData.frames.map(f => ({ frame: f.frame, sims: {} as Record<string, number> }));

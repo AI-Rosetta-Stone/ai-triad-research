@@ -1045,7 +1045,7 @@ export const createDebateReflectionSlice: StateCreator<DebateStore, [], [], Deba
         results.push({
           pover: povKey,
           label: info.label,
-          reflection_summary: `Error: ${mapErrorToUserMessage(err)}`,
+          reflection_summary: `Error: ${mapErrorToUserMessage(err, { kind: 'ai' })}`,
           edits: [],
         });
         set({ reflections: [...results] });

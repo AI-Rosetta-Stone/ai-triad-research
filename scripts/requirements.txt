@@ -20,7 +20,7 @@ python-slugify>=9.2.0
 waybackpy>=3.0.6
 
 # AI API clients (install whichever you use)
-anthropic>=2.11.0
+anthropic>=2.12.0
 # google-generativeai>=0.7
 
 # Git inspection

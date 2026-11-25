@@ -10,7 +10,7 @@
  * persisted and every boot repeated the failure. Every filesystem target is inside an fs.mkdtemp directory.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import fsp from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -56,7 +56,9 @@ function router(_creds: unknown, _method: string, p: string): Promise<Resp> {
     return Promise.resolve(inHistory ? { ok: true, data: { sha: OLD } } : { ok: false, status: 404, data: {} });
   }
   if (p === `/repos/testowner/testrepo/compare/${OLD}...${NEW}`) {
-    return Promise.resolve(inHistory ? { ok: true, data: { files: [] } } : { ok: false, status: 404, data: {} });
+    // t/555: a moved commit whose compare lists no file counts as "changed paths unknown" and drops every
+    // entry, so the in-history control lists a change to a different file.
+    return Promise.resolve(inHistory ? { ok: true, data: { files: [{ filename: 'taxonomy/other.json' }] } } : { ok: false, status: 404, data: {} });
   }
   if (p === `/repos/testowner/testrepo/git/commits/${NEW}`) {
     return Promise.resolve(treeFails ? { ok: false, status: 503, data: {} } : { ok: true, data: { tree: { sha: TREE } } });
@@ -67,6 +69,12 @@ function router(_creds: unknown, _method: string, p: string): Promise<Resp> {
   }
   return Promise.resolve({ ok: false, status: 404, data: {} });
 }
+
+// t/555: pay the backend module's cold import here, not inside the first test's 5 s timeout (it flaked
+// on the first run after a source change, under the pre-push load).
+beforeAll(async () => {
+  await import('../storage/githubAPIBackend');
+}, 60_000);
 
 beforeEach(async () => {
   tmp = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'gh-reseed-')));

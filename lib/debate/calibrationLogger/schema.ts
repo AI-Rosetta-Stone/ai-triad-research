@@ -502,10 +502,11 @@ export interface CalibrationDataPoint {
    * 'situation_cap': force_active=true, any other forced cap (health, synthesis stall, etc.).
    * 'api_ceiling': API hard ceiling hit (detected via transcript content; overrides force_active).
    * 'first_round_exit': debate exited with ≤1 statement, no ASD phases — early failure before convergence logic ran (t/3502).
+   * 'fixed_rounds_completed': no adaptive staging (fixed rounds, e.g. the quick profile) and every configured round ran (t/580). No convergence logic ran, so excluded from censoring pools.
    * 'unknown': legacy rows without force_active — excluded from censoring pools.
    * Absent on pre-t/1671 rows; treated as 'unknown' by computeConvergenceWithCensoring.
    */
-  termination_reason?: 'natural_conclusion' | 'max_iterations' | 'situation_cap' | 'api_ceiling' | 'first_round_exit' | 'unknown';
+  termination_reason?: 'natural_conclusion' | 'max_iterations' | 'situation_cap' | 'api_ceiling' | 'first_round_exit' | 'fixed_rounds_completed' | 'unknown';
   /**
    * Last composite convergence_score from adaptive_staging_diagnostics.signal_telemetry.
    * Same extraction point as argumentative_saturation_at_transition. Null when no telemetry.

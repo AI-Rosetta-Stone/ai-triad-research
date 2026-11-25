@@ -230,7 +230,14 @@ export interface ElectronAPI {
   // implementation — AppAPI's CreateOpEdPayload types it as CreateOpEdParams, an unverified
   // claim about IPC-handler-side validation; restating that here would just be conformance
   // theatre (t/3529#6 reasoning) without adding real safety, since preload also allows any value.
-  createOpEdSet: (payload: { topic: string; url?: string; params: unknown; voices: string[] }) => Promise<{ set_id: string }>;
+  // t/276: exactly one of topic, url or documentSource is sent (the renderer's CreateOpEdPayload union).
+  createOpEdSet: (payload: {
+    topic?: string;
+    url?: string;
+    documentSource?: { text: string; name: string };
+    params: unknown;
+    voices: string[];
+  }) => Promise<{ set_id: string }>;
   cancelOpEdSet: (setId: string) => void;
   exportOpEdSet: (setId: string) => Promise<{ cancelled: boolean; filePath?: string }>;
   onOpEdProgress: (callback: (event: { set_id: string; voice: string; stage: string; error?: string }) => void) => () => void;
@@ -333,6 +340,8 @@ export interface ElectronAPI {
   // File operations
   fetchUrlContent: (url: string) => Promise<{ content: string; error?: string }>;
   pickDocumentFile: () => Promise<{ cancelled: boolean; filePath?: string; content?: string }>;
+  /** t/634: main probes the real extractor once and caches the answer (ElectronMain). */
+  documentExtractionAvailable?: () => Promise<boolean>;
   clipboardWriteText: (text: string) => Promise<void>;
 
   // Window control

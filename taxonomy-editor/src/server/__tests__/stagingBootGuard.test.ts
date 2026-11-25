@@ -29,6 +29,7 @@ function setStagingEnv(): void {
   process.env.STAGING_REPO = STAGING_REPO;
   process.env.GITHUB_BRANCH = 'staging';
   process.env.SESSION_BRANCH_PREFIX = 'staging-session';
+  process.env.AZURE_KEYVAULT_URL = 'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net/';
 }
 
 describe('stagingBootGuard', () => {
@@ -129,6 +130,53 @@ describe('stagingBootGuard', () => {
     });
   });
 
+  // t/92, t/626: staging must use the staging-only Key Vault, never the shared vault holding prod's secrets.
+  describe('validateStagingBootGuard, staging Key Vault', () => {
+    it('boots with the staging vault URL, in any harmless spelling', () => {
+      for (const url of [
+        'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net/',
+        'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net',
+        'https://KV-AIT-STG-KVWL3NYWGE4IW.vault.azure.net/',
+        'kv-ait-stg-kvwl3nywge4iw.vault.azure.net',
+      ]) {
+        setStagingEnv();
+        process.env.AZURE_KEYVAULT_URL = url;
+        expect(() => validateStagingBootGuard(), url).not.toThrow();
+      }
+    });
+
+    for (const url of [
+      'https://kv-ait-kvwl3nywge4iw.vault.azure.net/',
+      'https://KV-AIT-KVWL3NYWGE4IW.vault.azure.net',
+      'kv-ait-kvwl3nywge4iw.vault.azure.net',
+      'https://kv-ait-kvwl3nywge4iw.vault.azure.net./',
+    ]) {
+      it(`refuses the shared vault (${url})`, () => {
+        setStagingEnv();
+        process.env.AZURE_KEYVAULT_URL = url;
+        expect(() => validateStagingBootGuard()).toThrow(ActionableError);
+        expect(() => validateStagingBootGuard()).toThrow(/shared vault/);
+      });
+    }
+
+    for (const url of [undefined, '', '   ', 'not a url ::', 'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net.evil.example/', 'https://other-vault.vault.azure.net/']) {
+      it(`refuses an unset, unparseable or other vault URL (${JSON.stringify(url)})`, () => {
+        setStagingEnv();
+        if (url === undefined) delete process.env.AZURE_KEYVAULT_URL; else process.env.AZURE_KEYVAULT_URL = url;
+        expect(() => validateStagingBootGuard()).toThrow(/not the staging vault/);
+      });
+    }
+
+    it('prod is unaffected: the shared vault is prod\'s own', () => {
+      process.env.CONTAINER_APP_NAME = 'taxonomy-editor';
+      process.env.GITHUB_APP_ID = 'prod-app-id';
+      process.env.GITHUB_REPO = PROD_REPO;
+      process.env.STAGING_REPO = STAGING_REPO;
+      process.env.AZURE_KEYVAULT_URL = 'https://kv-ait-kvwl3nywge4iw.vault.azure.net/';
+      expect(() => validateStagingBootGuard()).not.toThrow();
+    });
+  });
+
   describe('validateStagingBootGuard, prod and dev containers', () => {
     it('allows prod to target the prod repo', () => {
       process.env.CONTAINER_APP_NAME = 'taxonomy-editor';
@@ -201,6 +249,70 @@ describe('stagingBootGuard', () => {
       delete process.env.CONTAINER_APP_NAME;
       delete process.env.SESSION_BRANCH_PREFIX;
 
+      expect(() => validateStagingBranchPrefix()).not.toThrow();
+    });
+
+    // t/540: compared with one trailing slash, as sessionBranchManager builds branch names.
+    it('passes the live staging value with its trailing slash', () => {
+      setStagingEnv();
+      process.env.SESSION_BRANCH_PREFIX = 'staging-api-session/';
+
+      expect(() => validateStagingBranchPrefix()).not.toThrow();
+    });
+
+    for (const prefix of ['api-session/', 'api-session//', ' api-session ', 'api-session/staging', 'api-session/staging/', '/']) {
+      it(`rejects staging prefix ${JSON.stringify(prefix)} (the prod namespace, or blank)`, () => {
+        setStagingEnv();
+        process.env.SESSION_BRANCH_PREFIX = prefix;
+
+        expect(() => validateStagingBranchPrefix()).toThrow(ActionableError);
+      });
+    }
+
+    it('still allows a staging prefix that only starts with the same letters (api-session-staging/)', () => {
+      setStagingEnv();
+      process.env.SESSION_BRANCH_PREFIX = 'api-session-staging/';
+
+      expect(() => validateStagingBranchPrefix()).not.toThrow();
+    });
+  });
+
+  // t/540: an unset or blank CONTAINER_APP_NAME on a hosted container fails closed instead of
+  // reading as "not staging" and skipping every staging check.
+  describe('hosted container without CONTAINER_APP_NAME', () => {
+    for (const platformVar of ['CONTAINER_APP_REVISION', 'CONTAINER_APP_HOSTNAME', 'CONTAINER_APP_ENV_DNS_SUFFIX']) {
+      it(`refuses boot when ${platformVar} is set and the name is unset`, () => {
+        delete process.env.CONTAINER_APP_NAME;
+        process.env[platformVar] = 'x';
+
+        expect(() => validateStagingBootGuard()).toThrow(ActionableError);
+        expect(() => validateStagingBootGuard()).toThrow(/CONTAINER_APP_NAME is unset or blank/);
+        expect(() => validateStagingBranchPrefix()).toThrow(/CONTAINER_APP_NAME is unset or blank/);
+      });
+    }
+
+    it('refuses boot when the name is whitespace on a hosted container', () => {
+      process.env.CONTAINER_APP_NAME = '   ';
+      process.env.CONTAINER_APP_REVISION = 'taxonomy-editor-staging--abc';
+
+      expect(() => validateStagingBootGuard()).toThrow(/CONTAINER_APP_NAME is unset or blank/);
+    });
+
+    it('treats a whitespace-padded staging name as staging', () => {
+      setStagingEnv();
+      process.env.CONTAINER_APP_NAME = ' taxonomy-editor-staging ';
+      process.env.GITHUB_BRANCH = 'main';
+
+      expect(() => validateStagingBootGuard()).toThrow(/prod main/);
+    });
+
+    it('local and dev: no platform variables and no name boots as before', () => {
+      delete process.env.CONTAINER_APP_NAME;
+      delete process.env.CONTAINER_APP_REVISION;
+      delete process.env.CONTAINER_APP_HOSTNAME;
+      delete process.env.CONTAINER_APP_ENV_DNS_SUFFIX;
+
+      expect(() => validateStagingBootGuard()).not.toThrow();
       expect(() => validateStagingBranchPrefix()).not.toThrow();
     });
   });

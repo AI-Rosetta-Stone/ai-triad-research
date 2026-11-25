@@ -13,9 +13,10 @@ Shared utility rule: when 2+ agents need the same operation, create a shared uti
 ## One PR per feature (t/397, PI-approved 2026-11-11)
 
 **Tickets stay granular; PRs don't.** Tickets still carry ownership, tracking and assignment. But a feature (a parent ticket) lands as **one PR** on one branch, not one PR per child ticket.
+- **Landing vehicle (t/567, PI-approved 2026-11-25):** every ticket names its vehicle in a `Lands in:` line when the TL creates it. A feature's children commit to its branch `feat/t<N>-<slug>`, where t/N is the parent ticket. A feature gets its own `feat/` PR only for 2+ owners or 3+ tickets; everything else goes to the nearest area train, and an incident PR needs an open INCIDENT ticket (`docs/pr-landing.md` § PR Budget and Batching). No ticket gets its own PR unless the TL says so.
 - **Landing owner:** when the TL breaks a feature into tickets, the parent ticket names one **landing owner**. That owner opens the feature PR, takes the other owners' commits, and lands it. Other owners push their slices to that branch, or send patches to the landing owner if they can't push.
 - **Owners approve their files on the feature PR.** Each owner whose files the PR touches signs off with an `Approved (<Owner>):` review on that same PR, which the t1-approval-guard already reads per role. "Work in another owner's folder is theirs" means **the owner must author or approve it**, not that it needs its own PR.
-- **Large features:** a feature over ~600 changed lines may split into 2 PRs, each with its own owners' approvals.
+- **Large features:** a feature over ~600 changed lines may split into at most 2 PRs, interface first, each with its own owners' approvals.
 
 ## Interface-First Decomposition
 

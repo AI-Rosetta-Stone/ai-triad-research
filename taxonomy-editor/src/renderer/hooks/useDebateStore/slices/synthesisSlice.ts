@@ -1048,7 +1048,7 @@ export const createSynthesisSlice: StateCreator<DebateStore, [], [], SynthesisSl
       if (isDailyLimitError(err)) {
         set({ debateError: DAILY_LIMIT_MESSAGE, dailyLimitPaused: true });
       } else {
-        set({ debateError: `Synthesis failed: ${mapErrorToUserMessage(err)}`, debateRetryAction: 'synthesis' });
+        set({ debateError: `Synthesis failed: ${mapErrorToUserMessage(err, { kind: 'ai' })}`, debateRetryAction: 'synthesis' });
       }
     } finally {
       set({ debateGenerating: null });
@@ -1129,7 +1129,7 @@ export const createSynthesisSlice: StateCreator<DebateStore, [], [], SynthesisSl
       if (isDailyLimitError(err)) {
         set({ debateError: DAILY_LIMIT_MESSAGE, dailyLimitPaused: true });
       } else {
-        set({ debateError: `Probing questions failed: ${mapErrorToUserMessage(err)}`, debateRetryAction: 'probing' });
+        set({ debateError: `Probing questions failed: ${mapErrorToUserMessage(err, { kind: 'ai' })}`, debateRetryAction: 'probing' });
       }
     } finally {
       set({ debateGenerating: null });
@@ -1205,7 +1205,7 @@ export const createSynthesisSlice: StateCreator<DebateStore, [], [], SynthesisSl
       if (isDailyLimitError(err)) {
         set({ debateError: DAILY_LIMIT_MESSAGE, dailyLimitPaused: true });
       } else {
-        set({ debateError: `Fact check failed: ${mapErrorToUserMessage(err)}`, debateRetryAction: 'factCheck' });
+        set({ debateError: `Fact check failed: ${mapErrorToUserMessage(err, { kind: 'ai' })}`, debateRetryAction: 'factCheck' });
       }
     } finally {
       set({ debateGenerating: null });
@@ -1313,7 +1313,7 @@ export const createSynthesisSlice: StateCreator<DebateStore, [], [], SynthesisSl
         await saveDebate('compressOldTranscript');
         pushWarning(get, set, 'Context was too long for AI compression — used a shortened summary instead.');
       } else {
-        pushWarning(get, set, `Context compression skipped: ${mapErrorToUserMessage(err)}`);
+        pushWarning(get, set, `Context compression skipped: ${mapErrorToUserMessage(err, { kind: 'ai' })}`);
       }
     } finally {
       set({ debateGenerating: null });

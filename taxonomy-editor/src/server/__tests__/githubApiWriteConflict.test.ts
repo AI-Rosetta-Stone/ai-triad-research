@@ -84,7 +84,7 @@ function handleDefaultGithubApi(url: string, method: string): Response {
   if (method === 'GET' && path.includes('/git/trees/')) {
     return mockFetchResponse(200, {
       sha: TREE_SHA, truncated: false,
-      tree: [{ path: 'taxonomy/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 }],
+      tree: [{ path: 'conflicts/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 }],
     });
   }
   if (method === 'PUT' && path.includes('/contents/')) return mockFetchResponse(200, { content: { sha: 'new-blob-sha' } });
@@ -158,7 +158,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
       return null;
     });
 
-    const err = await backend.writeFile('/taxonomy/nodes.json', '{"my-stale-write": true}')
+    const err = await backend.writeFile('/conflicts/nodes.json', '{"my-stale-write": true}')
       .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
 
     expect(err).not.toBeNull();
@@ -170,7 +170,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
     // Verify flight recorder logged the conflict (no silent failure).
     const conflictEvent = recorder.events.find(e => e.type === 'github.api.conflict');
     expect(conflictEvent).toBeDefined();
-    expect(conflictEvent!.data).toMatchObject({ path: 'taxonomy/nodes.json' });
+    expect(conflictEvent!.data).toMatchObject({ path: 'conflicts/nodes.json' });
 
     backend.shutdown();
   });
@@ -212,14 +212,14 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
     });
 
     // Prime the backend's cache at sha-v1 via a successful read.
-    await backend.readFile('/taxonomy/nodes.json');
+    await backend.readFile('/conflicts/nodes.json');
 
     // Out-of-band commit (another replica / process / direct GitHub commit) —
     // the backend's cache doesn't know yet, it still thinks sha-v1.
     realSha = 'sha-v2';
     realContent = JSON.stringify({ source: 'out-of-band' });
 
-    const err = await backend.writeFile('/taxonomy/nodes.json', JSON.stringify({ source: 'stale-write' }))
+    const err = await backend.writeFile('/conflicts/nodes.json', JSON.stringify({ source: 'stale-write' }))
       .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
 
     expect(err?.httpStatus).toBe(409);
@@ -234,17 +234,17 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
     );
     expect(manifestWrites.length).toBeGreaterThan(0);
     const lastManifestWrite = JSON.parse(manifestWrites[manifestWrites.length - 1][1] as string);
-    expect(lastManifestWrite.files['taxonomy/nodes.json']).toBeUndefined();
+    expect(lastManifestWrite.files['conflicts/nodes.json']).toBeUndefined();
 
     // Without eviction this would 409 forever: reload would re-serve the same
     // stale cached content/SHA. With eviction, the next read is a cache miss
     // and fetches the real (out-of-band) state.
-    const reloaded = await backend.readFile('/taxonomy/nodes.json');
+    const reloaded = await backend.readFile('/conflicts/nodes.json');
     expect(reloaded).toBe(JSON.stringify({ source: 'out-of-band' }));
 
     // A write with the now-current SHA succeeds — both commits are intact on
     // GitHub (the out-of-band one, then this one), neither silently lost.
-    await backend.writeFile('/taxonomy/nodes.json', JSON.stringify({ source: 'merged' }));
+    await backend.writeFile('/conflicts/nodes.json', JSON.stringify({ source: 'merged' }));
     expect(realContent).toBe(JSON.stringify({ source: 'merged' }));
 
     backend.shutdown();
@@ -265,7 +265,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
         return null;
       });
 
-      const result = await backend.readFileWithVersion('/taxonomy/nodes.json');
+      const result = await backend.readFileWithVersion('/conflicts/nodes.json');
 
       expect(result).toEqual({ content, version: 'sha-fresh' });
       backend.shutdown();
@@ -290,7 +290,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
         }
         return null;
       });
-      await backend.readFile('/taxonomy/nodes.json'); // primes manifest.files[...] = { sha: realSha }
+      await backend.readFile('/conflicts/nodes.json'); // primes manifest.files[...] = { sha: realSha }
 
       // Now corrupt what the (mocked) disk actually holds — stale content that
       // does NOT hash to the manifest's claimed sha. The manifest itself never
@@ -299,7 +299,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
       mockReadFile.mockResolvedValue(Buffer.from(JSON.stringify({ v: 'stale-and-wrong' })));
 
       // A second GET (the forced fresh fetch) returns the true current state.
-      const result = await backend.readFileWithVersion('/taxonomy/nodes.json');
+      const result = await backend.readFileWithVersion('/conflicts/nodes.json');
 
       // Must never be the torn pair (stale content paired with the real sha).
       expect(result).not.toEqual({ content: JSON.stringify({ v: 'stale-and-wrong' }), version: realSha });
@@ -330,7 +330,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
     });
 
     const staleBaseSha = 'stale-client-sha';
-    const err = await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: staleBaseSha })
+    const err = await backend.writeFile('/conflicts/nodes.json', '{"v": 2}', { baseSha: staleBaseSha })
       .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
 
     expect(err?.httpStatus).toBe(409);
@@ -352,7 +352,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
 // resolved on GitHub, another replica, or anything else that moves the head.
 //
 // `sessionBranchState(ref)` registers ONE handler per test that serves GET
-// .../contents/taxonomy/nodes.json?ref=<branch> from a mutable object — tests
+// .../contents/conflicts/nodes.json?ref=<branch> from a mutable object — tests
 // mutate `.current`/`.sha` to simulate a commit, a merge, or any other
 // out-of-band change landing on the branch, and set `.fail = true` to make
 // the next lookup fail. Every overlay-fast-path write with no pending overlay
@@ -360,7 +360,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
 // call (TL: "one call per save"), so each test registers it before that
 // first write, not only after a commit.
 // `sessionBranchState(ref)` registers ONE handler per test that serves GET
-// .../contents/taxonomy/nodes.json?ref=<branch> from a mutable object — tests
+// .../contents/conflicts/nodes.json?ref=<branch> from a mutable object — tests
 // mutate `.current`/`.sha` to simulate a commit, a merge, or any other
 // out-of-band change landing on the branch, and set `.fail = true` to make
 // the next lookup fail. `fail` simulates a real fetch failure ('unavailable'
@@ -370,7 +370,7 @@ function sessionBranchState(ref: string): { current: string | null; sha: string 
   const state = { current: null as string | null, sha: null as string | null, fail: false };
   const refQuery = `ref=${encodeURIComponent(ref)}`;
   apiHandlers.push((url, init) => {
-    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes(refQuery)) {
+    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/conflicts/nodes.json') || !url.includes(refQuery)) {
       return null;
     }
     if (state.fail) return { status: 500, body: { message: 'Internal Server Error' } };
@@ -402,7 +402,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     branch.current = '{"test": true}';
     branch.sha = 'blob1';
 
-    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const v1 = await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
     expect(v1.version).toBeTruthy();
 
     // The commit lands — the branch now holds what was just written.
@@ -412,7 +412,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     await backend.commitOverlay('alice', 'test commit');
     expect(backend.getSessionOverlay('alice')).toBeUndefined(); // pending overlay cleared
 
-    const v2 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: v1.version });
+    const v2 = await backend.writeFile('/conflicts/nodes.json', '{"v": 2}', { baseSha: v1.version });
     expect(v2.version).toBeTruthy();
     expect(v2.version).not.toBe(v1.version);
 
@@ -426,7 +426,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     branch.current = '{"test": true}';
     branch.sha = 'blob1';
 
-    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const v1 = await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     branch.current = '{"v": 1}';
     branch.sha = v1.version;
@@ -446,13 +446,13 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     expect(mergeResult.ok).toBe(true);
 
     // A tab that loaded before the resync still carries the pre-merge version.
-    const staleErr = await backend.writeFile('/taxonomy/nodes.json', '{"edit": "from a stale tab"}', { baseSha: v1.version })
+    const staleErr = await backend.writeFile('/conflicts/nodes.json', '{"edit": "from a stale tab"}', { baseSha: v1.version })
       .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
     expect(staleErr?.httpStatus).toBe(409);
     expect(staleErr?.code).toBe('WRITE_CONFLICT');
 
     // An edit-load reads the branch's real current content, not main's cache.
-    const loaded = await backend.readFileWithVersion('/taxonomy/nodes.json');
+    const loaded = await backend.readFileWithVersion('/conflicts/nodes.json');
     expect(loaded).toEqual({ content: mergedContent, version: 'merged-blob-sha' });
 
     backend.shutdown();
@@ -465,7 +465,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     branch.current = '{"test": true}';
     branch.sha = 'blob1';
 
-    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const v1 = await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     branch.current = '{"v": 1}';
     branch.sha = v1.version;
@@ -478,7 +478,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     branch.current = JSON.stringify({ v: 'pushed-from-elsewhere' });
     branch.sha = 'external-blob-sha';
 
-    const staleErr = await backend.writeFile('/taxonomy/nodes.json', '{"edit": "from a stale tab"}', { baseSha: v1.version })
+    const staleErr = await backend.writeFile('/conflicts/nodes.json', '{"edit": "from a stale tab"}', { baseSha: v1.version })
       .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
     expect(staleErr?.httpStatus).toBe(409);
     expect(staleErr?.code).toBe('WRITE_CONFLICT');
@@ -494,7 +494,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     branch.current = '{"test": true}';
     branch.sha = 'blob1';
 
-    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const v1 = await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     branch.current = '{"v": 1}';
     branch.sha = v1.version;
@@ -505,7 +505,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     // GitHub error, or any other fetch failure).
     branch.fail = true;
 
-    const err = await backend.writeFile('/taxonomy/nodes.json', '{"edit": "should not land"}', { baseSha: v1.version })
+    const err = await backend.writeFile('/conflicts/nodes.json', '{"edit": "should not land"}', { baseSha: v1.version })
       .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
 
     expect(err?.httpStatus).toBe(503);
@@ -513,7 +513,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     // Never staged — the precondition lookup failed before writeToOverlay ran.
     // (the overlay map itself is gone post-commit, so this is undefined, not
     // false — toBeFalsy() covers both rather than over-asserting the shape).
-    expect(backend.getSessionOverlay('alice')?.has('taxonomy/nodes.json')).toBeFalsy();
+    expect(backend.getSessionOverlay('alice')?.has('conflicts/nodes.json')).toBeFalsy();
     expect(recorder.events.find(e => e.level === 'warn' && e.message.includes('failing closed'))).toBeDefined();
 
     backend.shutdown();
@@ -523,7 +523,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     const backend = await createBackend();
     // No session context — the effective ref is main (the base branch).
 
-    const result = await backend.readFileWithVersion('/taxonomy/nodes.json');
+    const result = await backend.readFileWithVersion('/conflicts/nodes.json');
 
     // Falls through (no overlay) to a fresh GitHub fetch via the unchanged
     // manifest/disk-cache path — not the new session-branch live-fetch helper.
@@ -549,7 +549,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
       return null; // count only — let the default handler still answer
     });
 
-    const result = await backend.writeFile('/taxonomy/new-node.json', '{"new": true}');
+    const result = await backend.writeFile('/conflicts/new-node.json', '{"new": true}');
 
     expect(result.version).toBeTruthy();
     expect(contentsLookups).toBe(1);
@@ -564,13 +564,13 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
     apiHandlers.push((url, init) => {
-      if ((init?.method ?? 'GET') === 'GET' && url.includes('/contents/taxonomy/new-node.json')) {
+      if ((init?.method ?? 'GET') === 'GET' && url.includes('/contents/conflicts/new-node.json')) {
         return { status: 404, body: { message: 'Not Found' } };
       }
       return null;
     });
 
-    const err = await backend.writeFile('/taxonomy/new-node.json', '{"new": true}', { baseSha: 'client-thinks-this-exists' })
+    const err = await backend.writeFile('/conflicts/new-node.json', '{"new": true}', { baseSha: 'client-thinks-this-exists' })
       .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
 
     expect(err?.httpStatus).toBe(409);
@@ -586,13 +586,13 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
     apiHandlers.push((url, init) => {
-      if ((init?.method ?? 'GET') === 'GET' && url.includes('/contents/taxonomy/new-node.json')) {
+      if ((init?.method ?? 'GET') === 'GET' && url.includes('/contents/conflicts/new-node.json')) {
         return { status: 404, body: { message: 'Not Found' } };
       }
       return null;
     });
 
-    const result = await backend.readFileWithVersion('/taxonomy/new-node.json');
+    const result = await backend.readFileWithVersion('/conflicts/new-node.json');
 
     expect(result).toBeNull();
 
@@ -621,12 +621,12 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
     branch.current = '{"test": true}';
     branch.sha = 'blob1';
 
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
     mockCommitSteps('api-session/alice');
     await backend.commitOverlay('alice', 'test commit');
 
     // Populated for free by commitOverlay — no live Contents call needed.
-    const content = await backend.readFile('/taxonomy/nodes.json');
+    const content = await backend.readFile('/conflicts/nodes.json');
     expect(content).toBe('{"v": 1}');
 
     backend.shutdown();
@@ -639,7 +639,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
     branch.current = '{"test": true}';
     branch.sha = 'blob1';
 
-    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"count": 1}', { baseSha: 'blob1' });
+    const v1 = await backend.writeFile('/conflicts/nodes.json', '{"count": 1}', { baseSha: 'blob1' });
     mockCommitSteps('api-session/alice');
     await backend.commitOverlay('alice', 'test commit');
     branch.current = '{"count": 1}';
@@ -647,11 +647,11 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
 
     // Read current (must see the commit, not main's stale cache), modify,
     // write back — the shape a corrected harvest route follows.
-    const current = await backend.readFile('/taxonomy/nodes.json');
+    const current = await backend.readFile('/conflicts/nodes.json');
     expect(current).toBe('{"count": 1}');
 
     const modified = JSON.stringify({ count: 2 });
-    const v2 = await backend.writeFile('/taxonomy/nodes.json', modified, { baseSha: v1.version });
+    const v2 = await backend.writeFile('/conflicts/nodes.json', modified, { baseSha: v1.version });
     expect(v2.version).toBeTruthy();
 
     backend.shutdown();
@@ -667,15 +667,15 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
       if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
         return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
       }
-      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json')) {
+      if (method === 'GET' && url.includes('/contents/conflicts/nodes.json')) {
         contentsLookups++;
         return { status: 200, body: { content: Buffer.from('{"v": 1}').toString('base64'), encoding: 'base64', sha: 'live-sha' } };
       }
       return null;
     });
 
-    const first = await backend.readFile('/taxonomy/nodes.json');
-    const second = await backend.readFile('/taxonomy/nodes.json');
+    const first = await backend.readFile('/conflicts/nodes.json');
+    const second = await backend.readFile('/conflicts/nodes.json');
 
     expect(first).toBe('{"v": 1}');
     expect(second).toBe('{"v": 1}');
@@ -695,20 +695,20 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
       if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
         return { status: 200, body: { object: { sha: headSha } } };
       }
-      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json')) {
+      if (method === 'GET' && url.includes('/contents/conflicts/nodes.json')) {
         return { status: 200, body: { content: Buffer.from(liveContent).toString('base64'), encoding: 'base64', sha: 'some-sha' } };
       }
       return null;
     });
 
-    const first = await backend.readFile('/taxonomy/nodes.json');
+    const first = await backend.readFile('/conflicts/nodes.json');
     expect(first).toBe(JSON.stringify({ v: 'original' }));
 
     // t/4215 budget addendum (TL t/4215#7): a plain read only revalidates if
     // the session has written something since the last check. writeToOverlay
     // (via a write elsewhere) marks this session as active — without this,
     // the ref-check below would never fire at all, by design.
-    backend.writeToOverlay('/some/other/path.json', '{}');
+    backend.writeToOverlay('/conflicts/other-path.json', '{}');
 
     // Something outside the server (a resync conflict resolved on GitHub,
     // another replica) pushes new content onto the branch.
@@ -720,13 +720,13 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
       vi.setSystemTime(Date.now());
 
       // Still within the window — the cache is trusted without re-checking.
-      const stillCached = await backend.readFile('/taxonomy/nodes.json');
+      const stillCached = await backend.readFile('/conflicts/nodes.json');
       expect(stillCached).toBe(JSON.stringify({ v: 'original' }));
 
       // Advance past SESSION_READ_CACHE_REVALIDATE_MS.
       vi.setSystemTime(Date.now() + 31_000);
 
-      const afterWindow = await backend.readFile('/taxonomy/nodes.json');
+      const afterWindow = await backend.readFile('/conflicts/nodes.json');
       expect(afterWindow).toBe(JSON.stringify({ v: 'pushed-elsewhere' }));
     } finally {
       vi.useRealTimers();
@@ -746,7 +746,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
         refCalls++;
         return { status: 200, body: { object: { sha: 'head-sha' } } };
       }
-      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json')) {
+      if (method === 'GET' && url.includes('/contents/conflicts/nodes.json')) {
         return { status: 200, body: { content: Buffer.from('{"v": 1}').toString('base64'), encoding: 'base64', sha: 'some-sha' } };
       }
       return null;
@@ -755,13 +755,13 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
     vi.useFakeTimers();
     try {
       vi.setSystemTime(Date.now());
-      await backend.readFile('/taxonomy/nodes.json'); // first-ever check for this session — no baseline yet, always live
+      await backend.readFile('/conflicts/nodes.json'); // first-ever check for this session — no baseline yet, always live
 
       // Many more reads, spanning many revalidation windows, with NO write
       // activity in between — the session is purely viewing.
       for (let i = 0; i < 5; i++) {
         vi.setSystemTime(Date.now() + 31_000);
-        await backend.readFile('/taxonomy/nodes.json');
+        await backend.readFile('/conflicts/nodes.json');
       }
 
       // No activity recorded since the baseline was seeded, so every
@@ -786,7 +786,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
         refCalls++;
         return { status: 200, body: { object: { sha: 'head-sha' } } };
       }
-      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json')) {
+      if (method === 'GET' && url.includes('/contents/conflicts/nodes.json')) {
         return { status: 200, body: { content: Buffer.from('{"v": 1}').toString('base64'), encoding: 'base64', sha: 'some-sha' } };
       }
       return null;
@@ -794,8 +794,8 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
 
     // No write activity at all, and both calls happen well inside any
     // throttle window — forWrite must check every time regardless.
-    await backend.readFile('/taxonomy/nodes.json', { forWrite: true });
-    await backend.readFile('/taxonomy/nodes.json', { forWrite: true });
+    await backend.readFile('/conflicts/nodes.json', { forWrite: true });
+    await backend.readFile('/conflicts/nodes.json', { forWrite: true });
 
     expect(refCalls).toBe(2);
 
@@ -809,7 +809,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
     const branch = sessionBranchState('api-session/alice');
     branch.fail = true;
 
-    const result = await backend.readFile('/taxonomy/nodes.json', { optional: true });
+    const result = await backend.readFile('/conflicts/nodes.json', { optional: true });
 
     expect(result).toBeNull();
     expect(recorder.events.find(e => e.level === 'warn' && e.message.includes('optional read'))).toBeDefined();
@@ -823,13 +823,13 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
     const branch = sessionBranchState('api-session/alice');
     branch.fail = true;
 
-    const err = await backend.readFile('/taxonomy/nodes.json')
+    const err = await backend.readFile('/conflicts/nodes.json')
       .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
 
     expect(err?.httpStatus).toBe(503);
     expect(err?.code).toBe('VERSION_UNAVAILABLE');
     // The read-modify-write never reaches a write — nothing was staged.
-    expect(backend.getSessionOverlay('alice')?.has('taxonomy/nodes.json')).toBeFalsy();
+    expect(backend.getSessionOverlay('alice')?.has('conflicts/nodes.json')).toBeFalsy();
 
     backend.shutdown();
   });

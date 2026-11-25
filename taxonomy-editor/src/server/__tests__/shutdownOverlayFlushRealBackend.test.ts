@@ -101,7 +101,7 @@ function handleDefaultGithubApi(url: string, method: string): Response {
   if (method === 'GET' && path.includes('/git/trees/')) {
     return mockFetchResponse(200, {
       sha: TREE_SHA, truncated: false,
-      tree: [{ path: 'taxonomy/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 }],
+      tree: [{ path: 'conflicts/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 }],
     });
   }
   if (method === 'GET' && path.includes('/contents/')) {
@@ -149,7 +149,7 @@ async function createBackend() {
 function mockSessionBranchLookup(branch: string, sha: string, content = '{"test": true}'): void {
   const refQuery = `ref=${encodeURIComponent(branch)}`;
   apiHandlers.push((url, init) => {
-    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes(refQuery)) {
+    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/conflicts/nodes.json') || !url.includes(refQuery)) {
       return null;
     }
     return { status: 200, body: { content: Buffer.from(content).toString('base64'), encoding: 'base64', sha } };
@@ -187,7 +187,7 @@ describe.skipIf(!UNDICI_ALIGNED)('flushOverlaysWithDeadline — real backend + r
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     const treeCalls = observeRequests('POST', '/git/trees');
     const patchCalls = observeRequests('PATCH', '/git/refs/heads/');
@@ -200,7 +200,7 @@ describe.skipIf(!UNDICI_ALIGNED)('flushOverlaysWithDeadline — real backend + r
     expect(backend.getUncommittedOverlaySummary()).toEqual([]);
     expect(treeCalls.calls.length).toBeGreaterThan(0);
     const treeBody = treeCalls.calls[0].body as { tree: { path: string }[] };
-    expect(treeBody.tree.some(t => t.path === 'taxonomy/nodes.json')).toBe(true);
+    expect(treeBody.tree.some(t => t.path === 'conflicts/nodes.json')).toBe(true);
     expect(patchCalls.calls.length).toBeGreaterThan(0);
     expect(patchCalls.calls[0].url).toContain('api-session/alice');
   }, REAL_BACKEND_TIMEOUT_MS);
@@ -212,7 +212,7 @@ describe.skipIf(!UNDICI_ALIGNED)('flushOverlaysWithDeadline — real backend + r
     // Deliberately no scheduleOverlayCommit('alice') call — reproduces the historical bug class
     // (e.g. routes/policyRegistry.ts's direct getBackend().writeFile() before t/4276 added the
     // scheduling call): the overlay is dirty, but the scheduler has never heard of this user.
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    await backend.writeFile('/conflicts/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     const { flushPendingOverlayCommits, flushOverlaysWithDeadline } = await wireSchedulerTo(backend);
 

@@ -142,6 +142,9 @@ function Get-SmokeTotalEventCount {
 # aggregated branch (routes/analyticsExclusionParams.ts, t/4962).
 $script:SmokeAnalyticsQueryPath = '/api/analytics/query?includeSystem=true'
 
+# t/579: the smoke does not read /api/analytics/query (see Invoke-SmokeAnalyticsPhase). Logged on every run.
+$script:SmokeAnalyticsReadBackSkipped = 'Analytics read-back needs admin (t/579), skipped: the smoke checked the event write only, so it does not confirm that events are persisted. The smoke has no admin credential; giving it one for a read-back needs the PI''s approval.'
+
 function Invoke-SmokeAnalyticsQuery {
     # One Invoke-RemoteCheck for the analytics phase, threading the anon session when there is one.
     param([string]$BaseUrl, [string]$Path, [string]$Method, [int]$TimeoutSec, $Session, [string]$Body)
@@ -247,57 +250,46 @@ function Get-SmokeAnalyticsDwellResult {
 }
 
 function Invoke-SmokeAnalyticsPhase {
-    # ── Phase 5: Analytics write/read round-trip (t/2667) ────────────────
-    # Q3b prevention (failure Class 3): the blob analytics backend silently drops
-    # events when misconfigured while the server still returns 200. The POST
-    # response's `count` reflects sanitized REQUEST events (session.ts:179), and the
-    # blob append is fire-and-forget (session.ts:172) — so the write alone can NEVER
-    # confirm persistence. The authoritative detector is a DELTA READ-BACK: read the
-    # aggregated totalEvents (read straight from blob storage — analytics.ts:301),
-    # POST a synthetic event, wait for the async append, read again, and require the
-    # count to increase. A silent drop leaves the count flat. (Design option A,
-    # approved t/2667#6. GET /api/analytics/query is anon-allowed — accessControl.ts:335
-    # — so this runs without a session token. Concurrent staging traffic between the
-    # two reads is an accepted low-risk masking window on quiet staging.)
+    # ── Phase 5: Analytics write check (t/2667; read-back removed for incident t/579) ──
+    # The phase POSTs a synthetic event batch and requires 200 + ok:true.
+    #
+    # It used to confirm persistence with a DELTA READ-BACK: read totalEvents from
+    # GET /api/analytics/query as an anonymous session, write, read again, and require the
+    # count to rise (and view.dwell to be counted, t/2706). That route exposed user identifiers
+    # to anonymous callers (incident t/579), so anonymous access to it is now refused (#5500)
+    # and it becomes admin-only (t/592). An anonymous read-back can only fail from here on, and
+    # a failing smoke rolls the deploy back, so the smoke no longer reads the route at all
+    # (TL p/37#198, Security p/293#1). It says so on every run; the skip is never a failure.
+    #
+    # WHAT THIS LOSES: the write alone cannot confirm persistence. The POST's `count` reflects
+    # the sanitized REQUEST and the blob append is fire-and-forget, so a misconfigured blob
+    # backend that silently drops events passes this phase. The route is admin-only (t/592), and
+    # t/592 gives the smoke NO credential. A read-back here would need an admin credential in CI,
+    # and no credential may be added without the PI's approval (Security p/293#4): do not wire in
+    # a stored admin cookie or token on the strength of this comment. Get-SmokeAnalyticsDeltaResult
+    # and Get-SmokeAnalyticsDwellResult are kept for the day that is approved. Do NOT restore an
+    # anonymous read of /api/analytics/query, and do not add another anonymous read-back route.
     param([string]$BaseUrl, [int]$TimeoutSec)
-    Write-Host '=== Analytics Round-Trip ===' -ForegroundColor Cyan
+    Write-Host '=== Analytics Write ===' -ForegroundColor Cyan
 
-    # Establish an anonymous session first. Both /api/analytics/event (POST) and
-    # /api/analytics/query (GET) are anon-allowed, BUT in AUTH_OPTIONAL a cookie-less
-    # request receives a 200 text/html Sign-In interstitial (see the data-presence phase)
-    # — so a session-less round-trip POSTs into the interstitial (event never reaches the
-    # handler) and reads the interstitial back as delta 0, a false "silent drop" that
-    # blocked prod+staging deploys (t/2683 → t/2684). Mirror the t/2671 data-presence
-    # phase: get the anon cookies, thread them through all three calls. If the session
-    # can't be established, warn explicitly so a resulting read failure is not mistaken
-    # for a persistence drop.
+    # Establish an anonymous session first. /api/analytics/event (POST) is anon-allowed, BUT in
+    # AUTH_OPTIONAL a cookie-less request receives a 200 text/html Sign-In interstitial (see the
+    # data-presence phase), so a session-less POST goes into the interstitial and never reaches
+    # the handler (t/2683 → t/2684). Get the anon cookies and thread them through the write.
     $Session = New-AnonymousWebSession -BaseUrl $BaseUrl -TimeoutSec $TimeoutSec
     if (-not $Session) {
-        Write-Host '  (anonymous session not established — analytics round-trip may hit the auth interstitial; delta cannot be trusted)' -ForegroundColor DarkYellow
+        Write-Host '  (anonymous session not established — the analytics write may hit the auth interstitial)' -ForegroundColor DarkYellow
     }
-
-    # Baseline read BEFORE the write.
-    $BaselineCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path $script:SmokeAnalyticsQueryPath -Method 'GET' -TimeoutSec $TimeoutSec -Session $Session
-    $Before = Get-SmokeTotalEventCount $BaselineCheck
 
     $WriteCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path '/api/analytics/event' -Method 'POST' `
         -Body (Get-SmokeAnalyticsEventJson) -TimeoutSec $TimeoutSec -Session $Session
     $Analytics = @(Get-SmokeAnalyticsWriteResult $WriteCheck)
 
-    # Async blob append — give the write time to land before the read-back.
-    Start-Sleep -Seconds 2
-
-    # Read-back AFTER the write — the delta is the detector.
-    $AfterCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path $script:SmokeAnalyticsQueryPath -Method 'GET' -TimeoutSec $TimeoutSec -Session $Session
-    $After = Get-SmokeTotalEventCount $AfterCheck
-
-    $Analytics += Get-SmokeAnalyticsDeltaResult -BaselineCheck $BaselineCheck -AfterCheck $AfterCheck -Before $Before -After $After
-    $Analytics += Get-SmokeAnalyticsDwellResult $AfterCheck
-
     foreach ($Ep in $Analytics) {
         Write-SmokeCheckLine -Pass $Ep.Pass -Text "$($Ep.Endpoint) — $($Ep.Status) $($Ep.Ms)ms" `
             -ShowDetail (-not $Ep.Pass -and $Ep.Error) -Detail $Ep.Error
     }
+    Write-Warning $script:SmokeAnalyticsReadBackSkipped
     Write-Host ''
     return $Analytics
 }
@@ -421,13 +413,23 @@ function Invoke-SmokeEmbeddingLatencyPhase {
     Write-Host '=== Embedding Latency ===' -ForegroundColor Cyan
     $Status = 'ok'
     $Ms     = 0
+    # An anonymous session, as the Analytics and DataPresence phases use (t/621). Without it the
+    # compute route answers 401 in the CI container, and in prod it answered 200 with no vectors,
+    # so the probe timed a request that looked nothing up and reported PASS.
+    $Session = New-AnonymousWebSession -BaseUrl $BaseUrl -TimeoutSec $TimeoutSec
+    if (-not $Session) {
+        Write-Host '  (anonymous session not established — the embedding probe may be refused or return no vectors)' -ForegroundColor DarkYellow
+    }
     try {
-        $Perf = Measure-EmbeddingLatency -BaseUrl $BaseUrl -CeilingSec $CeilingSec -TimeoutSec $TimeoutSec
+        $ProbeParams = @{ BaseUrl = $BaseUrl; CeilingSec = $CeilingSec; TimeoutSec = $TimeoutSec }
+        if ($Session) { $ProbeParams.Session = $Session }
+        $Perf = Measure-EmbeddingLatency @ProbeParams
         $Status = $Perf.Status
         $Ms     = $Perf.DurationMs
         $PerfIcon  = if ($Perf.Status -eq 'ok') { '[PASS]' } else { '[DEGRADED]' }
         $PerfColor = if ($Perf.Status -eq 'ok') { 'Green' } else { 'Yellow' }
-        Write-Host "  $PerfIcon embeddings.compute — $($Perf.DurationMs)ms (ceiling $($CeilingSec)s, $($Perf.Count) vectors, http $($Perf.HttpStatus))" -ForegroundColor $PerfColor
+        $PerfWhy   = if ($Perf.Status -ne 'ok' -and $Perf.Count -eq 0 -and $Perf.HttpStatus -eq 200) { '; no vectors returned, latency not measured' } else { '' }
+        Write-Host "  $PerfIcon embeddings.compute — $($Perf.DurationMs)ms (ceiling $($CeilingSec)s, $($Perf.Count) vectors, http $($Perf.HttpStatus)$PerfWhy)" -ForegroundColor $PerfColor
     } catch {
         # New-ActionableError from an unreachable server — report degraded, do NOT crash the smoke.
         $Status = 'unreachable'

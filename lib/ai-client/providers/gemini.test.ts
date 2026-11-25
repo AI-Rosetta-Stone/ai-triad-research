@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mapGeminiError, generateViaGemini, generateViaGeminiStream } from './gemini.js';
 import { ActionableError } from '../../debate/errors.js';
-import type { FetchFn } from '../types.js';
+import type { FetchFn, GenerateOptions } from '../types.js';
 
 function geminiErrorBody(status: string, reason?: string): string {
   const details = reason ? [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason }] : [];
@@ -224,5 +224,36 @@ describe('generateViaGeminiStream — urlContext', () => {
     await generateViaGeminiStream(fetchFn, '', 'gemini-pro', 'key', { timeoutMs: 5000, geminiContents: contents });
     const parsed = JSON.parse(capturedBody);
     expect(parsed.contents).toEqual(contents);
+  });
+});
+
+// t/542: the streaming path honours jsonMode / responseSchema, as the non-streaming path does.
+describe('generateViaGeminiStream — JSON mode (t/542)', () => {
+  function captureBody(opts: GenerateOptions): Promise<Record<string, unknown>> {
+    return new Promise((resolve, reject) => {
+      const fetchFn: FetchFn = async (_url, init) => {
+        try { resolve(JSON.parse(init?.body as string)); } catch (e) { reject(e); }
+        return makeStreamFetch([streamChunk('{}')])(_url, init);
+      };
+      generateViaGeminiStream(fetchFn, 'p', 'gemini-pro', 'key', { timeoutMs: 5000, ...opts }).catch(reject);
+    });
+  }
+
+  it('sends responseMimeType application/json when jsonMode is set', async () => {
+    const body = await captureBody({ jsonMode: true });
+    expect((body.generationConfig as Record<string, unknown>).responseMimeType).toBe('application/json');
+  });
+
+  it('sends the response schema when responseSchema is set', async () => {
+    const schema = { type: 'object', properties: { response: { type: 'string' } } };
+    const body = await captureBody({ responseSchema: schema });
+    const gc = body.generationConfig as Record<string, unknown>;
+    expect(gc.responseMimeType).toBe('application/json');
+    expect(gc.responseSchema).toBeDefined();
+  });
+
+  it('sends no JSON mode when neither option is set', async () => {
+    const body = await captureBody({});
+    expect((body.generationConfig as Record<string, unknown>).responseMimeType).toBeUndefined();
   });
 });

@@ -12,10 +12,6 @@
     "max": 22,
     "countOver": 1
   },
-  "AITriad/Private/Assert-TaxonomyCacheFresh.ps1": {
-    "max": 25,
-    "countOver": 1
-  },
   "AITriad/Private/Build-VocabularyBlock.ps1": {
     "max": 16,
     "countOver": 1
@@ -30,10 +26,6 @@
   },
   "AITriad/Private/ConvertFrom-JsonPreserveShape.ps1": {
     "max": 25,
-    "countOver": 1
-  },
-  "AITriad/Private/ConvertTo-AIUsageCostEstimate.ps1": {
-    "max": 24,
     "countOver": 1
   },
   "AITriad/Private/ConvertTo-TaxonomyNode.ps1": {
@@ -120,10 +112,6 @@
     "max": 83,
     "countOver": 1
   },
-  "AITriad/Private/Invoke-IterativeExtraction.ps1": {
-    "max": 83,
-    "countOver": 1
-  },
   "AITriad/Private/Invoke-Mechanism5RetrievalPass.ps1": {
     "max": 49,
     "countOver": 1
@@ -132,28 +120,12 @@
     "max": 96,
     "countOver": 1
   },
-  "AITriad/Private/Invoke-PolarityGatePass.ps1": {
-    "max": 53,
-    "countOver": 1
-  },
   "AITriad/Private/Invoke-PolicyRegistryUpdate.ps1": {
     "max": 16,
     "countOver": 1
   },
-  "AITriad/Private/Invoke-ProposalApply.ps1": {
-    "countOver": 1,
-    "max": 65
-  },
-  "AITriad/Private/Invoke-RemoteCheck.ps1": {
-    "max": 30,
-    "countOver": 1
-  },
   "AITriad/Private/Invoke-RetrievalConfidencePass.ps1": {
     "max": 30,
-    "countOver": 1
-  },
-  "AITriad/Private/Invoke-SummaryPipeline.ps1": {
-    "max": 63,
     "countOver": 1
   },
   "AITriad/Private/JsonSurgeryCore.ps1": {
@@ -172,10 +144,6 @@
     "max": 16,
     "countOver": 1
   },
-  "AITriad/Private/Merge-ChunkSummaries.ps1": {
-    "countOver": 1,
-    "max": 44
-  },
   "AITriad/Private/Merge-CruxQuestionForm.ps1": {
     "max": 27,
     "countOver": 1
@@ -191,10 +159,6 @@
   "AITriad/Private/Remove-DuplicateClaims.ps1": {
     "max": 58,
     "countOver": 1
-  },
-  "AITriad/Private/Resolve-AITSourceStats.ps1": {
-    "countOver": 1,
-    "max": 19
   },
   "AITriad/Private/Resolve-UnmappedConcepts.ps1": {
     "max": 39,

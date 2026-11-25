@@ -72,7 +72,15 @@ param trafficPinRevisionNameStaging string = ''
 // (p/241#90) — confirming class-A writes already route to /mnt/staging-state, not /mnt/shared.
 // The RO flip makes the hard boundary live: missed write sites EROFS instead of silently
 // mutating prod. Lands with the first deploy after the t/4258 hold, with the PI's go.
-@description('Flip /mnt/shared to read-only on staging (ARM step 3 of t/2643 isolation).')
+// t/617: staging's /mnt/shared is now always read-only (see the shared-data volume below).
+// This parameter stays because deploy-azure.yml still passes it, but only true is allowed:
+// a deploy with stagingSharedReadOnly=false fails validation instead of mounting prod's
+// share read-write on staging.
+@description('Must be true. Staging always mounts /mnt/shared read-only (t/2643, t/617).')
+@allowed([
+  true
+])
+#disable-next-line no-unused-params // kept only so deploy-azure.yml's parameter is accepted; @allowed is the guard
 param stagingSharedReadOnly bool = true
 
 // ── Staging load-test sizing (t/4203) ──
@@ -242,8 +250,20 @@ param githubAppIdStaging string = ''
 @description('t/4587: staging-only GitHub App installation ID. Empty = staging falls back to githubAppInstallationId.')
 param githubAppInstallationIdStaging string = ''
 
-@description('t/4587: Key Vault secret name holding the staging GitHub App private key (PEM). Empty = staging falls back to githubAppPrivateKeySecretName. Upload separately via az keyvault secret set -- DevOps never handles the key value.')
-param githubAppPrivateKeySecretNameStaging string = ''
+@description('t/4587, t/92: Key Vault secret name holding the staging GitHub App private key (PEM), in the STAGING vault. Required: there is no fallback to the prod key name any more (t/92, Security t/626). deploy-azure.yml passes vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING. Upload separately -- DevOps never handles the key value.')
+@minLength(1)
+param githubAppPrivateKeySecretNameStaging string = 'github-app-private-key-staging'
+
+// t/92 (PI decisions 2026-11-25; SO design view p/44#99): staging reads ITS OWN vault, created by
+// deploy/azure/staging-keyvault.bicep (dispatch-only, never part of this template). A literal, not a
+// reference to that vault, so (a) prod deploys never depend on the staging vault existing, and
+// (b) Get-BicepBaseEnv.ps1 resolves it, so deploy-staging's env sync enforces it. @allowed pins it to
+// the one staging vault: it can never be pointed at the shared vault kv-ait-kvwl3nywge4iw.
+@description('t/92: the staging Key Vault URL (deploy/azure/staging-keyvault.bicep). Pinned by @allowed.')
+@allowed([
+  'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net/'
+])
+param stagingKeyVaultUrl string = 'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net/'
 
 @secure()
 @description('Optional GITHUB_TOKEN (PAT) fallback when no App is registered. Prefer the App for production.')
@@ -834,7 +854,9 @@ var containerEnv = concat(baseEnv, extraGithubToken, extraGithubWebhook, extraFr
 // (empty param -- the pre-t/4587 shared-quota behavior, e.g. before the PI uploads the key).
 var stagingGithubAppId = empty(githubAppIdStaging) ? githubAppId : githubAppIdStaging
 var stagingGithubAppInstallationId = empty(githubAppInstallationIdStaging) ? githubAppInstallationId : githubAppInstallationIdStaging
-var stagingGithubAppPrivateKeySecretName = empty(githubAppPrivateKeySecretNameStaging) ? githubAppPrivateKeySecretName : githubAppPrivateKeySecretNameStaging
+// t/92 (Security t/626): no fallback to githubAppPrivateKeySecretName. An empty staging name used to point
+// staging at the PROD App key; the param is now @minLength(1), and the key lives in the staging vault.
+var stagingGithubAppPrivateKeySecretName = githubAppPrivateKeySecretNameStaging
 
 var stagingEnvOverrides = [
   // Force off: staging must not sync to prod's git backend (t/2643 git-worktree hazard)
@@ -845,6 +867,8 @@ var stagingEnvOverrides = [
   { name: 'GITHUB_APP_ID',                      value: stagingGithubAppId }
   { name: 'GITHUB_APP_INSTALLATION_ID',         value: stagingGithubAppInstallationId }
   { name: 'GITHUB_APP_PRIVATE_KEY_SECRET_NAME', value: stagingGithubAppPrivateKeySecretName }
+  // t/92: staging's own vault (staging-keyvault.bicep), never the shared one. Literal param, @allowed-pinned.
+  { name: 'AZURE_KEYVAULT_URL', value: stagingKeyVaultUrl }
   // t/77 / t/406: staging writes only to its own data repo, never prod's. Staging starts empty
   // (PI-confirmed, option B). Prod's baseEnv keeps GITHUB_REPO = prod.
   { name: 'GITHUB_REPO', value: 'AI-Rosetta-Stone/ai-triad-data-staging' }
@@ -1152,7 +1176,11 @@ resource containerAppStaging 'Microsoft.App/containerApps@2025-01-01' = {
           // test itself a write load against production storage. Confirming staging runs
           // correctly against RO shared data is exactly the open t/2643 arm-B question, so
           // this also doubles as that verification once a load test actually runs.
-          storageName: (stagingSharedReadOnly || stagingLoadTestSize) ? 'taxonomy-data-ro' : 'taxonomy-data'
+          //
+          // t/617: always the read-only registration. The read-write branch
+          // ('taxonomy-data' when stagingSharedReadOnly=false) is removed, so staging can
+          // never mount prod's share writable. stagingSharedReadOnly now only accepts true.
+          storageName: 'taxonomy-data-ro'
         }
         {
           // Staging-isolated RW share for class-A state (t/2643).
@@ -1203,19 +1231,11 @@ resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
-// Staging gets read-only Key Vault access (Secrets User, not Officer)
-// to prevent staging from modifying production user secrets (H5).
-var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
-
-resource kvRoleAssignmentStaging 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: keyVault
-  name: guid(keyVault.id, containerAppStaging.id, kvSecretsUserRoleId)
-  properties: {
-    principalId: containerAppStaging.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', kvSecretsUserRoleId)
-  }
-}
+// t/92 change B: staging has NO role on this (shared, prod) vault. Staging reads only its own vault,
+// kv-ait-stg-kvwl3nywge4iw (deploy/azure/staging-keyvault.bicep, A1), selected by stagingKeyVaultUrl (A2).
+// The former kvRoleAssignmentStaging (Secrets User here) let staging read prod secrets (t/626).
+// ARM incremental deploys don't delete a removed resource: Azure deletes the live assignment after
+// this merges, then reads back the role list (t/92#21 (b)).
 
 // ── Role assignment: container apps → Blob Storage ──
 // Grants 'Storage Blob Data Contributor' (read/write/delete blobs) to both

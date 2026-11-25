@@ -86,12 +86,14 @@ describe('parseExclusionParams (t/4962#4 contract)', () => {
 
 describe('GET /api/analytics/query passes exclusion options through', () => {
   it('includeSystem=true reaches queryAggregated (the staging smoke read-back, t/4967)', async () => {
+    adminState = true; // t/592: the route is admin-only; this test checks option pass-through
     const res = await get('/api/analytics/query', '&includeSystem=true');
     expect(res._status).toBe(200);
     expect(queryAggregated).toHaveBeenCalledWith('2026-11-01', '2026-11-09', { includeSystem: true });
   });
 
   it('defaults to no inclusions', async () => {
+    adminState = true; // t/592: the route is admin-only; this test checks option pass-through
     await get('/api/analytics/query', '');
     expect(queryAggregated).toHaveBeenCalledWith('2026-11-01', '2026-11-09', {});
   });
@@ -103,6 +105,7 @@ describe('GET /api/analytics/query passes exclusion options through', () => {
   });
 
   it('400s on an invalid value and runs no query', async () => {
+    adminState = true; // t/592: the route is admin-only; this test checks option pass-through
     const res = await get('/api/analytics/query', '&includeSystem=yes');
     expect(res._status).toBe(400);
     expect(queryAggregated).not.toHaveBeenCalled();
@@ -111,6 +114,7 @@ describe('GET /api/analytics/query passes exclusion options through', () => {
 
 describe('GET /api/analytics/engagement passes exclusion options through', () => {
   it('merges options into queryEngagement opts', async () => {
+    adminState = true; // t/592: the route is admin-only; this test checks option pass-through
     await get('/api/analytics/engagement', '&includeListed=true&excludeAmbiguous=1');
     expect(queryEngagement).toHaveBeenCalledWith('2026-11-01', '2026-11-09', expect.objectContaining({ includeListed: true, excludeAmbiguous: true }));
   });

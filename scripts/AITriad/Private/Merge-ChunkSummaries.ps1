@@ -1,6 +1,15 @@
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
+# ── Fixed factual_claims thresholds + numeric-token pattern (t/4472) ─────────
+# Templated survey statistics ("Asian adults (57%)... " vs "(36%)...") score
+# >= 0.95 cosine despite stating different facts -- cosine alone is never
+# trusted for factual_claims (CL, 140-pair calibration). A numeric token is
+# any run of digits, optionally with a decimal point or trailing '%'.
+$script:CmFactualFoldThreshold     = 0.90
+$script:CmFactualNoNumberThreshold = 0.95
+$script:CmNumericTokenPattern      = [regex]'\d+(?:\.\d+)?%?'
+
 <#
 .SYNOPSIS
     Merges chunk-level POV summaries into a single consolidated summary.
@@ -39,6 +48,10 @@
     to first-occurrence string-prefix/claim_label dedup (the pre-t/4472
     behavior) — no clustering, no evidence_spans, loud WARN. Semantic
     clustering needs the model; there's no safe halfway point.
+
+    Structure note (Refactorer): the merge is decomposed into private `Cm*`
+    helpers below (each dot-sourced with this file, none exported). The split
+    is purely structural — the observable contract above is unchanged.
 .PARAMETER ChunkResults
     Array of PSObjects — each is a parsed summary from one document chunk.
     Must have pov_summaries, factual_claims, and unmapped_concepts properties.
@@ -54,6 +67,7 @@
     Merges three chunk summaries into one, clustering overlapping points and
     claims and folding their evidence rather than discarding it.
 #>
+
 function Merge-ChunkSummaries {
     [CmdletBinding()]
     param(
@@ -78,77 +92,161 @@ function Merge-ChunkSummaries {
 
     $Camps = $script:AITriadPovCamps
     $Categories = $script:AITriadPovCategories
-    $FactualFoldThreshold = 0.90
-    $FactualNoNumberThreshold = 0.95
-
-    # ── Cosine similarity between two vectors ───────────────────────────────
-    $GetCosineSimilarity = {
-        param([double[]]$A, [double[]]$B)
-        if ($A.Count -ne $B.Count -or $A.Count -eq 0) { return 0.0 }
-        $Dot = 0.0; $NA = 0.0; $NB = 0.0
-        for ($i = 0; $i -lt $A.Count; $i++) {
-            $Dot += $A[$i] * $B[$i]; $NA += $A[$i] * $A[$i]; $NB += $B[$i] * $B[$i]
-        }
-        $Denom = [Math]::Sqrt($NA) * [Math]::Sqrt($NB)
-        if ($Denom -gt 0) { return $Dot / $Denom } else { return 0.0 }
-    }
-
-    # ── anchors helpers (t/4472 fold veto) ───────────────────────────────────
-    # 'anchors' is forensic/additive (t/4482) -- no corpus key_point carries it
-    # yet (CL, metric-provenance-register.md), so these are defensive/forward-
-    # compatible, not exercised by today's real data.
-    $GetAnchorSet = {
-        param($Obj)
-        $A = Get-SummaryProp $Obj 'anchors'
-        if (-not $A) { return @() }
-        @($A | ForEach-Object { [string]$_ } | Where-Object { $_ })
-    }
-    $AnchorsAreDisjoint = {
-        param([string[]]$A, [string[]]$B)
-        if ($A.Count -eq 0 -or $B.Count -eq 0) { return $false }
-        $SetB = [System.Collections.Generic.HashSet[string]]::new([string[]]$B, [System.StringComparer]::Ordinal)
-        -not ($A | Where-Object { $SetB.Contains($_) })
-    }
-
-    # ── numeric-token helpers (t/4472 factual_claims guard) ──────────────────
-    # Templated survey statistics ("Asian adults (57%)... " vs "(36%)...") score
-    # >= 0.95 cosine despite stating different facts -- cosine alone is never
-    # trusted for factual_claims (CL, 140-pair calibration). A numeric token is
-    # any run of digits, optionally with a decimal point or trailing '%'.
-    $NumericTokenPattern = [regex]'\d+(?:\.\d+)?%?'
-    $GetNumericTokens = {
-        param([string]$Text)
-        if ([string]::IsNullOrWhiteSpace($Text)) { return @() }
-        @($NumericTokenPattern.Matches($Text) | ForEach-Object { $_.Value })
-    }
-    # True iff $A's numeric tokens are a (non-strict) superset of $B's.
-    $IsNumericSuperset = {
-        param([string[]]$A, [string[]]$B)
-        if ($B.Count -eq 0) { return $true }
-        $SetA = [System.Collections.Generic.HashSet[string]]::new([string[]]$A, [System.StringComparer]::Ordinal)
-        -not ($B | Where-Object { -not $SetA.Contains($_) })
-    }
-
-    # Builds an ordered-hashtable copy of $Primary with $Overrides applied —
-    # safe to add a new key (evidence_spans) or replace one (anchors)
-    # regardless of whether $Primary is a PSCustomObject (from ConvertFrom-Json)
-    # or already a hashtable, without touching the original caller's object.
-    $CloneWithOverrides = {
-        param($Primary, [hashtable]$Overrides)
-        $Out = [ordered]@{}
-        if ($Primary -is [System.Collections.IDictionary]) {
-            foreach ($k in $Primary.Keys) { $Out[$k] = $Primary[$k] }
-        } else {
-            foreach ($p in $Primary.PSObject.Properties) { $Out[$p.Name] = $p.Value }
-        }
-        foreach ($k in $Overrides.Keys) { $Out[$k] = $Overrides[$k] }
-        $Out
-    }
 
     # ── Pre-dedup counts (for context-rot metrics) + collect texts for ONE ──
     # batch embed call (key_point canonical_proposition/point AND factual_claim
     # claim text together) — model loads once rather than per-item. Uses local
     # all-MiniLM-L6-v2 (no API key needed).
+    $Corpus = Get-CmEmbedCorpus -ChunkResults $ChunkResults -Camps $Camps
+
+    # One batch subprocess: text → vector for every key_point/claim text.
+    # Empty map ⇒ model unavailable ⇒ fall back to first-occurrence dedup.
+    $Embeddings = Invoke-BatchEmbeddings -Texts $Corpus.EmbedTexts
+    $UseEmbeddings = $Embeddings.Count -gt 0
+    if ($UseEmbeddings) {
+        Write-Verbose "Merge-ChunkSummaries: batch-embedded $($Embeddings.Count) text(s); clustering key_points (cosine > $SimilarityThreshold within camp+category) and factual_claims (cosine >= $($script:CmFactualFoldThreshold) + numeric guard, or >= $($script:CmFactualNoNumberThreshold) with no numbers)"
+    }
+    else {
+        Write-Warning 'Merge-ChunkSummaries: local embedding model unavailable; falling back to first-occurrence string-prefix/claim_label dedup -- duplicate evidence spans will be DISCARDED, not folded, for this document (t/4472)'
+    }
+
+    $MergedPovSummaries = Merge-CmKeyPoints -ChunkResults $ChunkResults -Camps $Camps -Embeddings $Embeddings -UseEmbeddings $UseEmbeddings -SimilarityThreshold $SimilarityThreshold
+    $AllClaims = Merge-CmFactualClaims -ChunkResults $ChunkResults -Embeddings $Embeddings -UseEmbeddings $UseEmbeddings
+    $AllUnmapped = Merge-CmUnmappedConcepts -ChunkResults $ChunkResults
+    $MergedEmptyCells = Merge-CmEmptyCells -ChunkResults $ChunkResults -MergedPovSummaries $MergedPovSummaries -Camps $Camps -Categories $Categories
+
+    # ── Context-rot: merge/dedup metrics ─────────────────────────────────────
+    $PostDedupPoints = 0
+    foreach ($c in $Camps) {
+        $kp = if ($MergedPovSummaries[$c].Contains('key_points')) { $MergedPovSummaries[$c].key_points } else { @() }
+        $PostDedupPoints += @($kp).Count
+    }
+    $PostDedupClaims = @($AllClaims).Count
+    $PostDedupConcepts = @($AllUnmapped).Count
+    $TotalIn = $Corpus.PreDedupPoints + $Corpus.PreDedupClaims + $Corpus.PreDedupConcepts
+    $TotalOut = $PostDedupPoints + $PostDedupClaims + $PostDedupConcepts
+    $MergeMetrics = New-ContextRotStage `
+        -Stage 'merge_dedup' -InUnits 'items' -InCount $TotalIn `
+        -OutUnits 'items' -OutCount $TotalOut `
+        -Flags @{
+            points_deduped   = $Corpus.PreDedupPoints - $PostDedupPoints
+            claims_deduped   = $Corpus.PreDedupClaims - $PostDedupClaims
+            concepts_deduped = $Corpus.PreDedupConcepts - $PostDedupConcepts
+            used_embeddings  = [int]$UseEmbeddings
+        }
+
+    # ── Return merged structure ──────────────────────────────────────────────
+    return [ordered]@{
+        pov_summaries    = $MergedPovSummaries
+        factual_claims   = @($AllClaims)
+        unmapped_concepts = @($AllUnmapped)
+        empty_cells      = @($MergedEmptyCells)
+        _merge_metrics   = $MergeMetrics
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Private helpers (Cm = ChunkMerge). Dot-sourced with this file, NOT exported.
+# Each is behavior-equivalent to the inline block it replaces.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Cosine similarity between two vectors.
+function Get-CmCosineSimilarity {
+    param([double[]]$A, [double[]]$B)
+    if ($A.Count -ne $B.Count -or $A.Count -eq 0) { return 0.0 }
+    $Dot = 0.0; $NA = 0.0; $NB = 0.0
+    for ($i = 0; $i -lt $A.Count; $i++) {
+        $Dot += $A[$i] * $B[$i]; $NA += $A[$i] * $A[$i]; $NB += $B[$i] * $B[$i]
+    }
+    $Denom = [Math]::Sqrt($NA) * [Math]::Sqrt($NB)
+    if ($Denom -gt 0) { return $Dot / $Denom } else { return 0.0 }
+}
+
+# anchors helpers (t/4472 fold veto). 'anchors' is forensic/additive (t/4482) --
+# no corpus key_point carries it yet, so these are defensive/forward-compatible.
+function Get-CmAnchorSet {
+    param($Obj)
+    $A = Get-SummaryProp $Obj 'anchors'
+    if (-not $A) { return @() }
+    @($A | ForEach-Object { [string]$_ } | Where-Object { $_ })
+}
+
+function Test-CmAnchorsDisjoint {
+    param([string[]]$A, [string[]]$B)
+    if ($A.Count -eq 0 -or $B.Count -eq 0) { return $false }
+    $SetB = [System.Collections.Generic.HashSet[string]]::new([string[]]$B, [System.StringComparer]::Ordinal)
+    -not ($A | Where-Object { $SetB.Contains($_) })
+}
+
+# numeric-token helpers (t/4472 factual_claims guard).
+function Get-CmNumericTokens {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return @() }
+    @($script:CmNumericTokenPattern.Matches($Text) | ForEach-Object { $_.Value })
+}
+
+# True iff $A's numeric tokens are a (non-strict) superset of $B's.
+function Test-CmNumericSuperset {
+    param([string[]]$A, [string[]]$B)
+    if ($B.Count -eq 0) { return $true }
+    $SetA = [System.Collections.Generic.HashSet[string]]::new([string[]]$A, [System.StringComparer]::Ordinal)
+    -not ($B | Where-Object { -not $SetA.Contains($_) })
+}
+
+# Builds an ordered-hashtable copy of $Primary with $Overrides applied — safe to
+# add a new key (evidence_spans) or replace one (anchors) regardless of whether
+# $Primary is a PSCustomObject or a hashtable, without touching the original.
+function Copy-CmWithOverrides {
+    param($Primary, [hashtable]$Overrides)
+    $Out = [ordered]@{}
+    if ($Primary -is [System.Collections.IDictionary]) {
+        foreach ($k in $Primary.Keys) { $Out[$k] = $Primary[$k] }
+    } else {
+        foreach ($p in $Primary.PSObject.Properties) { $Out[$p.Name] = $p.Value }
+    }
+    foreach ($k in $Overrides.Keys) { $Out[$k] = $Overrides[$k] }
+    $Out
+}
+
+# Resolve the clustering text for a key_point: canonical_proposition, else point.
+function Get-CmKeyPointClusterText {
+    param($Kp)
+    $Cp = Get-SummaryProp $Kp 'canonical_proposition'
+    if ([string]::IsNullOrWhiteSpace($Cp)) { $Cp = Get-SummaryProp $Kp 'point' }
+    return $Cp
+}
+
+# All key_points for one camp across every chunk, in original order.
+function Get-CmCampAllPoints {
+    param([object[]]$ChunkResults, [string]$Camp)
+    $CampAllPoints = [System.Collections.Generic.List[object]]::new()
+    foreach ($Chunk in $ChunkResults) {
+        $CampPoints = Get-SummaryProp (Get-SummaryProp $Chunk 'pov_summaries') $Camp
+        $CampPoints = Get-SummaryProp $CampPoints 'key_points'
+        if ($CampPoints) { foreach ($kp in $CampPoints) { $CampAllPoints.Add($kp) } }
+    }
+    return ,$CampAllPoints
+}
+
+# Append each key_point's clustering text to $Texts, WARN once on point fallback.
+function Add-CmKeyPointEmbedTexts {
+    param($CampPoints, $Texts, [ref]$Warned)
+    foreach ($kp in $CampPoints) {
+        $Cp = Get-SummaryProp $kp 'canonical_proposition'
+        if ([string]::IsNullOrWhiteSpace($Cp)) {
+            $Cp = Get-SummaryProp $kp 'point'
+            if (-not [string]::IsNullOrWhiteSpace($Cp) -and -not $Warned.Value) {
+                Write-Warning "Merge-ChunkSummaries: at least one key_point has no canonical_proposition; falling back to 'point' text for clustering (t/4472)"
+                $Warned.Value = $true
+            }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($Cp)) { $Texts.Add($Cp) }
+    }
+}
+
+# Pre-dedup counts + the batch embed text corpus (key_point + claim text).
+function Get-CmEmbedCorpus {
+    param([object[]]$ChunkResults, [string[]]$Camps)
     $PreDedupPoints = 0; $PreDedupClaims = 0; $PreDedupConcepts = 0
     $AllEmbedTexts = [System.Collections.Generic.List[string]]::new()
     $PointFallbackWarned = $false
@@ -158,17 +256,7 @@ function Merge-ChunkSummaries {
             $CampPoints = Get-SummaryProp (Get-SummaryProp $PovSummaries $c) 'key_points'
             if ($CampPoints) {
                 $PreDedupPoints += @($CampPoints).Count
-                foreach ($kp in $CampPoints) {
-                    $Cp = Get-SummaryProp $kp 'canonical_proposition'
-                    if ([string]::IsNullOrWhiteSpace($Cp)) {
-                        $Cp = Get-SummaryProp $kp 'point'
-                        if (-not [string]::IsNullOrWhiteSpace($Cp) -and -not $PointFallbackWarned) {
-                            Write-Warning "Merge-ChunkSummaries: at least one key_point has no canonical_proposition; falling back to 'point' text for clustering (t/4472)"
-                            $PointFallbackWarned = $true
-                        }
-                    }
-                    if (-not [string]::IsNullOrWhiteSpace($Cp)) { $AllEmbedTexts.Add($Cp) }
-                }
+                Add-CmKeyPointEmbedTexts -CampPoints $CampPoints -Texts $AllEmbedTexts -Warned ([ref]$PointFallbackWarned)
             }
         }
         $ChunkClaims = Get-SummaryProp $Chunk 'factual_claims'
@@ -182,238 +270,302 @@ function Merge-ChunkSummaries {
         $ChunkConcepts = Get-SummaryProp $Chunk 'unmapped_concepts'
         if ($ChunkConcepts) { $PreDedupConcepts += @($ChunkConcepts).Count }
     }
-
-    # One batch subprocess: text → vector for every key_point/claim text.
-    # Empty map ⇒ model unavailable ⇒ fall back to first-occurrence dedup.
-    $Embeddings = Invoke-BatchEmbeddings -Texts $AllEmbedTexts.ToArray()
-    $UseEmbeddings = $Embeddings.Count -gt 0
-    if ($UseEmbeddings) {
-        Write-Verbose "Merge-ChunkSummaries: batch-embedded $($Embeddings.Count) text(s); clustering key_points (cosine > $SimilarityThreshold within camp+category) and factual_claims (cosine >= $FactualFoldThreshold + numeric guard, or >= $FactualNoNumberThreshold with no numbers)"
+    return [pscustomobject]@{
+        PreDedupPoints   = $PreDedupPoints
+        PreDedupClaims   = $PreDedupClaims
+        PreDedupConcepts = $PreDedupConcepts
+        EmbedTexts       = $AllEmbedTexts.ToArray()
     }
-    else {
-        Write-Warning 'Merge-ChunkSummaries: local embedding model unavailable; falling back to first-occurrence string-prefix/claim_label dedup -- duplicate evidence spans will be DISCARDED, not folded, for this document (t/4472)'
+}
+
+# Pre-t/4472 fallback for one camp: first-occurrence string-prefix dedup.
+function Get-CmFallbackDedupPoints {
+    param($CampAllPoints)
+    $FinalPoints = [System.Collections.Generic.List[object]]::new()
+    $SeenKeys = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($kp in $CampAllPoints) {
+        $KpPoint = Get-SummaryProp $kp 'point'
+        if ($KpPoint) { $PointText = $KpPoint } else { $PointText = '' }
+        if ($PointText.Length -gt 80) { $PointPrefix = $PointText.Substring(0, 80) } else { $PointPrefix = $PointText }
+        $DedupKey = "$(Get-SummaryProp $kp 'taxonomy_node_id')|$($PointPrefix.ToLowerInvariant().Trim())"
+        if ($SeenKeys.Add($DedupKey)) { $FinalPoints.Add($kp) }
     }
+    return ,$FinalPoints
+}
 
-    # ── Merge key_points per camp, clustering within (camp, category) ───────
-    $MergedPovSummaries = [ordered]@{}
+# Group a camp's key_points by their ACTUAL category value (t/1186: unknown /
+# missing categories survive in their own cell, never silently dropped).
+function Group-CmPointsByCategory {
+    param($CampAllPoints)
+    $CellGroups = [ordered]@{}
+    foreach ($kp in $CampAllPoints) {
+        $CatKey = [string](Get-SummaryProp $kp 'category')
+        if (-not $CellGroups.Contains($CatKey)) { $CellGroups[$CatKey] = [System.Collections.Generic.List[object]]::new() }
+        $CellGroups[$CatKey].Add($kp)
+    }
+    return $CellGroups
+}
 
-    foreach ($Camp in $Camps) {
-        # All key_points for this camp, across every chunk, in original order.
-        $CampAllPoints = [System.Collections.Generic.List[object]]::new()
-        foreach ($Chunk in $ChunkResults) {
-            $CampPoints = Get-SummaryProp (Get-SummaryProp $Chunk 'pov_summaries') $Camp
-            $CampPoints = Get-SummaryProp $CampPoints 'key_points'
-            if ($CampPoints) { foreach ($kp in $CampPoints) { $CampAllPoints.Add($kp) } }
+# Find the first existing cluster $Kp folds into, or $null. Honors the cosine
+# threshold and the anchors disjoint veto (t/4472).
+function Find-CmMatchingPointCluster {
+    param($Kp, $Vec, $Clusters, [double]$SimilarityThreshold)
+    if (-not $Vec) { return $null }
+    $KpAnchors = @(Get-CmAnchorSet $Kp)
+    foreach ($Cl in $Clusters) {
+        if (-not $Cl.Vector) { continue }  # founding member had no embeddable text
+        $Sim = Get-CmCosineSimilarity $Vec $Cl.Vector
+        if ($Sim -le $SimilarityThreshold) { continue }
+        $PrimaryAnchors = @(Get-CmAnchorSet $Cl.Members[0])
+        if (Test-CmAnchorsDisjoint $KpAnchors $PrimaryAnchors) { continue }  # t/4472 veto
+        return $Cl
+    }
+    return $null
+}
+
+# Cluster one (camp, category) cell's key_points into greedy first-match clusters.
+function Get-CmPointClusters {
+    param($CellPoints, $Embeddings, [double]$SimilarityThreshold)
+    $Clusters = [System.Collections.Generic.List[object]]::new()
+    foreach ($kp in $CellPoints) {
+        $Cp = Get-CmKeyPointClusterText $kp
+        $Vec = $null
+        if (-not [string]::IsNullOrWhiteSpace($Cp) -and $Embeddings.ContainsKey($Cp)) { $Vec = $Embeddings[$Cp] }
+        $MatchedCluster = Find-CmMatchingPointCluster -Kp $kp -Vec $Vec -Clusters $Clusters -SimilarityThreshold $SimilarityThreshold
+        if ($MatchedCluster) {
+            $MatchedCluster.Members.Add($kp)
+        } else {
+            $Clusters.Add([pscustomobject]@{ Members = [System.Collections.Generic.List[object]]::new(@($kp)); Vector = $Vec })
         }
+    }
+    return ,$Clusters
+}
 
-        $FinalPoints = [System.Collections.Generic.List[object]]::new()
+# Primary = index of the member with the longest 'point' text (t/4472).
+function Get-CmLongestPointIndex {
+    param($Members)
+    $PrimaryIdx = 0
+    $PrimaryLen = [string](Get-SummaryProp $Members[0] 'point')
+    for ($i = 1; $i -lt $Members.Count; $i++) {
+        $Text = [string](Get-SummaryProp $Members[$i] 'point')
+        if ($Text.Length -gt $PrimaryLen.Length) { $PrimaryIdx = $i; $PrimaryLen = $Text }
+    }
+    return $PrimaryIdx
+}
 
+# One folded key_point evidence span (the member's own fields).
+function New-CmKeyPointSpan {
+    param($M)
+    $Span = [ordered]@{}
+    foreach ($Field in 'point', 'canonical_proposition', 'verbatim', 'excerpt_context', 'taxonomy_node_id') {
+        $V = Get-SummaryProp $M $Field
+        if ($null -ne $V) { $Span[$Field] = $V }
+    }
+    return $Span
+}
+
+# Collapse a multi-member key_point cluster into its primary with folded
+# evidence_spans and unioned anchors.
+function Resolve-CmPointCluster {
+    param($Members)
+    $PrimaryIdx = Get-CmLongestPointIndex $Members
+    $Primary = $Members[$PrimaryIdx]
+
+    $EvidenceSpans = [System.Collections.Generic.List[object]]::new()
+    $AnchorUnion = [System.Collections.Generic.List[string]]::new()
+    foreach ($a in (Get-CmAnchorSet $Primary)) { $AnchorUnion.Add($a) }
+    for ($i = 0; $i -lt $Members.Count; $i++) {
+        if ($i -eq $PrimaryIdx) { continue }
+        $m = $Members[$i]
+        $EvidenceSpans.Add((New-CmKeyPointSpan $m))
+        foreach ($a in (Get-CmAnchorSet $m)) { if (-not $AnchorUnion.Contains($a)) { $AnchorUnion.Add($a) } }
+    }
+
+    $Overrides = @{ evidence_spans = @($EvidenceSpans) }
+    if ($AnchorUnion.Count -gt 0) { $Overrides['anchors'] = @($AnchorUnion) }
+    return (Copy-CmWithOverrides $Primary $Overrides)
+}
+
+# Cluster + fold one camp's key_points (embeddings path).
+function Get-CmClusteredCampPoints {
+    param($CampAllPoints, $Embeddings, [double]$SimilarityThreshold)
+    $FinalPoints = [System.Collections.Generic.List[object]]::new()
+    $CellGroups = Group-CmPointsByCategory $CampAllPoints
+    foreach ($CatKey in $CellGroups.Keys) {
+        $Clusters = Get-CmPointClusters -CellPoints @($CellGroups[$CatKey]) -Embeddings $Embeddings -SimilarityThreshold $SimilarityThreshold
+        foreach ($Cl in $Clusters) {
+            if ($Cl.Members.Count -eq 1) { $FinalPoints.Add($Cl.Members[0]); continue }
+            $FinalPoints.Add((Resolve-CmPointCluster $Cl.Members))
+        }
+    }
+    return ,$FinalPoints
+}
+
+# Merge key_points per camp into the ordered pov_summaries structure.
+function Merge-CmKeyPoints {
+    param([object[]]$ChunkResults, [string[]]$Camps, $Embeddings, [bool]$UseEmbeddings, [double]$SimilarityThreshold)
+    $MergedPovSummaries = [ordered]@{}
+    foreach ($Camp in $Camps) {
+        $CampAllPoints = Get-CmCampAllPoints -ChunkResults $ChunkResults -Camp $Camp
         if (-not $UseEmbeddings) {
-            # Pre-t/4472 fallback: first-occurrence string-prefix dedup, no folding.
-            $SeenKeys = [System.Collections.Generic.HashSet[string]]::new()
-            foreach ($kp in $CampAllPoints) {
-                $KpPoint = Get-SummaryProp $kp 'point'
-                if ($KpPoint) { $PointText = $KpPoint } else { $PointText = '' }
-                if ($PointText.Length -gt 80) { $PointPrefix = $PointText.Substring(0, 80) } else { $PointPrefix = $PointText }
-                $DedupKey = "$(Get-SummaryProp $kp 'taxonomy_node_id')|$($PointPrefix.ToLowerInvariant().Trim())"
-                if ($SeenKeys.Add($DedupKey)) { $FinalPoints.Add($kp) }
-            }
-            $MergedPovSummaries[$Camp] = [ordered]@{ key_points = @($FinalPoints) }
+            $FallbackPoints = Get-CmFallbackDedupPoints $CampAllPoints
+            $MergedPovSummaries[$Camp] = [ordered]@{ key_points = @($FallbackPoints) }
             continue
         }
-
-        # Cluster within each BDI category cell (t/4472: CL calibrated on
-        # within-cell pairs; cross-category false positives were not measured).
-        # Grouped by the ACTUAL category value present, not just the 3 known
-        # categories -- a truncated/malformed chunk's key_point with a missing
-        # or unrecognized category must still survive the merge, in its own
-        # cell, rather than being silently dropped (t/1186 malformed-chunk
-        # resilience contract).
-        $CellGroups = [ordered]@{}
-        foreach ($kp in $CampAllPoints) {
-            $CatKey = [string](Get-SummaryProp $kp 'category')
-            if (-not $CellGroups.Contains($CatKey)) { $CellGroups[$CatKey] = [System.Collections.Generic.List[object]]::new() }
-            $CellGroups[$CatKey].Add($kp)
-        }
-        foreach ($CatKey in $CellGroups.Keys) {
-            $CellPoints = @($CellGroups[$CatKey])
-
-            # Clusters: list of { Members = List[kp]; Vector = double[] (primary's) }
-            $Clusters = [System.Collections.Generic.List[object]]::new()
-
-            foreach ($kp in $CellPoints) {
-                $Cp = Get-SummaryProp $kp 'canonical_proposition'
-                if ([string]::IsNullOrWhiteSpace($Cp)) { $Cp = Get-SummaryProp $kp 'point' }
-                $Vec = $null
-                if (-not [string]::IsNullOrWhiteSpace($Cp) -and $Embeddings.ContainsKey($Cp)) { $Vec = $Embeddings[$Cp] }
-
-                $MatchedCluster = $null
-                if ($Vec) {
-                    $KpAnchors = @(& $GetAnchorSet $kp)
-                    foreach ($Cl in $Clusters) {
-                        if (-not $Cl.Vector) { continue }  # founding member had no embeddable text
-                        $Sim = & $GetCosineSimilarity $Vec $Cl.Vector
-                        if ($Sim -le $SimilarityThreshold) { continue }
-                        $PrimaryAnchors = @(& $GetAnchorSet $Cl.Members[0])
-                        if (& $AnchorsAreDisjoint $KpAnchors $PrimaryAnchors) { continue }  # t/4472 veto
-                        $MatchedCluster = $Cl
-                        break
-                    }
-                }
-
-                if ($MatchedCluster) {
-                    $MatchedCluster.Members.Add($kp)
-                } else {
-                    $Clusters.Add([pscustomobject]@{ Members = [System.Collections.Generic.List[object]]::new(@($kp)); Vector = $Vec })
-                }
-            }
-
-            foreach ($Cl in $Clusters) {
-                $Members = $Cl.Members
-                if ($Members.Count -eq 1) { $FinalPoints.Add($Members[0]); continue }
-
-                # Primary = longest 'point' text (representativeness proxy, t/4472).
-                # Tracked by INDEX, not object identity -- PSCustomObjects from
-                # ConvertFrom-Json have no custom Equals, so '-eq' would fall back
-                # to reference equality by luck, not by design.
-                $PrimaryIdx = 0
-                $PrimaryLen = [string](Get-SummaryProp $Members[0] 'point')
-                for ($i = 1; $i -lt $Members.Count; $i++) {
-                    $Text = [string](Get-SummaryProp $Members[$i] 'point')
-                    if ($Text.Length -gt $PrimaryLen.Length) { $PrimaryIdx = $i; $PrimaryLen = $Text }
-                }
-                $Primary = $Members[$PrimaryIdx]
-
-                $EvidenceSpans = [System.Collections.Generic.List[object]]::new()
-                $AnchorUnion = [System.Collections.Generic.List[string]]::new()
-                foreach ($a in (& $GetAnchorSet $Primary)) { $AnchorUnion.Add($a) }
-                for ($i = 0; $i -lt $Members.Count; $i++) {
-                    if ($i -eq $PrimaryIdx) { continue }
-                    $m = $Members[$i]
-                    $Span = [ordered]@{}
-                    foreach ($Field in 'point', 'canonical_proposition', 'verbatim', 'excerpt_context', 'taxonomy_node_id') {
-                        $V = Get-SummaryProp $m $Field
-                        if ($null -ne $V) { $Span[$Field] = $V }
-                    }
-                    $EvidenceSpans.Add($Span)
-                    foreach ($a in (& $GetAnchorSet $m)) { if (-not $AnchorUnion.Contains($a)) { $AnchorUnion.Add($a) } }
-                }
-
-                $Overrides = @{ evidence_spans = @($EvidenceSpans) }
-                if ($AnchorUnion.Count -gt 0) { $Overrides['anchors'] = @($AnchorUnion) }
-                $FinalPoints.Add((& $CloneWithOverrides $Primary $Overrides))
-            }
-        }
-
+        $FinalPoints = Get-CmClusteredCampPoints -CampAllPoints $CampAllPoints -Embeddings $Embeddings -SimilarityThreshold $SimilarityThreshold
         $MergedPovSummaries[$Camp] = [ordered]@{ key_points = @($FinalPoints) }
     }
+    return $MergedPovSummaries
+}
 
-    # ── Merge factual_claims, clustering globally ────────────────────────────
+# All factual_claims across every chunk, in original order.
+function Get-CmAllRawClaims {
+    param([object[]]$ChunkResults)
     $AllClaimsRaw = [System.Collections.Generic.List[object]]::new()
     foreach ($Chunk in $ChunkResults) {
         $ChunkClaims = Get-SummaryProp $Chunk 'factual_claims'
         if ($ChunkClaims) { foreach ($Claim in $ChunkClaims) { $AllClaimsRaw.Add($Claim) } }
     }
+    return ,$AllClaimsRaw
+}
 
+# Pre-t/4472 fallback: first-occurrence claim_label (else claim-prefix) dedup.
+function Get-CmFallbackDedupClaims {
+    param($AllClaimsRaw)
     $AllClaims = [System.Collections.Generic.List[object]]::new()
-
-    if (-not $UseEmbeddings) {
-        # Pre-t/4472 fallback: first-occurrence claim_label dedup, no folding.
-        $SeenClaimLabels = [System.Collections.Generic.HashSet[string]]::new()
-        foreach ($Claim in $AllClaimsRaw) {
-            $ClaimLabel = Get-SummaryProp $Claim 'claim_label'
-            if ($ClaimLabel) {
-                $ClaimKey = $ClaimLabel.ToLowerInvariant().Trim()
-            } else {
-                $ClaimRaw = Get-SummaryProp $Claim 'claim'
-                if (-not $ClaimRaw) { $ClaimRaw = '' }
-                if ($ClaimRaw.Length -gt 60) { $ClaimText = $ClaimRaw.Substring(0, 60) } else { $ClaimText = $ClaimRaw }
-                $ClaimKey = $ClaimText.ToLowerInvariant().Trim()
-            }
-            if ($SeenClaimLabels.Add($ClaimKey)) { $AllClaims.Add($Claim) }
+    $SeenClaimLabels = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($Claim in $AllClaimsRaw) {
+        $ClaimLabel = Get-SummaryProp $Claim 'claim_label'
+        if ($ClaimLabel) {
+            $ClaimKey = $ClaimLabel.ToLowerInvariant().Trim()
+        } else {
+            $ClaimRaw = Get-SummaryProp $Claim 'claim'
+            if (-not $ClaimRaw) { $ClaimRaw = '' }
+            if ($ClaimRaw.Length -gt 60) { $ClaimText = $ClaimRaw.Substring(0, 60) } else { $ClaimText = $ClaimRaw }
+            $ClaimKey = $ClaimText.ToLowerInvariant().Trim()
         }
-    } else {
-        # Clusters: { Members = List[claim]; PrimaryIdx = int (index into Members) }
-        $ClaimClusters = [System.Collections.Generic.List[object]]::new()
+        if ($SeenClaimLabels.Add($ClaimKey)) { $AllClaims.Add($Claim) }
+    }
+    return ,$AllClaims
+}
 
-        foreach ($Claim in $AllClaimsRaw) {
-            $ClaimText = Get-SummaryProp $Claim 'claim'
-            $Vec = $null
-            if (-not [string]::IsNullOrWhiteSpace($ClaimText) -and $Embeddings.ContainsKey($ClaimText)) { $Vec = $Embeddings[$ClaimText] }
-            $Tokens = @(& $GetNumericTokens $ClaimText)
-
-            $MatchedCluster = $null
-            if ($Vec) {
-                foreach ($Cl in $ClaimClusters) {
-                    $PrimaryClaim = $Cl.Members[$Cl.PrimaryIdx]
-                    $PrimaryText = Get-SummaryProp $PrimaryClaim 'claim'
-                    $PrimaryVec = $null
-                    if (-not [string]::IsNullOrWhiteSpace($PrimaryText) -and $Embeddings.ContainsKey($PrimaryText)) { $PrimaryVec = $Embeddings[$PrimaryText] }
-                    if (-not $PrimaryVec) { continue }
-                    $Sim = & $GetCosineSimilarity $Vec $PrimaryVec
-                    $PrimaryTokens = @(& $GetNumericTokens $PrimaryText)
-
-                    $Fold = $false
-                    if ($Tokens.Count -eq 0 -and $PrimaryTokens.Count -eq 0) {
-                        $Fold = $Sim -ge $FactualNoNumberThreshold
-                    } elseif ($Sim -ge $FactualFoldThreshold) {
-                        # Numeric-subset guard (t/4472): never cosine alone.
-                        if ((& $IsNumericSuperset $Tokens $PrimaryTokens) -or (& $IsNumericSuperset $PrimaryTokens $Tokens)) {
-                            $Fold = $true
-                        }
-                    }
-                    if ($Fold) { $MatchedCluster = $Cl; break }
-                }
-            }
-
-            if ($MatchedCluster) {
-                $MatchedCluster.Members.Add($Claim)
-                # Re-pick the primary: whichever member has the most numeric
-                # tokens is the superset side (t/4472); ties keep the longer
-                # claim text.
-                $BestIdx = 0; $BestTokenCount = -1; $BestLen = -1
-                for ($i = 0; $i -lt $MatchedCluster.Members.Count; $i++) {
-                    $Text = [string](Get-SummaryProp $MatchedCluster.Members[$i] 'claim')
-                    $TokenCount = @(& $GetNumericTokens $Text).Count
-                    if ($TokenCount -gt $BestTokenCount -or ($TokenCount -eq $BestTokenCount -and $Text.Length -gt $BestLen)) {
-                        $BestIdx = $i; $BestTokenCount = $TokenCount; $BestLen = $Text.Length
-                    }
-                }
-                $MatchedCluster.PrimaryIdx = $BestIdx
-            } else {
-                $ClaimClusters.Add([pscustomobject]@{ Members = [System.Collections.Generic.List[object]]::new(@($Claim)); PrimaryIdx = 0 })
-            }
-        }
-
-        foreach ($Cl in $ClaimClusters) {
-            $Members = $Cl.Members
-            if ($Members.Count -eq 1) { $AllClaims.Add($Members[0]); continue }
-
-            $Primary = $Members[$Cl.PrimaryIdx]
-            $EvidenceSpans = [System.Collections.Generic.List[object]]::new()
-            for ($i = 0; $i -lt $Members.Count; $i++) {
-                if ($i -eq $Cl.PrimaryIdx) { continue }
-                $m = $Members[$i]
-                $Span = [ordered]@{}
-                foreach ($Field in 'claim', 'claim_label', 'doc_position') {
-                    $V = Get-SummaryProp $m $Field
-                    if ($null -ne $V) { $Span[$Field] = $V }
-                }
-                $EvidenceSpans.Add($Span)
-            }
-            $AllClaims.Add((& $CloneWithOverrides $Primary @{ evidence_spans = @($EvidenceSpans) }))
+# Decide whether a claim with similarity $Sim folds into a primary, applying
+# the numeric-token subset guard (t/4472).
+function Test-CmClaimFold {
+    param([double]$Sim, $Tokens, $PrimaryTokens)
+    if ($Tokens.Count -eq 0 -and $PrimaryTokens.Count -eq 0) {
+        return ($Sim -ge $script:CmFactualNoNumberThreshold)
+    }
+    if ($Sim -ge $script:CmFactualFoldThreshold) {
+        # Numeric-subset guard (t/4472): never cosine alone.
+        if ((Test-CmNumericSuperset $Tokens $PrimaryTokens) -or (Test-CmNumericSuperset $PrimaryTokens $Tokens)) {
+            return $true
         }
     }
+    return $false
+}
 
-    # ── Merge unmapped_concepts ──────────────────────────────────────────────
+# Find the first existing claim cluster $Claim folds into, or $null.
+function Find-CmMatchingClaimCluster {
+    param($Vec, $Tokens, $ClaimClusters, $Embeddings)
+    if (-not $Vec) { return $null }
+    foreach ($Cl in $ClaimClusters) {
+        $PrimaryClaim = $Cl.Members[$Cl.PrimaryIdx]
+        $PrimaryText = Get-SummaryProp $PrimaryClaim 'claim'
+        $PrimaryVec = $null
+        if (-not [string]::IsNullOrWhiteSpace($PrimaryText) -and $Embeddings.ContainsKey($PrimaryText)) { $PrimaryVec = $Embeddings[$PrimaryText] }
+        if (-not $PrimaryVec) { continue }
+        $Sim = Get-CmCosineSimilarity $Vec $PrimaryVec
+        $PrimaryTokens = @(Get-CmNumericTokens $PrimaryText)
+        if (Test-CmClaimFold $Sim $Tokens $PrimaryTokens) { return $Cl }
+    }
+    return $null
+}
+
+# Re-pick a claim cluster's primary: most numeric tokens wins (superset side,
+# t/4472); ties keep the longer claim text.
+function Get-CmClaimPrimaryIndex {
+    param($Members)
+    $BestIdx = 0; $BestTokenCount = -1; $BestLen = -1
+    for ($i = 0; $i -lt $Members.Count; $i++) {
+        $Text = [string](Get-SummaryProp $Members[$i] 'claim')
+        $TokenCount = @(Get-CmNumericTokens $Text).Count
+        if ($TokenCount -gt $BestTokenCount -or ($TokenCount -eq $BestTokenCount -and $Text.Length -gt $BestLen)) {
+            $BestIdx = $i; $BestTokenCount = $TokenCount; $BestLen = $Text.Length
+        }
+    }
+    return $BestIdx
+}
+
+# Cluster all factual_claims globally (embeddings path).
+function Get-CmClaimClusters {
+    param($AllClaimsRaw, $Embeddings)
+    $ClaimClusters = [System.Collections.Generic.List[object]]::new()
+    foreach ($Claim in $AllClaimsRaw) {
+        $ClaimText = Get-SummaryProp $Claim 'claim'
+        $Vec = $null
+        if (-not [string]::IsNullOrWhiteSpace($ClaimText) -and $Embeddings.ContainsKey($ClaimText)) { $Vec = $Embeddings[$ClaimText] }
+        $Tokens = @(Get-CmNumericTokens $ClaimText)
+        $MatchedCluster = Find-CmMatchingClaimCluster -Vec $Vec -Tokens $Tokens -ClaimClusters $ClaimClusters -Embeddings $Embeddings
+        if ($MatchedCluster) {
+            $MatchedCluster.Members.Add($Claim)
+            $MatchedCluster.PrimaryIdx = Get-CmClaimPrimaryIndex $MatchedCluster.Members
+        } else {
+            $ClaimClusters.Add([pscustomobject]@{ Members = [System.Collections.Generic.List[object]]::new(@($Claim)); PrimaryIdx = 0 })
+        }
+    }
+    return ,$ClaimClusters
+}
+
+# One folded factual_claim evidence span (the member's own fields).
+function New-CmClaimSpan {
+    param($M)
+    $Span = [ordered]@{}
+    foreach ($Field in 'claim', 'claim_label', 'doc_position') {
+        $V = Get-SummaryProp $M $Field
+        if ($null -ne $V) { $Span[$Field] = $V }
+    }
+    return $Span
+}
+
+# Collapse claim clusters into primaries with folded evidence_spans.
+function Resolve-CmClaimClusters {
+    param($ClaimClusters)
+    $AllClaims = [System.Collections.Generic.List[object]]::new()
+    foreach ($Cl in $ClaimClusters) {
+        $Members = $Cl.Members
+        if ($Members.Count -eq 1) { $AllClaims.Add($Members[0]); continue }
+        $Primary = $Members[$Cl.PrimaryIdx]
+        $EvidenceSpans = [System.Collections.Generic.List[object]]::new()
+        for ($i = 0; $i -lt $Members.Count; $i++) {
+            if ($i -eq $Cl.PrimaryIdx) { continue }
+            $EvidenceSpans.Add((New-CmClaimSpan $Members[$i]))
+        }
+        $AllClaims.Add((Copy-CmWithOverrides $Primary @{ evidence_spans = @($EvidenceSpans) }))
+    }
+    return ,$AllClaims
+}
+
+# Merge factual_claims, clustering globally (t/4472).
+function Merge-CmFactualClaims {
+    param([object[]]$ChunkResults, $Embeddings, [bool]$UseEmbeddings)
+    $AllClaimsRaw = Get-CmAllRawClaims -ChunkResults $ChunkResults
+    if (-not $UseEmbeddings) {
+        return ,(Get-CmFallbackDedupClaims $AllClaimsRaw)
+    }
+    $ClaimClusters = Get-CmClaimClusters -AllClaimsRaw $AllClaimsRaw -Embeddings $Embeddings
+    return ,(Resolve-CmClaimClusters $ClaimClusters)
+}
+
+# Merge unmapped_concepts, deduping by suggested_label and dropping bare nulls.
+function Merge-CmUnmappedConcepts {
+    param([object[]]$ChunkResults)
     $AllUnmapped = [System.Collections.Generic.List[object]]::new()
     $SeenLabels  = [System.Collections.Generic.HashSet[string]]::new()
-
     $NullConceptsDropped = 0
     foreach ($Chunk in $ChunkResults) {
         $ChunkConcepts = Get-SummaryProp $Chunk 'unmapped_concepts'
         if (-not $ChunkConcepts) { continue }
-
         foreach ($Concept in $ChunkConcepts) {
             if ($null -eq $Concept) {
                 # t/3907: a chunk's unmapped_concepts can contain a bare null
@@ -429,89 +581,73 @@ function Merge-ChunkSummaries {
             } else {
                 $LabelKey = "unknown-$($AllUnmapped.Count)"
             }
-
-            if ($SeenLabels.Add($LabelKey)) {
-                $AllUnmapped.Add($Concept)
-            }
+            if ($SeenLabels.Add($LabelKey)) { $AllUnmapped.Add($Concept) }
         }
     }
     if ($NullConceptsDropped -gt 0) {
         Write-Warning "Merge-ChunkSummaries: dropped $NullConceptsDropped null unmapped_concepts entry/entries during merge (t/3907)"
     }
+    return ,$AllUnmapped
+}
 
-    # ── Merge empty_cells (t/4473/t/4519/t/4601) ─────────────────────────────
-    # A cell is empty for the document if ANY chunk declared it empty AND the
-    # merged key_points for that camp have no point in that category. Unanimity
-    # was too strict (t/4601): one chunk that simply doesn't address a camp
-    # (silent, not an explicit non-empty claim) used to erase another chunk's
-    # genuine empty-declaration for the whole doc. A silent chunk is not
-    # evidence the camp is non-empty -- it just didn't cover it. Keep the
-    # first declaring chunk's reason. WARN when chunks disagree (some declare
-    # empty, some stay silent) so the rate stays visible.
+# Does any merged key_point in this camp fall in category $Cat?
+function Test-CmCampHasPointInCategory {
+    param($CampKeyPoints, [string]$Cat)
+    foreach ($kp in $CampKeyPoints) {
+        if ((Get-SummaryProp $kp 'category') -eq $Cat) { return $true }
+    }
+    return $false
+}
+
+# Across chunks, whether a (camp, category) cell was declared empty / left
+# silent, and the first declaring chunk's reason (t/4601).
+function Get-CmEmptyCellDeclaration {
+    param([object[]]$ChunkResults, [string]$Camp, [string]$Cat)
+    $AnyChunkDeclaredEmpty = $false
+    $AnyChunkSilent = $false
+    $FirstReason = $null
+    foreach ($Chunk in $ChunkResults) {
+        $ChunkEmptyCells = Get-SummaryProp $Chunk 'empty_cells'
+        $Declared = $false
+        if ($ChunkEmptyCells) {
+            foreach ($ec in @($ChunkEmptyCells)) {
+                if ((Get-SummaryProp $ec 'camp') -eq $Camp -and (Get-SummaryProp $ec 'category') -eq $Cat) {
+                    $Declared = $true
+                    if ($null -eq $FirstReason) { $FirstReason = Get-SummaryProp $ec 'reason' }
+                    break
+                }
+            }
+        }
+        if ($Declared) { $AnyChunkDeclaredEmpty = $true } else { $AnyChunkSilent = $true }
+    }
+    return [pscustomobject]@{
+        AnyDeclaredEmpty = $AnyChunkDeclaredEmpty
+        AnySilent        = $AnyChunkSilent
+        FirstReason      = $FirstReason
+    }
+}
+
+# Merge empty_cells (t/4473/t/4519/t/4601). A cell is empty for the document if
+# ANY chunk declared it empty AND the merged key_points for that camp have no
+# point in that category. Keep the first declaring chunk's reason; WARN on
+# disagreement so the rate stays visible.
+function Merge-CmEmptyCells {
+    param([object[]]$ChunkResults, [System.Collections.IDictionary]$MergedPovSummaries, [string[]]$Camps, [string[]]$Categories)
     $MergedEmptyCells = [System.Collections.Generic.List[object]]::new()
     $DisagreementCount = 0
     foreach ($Camp in $Camps) {
         $CampKeyPoints = @($MergedPovSummaries[$Camp].key_points)
         foreach ($Cat in $Categories) {
-            $HasPointInCat = $false
-            foreach ($kp in $CampKeyPoints) {
-                if ((Get-SummaryProp $kp 'category') -eq $Cat) { $HasPointInCat = $true; break }
-            }
-            if ($HasPointInCat) { continue }
-
-            $AnyChunkDeclaredEmpty = $false
-            $AnyChunkSilent = $false
-            $FirstReason = $null
-            foreach ($Chunk in $ChunkResults) {
-                $ChunkEmptyCells = Get-SummaryProp $Chunk 'empty_cells'
-                $Declared = $false
-                if ($ChunkEmptyCells) {
-                    foreach ($ec in @($ChunkEmptyCells)) {
-                        if ((Get-SummaryProp $ec 'camp') -eq $Camp -and (Get-SummaryProp $ec 'category') -eq $Cat) {
-                            $Declared = $true
-                            if ($null -eq $FirstReason) { $FirstReason = Get-SummaryProp $ec 'reason' }
-                            break
-                        }
-                    }
-                }
-                if ($Declared) { $AnyChunkDeclaredEmpty = $true } else { $AnyChunkSilent = $true }
-            }
-            if ($AnyChunkDeclaredEmpty -and $AnyChunkSilent) { $DisagreementCount++ }
-            if ($AnyChunkDeclaredEmpty) {
-                $MergedEmptyCells.Add([ordered]@{ camp = $Camp; category = $Cat; reason = $FirstReason })
+            if (Test-CmCampHasPointInCategory -CampKeyPoints $CampKeyPoints -Cat $Cat) { continue }
+            $Decl = Get-CmEmptyCellDeclaration -ChunkResults $ChunkResults -Camp $Camp -Cat $Cat
+            if ($Decl.AnyDeclaredEmpty -and $Decl.AnySilent) { $DisagreementCount++ }
+            if ($Decl.AnyDeclaredEmpty) {
+                $MergedEmptyCells.Add([ordered]@{ camp = $Camp; category = $Cat; reason = $Decl.FirstReason })
             }
         }
     }
     if ($DisagreementCount -gt 0) {
         Write-Warning "Merge-ChunkSummaries: $DisagreementCount camp/category cell(s) had chunks disagree on emptiness (some declared empty, some silent) -- kept as empty per the any-chunk rule (t/4601)"
     }
-
-    # ── Context-rot: merge/dedup metrics ─────────────────────────────────────
-    $PostDedupPoints = 0
-    foreach ($c in $Camps) {
-        $kp = if ($MergedPovSummaries[$c].Contains('key_points')) { $MergedPovSummaries[$c].key_points } else { @() }
-        $PostDedupPoints += @($kp).Count
-    }
-    $PostDedupClaims = $AllClaims.Count
-    $PostDedupConcepts = $AllUnmapped.Count
-    $TotalIn = $PreDedupPoints + $PreDedupClaims + $PreDedupConcepts
-    $TotalOut = $PostDedupPoints + $PostDedupClaims + $PostDedupConcepts
-    $MergeMetrics = New-ContextRotStage `
-        -Stage 'merge_dedup' -InUnits 'items' -InCount $TotalIn `
-        -OutUnits 'items' -OutCount $TotalOut `
-        -Flags @{
-            points_deduped   = $PreDedupPoints - $PostDedupPoints
-            claims_deduped   = $PreDedupClaims - $PostDedupClaims
-            concepts_deduped = $PreDedupConcepts - $PostDedupConcepts
-            used_embeddings  = [int]$UseEmbeddings
-        }
-
-    # ── Return merged structure ──────────────────────────────────────────────
-    return [ordered]@{
-        pov_summaries    = $MergedPovSummaries
-        factual_claims   = @($AllClaims)
-        unmapped_concepts = @($AllUnmapped)
-        empty_cells      = @($MergedEmptyCells)
-        _merge_metrics   = $MergeMetrics
-    }
+    return ,$MergedEmptyCells
 }

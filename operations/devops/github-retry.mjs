@@ -99,7 +99,13 @@ export async function withGitHubRetry(label, fn, opts = {}) {
     maxAttempts = MAX_ATTEMPTS,
     baseDelayMs = DEFAULT_BASE_DELAY_MS,
     prefix = 'github-retry',
+    // t/562 (Lead p/233#71): the default stays MAX_RATE_WAIT_MS (30 s, t/236) for the probe-step
+    // callers. A merge-group guard path, whose job timeout covers it, passes a longer wait (15 min)
+    // and maxRateWaits: 1, so one call waits for one reset at most and a second limit fails closed.
+    maxRateWaitMs = MAX_RATE_WAIT_MS,
+    maxRateWaits = Infinity,
   } = opts;
+  let rateWaits = 0;
   for (let attempt = 1; ; attempt++) {
     try {
       return await fn();
@@ -110,7 +116,7 @@ export async function withGitHubRetry(label, fn, opts = {}) {
         // Still fail-closed: the caller's catch turns the throw into CANNOT EVALUATE.
         const resetMs = rateLimitResetMs(err);
         const waitMs = resetMs === null ? null : resetMs - now();
-        if (waitMs === null || waitMs > MAX_RATE_WAIT_MS || attempt >= maxAttempts) {
+        if (waitMs === null || waitMs > maxRateWaitMs || attempt >= maxAttempts || rateWaits >= maxRateWaits) {
           const when = resetMs === null ? 'after the API quota resets (reset time unknown)' : `after ${hhmmz(resetMs)}`;
           const limited = new Error(`${label}: RATE-LIMITED, re-run ${when}. GitHub API quota exhausted.`, { cause: err });
           limited.status = status;
@@ -118,6 +124,7 @@ export async function withGitHubRetry(label, fn, opts = {}) {
         }
         const wait = Math.max(0, waitMs) + 1000;
         warn(`WARN ${prefix}: ${label} attempt ${attempt}/${maxAttempts} hit a rate limit (HTTP ${status}) -- waiting ${wait}ms for the reset`);
+        rateWaits += 1;
         await sleep(wait);
         continue;
       }

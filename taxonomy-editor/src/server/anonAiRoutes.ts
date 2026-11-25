@@ -26,6 +26,7 @@ export const FREE_TIER_AI_POST_PATHS: readonly string[] = [
   '/api/ai/chat-stream', // t/2489: anonymous users may use AI chat (free-tier Gemini)
   '/api/taxonomy/relevant-nodes', // t/3284: anon debates reach server-side relevance (local ONNX, free-tier rate-limited)
   '/api/argument-network/attribution', // t/3297: anon debates reach server-side claim attribution — the post-turn sibling of relevant-nodes, same flow/risk profile (cosine over cache-backed local-ONNX embeddings, no generative backend), free-tier rate-limited
+  '/api/oped-sets', // t/475 (TL-approved): anonymous op-ed creation. Exact match, POST only; exempt only while the free tier is enabled. Share and PUT/DELETE stay refused. Closed by #5418 (t/501), reopened by t/616 with the free-pool routing (routes/opedFunding.ts).
 ];
 
 /**

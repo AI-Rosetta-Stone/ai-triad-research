@@ -130,7 +130,7 @@ export function splitParagraphs(content: string): string[] {
   return content.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0);
 }
 
-/** Batch text embedder. Engine passes onnxEmbedding.computeEmbeddings; the renderer passes its bridge call. */
+/** Batch text embedder. The engine passes its adapter embed (debateEngine/embedTexts.ts, t/561); the renderer passes its bridge call. */
 export type EmbedTextsFn = (texts: string[]) => Promise<number[][]>;
 
 /** Embed each camp's (possibly amended) narrative in place as its drift reference. */

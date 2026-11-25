@@ -48,7 +48,7 @@ Describe 'Test-AnalyticsBackend' -Tag 'analytics' {
 
         It 'Returns Healthy=$true when both probes pass' {
             InModuleScope AITriad {
-                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0
+                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0 -AuthHeaders @{ Cookie = 'admin' }
                 $r.Healthy | Should -Be $true
                 @($r.Checks).Count | Should -Be 2
             }
@@ -56,7 +56,7 @@ Describe 'Test-AnalyticsBackend' -Tag 'analytics' {
 
         It 'Write check passes with ok=true count=1' {
             InModuleScope AITriad {
-                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0
+                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0 -AuthHeaders @{ Cookie = 'admin' }
                 $writeCheck = @($r.Checks | Where-Object { $_.Check -match 'Write' })
                 $writeCheck.Count | Should -Be 1
                 $writeCheck[0].Pass | Should -Be $true
@@ -67,10 +67,11 @@ Describe 'Test-AnalyticsBackend' -Tag 'analytics' {
 
         It 'Read check passes with probe event_type confirmed in eventTypes' {
             InModuleScope AITriad {
-                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0
+                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0 -AuthHeaders @{ Cookie = 'admin' }
                 $readCheck = @($r.Checks | Where-Object { $_.Check -match 'Read' })
                 $readCheck[0].Pass | Should -Be $true
                 $readCheck[0].Detail | Should -Match 'confirmed'
+                $r.PersistenceConfirmed | Should -BeTrue
             }
         }
     }
@@ -97,7 +98,7 @@ Describe 'Test-AnalyticsBackend' -Tag 'analytics' {
 
         It 'Write check fails and Detail mentions dropped event' {
             InModuleScope AITriad {
-                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0
+                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0 -AuthHeaders @{ Cookie = 'admin' }
                 $writeCheck = @($r.Checks | Where-Object { $_.Check -match 'Write' })
                 $writeCheck[0].Pass | Should -Be $false
                 $writeCheck[0].Detail | Should -Match 'dropped'
@@ -106,7 +107,7 @@ Describe 'Test-AnalyticsBackend' -Tag 'analytics' {
 
         It 'Healthy=$false when write probe fails' {
             InModuleScope AITriad {
-                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0
+                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0 -AuthHeaders @{ Cookie = 'admin' }
                 $r.Healthy | Should -Be $false
             }
         }
@@ -138,7 +139,7 @@ Describe 'Test-AnalyticsBackend' -Tag 'analytics' {
 
         It 'Read check fails and Detail mentions absent event_type' {
             InModuleScope AITriad {
-                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0
+                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0 -AuthHeaders @{ Cookie = 'admin' }
                 $readCheck = @($r.Checks | Where-Object { $_.Check -match 'Read' })
                 $readCheck[0].Pass | Should -Be $false
                 $readCheck[0].Detail | Should -Match 'absent'
@@ -168,10 +169,26 @@ Describe 'Test-AnalyticsBackend' -Tag 'analytics' {
 
         It 'Read check Detail mentions auth when HTTP 302' {
             InModuleScope AITriad {
-                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0
+                $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0 -AuthHeaders @{ Cookie = 'admin' }
                 $readCheck = @($r.Checks | Where-Object { $_.Check -match 'Read' })
                 $readCheck[0].Detail | Should -Match 'Auth required'
             }
+        }
+    }
+
+    It 'With no administrator headers the read probe is not run and never calls the query route (t/579)' {
+        InModuleScope AITriad {
+            Mock Invoke-RemoteCheck -MockWith {
+                if ($Path -like '/api/analytics/query*') { throw 'the query route must not be read anonymously' }
+                [PSCustomObject]@{ Success = $true; StatusCode = 200; ResponseMs = 5; Error = $null
+                    Body = [PSCustomObject]@{ ok = $true; count = 1 }; ContentType = 'application/json'; RawBody = '' }
+            }
+            $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0 -WarningVariable warn -WarningAction SilentlyContinue
+            Should -Invoke Invoke-RemoteCheck -Times 0 -Exactly -ParameterFilter { $Path -like '/api/analytics/query*' }
+            @($r.Checks | Where-Object { $_.Check -match 'Read' }).Count | Should -Be 0 -Because 'a probe that was not run is not reported as a check'
+            $r.Healthy | Should -BeTrue -Because 'the write check passed'
+            $r.PersistenceConfirmed | Should -BeFalse -Because 'Healthy rests on the write alone; a scripted caller must be able to see that'
+            @($warn | Where-Object { "$_" -match 'read probe needs admin \(t/579\), skipped' }).Count | Should -Be 1
         }
     }
 
@@ -184,9 +201,10 @@ Describe 'Test-AnalyticsBackend' -Tag 'analytics' {
                     Error = 'timeout'; Body = $null; ContentType = ''; RawBody = ''
                 }
             }
-            $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0
+            $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0 -AuthHeaders @{ Cookie = 'admin' }
             $r.PSObject.Properties.Name | Should -Contain 'Backend'
             $r.PSObject.Properties.Name | Should -Contain 'Healthy'
+            $r.PSObject.Properties.Name | Should -Contain 'PersistenceConfirmed'
             $r.PSObject.Properties.Name | Should -Contain 'Checks'
             $r.PSObject.Properties.Name | Should -Contain 'Timestamp'
         }
