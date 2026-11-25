@@ -29,6 +29,35 @@ asarUnpack:
   # pure-JS peer dep onnxruntime-common stays inside the asar. Workers can't reach inside
   # the asar, so unpack the whole onnxruntime-* family explicitly.
   - "node_modules/onnxruntime-*/**"
+  # t/631: the isolated document parser runs in a forked child with Node's permission model, which grants
+  # read access to lib/ and the parser store only. The child can't read inside the asar, so the parsers
+  # and their dependency closure must be unpacked (pdfjs-dist for PDF; mammoth and its deps for DOCX).
+  - "node_modules/pdfjs-dist/**"
+  - "node_modules/mammoth/**"
+  - "node_modules/@xmldom/**"
+  - "node_modules/argparse/**"
+  - "node_modules/base64-js/**"
+  - "node_modules/bluebird/**"
+  - "node_modules/dingbat-to-unicode/**"
+  - "node_modules/jszip/**"
+  - "node_modules/lop/**"
+  - "node_modules/option/**"
+  - "node_modules/path-is-absolute/**"
+  - "node_modules/sax/**"
+  - "node_modules/underscore/**"
+  - "node_modules/xmlbuilder/**"
+  - "node_modules/lie/**"
+  - "node_modules/immediate/**"
+  - "node_modules/pako/**"
+  - "node_modules/readable-stream/**"
+  - "node_modules/setimmediate/**"
+  - "node_modules/safe-buffer/**"
+  - "node_modules/inherits/**"
+  - "node_modules/string_decoder/**"
+  - "node_modules/util-deprecate/**"
+  - "node_modules/core-util-is/**"
+  - "node_modules/isarray/**"
+  - "node_modules/process-nextick-args/**"
 
 extraResources:
   - from: "../ai-models.json"

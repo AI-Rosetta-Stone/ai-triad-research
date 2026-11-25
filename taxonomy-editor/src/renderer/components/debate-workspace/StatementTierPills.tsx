@@ -48,9 +48,14 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, has
     else if (mode === 'text') setLastText(activeTier as TextTier);
   }, [activeTier]);
 
+  // t/643: Convergence is no longer offered per statement. It is still listed when this statement is
+  // already on it (the global How control, or a saved override), so the dropdown never shows a blank value.
+  // There it reads "Convergence" in full (Design p/14#102); the shared TIER_LABELS keeps "Conv" for the global control.
   const analysisOptions = useMemo<AnalysisTier[]>(
-    () => (['reasoning', 'lineage', 'claims', 'convergence'] as AnalysisTier[]).filter(t => t !== 'lineage' || hasLineageRefs),
-    [hasLineageRefs],
+    () => (['reasoning', 'lineage', 'claims'] as AnalysisTier[])
+      .filter(t => t !== 'lineage' || hasLineageRefs)
+      .concat(activeTier === 'convergence' ? ['convergence'] : []),
+    [hasLineageRefs, activeTier],
   );
   const subTiers: readonly string[] = activeMode === 'text' ? TEXT_TIERS : analysisOptions;
   const isOverridden = entry.display_tier != null;
@@ -120,7 +125,7 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, has
           }}
         >
           {subTiers.map(tier => (
-            <option key={tier} value={tier}>{TIER_LABELS[tier]}</option>
+            <option key={tier} value={tier}>{tier === 'convergence' ? 'Convergence' : TIER_LABELS[tier]}</option>
           ))}
           {isOverridden && <option value="__match_global__">Match global default</option>}
         </select>

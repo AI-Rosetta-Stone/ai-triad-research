@@ -1277,7 +1277,7 @@ function handleModeratorTerminalError(err: unknown, activeDebate: DebateSession,
     set({ debateError: DAILY_LIMIT_MESSAGE, dailyLimitPaused: true, debateGenerating: null });
     getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'info', debate_id: activeDebate.id, message: 'debate.paused', data: { reason: 'daily_token_limit' } });
   } else {
-    set({ debateError: `Cross-respond selection failed: ${mapErrorToUserMessage(err)}`, debateRetryAction: 'crossRespond', debateGenerating: null });
+    set({ debateError: `Cross-respond selection failed: ${mapErrorToUserMessage(err, { kind: 'ai' })}`, debateRetryAction: 'crossRespond', debateGenerating: null });
     getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'info', debate_id: activeDebate.id, message: 'debate.ended', data: { reason: 'error', error: String(err) } });
   }
   return null;

@@ -12,6 +12,7 @@ import path from 'path';
 import { PROJECT_ROOT, getDataRootPath, writeJsonFileAtomic } from '../fileIO.js';
 import { ActionableError, errorMessage } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
+import { documentExtractionAvailable } from './documentExtractionProbe.js';
 
 // Extensions that execute on open — blocked regardless of directory (M13, t/2531).
 const BLOCKED_OPEN_EXTS = new Set([
@@ -128,6 +129,9 @@ export function registerSystemHandlers(): void {
       });
     }
   });
+
+  // t/634: can a pick be extracted at all? Probed once per process, cached; never throws.
+  ipcMain.handle('document-extraction-available', () => documentExtractionAvailable());
 
   ipcMain.handle('pick-directory', async (_event, defaultPath?: string) => {
     const win = BrowserWindow.getFocusedWindow();
