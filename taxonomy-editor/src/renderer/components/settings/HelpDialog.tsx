@@ -134,6 +134,8 @@ function getRuntime(): string {
 }
 
 const isWeb = import.meta.env.VITE_TARGET === 'web';
+/** t/163 (Design t/163#6): zoom shortcuts in platform copy, ⌘ on macOS, Ctrl elsewhere. */
+const ZOOM_KEY = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) ? '⌘' : 'Ctrl';
 
 export type HelpTab = 'about' | 'overview' | 'documentation' | 'methods' | 'shortcuts' | 'sbom' | 'licenses' | 'changelog' | 'my-cases';
 
@@ -618,7 +620,7 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
             <p><strong>Pin</strong> — Pin any item to compare it side-by-side with the active item.</p>
             <p><strong>Resize</strong> — Drag the border between the list and detail panels to resize.</p>
             <p><strong>Themes</strong> — {THEME_OPTIONS.map(t => t.label).join(', ')} (System follows your OS).</p>
-            <p><strong>Zoom</strong> — Ctrl+= / Ctrl+- / Ctrl+0 to zoom in, out, or reset.</p>
+            <p><strong>Zoom</strong> — {ZOOM_KEY} + / {ZOOM_KEY} − / {ZOOM_KEY} 0 to zoom in, out, or reset.</p>
           </div>
         )}
 
@@ -686,9 +688,9 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
               <tbody>
                 <tr><td className="help-key">Ctrl + F</td><td>Open / close search</td></tr>
                 <tr><td className="help-key">Ctrl + S</td><td>Save changes</td></tr>
-                <tr><td className="help-key">Ctrl + =</td><td>Zoom in</td></tr>
-                <tr><td className="help-key">Ctrl + -</td><td>Zoom out</td></tr>
-                <tr><td className="help-key">Ctrl + 0</td><td>Reset zoom</td></tr>
+                <tr><td className="help-key">{ZOOM_KEY} +</td><td>Zoom in</td></tr>
+                <tr><td className="help-key">{ZOOM_KEY} −</td><td>Zoom out</td></tr>
+                <tr><td className="help-key">{ZOOM_KEY} 0</td><td>Reset zoom</td></tr>
                 <tr><td className="help-key">Arrow Up/Down</td><td>Navigate items in list</td></tr>
                 <tr><td className="help-key">Enter</td><td>Next search result</td></tr>
                 <tr><td className="help-key">Shift + Enter</td><td>Previous search result</td></tr>
