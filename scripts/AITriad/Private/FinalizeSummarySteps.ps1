@@ -145,6 +145,15 @@ function ConvertTo-NumericGroundingKey {
 $script:NumericGroundingFeatures = @{ Percent = $false; Scale = $false; LeadingDot = $false; Superscript = $false }
 $script:NumericScaleWords = @{ 'k' = 1e3; 'thousand' = 1e3; 'm' = 1e6; 'million' = 1e6; 'bn' = 1e9; 'b' = 1e9; 'billion' = 1e9; 'trillion' = 1e12; 'tn' = 1e12 }
 
+# Number words the Percent rule reads before "percent" in a source (t/384#16). Longest first within Units,
+# so "fourteen" is not read as "four".
+$script:NumericWordUnits = [ordered]@{
+    'seventeen' = 17; 'thirteen' = 13; 'fourteen' = 14; 'eighteen' = 18; 'nineteen' = 19; 'fifteen' = 15; 'sixteen' = 16
+    'eleven' = 11; 'twelve' = 12; 'seven' = 7; 'eight' = 8; 'three' = 3; 'zero' = 0; 'four' = 4; 'five' = 5; 'nine' = 9
+    'one' = 1; 'two' = 2; 'six' = 6; 'ten' = 10
+}
+$script:NumericWordTens = [ordered]@{ 'twenty' = 20; 'thirty' = 30; 'forty' = 40; 'fifty' = 50; 'sixty' = 60; 'seventy' = 70; 'eighty' = 80; 'ninety' = 90 }
+
 function Get-NumericGroundingKeys {
     # Every number in $Text as a comparison key. A range ("0.5-0.7", "0.5–0.7") yields both endpoints,
     # because the regex matches each number on its own.
@@ -173,9 +182,21 @@ function Get-NumericGroundingKeys {
         $Text = [regex]::Replace($Text, '(?<=\d)[ \t]?ù(?!\p{L})', '%')
         $Text = [regex]::Replace($Text, '(?<=\d)(?:û|ΓÇ[ôö])(?=\d)', '-')
     }
+    #   - the word "percent" up to three white-space characters after its number ("16" / "percent");
+    #   - a whole number from zero to one hundred written as a word before "percent" ("twenty-five percent"),
+    #     CL t/384#16. Only before the word or the sign: a number word anywhere else grounds nothing.
     $PercentSign = if ($SourcePercent) { '(\s{0,3}%)' } else { '(%)' }
-    $Pattern = '(\d+(?:,\d{3})*(?:\.\d+)?|(?<!\d)\.\d+)(?:' + $PercentSign + '|\s?(percent|per\s?cent)\b|(?<=\d)(k|m|bn|b|tn)\b|\s(thousand|million|billion|trillion)\b|\^(\d+))?'
+    $PercentWord = if ($SourcePercent) { '\s{0,3}(percent|per\s?cent)\b' } else { '\s?(percent|per\s?cent)\b' }
+    $Pattern = '(\d+(?:,\d{3})*(?:\.\d+)?|(?<!\d)\.\d+)(?:' + $PercentSign + '|' + $PercentWord + '|(?<=\d)(k|m|bn|b|tn)\b|\s(thousand|million|billion|trillion)\b|\^(\d+))?'
     if ($SourcePercent) {
+        $Units = $script:NumericWordUnits; $Tens = $script:NumericWordTens
+        $WordNumber = "\b(?:(?<h>(?:one|a)\s+hundred)|(?<t>$($Tens.Keys -join '|'))(?:[-\s](?<u>one|two|three|four|five|six|seven|eight|nine))?|(?<s>$($Units.Keys -join '|')))\s{0,3}(?:%|percent\b|per\s?cent\b)"
+        foreach ($m in [regex]::Matches($Text, $WordNumber, 'IgnoreCase')) {
+            $Value = if ($m.Groups['h'].Success) { 100 }
+            elseif ($m.Groups['t'].Success) { $Tens[$m.Groups['t'].Value.ToLowerInvariant()] + $(if ($m.Groups['u'].Success) { $Units[$m.Groups['u'].Value.ToLowerInvariant()] } else { 0 }) }
+            else { $Units[$m.Groups['s'].Value.ToLowerInvariant()] }
+            [void]$keys.Add("$Value%")
+        }
         $Number = '\d+(?:,\d{3})*(?:\.\d+)?'
         foreach ($m in [regex]::Matches($Text, "(?<![\d.])($Number)\s?(?:[-–—]|to)\s?$Number(?:\s{0,3}%|\s?(?:percent|per\s?cent)\b)", 'IgnoreCase')) {
             $First = ConvertTo-NumericGroundingKey -Token $m.Groups[1].Value
