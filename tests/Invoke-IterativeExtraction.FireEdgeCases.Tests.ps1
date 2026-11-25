@@ -28,7 +28,7 @@ BeforeAll {
 
     function script:RunFire([object[]]$Responses) {
         $script:Responses = @($Responses); $script:Calls = 0
-        $out = Invoke-IterativeExtraction -Prompt p -Model m -ApiKey '' -WallClockSeconds 600 3>$null
+        $out = Invoke-IterativeExtraction -Prompt p -Model 'gemini-3.5-flash-lite' -ApiKey '' -WallClockSeconds 600 3>$null
         [PSCustomObject]@{ Result = $out; Calls = $script:Calls }
     }
 }

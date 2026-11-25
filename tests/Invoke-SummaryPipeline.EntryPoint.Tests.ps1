@@ -34,7 +34,7 @@ BeforeAll {
         DocId                = 'doc-entry'
         Metadata             = [pscustomobject]@{ title = 'T'; pov_tags = @('acc'); topic_tags = @('x') }
         ApiKey               = ''
-        Model                = 'stub-model'
+        Model                = 'gemini-3.5-flash-lite'
         TaxonomyVersion      = 'v1'
         SystemPromptTemplate = 'SYS {{density}}'
         OutputSchema         = '{}'
