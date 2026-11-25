@@ -71,6 +71,16 @@ export interface RuntimeConfig {
     tokenFreshnessThresholdMs: number;
     lockAcquireTimeoutMs: number;
     lockHoldTtlMs: number;
+    /** t/500: an anonymous op-ed set is removed from the app this long after it was last opened (TL t/500#47). */
+    anonOpEdRetentionMs: number;
+    /** t/500: live anonymous op-ed sets per visitor (PI: 10, t/500#4); the next create is refused 429 anon_oped_limit. */
+    anonOpEdLiveSetLimit: number;
+    /** t/500: per-set byte cap for a stored anonymous op-ed, checked at admission (TL t/500#60). */
+    anonOpEdByteCap: number;
+    /** t/500: anonymous admission bound, voices per run (TL t/500#27: the dialog's 3). */
+    anonOpEdMaxVoices: number;
+    /** t/500: anonymous admission bound, words per voice (TL t/500#27: the largest outlet band, 1,500). */
+    anonOpEdMaxWords: number;
   };
   analytics: {
     retentionDays: number;
@@ -195,6 +205,11 @@ const DEFAULTS: RuntimeConfig = {
     tokenFreshnessThresholdMs: 60_000,
     lockAcquireTimeoutMs: 10_000,
     lockHoldTtlMs: 30_000,
+    anonOpEdRetentionMs: 86_400_000,
+    anonOpEdLiveSetLimit: 10,
+    anonOpEdByteCap: 106_496,
+    anonOpEdMaxVoices: 3,
+    anonOpEdMaxWords: 1_500,
   },
   analytics: {
     retentionDays: 90,
@@ -439,6 +454,11 @@ export function validateAndMerge(raw: unknown, defaults: RuntimeConfig): { confi
       tokenFreshnessThresholdMs: vNum(sess.tokenFreshnessThresholdMs, defaults.sessions.tokenFreshnessThresholdMs, { min: 0, max: DURATION_MAX }, 'sessions.tokenFreshnessThresholdMs', errors),
       lockAcquireTimeoutMs: vNum(sess.lockAcquireTimeoutMs, defaults.sessions.lockAcquireTimeoutMs, { min: 0, max: DURATION_MAX }, 'sessions.lockAcquireTimeoutMs', errors),
       lockHoldTtlMs: vNum(sess.lockHoldTtlMs, defaults.sessions.lockHoldTtlMs, { min: 0, max: DURATION_MAX }, 'sessions.lockHoldTtlMs', errors),
+      anonOpEdRetentionMs: vNum(sess.anonOpEdRetentionMs, defaults.sessions.anonOpEdRetentionMs, { min: 60_000, max: 86_400_000 }, 'sessions.anonOpEdRetentionMs', errors),
+      anonOpEdLiveSetLimit: vNum(sess.anonOpEdLiveSetLimit, defaults.sessions.anonOpEdLiveSetLimit, { min: 0, max: 100, integer: true }, 'sessions.anonOpEdLiveSetLimit', errors),
+      anonOpEdByteCap: vNum(sess.anonOpEdByteCap, defaults.sessions.anonOpEdByteCap, { min: 1_024, max: 10_485_760, integer: true }, 'sessions.anonOpEdByteCap', errors),
+      anonOpEdMaxVoices: vNum(sess.anonOpEdMaxVoices, defaults.sessions.anonOpEdMaxVoices, { min: 1, max: 3, integer: true }, 'sessions.anonOpEdMaxVoices', errors),
+      anonOpEdMaxWords: vNum(sess.anonOpEdMaxWords, defaults.sessions.anonOpEdMaxWords, { min: 100, max: 1_500, integer: true }, 'sessions.anonOpEdMaxWords', errors),
     },
     analytics: {
       retentionDays: vNum(an.retentionDays, defaults.analytics.retentionDays, { min: 1, max: 3_650, integer: true }, 'analytics.retentionDays', errors),

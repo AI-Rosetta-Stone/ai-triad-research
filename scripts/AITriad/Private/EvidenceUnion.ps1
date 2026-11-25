@@ -136,22 +136,84 @@ function Get-SummaryEvidenceLink {
     }
 }
 
+$script:EvidenceLegacyChunkManifestPath = Join-Path $PSScriptRoot '..' '..' '..' 'docs' 'specs' 'source-identity-legacy-chunks.json'
+$script:EvidenceLegacyChunkManifest = $null
+$script:EvidenceUnlistedChunkWarned = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+
+function Get-EvidenceLegacyChunkManifest {
+    <#
+    .SYNOPSIS
+        Spec 6.2 (t/355, TL t/355#43): the legacy-chunk manifest, chunk id -> base id. A summary is a
+        chunk only if this list names it. Read once per session from the file beside the spec, the
+        same file the Python and TypeScript readers load.
+    .PARAMETER Path
+        The manifest file. Default: docs/specs/source-identity-legacy-chunks.json in this repo.
+    .PARAMETER Force
+        Read the file again.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Generic.Dictionary[string, string]])]
+    param([string]$Path = $script:EvidenceLegacyChunkManifestPath, [switch]$Force)
+    Set-StrictMode -Version Latest
+    $default = $Path -eq $script:EvidenceLegacyChunkManifestPath
+    if ($default -and -not $Force -and $null -ne $script:EvidenceLegacyChunkManifest) { return , $script:EvidenceLegacyChunkManifest }
+    $map = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        # Fallback: with no manifest no summary is a chunk, so nothing is folded. That is the safe
+        # direction (a document is never merged into another), but the 16 legacy chunks count as
+        # separate sources until the file is there.
+        Write-Warning "Get-EvidenceLegacyChunkManifest: $Path not found; no summary is treated as a chunk (spec 6.2). Run from a full checkout of the repo."
+    } else {
+        $doc = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path).Path) | ConvertFrom-Json
+        if (-not $doc.PSObject.Properties['chunks']) {
+            throw (New-ActionableError -AsErrorRecord -Goal 'Load the legacy-chunk manifest (spec 6.2)' `
+                -Problem "$Path has no 'chunks' object." `
+                -Location 'EvidenceUnion.ps1: Get-EvidenceLegacyChunkManifest' `
+                -NextSteps @('Restore the file from docs/specs on main', 'Check the shape: { version, spec, chunks: { <chunk id>: <base id> } }'))
+        }
+        foreach ($entry in $doc.chunks.PSObject.Properties) { $map[[string]$entry.Name] = [string]$entry.Value }
+    }
+    if ($default) { $script:EvidenceLegacyChunkManifest = $map }
+    , $map
+}
+
 function Get-EvidenceChunkBase {
     <#
     .SYNOPSIS
-        Spec 6.2 (t/355, R1): the base X when $Id is a summary-only chunk <X>-N of X, else $null.
+        Spec 6.2 (t/355, R1; TL t/355#43): the base of $Id when the legacy-chunk manifest names $Id as a
+        chunk, else $null. Chunks are named, not inferred: an id that is not listed is never a chunk.
+    .DESCRIPTION
+        A listed chunk whose base is not in $Docs is an error. An id that is not listed but looks like
+        the old folder-only rule's chunk (<X>-N, no source dir, X has one) gets one WARN and stays its
+        own source.
     .PARAMETER Docs
         id -> [pscustomobject] { HasSource = [bool]; Mark = <target id or $null> }.
+    .PARAMETER Manifest
+        chunk id -> base id. Default: Get-EvidenceLegacyChunkManifest.
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param([Parameter(Mandatory)][string]$Id, [Parameter(Mandatory)][hashtable]$Docs)
+    param([Parameter(Mandatory)][string]$Id, [Parameter(Mandatory)][hashtable]$Docs,
+        [System.Collections.IDictionary]$Manifest = (Get-EvidenceLegacyChunkManifest))
     Set-StrictMode -Version Latest
+    # Cast: a generic Dictionary exposes Contains only through the IDictionary interface.
+    if (([System.Collections.IDictionary]$Manifest).Contains($Id)) {
+        $base = [string]$Manifest[$Id]
+        if (-not $Docs.ContainsKey($base)) {
+            throw (New-ActionableError -AsErrorRecord -Goal 'Resolve a legacy chunk to its base document (spec 6.2)' `
+                -Problem "The legacy-chunk manifest lists '$Id' as a chunk of '$base', but '$base' does not exist." `
+                -Location 'EvidenceUnion.ps1: Get-EvidenceChunkBase' `
+                -NextSteps @("Check that '$base' has a summary or a source dir in this checkout", 'Correct the entry in docs/specs/source-identity-legacy-chunks.json (a reviewed change)'))
+        }
+        return $base
+    }
     $m = [regex]::Match($Id, '^(.+)-(\d+)$')
-    if (-not $m.Success) { return $null }
-    if ($Docs.ContainsKey($Id) -and $Docs[$Id].HasSource) { return $null }
-    $base = $m.Groups[1].Value
-    if ($Docs.ContainsKey($base) -and $Docs[$base].HasSource) { return $base }
+    if ($m.Success -and $Docs.ContainsKey($Id) -and -not $Docs[$Id].HasSource) {
+        $stem = $m.Groups[1].Value
+        if ($Docs.ContainsKey($stem) -and $Docs[$stem].HasSource -and $script:EvidenceUnlistedChunkWarned.Add($Id)) {
+            Write-Warning "Evidence union: '$Id' has no source dir and '$stem' has one, but '$Id' is not in the legacy-chunk manifest. It stays its own source (spec 6.2). If its source dir is missing from this checkout, restore it."
+        }
+    }
     $null
 }
 
@@ -180,18 +242,19 @@ function Resolve-EvidenceDocId {
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param([Parameter(Mandatory)][string]$Id, [Parameter(Mandatory)][hashtable]$Docs, [string[]]$Seen = @())
+    param([Parameter(Mandatory)][string]$Id, [Parameter(Mandatory)][hashtable]$Docs, [string[]]$Seen = @(),
+        [System.Collections.IDictionary]$Manifest = (Get-EvidenceLegacyChunkManifest))
     Set-StrictMode -Version Latest
     if ($Seen -contains $Id) {
-        New-ActionableError -Goal 'Resolve the evidence document for a summary id' `
+        throw (New-ActionableError -AsErrorRecord -Goal 'Resolve the evidence document for a summary id' `
             -Problem "The mark or chunk chain loops back to '$Id'." `
             -Location 'EvidenceUnion.ps1: Resolve-EvidenceDocId' `
-            -NextSteps @('Remove or correct one mark in the loop (spec 6.1)', 'Check that no chunk names its own copy as its base')
+            -NextSteps @('Remove or correct one mark in the loop (spec 6.1)', 'Check that no chunk names its own copy as its base'))
     }
     $target = Get-EvidenceValidMark -Id $Id -Docs $Docs
-    if ($target) { return (Resolve-EvidenceDocId -Id $target -Docs $Docs -Seen (@($Seen) + $Id)) }
-    $base = Get-EvidenceChunkBase -Id $Id -Docs $Docs
-    if ($base) { return (Resolve-EvidenceDocId -Id $base -Docs $Docs -Seen (@($Seen) + $Id)) }
+    if ($target) { return (Resolve-EvidenceDocId -Id $target -Docs $Docs -Seen (@($Seen) + $Id) -Manifest $Manifest) }
+    $base = Get-EvidenceChunkBase -Id $Id -Docs $Docs -Manifest $Manifest
+    if ($base) { return (Resolve-EvidenceDocId -Id $base -Docs $Docs -Seen (@($Seen) + $Id) -Manifest $Manifest) }
     $Id
 }
 
@@ -204,24 +267,25 @@ function Get-EvidenceGroupMembers {
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject[]])]
-    param([Parameter(Mandatory)][string]$Canonical, [Parameter(Mandatory)][hashtable]$Docs)
+    param([Parameter(Mandatory)][string]$Canonical, [Parameter(Mandatory)][hashtable]$Docs,
+        [System.Collections.IDictionary]$Manifest = (Get-EvidenceLegacyChunkManifest))
     Set-StrictMode -Version Latest
     $ids = [string[]]@($Docs.Keys | Where-Object { $_ -cne $Canonical })
     [Array]::Sort($ids, [StringComparer]::Ordinal)
     $copies = [string[]]@($ids | Where-Object {
-            $null -eq (Get-EvidenceChunkBase -Id $_ -Docs $Docs) -and
+            $null -eq (Get-EvidenceChunkBase -Id $_ -Docs $Docs -Manifest $Manifest) -and
             (Get-EvidenceValidMark -Id $_ -Docs $Docs) -and
-            (Resolve-EvidenceDocId -Id $_ -Docs $Docs) -ceq $Canonical })
+            (Resolve-EvidenceDocId -Id $_ -Docs $Docs -Manifest $Manifest) -ceq $Canonical })
     $byN = {
         param($list)
         @($list | Sort-Object -Property @{ Expression = { [int64]([regex]::Match($_, '(\d+)$').Groups[1].Value) } }, @{ Expression = { $_ } })
     }
     $out = [System.Collections.Generic.List[pscustomobject]]::new()
     foreach ($c in $copies) { $out.Add([pscustomobject]@{ Id = $c; Kind = 'copy'; Via = $null }) }
-    $own = [string[]]@($ids | Where-Object { (Get-EvidenceChunkBase -Id $_ -Docs $Docs) -ceq $Canonical })
+    $own = [string[]]@($ids | Where-Object { (Get-EvidenceChunkBase -Id $_ -Docs $Docs -Manifest $Manifest) -ceq $Canonical })
     foreach ($k in (& $byN $own)) { $out.Add([pscustomobject]@{ Id = $k; Kind = 'chunk_D'; Via = $null }) }
     foreach ($c in $copies) {
-        $kids = [string[]]@($ids | Where-Object { (Get-EvidenceChunkBase -Id $_ -Docs $Docs) -ceq $c })
+        $kids = [string[]]@($ids | Where-Object { (Get-EvidenceChunkBase -Id $_ -Docs $Docs -Manifest $Manifest) -ceq $c })
         foreach ($k in (& $byN $kids)) { $out.Add([pscustomobject]@{ Id = $k; Kind = 'chunk_copy'; Via = $c }) }
     }
     $out.ToArray()

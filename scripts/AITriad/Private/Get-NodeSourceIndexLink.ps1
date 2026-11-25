@@ -1,6 +1,72 @@
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
+function Get-NodeSourceIndexLinkProp {
+    # Safe property read: value of property $Name on $Object, or $null when absent.
+    param($Object, [string]$Name)
+    if ($null -ne $Object -and $Object.PSObject.Properties[$Name]) { $Object.$Name } else { $null }
+}
+
+function Resolve-NodeSourceIndexId {
+    # Fold a node id through the superseded->survivor map; ids pass through when the map is absent.
+    param([string]$Id, [System.Collections.Generic.IDictionary[string, string]]$ResolveMap)
+    if ($Id -and $ResolveMap -and $ResolveMap.ContainsKey($Id)) { $ResolveMap[$Id] } else { $Id }
+}
+
+function Get-NodeSourceIndexKeyPointLink {
+    # Key-point (taxonomy_node_id) links on live nodes, as spec 7.1.
+    param(
+        $Summary, [string]$SourceId,
+        [System.Collections.Generic.HashSet[string]]$Live,
+        [System.Collections.Generic.IDictionary[string, string]]$ResolveMap
+    )
+    $povs = Get-NodeSourceIndexLinkProp $Summary 'pov_summaries'
+    if (-not $povs) { return }
+    foreach ($pov in $povs.PSObject.Properties.Name) {
+        $block = $povs.$pov
+        if (-not ($block.PSObject.Properties['key_points'])) { continue }
+        foreach ($kp in @($block.key_points)) {
+            $nid = [string](Resolve-NodeSourceIndexId ([string](Get-NodeSourceIndexLinkProp $kp 'taxonomy_node_id')) $ResolveMap)
+            if (-not $nid -or -not $Live.Contains($nid)) { continue }
+            $v = Get-NodeSourceIndexLinkProp $kp 'verbatim'; $pt = Get-NodeSourceIndexLinkProp $kp 'point'
+            $q = if ($null -ne $v) { [string]$v } else { '' }
+            $cmp = if (-not [string]::IsNullOrWhiteSpace($q)) { $q } elseif ($pt -is [string]) { $pt } else { '' }
+            [pscustomobject]@{
+                node = $nid; field = 'key_point'; quote = $cmp
+                payload = [pscustomobject]@{
+                    source_id = $SourceId; link_source = 'key_point'; quote = $q
+                    doc_position = $null; evidence_level = $null; extraction_confidence = (Get-NodeSourceIndexLinkProp $kp 'extraction_confidence')
+                }
+            }
+        }
+    }
+}
+
+function Get-NodeSourceIndexClaimLink {
+    # Factual-claim (linked_taxonomy_nodes) links on live nodes, as spec 7.1.
+    param(
+        $Summary, [string]$SourceId,
+        [System.Collections.Generic.HashSet[string]]$Live,
+        [System.Collections.Generic.IDictionary[string, string]]$ResolveMap
+    )
+    foreach ($fc in @(Get-NodeSourceIndexLinkProp $Summary 'factual_claims')) {
+        if ($null -eq $fc -or -not $fc.PSObject.Properties['linked_taxonomy_nodes']) { continue }
+        $q = [string](Get-NodeSourceIndexLinkProp $fc 'claim')
+        foreach ($nid in @($fc.linked_taxonomy_nodes)) {
+            $nid = [string](Resolve-NodeSourceIndexId ([string]$nid) $ResolveMap)
+            if (-not $nid -or -not $Live.Contains($nid)) { continue }
+            [pscustomobject]@{
+                node = $nid; field = 'factual_claim'; quote = $q
+                payload = [pscustomobject]@{
+                    source_id = $SourceId; link_source = 'factual_claim'; quote = $q
+                    doc_position = (Get-NodeSourceIndexLinkProp $fc 'doc_position'); evidence_level = (Get-NodeSourceIndexLinkProp $fc 'evidence_criteria')
+                    extraction_confidence = (Get-NodeSourceIndexLinkProp $fc 'extraction_confidence')
+                }
+            }
+        }
+    }
+}
+
 function Get-NodeSourceIndexLink {
     <#
     .SYNOPSIS
@@ -26,45 +92,6 @@ function Get-NodeSourceIndexLink {
         [System.Collections.Generic.IDictionary[string, string]]$ResolveMap
     )
     Set-StrictMode -Version Latest
-    $fold = { param([string]$id) if ($id -and $ResolveMap -and $ResolveMap.ContainsKey($id)) { $ResolveMap[$id] } else { $id } }
-    $prop = { param($o, $n) if ($null -ne $o -and $o.PSObject.Properties[$n]) { $o.$n } else { $null } }
-
-    $povs = & $prop $Summary 'pov_summaries'
-    if ($povs) {
-        foreach ($pov in $povs.PSObject.Properties.Name) {
-            $block = $povs.$pov
-            if (-not ($block.PSObject.Properties['key_points'])) { continue }
-            foreach ($kp in @($block.key_points)) {
-                $nid = [string](& $fold ([string](& $prop $kp 'taxonomy_node_id')))
-                if (-not $nid -or -not $Live.Contains($nid)) { continue }
-                $v = & $prop $kp 'verbatim'; $pt = & $prop $kp 'point'
-                $q = if ($null -ne $v) { [string]$v } else { '' }
-                $cmp = if (-not [string]::IsNullOrWhiteSpace($q)) { $q } elseif ($pt -is [string]) { $pt } else { '' }
-                [pscustomobject]@{
-                    node = $nid; field = 'key_point'; quote = $cmp
-                    payload = [pscustomobject]@{
-                        source_id = $SourceId; link_source = 'key_point'; quote = $q
-                        doc_position = $null; evidence_level = $null; extraction_confidence = (& $prop $kp 'extraction_confidence')
-                    }
-                }
-            }
-        }
-    }
-
-    foreach ($fc in @(& $prop $Summary 'factual_claims')) {
-        if ($null -eq $fc -or -not $fc.PSObject.Properties['linked_taxonomy_nodes']) { continue }
-        $q = [string](& $prop $fc 'claim')
-        foreach ($nid in @($fc.linked_taxonomy_nodes)) {
-            $nid = [string](& $fold ([string]$nid))
-            if (-not $nid -or -not $Live.Contains($nid)) { continue }
-            [pscustomobject]@{
-                node = $nid; field = 'factual_claim'; quote = $q
-                payload = [pscustomobject]@{
-                    source_id = $SourceId; link_source = 'factual_claim'; quote = $q
-                    doc_position = (& $prop $fc 'doc_position'); evidence_level = (& $prop $fc 'evidence_criteria')
-                    extraction_confidence = (& $prop $fc 'extraction_confidence')
-                }
-            }
-        }
-    }
+    Get-NodeSourceIndexKeyPointLink -Summary $Summary -SourceId $SourceId -Live $Live -ResolveMap $ResolveMap
+    Get-NodeSourceIndexClaimLink -Summary $Summary -SourceId $SourceId -Live $Live -ResolveMap $ResolveMap
 }

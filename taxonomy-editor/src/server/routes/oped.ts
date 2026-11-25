@@ -40,6 +40,7 @@ import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
 import { getProjectRoot } from '../config.js';
 import { createWebOpEdAdapter, type WebOpEdAdapterOptions } from '../ai/opedAdapter.js';
 import { resolveOpEdFunding } from './opedFunding.js';
+import { refuseAnonOpEdCreate, opedQuotaStatus, warnIfNearAnonByteCap } from './opedAnonLimits.js';
 import * as ai from '../ai/aiBackends.js';
 import { OUTLET_BANDS } from '../../../../lib/oped/outletBands.js';
 import { randomUUID } from 'crypto';
@@ -246,6 +247,7 @@ async function driveOpEdRun(
       writeFrame(event as unknown as Record<string, unknown>);
       logVoiceFailure(event, request.params.model);
       if (event.type === 'complete') {
+        warnIfNearAnonByteCap(event.set); // t/500#61: anonymous only; size only, never discards the run
         await finalizeOpedSet(event.set);
         run.status = Object.values(run.perVoice).some(s => s === 'cancelled') ? 'cancelled' : 'complete';
       }
@@ -272,6 +274,20 @@ async function driveOpEdRun(
     // status is terminal → never counted toward the concurrency cap). Terminal state was persisted above.
     if (!isClientGone()) { try { res.end(); } catch { /* telemetry — silent by design (already closed) */ } }
   }
+}
+
+/** The count and size limits on a create, before any spend: t/500's anonymous shape, byte cap and live-set limit
+ *  (opedAnonLimits.ts, a no-op for signed-in callers), then the stored-set quota and the one-running-run cap. True when a
+ *  429 or 400 was written. Extracted to keep the POST handler under the complexity budget. */
+async function refuseOverCreateLimits(res: import('http').ServerResponse, userId: string, voices: number, params: OpEdParams): Promise<boolean> {
+  if (await refuseAnonOpEdCreate(res, voices, params.wordCount, params.outlet)) return true;
+  const quota = await getOpedSetsQuotaStatus();
+  if (!quota.allowed) { json(res, { error: 'quota_exceeded', resource: quota.resource, current: quota.current, limit: quota.limit }, 429); return true; }
+  // Shared-store count (self-healing: lazy-expires stale 'running' blobs). No local sweep.
+  if (await countRunningOpedRuns(userId) >= MAX_CONCURRENT_OPED_RUNS) {
+    json(res, { error: 'concurrency_limit', message: 'You already have an op-ed generating; wait for it to finish.', limit: MAX_CONCURRENT_OPED_RUNS }, 429); return true;
+  }
+  return false;
 }
 
 /** t/3993: validate tagSelection before SSE commits. Logs and returns the client-safe
@@ -317,6 +333,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     const parsed = parseOpEdCreateRequest(body);
     if (!parsed.ok) { error(res, parsed.message, parsed.status); return; }
     const { topic, povs, params, url, documentText, sourceName } = parsed.value;
+    // t/500 (t/666): a stored anonymous op-ed has a bounded shape, size and count, all checked before any spend.
     // Tier-backend entitlement via the shared helper (t/2635 — folds op-ed onto the ONE
     // entitlement path in routes/generationContext.ts, replacing the local resolveOpEdModel
     // mirror). Free tier's model is pinned; a free/restricted caller can't reach a premium
@@ -336,12 +353,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     if (tagErr) { error(res, tagErr, 400); return; }
 
     const userId = getStorageUserId();
-    const quota = await getOpedSetsQuotaStatus();
-    if (!quota.allowed) { json(res, { error: 'quota_exceeded', resource: quota.resource, current: quota.current, limit: quota.limit }, 429); return; }
-    // Shared-store count (self-healing: lazy-expires stale 'running' blobs). No local sweep.
-    if (await countRunningOpedRuns(userId) >= MAX_CONCURRENT_OPED_RUNS) {
-      json(res, { error: 'concurrency_limit', message: 'You already have an op-ed generating; wait for it to finish.', limit: MAX_CONCURRENT_OPED_RUNS }, 429); return;
-    }
+    if (await refuseOverCreateLimits(res, userId, povs.length, params)) return;
 
     // ── URL source fetch (t/2807) ──
     // Reuse the SSRF-hardened fileIO.fetchUrlContent — the SAME path debates use
@@ -443,7 +455,8 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
   // Delegates to getOpedSetsQuotaStatus() so the pre-check never diverges from the
   // cap the finalizeOpedSet path enforces (Shared Utility Rule).
   get('/api/oped-sets/quota-status', async (_req, res) => {
-    try { json(res, await getOpedSetsQuotaStatus()); }
+    // t/500 (t/666): a keyed anonymous visitor also gets { limit, used, remaining } for the live-set limit.
+    try { json(res, await opedQuotaStatus()); }
     catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'oped', level: 'error', message: 'Failed to check oped quota', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       error(res, String(err), 500, err);

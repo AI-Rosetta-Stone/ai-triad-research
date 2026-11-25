@@ -391,6 +391,31 @@ Describe 'Import-OrganizationEdge upsert + validation (t/1526)' -Tag 'taxonomy' 
         }
     }
 
+    It 'Stores match_meta from -InputObject, keeps it on a later update that brings none, and writes none when none was given (t/584)' {
+        InModuleScope AITriad -Parameters @{ P = $script:tmpPath } {
+            param($P)
+            $script:__testEdgePath = $P
+            Mock Get-OrganizationEdgesFilePath { $script:__testEdgePath } -ModuleName AITriad
+            $meta = [ordered]@{ stage = 3; basis = 'high-cosine'; families = 1; best_cosine = 0.707 }
+            Import-OrganizationEdge -InputObject ([PSCustomObject]@{ source = 'org-001'; target = 'acc-beliefs-001'; type = 'ADVOCATES_FOR'; rationale = 'A sentence.'; match_meta = $meta; status = 'proposed' }) -Confirm:$false 6>$null 3>$null | Out-Null
+            Import-OrganizationEdge -Source org-001 -Target org-002 -Type COMPETES_WITH -Rationale 'competitors' -Confirm:$false 6>$null 3>$null | Out-Null
+
+            $stored = @((Get-Content -Raw -LiteralPath $P | ConvertFrom-Json).edges)
+            $matched = $stored | Where-Object { $_.type -eq 'ADVOCATES_FOR' }
+            $matched.rationale | Should -Be 'A sentence.'
+            $matched.match_meta.stage | Should -Be 3
+            $matched.match_meta.basis | Should -Be 'high-cosine'
+            $matched.match_meta.best_cosine | Should -Be 0.707
+            ($stored | Where-Object { $_.type -eq 'COMPETES_WITH' }).PSObject.Properties['match_meta'] | Should -BeNullOrEmpty
+
+            # A reviewer's edit through the field parameters brings no match_meta: the stored one stays.
+            Import-OrganizationEdge -Source org-001 -Target acc-beliefs-001 -Type ADVOCATES_FOR -Rationale 'Edited.' -Confirm:$false 6>$null 3>$null | Out-Null
+            $after = @((Get-Content -Raw -LiteralPath $P | ConvertFrom-Json).edges) | Where-Object { $_.type -eq 'ADVOCATES_FOR' }
+            $after.rationale | Should -Be 'Edited.'
+            $after.match_meta.basis | Should -Be 'high-cosine'
+        }
+    }
+
     It 'Different type on the same (source,target) pair creates a distinct edge, not an update' {
         InModuleScope AITriad -Parameters @{ P = $script:tmpPath } {
             param($P)

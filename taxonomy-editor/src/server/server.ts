@@ -49,11 +49,15 @@ import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
 import { logRequestMetrics, REQUEST_METRICS_LOG_DELAY_MS } from './requestMetricsLog.js';
-import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, anonymousStorageUserId, type UserContext } from './security/userContext.js';
+import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, type UserContext } from './security/userContext.js';
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
 import { anonRouteDecision } from './anonAiRoutes.js';
+import { anonRequestIdentity, refuseUnkeyedHostedAnonymous } from './anonRequestIdentity.js';
+import { loadAnonSessionSecret } from './security/anonSessionSecret.js';
+import { startAnonOpedSweep } from './storage/opedStore.js';
 import { enforceAuthGate, enforceAnonRouteGuard, type AuthGateCtx, type AuthGateDeps } from './authGates.js';
+import { resolveAllowlist, type AuthorizedUsersFile } from './authorizedUsers.js';
 import { getRollbackStatus } from './rollbackStatus.js';
 import { getErrorSummaryCached, type ErrorEntry } from './errorAggregation.js';
 import { isCaseStatus } from './support/types.js';
@@ -65,7 +69,7 @@ import { resolveAllowedOrigins, corsOriginFor, resolveBindHost, isNonLoopbackDev
 import { parseCookies } from './httpCookies.js';
 import { registerAllRoutes } from './routes/all.js';
 import { invalidateConflictsCache, warmConflictsCache } from './routes/conflicts.js';
-import { anonSessionCookiesWithCreated } from './routes/session.js';
+import { handleAnonAuthEndpoints } from './anonAuthEndpoints.js';
 import { setDataRootReady, setDataRootFailed } from './routes/dataRootReadiness.js'; // t/3309: data-root → /readyz readiness cache
 import { buildLoginPage, FORBIDDEN_PAGE, SW_HEAL_SCRIPT_CSP_HASH, loginPageHeaders } from './loginPage.js';
 import type { ServerCtx } from './routes/context.js';
@@ -443,43 +447,7 @@ function getCorsOrigin(req: http.IncomingMessage): string {
 // Azure Easy Auth sets X-MS-CLIENT-PRINCIPAL-NAME and X-MS-CLIENT-PRINCIPAL-IDP
 // after successful login. We match against emails, GitHub username, or display name.
 
-interface AuthorizedUser {
-  name: string;
-  emails?: string[];
-  github?: string;
-}
-
-interface AuthorizedUsersFile {
-  users: AuthorizedUser[];
-}
-
-function loadAuthorizedUsers(): AuthorizedUsersFile | null {
-  // Only load from the data volume — auth is opt-in per deployment.
-  // Drop authorized-users.json into /data/ (Azure Files) to enable the gate.
-  const candidates = [
-    path.join(getDataRoot(), 'authorized-users.json'),
-  ];
-  for (const p of candidates) {
-    try {
-      if (fs.existsSync(p)) {
-        // eslint-disable-next-line local/no-raw-data-root-read -- auth allowlist is mount-sourced (/data volume) with an existsSync fallback loop BY DESIGN; routing through readDataFile would flip the trust source from the mount to the data-repo-via-API (auth surface — t/3093#3, ServerAPI route-b)
-        const data = JSON.parse(fs.readFileSync(p, 'utf-8')) as AuthorizedUsersFile;
-        log.auth.info({ count: data.users.length, path: p }, 'Loaded authorized users');
-        return data;
-      }
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        component: 'server',
-        level: 'error',
-        message: 'Operation failed',
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      log.auth.error({ path: p, err }, 'Failed to parse authorized users file');
-    }
-  }
-  return null; // No file found = no restriction
-}
+// t/625: the allowlist loader and its types live in authorizedUsers.ts (testable without starting the server).
 
 let authorizedUsersCache: AuthorizedUsersFile | null | undefined;
 let authorizedUsersCacheTime = 0;
@@ -488,7 +456,7 @@ const AUTH_CACHE_TTL = 30_000; // Re-read file every 30s
 function getAuthorizedUsers(): AuthorizedUsersFile | null {
   const now = Date.now();
   if (authorizedUsersCache === undefined || now - authorizedUsersCacheTime > AUTH_CACHE_TTL) {
-    authorizedUsersCache = loadAuthorizedUsers();
+    authorizedUsersCache = resolveAllowlist(); // t/625: hosted required-auth with no file → an empty list (deny all)
     authorizedUsersCacheTime = now;
   }
   return authorizedUsersCache;
@@ -602,6 +570,8 @@ async function handleRequestInner(
   // getCurrentUserId() inside getApiKey()/storeApiKey() sees the caller.
   // Unauthenticated paths (local dev, kill-switch, public endpoints) fall
   // back to '_local' — which keyStore ignores in local-file mode.
+  // t/500 (TL p/16#417): a hosted anonymous /api/ request with no verified session never reaches a per-visitor store.
+  if (refuseUnkeyedHostedAnonymous(req, res, { urlPath, isPublicPath, principalName, authOptional })) return;
   const userCtx = await resolveRequestUserContext(req, res, principalName, idp);
   if (!userCtx) return;
   await runWithUser(userCtx, async () => {
@@ -745,35 +715,7 @@ function resolvePrincipalIdentity(req: http.IncomingMessage, res: http.ServerRes
 
 /** The two anonymous-session establishment endpoints (t/1483). Returns true when handled
  *  (cookies set + responded). Must run before the auth gate — the caller has no session yet. */
-function handleAnonAuthEndpoints(req: http.IncomingMessage, res: http.ServerResponse, urlPath: string, authOptional: boolean): boolean {
-  // /.auth/anonymous — sets a session cookie and redirects to the app (browser
-  // link on the login page). POST /api/auth/anonymous below is the JSON sibling.
-  if (urlPath === '/.auth/anonymous' && authOptional) {
-    res.writeHead(302, {
-      'Location': '/',
-      'Set-Cookie': anonSessionCookiesWithCreated(req), // t/2464 (id) + t/2493 (created marker on fresh mint)
-    });
-    res.end();
-    return true;
-  }
-
-  // POST /api/auth/anonymous — JSON sibling of GET /.auth/anonymous (t/1483,
-  // follow-up from t/1476). Establishes an anonymous session for programmatic
-  // callers (the web-bridge session-recovery path) with the same two cookies but
-  // a JSON 200 instead of a 302 + ~2KB HTML round-trip. Must run before the auth
-  // gate below — the caller has no session yet. POST-only so a stray GET still
-  // falls through to the 302 link / login page. The session id stays in the
-  // HttpOnly cookie and is never echoed in the body.
-  if (urlPath === '/api/auth/anonymous' && req.method === 'POST' && authOptional) {
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Set-Cookie': anonSessionCookiesWithCreated(req), // t/2464 (id) + t/2493 (created marker on fresh mint)
-    });
-    res.end(JSON.stringify({ ok: true, anonymous: true }));
-    return true;
-  }
-  return false;
-}
+// t/666 (SO p/252#59): handleAnonAuthEndpoints moved to anonAuthEndpoints.ts, which also catches a signing failure.
 
 /** Clear anonymous cookies when a user signs in via EasyAuth. */
 function clearAnonCookiesOnSignin(req: http.IncomingMessage, res: http.ServerResponse, principalName: string): void {
@@ -801,8 +743,11 @@ async function resolveRequestUserContext(req: http.IncomingMessage, res: http.Se
   const effectiveIdp = idp || '_local';
   // t/467 (PI option a): an anonymous visitor's storage key comes from their own anon_session_id cookie,
   // not the shared '_local' store that the signed-in local user also uses.
-  const anonymousSessionId = isAnon ? parseCookies(req).get('anon_session_id') : undefined;
-  const storageUserId = isAnon ? anonymousStorageUserId(anonymousSessionId) : deriveStorageUserId(effectivePrincipal, effectiveIdp);
+  // t/664, t/666 (Security p/93#106, #110): the storage id comes from the RAW signed cookie (anonymousStorageUserId verifies
+  // it); the context keeps only the VERIFIED uuid. anonRequestIdentity.ts holds the rule and its HTTP-level test.
+  const anon = isAnon ? anonRequestIdentity(req) : undefined;
+  const anonymousSessionId = anon?.anonymousSessionId;
+  const storageUserId = anon ? anon.storageUserId : deriveStorageUserId(effectivePrincipal, effectiveIdp);
 
   // Cross-provider collision guard: verify the idp matches the one that first
   // claimed this storageUserId. Prevents a different provider from accessing
@@ -1130,10 +1075,14 @@ function handleTerminalConnection(ws: WebSocket) {
 
 let isShuttingDown = false;
 
+/** t/665: stops the anonymous op-ed expiry sweep; set at boot, called in shutdown. */
+let stopAnonOpedSweep: (() => void) | null = null;
+
 function shutdown(signal: string) {
   if (isShuttingDown) return; // Prevent double-shutdown
   isShuttingDown = true;
   log.server.info({ signal }, 'Shutting down gracefully');
+  try { stopAnonOpedSweep?.(); } catch { /* telemetry — silent by design; best effort on shutdown */ }
 
   // Dump server flight recorder on shutdown
   try {
@@ -1215,6 +1164,11 @@ initAnonymousSessionStore({
 });
 ensureFreePoolBudgetBooted(log);
 // ── Start ──
+// t/664: load the per-environment anon-session-hmac secret before serving. Hosted with no secret fails closed: anonymous
+// sessions can't be minted (503) and anonymous storage stays off, with a WARN from the loader (TL p/16#413).
+await loadAnonSessionSecret();
+// t/665: hourly sweep of anonymous op-eds past their retention (anon-oped/ only); stopped in shutdown().
+stopAnonOpedSweep = startAnonOpedSweep();
 assertStateRootIsolation(); // t/2643: refuse start if staging's state root wasn't isolated (env drift) — no-op prod/local
 // t/3296 (t/3290 prevention) → t/3309 Path B (step-3): assert taxonomy/ + dictionary/ are present AND
 // non-empty via the ACTIVE backend (validateDataRoot uses listDirectoryStrict — profile-agnostic: fs

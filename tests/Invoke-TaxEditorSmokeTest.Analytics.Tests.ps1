@@ -188,8 +188,8 @@ Describe 'Invoke-TaxEditorSmokeTest analytics write probe (t/2667; read-back rem
 
             Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null 3>$null | Out-Null
 
-            # The anon session is established exactly once for the phase.
-            Should -Invoke New-AnonymousWebSession -Times 1 -Exactly
+            # One anonymous session for the analytics phase and one for the embedding-latency phase (t/621).
+            Should -Invoke New-AnonymousWebSession -Times 2 -Exactly
             Should -Invoke Invoke-RemoteCheck -Times 1 -Exactly -ParameterFilter { $Path -eq '/api/analytics/event' -and $null -ne $Session }
         }
     }

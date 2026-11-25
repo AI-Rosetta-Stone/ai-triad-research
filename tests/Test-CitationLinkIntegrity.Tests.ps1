@@ -42,7 +42,7 @@ BeforeAll {
             factual_claims = @(@{ claim='c1'; doc_position='p1'; evidence_criteria='strong'; extraction_confidence=0.7; linked_taxonomy_nodes=@('acc-beliefs-010','sit-001') })
         }
         script:WriteJson (Join-Path $sum 'doc-beta.json') @{
-            doc_id = 'src-beta-2026-3'   # chunk -3 after year → only BASE src-beta-2026 dir exists → resolves via year-aware strip
+            doc_id = 'src-beta-2026-3'   # a LISTED legacy chunk: only its base src-beta-2026 has a dir → the index names the base, chunk_of the chunk
             pov_summaries = @{ saf = @{ key_points = @(@{ taxonomy_node_id='saf-beliefs-201'; verbatim='q2'; extraction_confidence=0.6 }) } }
         }
         script:WriteJson (Join-Path $sum 'doc-gamma.json') @{
@@ -85,7 +85,7 @@ BeforeAll {
 
         # Source dirs: src-alpha + src-beta (base of src-beta-3) resolve; src-gone intentionally absent.
         script:WriteJson (Join-Path $src 'src-alpha/metadata.json')          @{ id='src-alpha';          title='Alpha' }
-        script:WriteJson (Join-Path $src 'src-beta-2026/metadata.json')      @{ id='src-beta-2026';      title='Beta (base only)' }   # doc_id src-beta-2026-3 resolves here via strip
+        script:WriteJson (Join-Path $src 'src-beta-2026/metadata.json')      @{ id='src-beta-2026';      title='Beta (base only)' }   # doc_id src-beta-2026-3 is its listed chunk
         script:WriteJson (Join-Path $src 'src-gamma-2026-1/metadata.json')   @{ id='src-gamma-2026-1';   title='Gamma (chunk dir exists)' } # doc_id src-gamma-2026-1 resolves as-is
 
         # Build the real source_index so the header inputHash is correct for leg (c).
@@ -113,9 +113,18 @@ BeforeAll {
     function script:Leg($r, $leg) { $r.results | Where-Object { $_.leg -eq $leg } }
 
     $script:Fixtures = [System.Collections.Generic.List[string]]::new()
+
+    # Spec 6.2 (t/355): a chunk is an id the legacy-chunk manifest lists, never one inferred from a '-N'
+    # suffix. The fixture's chunk is listed here, in place of the repo's manifest, for this file only.
+    & (Get-Module AITriad) {
+        $m = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
+        $m['src-beta-2026-3'] = 'src-beta-2026'
+        $script:EvidenceLegacyChunkManifest = $m
+    }
 }
 
 AfterAll {
+    & (Get-Module AITriad) { $script:EvidenceLegacyChunkManifest = $null }
     foreach ($p in $script:Fixtures) { if (Test-Path $p) { Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue } }
 }
 
@@ -180,7 +189,8 @@ Describe 'Test-CitationLinkIntegrity (t/3598)' -Tag 'config' {
         $b = script:Leg $r 'b'
         $b.pass | Should -BeFalse
         @($b.offenders.source_id) | Should -Contain 'src-gone'
-        @($b.offenders.source_id) | Should -Not -Contain 'src-beta-2026-3'    # resolves via year-aware base strip
+        @($b.offenders.source_id) | Should -Not -Contain 'src-beta-2026-3'    # a listed chunk: indexed under its base
+        @($b.offenders.source_id) | Should -Not -Contain 'src-beta-2026'
         @($b.offenders.source_id) | Should -Not -Contain 'src-gamma-2026-1'   # resolves as-is (chunk dir exists)
         @($b.offenders.source_id) | Should -Not -Contain 'src-alpha'
     }

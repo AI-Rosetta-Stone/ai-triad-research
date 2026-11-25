@@ -77,6 +77,64 @@ function Test-AttributionLooseMention {
     $false
 }
 
+function Get-AttributionFactValue {
+    # Read a field from a fact that may be a hashtable or an object.
+    param($Fact, [string]$Key)
+    if ($Fact -is [System.Collections.IDictionary]) { return [string]$Fact[$Key] }
+    [string]$Fact.$Key
+}
+
+function Add-AttributionQuoteBasis {
+    # Step 1: mark listed docs whose fact claim matches a stored quote. Mutates $Basis in place.
+    param($Facts, $InList, [string[]]$QuoteKeys, $Basis)
+    foreach ($f in $Facts) {
+        $doc = Get-AttributionFactValue -Fact $f -Key 'doc_id'
+        $claim = Get-AttributionFactValue -Fact $f -Key 'claim'
+        if (-not $doc -or -not $InList.Contains($doc) -or $Basis.Contains($doc)) { continue }
+        $ck = ConvertTo-EvidenceKey -Quote $claim
+        if (-not $ck) { continue }
+        foreach ($q in $QuoteKeys) { if (Test-AttributionQuoteMatch -ClaimKey $ck -QuoteKey $q) { $Basis[$doc] = 'quote-attributed'; break } }
+    }
+}
+
+function Add-AttributionMentionBasis {
+    # Step 2: mark listed docs not already attributed whose snapshot names the entity. Fills $SnapKey and
+    # mutates $Basis in place.
+    param($Candidates, $GetSnapshotText, [string[]]$NameKeys, $Basis, $SnapKey)
+    foreach ($d in $Candidates) {
+        if ($Basis.Contains($d)) { continue }
+        $t = & $GetSnapshotText $d
+        $SnapKey[$d] = if ($t) { ConvertTo-EvidenceKey -Quote ([string]$t) } else { '' }
+        if (Test-AttributionStrictMention -TextKey $SnapKey[$d] -NameKeys $NameKeys) { $Basis[$d] = 'mention-verified' }
+    }
+}
+
+function Add-AttributionRecallBasis {
+    # Step 3: recall steps (loose mention, then summary mention), only when steps 1 and 2 found nothing.
+    # Mutates $Basis in place.
+    param($Candidates, $GetSummaryText, [string[]]$NameKeys, $Basis, $SnapKey)
+    if ($Basis.Count -eq 0) {
+        foreach ($d in $Candidates) {
+            if (Test-AttributionLooseMention -TextKey $SnapKey[$d] -NameKeys $NameKeys) { $Basis[$d] = 'mention-verified-loose' }
+        }
+    }
+    if ($Basis.Count -eq 0 -and $GetSummaryText) {
+        foreach ($d in $Candidates) {
+            $s = & $GetSummaryText $d
+            if ($s -and (Test-AttributionStrictMention -TextKey (ConvertTo-EvidenceKey -Quote ([string]$s)) -NameKeys $NameKeys)) { $Basis[$d] = 'summary-mention' }
+        }
+    }
+}
+
+function ConvertTo-OrderedAttribution {
+    # Order: quote-attributed docs first, then the rest, each ordinal.
+    param($Basis)
+    $ordered = [ordered]@{}
+    foreach ($d in ($Basis.Keys | Where-Object { $Basis[$_] -eq 'quote-attributed' } | Sort-Object -CaseSensitive)) { $ordered[$d] = $Basis[$d] }
+    foreach ($d in ($Basis.Keys | Where-Object { $Basis[$_] -ne 'quote-attributed' } | Sort-Object -CaseSensitive)) { $ordered[$d] = $Basis[$d] }
+    $ordered
+}
+
 function Get-EntitySourceAttribution {
     <#
     .SYNOPSIS
@@ -112,43 +170,19 @@ function Get-EntitySourceAttribution {
     $candidates = [string[]]@($CandidateDocs | Where-Object { $_ } | Select-Object -Unique | Sort-Object -CaseSensitive)
     $inList = [System.Collections.Generic.HashSet[string]]::new($candidates, [StringComparer]::Ordinal)
     $basis = [ordered]@{}
+    $snapKey = @{}
 
     # 1. quote-attributed: a fact of a listed doc whose claim contains the quote (or is contained by it).
-    foreach ($f in $Facts) {
-        $doc = if ($f -is [System.Collections.IDictionary]) { [string]$f['doc_id'] } else { [string]$f.doc_id }
-        $claim = if ($f -is [System.Collections.IDictionary]) { [string]$f['claim'] } else { [string]$f.claim }
-        if (-not $doc -or -not $inList.Contains($doc) -or $basis.Contains($doc)) { continue }
-        $ck = ConvertTo-EvidenceKey -Quote $claim
-        if (-not $ck) { continue }
-        foreach ($q in $quoteKeys) { if (Test-AttributionQuoteMatch -ClaimKey $ck -QuoteKey $q) { $basis[$doc] = 'quote-attributed'; break } }
-    }
+    Add-AttributionQuoteBasis -Facts $Facts -InList $inList -QuoteKeys $quoteKeys -Basis $basis
 
     # 2. mention-verified: the other listed docs whose snapshot names the entity.
-    $snapKey = @{}
-    foreach ($d in $candidates) {
-        if ($basis.Contains($d)) { continue }
-        $t = & $GetSnapshotText $d
-        $snapKey[$d] = if ($t) { ConvertTo-EvidenceKey -Quote ([string]$t) } else { '' }
-        if (Test-AttributionStrictMention -TextKey $snapKey[$d] -NameKeys $nameKeys) { $basis[$d] = 'mention-verified' }
-    }
+    Add-AttributionMentionBasis -Candidates $candidates -GetSnapshotText $GetSnapshotText -NameKeys $nameKeys -Basis $basis -SnapKey $snapKey
 
     # 3. Recall steps, only when 1 and 2 found nothing.
-    if ($basis.Count -eq 0) {
-        foreach ($d in $candidates) {
-            if (Test-AttributionLooseMention -TextKey $snapKey[$d] -NameKeys $nameKeys) { $basis[$d] = 'mention-verified-loose' }
-        }
-    }
-    if ($basis.Count -eq 0 -and $GetSummaryText) {
-        foreach ($d in $candidates) {
-            $s = & $GetSummaryText $d
-            if ($s -and (Test-AttributionStrictMention -TextKey (ConvertTo-EvidenceKey -Quote ([string]$s)) -NameKeys $nameKeys)) { $basis[$d] = 'summary-mention' }
-        }
-    }
+    Add-AttributionRecallBasis -Candidates $candidates -GetSummaryText $GetSummaryText -NameKeys $nameKeys -Basis $basis -SnapKey $snapKey
 
     # Order: quote-attributed docs first, then the rest, each ordinal.
-    $ordered = [ordered]@{}
-    foreach ($d in ($basis.Keys | Where-Object { $basis[$_] -eq 'quote-attributed' } | Sort-Object -CaseSensitive)) { $ordered[$d] = $basis[$d] }
-    foreach ($d in ($basis.Keys | Where-Object { $basis[$_] -ne 'quote-attributed' } | Sort-Object -CaseSensitive)) { $ordered[$d] = $basis[$d] }
+    $ordered = ConvertTo-OrderedAttribution -Basis $basis
     [pscustomobject]@{
         source_refs        = [string[]]@($ordered.Keys)
         source_refs_basis  = $ordered
@@ -156,22 +190,32 @@ function Get-EntitySourceAttribution {
     }
 }
 
+function Add-AttributionKeyPointParts {
+    # The key-point point + verbatim text across all POV summaries. Appends to $Parts in place.
+    param($Summary, $Parts)
+    if (-not ($Summary.PSObject.Properties['pov_summaries'] -and $Summary.pov_summaries)) { return }
+    foreach ($pov in $Summary.pov_summaries.PSObject.Properties) {
+        if ($null -eq $pov.Value -or -not $pov.Value.PSObject.Properties['key_points']) { continue }
+        foreach ($kp in @($pov.Value.key_points)) {
+            if (-not $kp) { continue }
+            foreach ($f in 'point', 'verbatim') { if ($kp.PSObject.Properties[$f] -and $kp.$f) { $Parts.Add([string]$kp.$f) } }
+        }
+    }
+}
+
+function Add-AttributionClaimParts {
+    # The factual_claims claim text. Appends to $Parts in place.
+    param($Summary, $Parts)
+    if (-not $Summary.PSObject.Properties['factual_claims']) { return }
+    foreach ($fc in @($Summary.factual_claims)) { if ($fc -and $fc.PSObject.Properties['claim'] -and $fc.claim) { $Parts.Add([string]$fc.claim) } }
+}
+
 function Get-AttributionSummaryText {
     # The summary text Phase 1's mentions came from: key-point point + verbatim, and factual claims.
     param($Summary)
     if ($null -eq $Summary) { return $null }
     $parts = [System.Collections.Generic.List[string]]::new()
-    if ($Summary.PSObject.Properties['pov_summaries'] -and $Summary.pov_summaries) {
-        foreach ($pov in $Summary.pov_summaries.PSObject.Properties) {
-            if ($null -eq $pov.Value -or -not $pov.Value.PSObject.Properties['key_points']) { continue }
-            foreach ($kp in @($pov.Value.key_points)) {
-                if (-not $kp) { continue }
-                foreach ($f in 'point', 'verbatim') { if ($kp.PSObject.Properties[$f] -and $kp.$f) { $parts.Add([string]$kp.$f) } }
-            }
-        }
-    }
-    if ($Summary.PSObject.Properties['factual_claims']) {
-        foreach ($fc in @($Summary.factual_claims)) { if ($fc -and $fc.PSObject.Properties['claim'] -and $fc.claim) { $parts.Add([string]$fc.claim) } }
-    }
+    Add-AttributionKeyPointParts -Summary $Summary -Parts $parts
+    Add-AttributionClaimParts -Summary $Summary -Parts $parts
     $parts -join "`n"
 }

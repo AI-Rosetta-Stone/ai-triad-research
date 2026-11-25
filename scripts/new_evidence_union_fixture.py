@@ -270,19 +270,27 @@ DERIVED_KEY_CASES = [
 # N2 provenance fields. The reference rules are R1 to R7 on t/355#17. `docs` maps a document id to
 #   {"has_source": bool, "mark": <target id or None>, "summary": <summary dict>,
 #    "chunk_generated_at": <str or absent>, "chunk_model": <str or absent>}.
+# v4 (spec 6.2 as amended, TL t/355#43): a chunk is named, not inferred. Each case carries its own
+# `manifest` {chunk id: base id}, standing in for docs/specs/source-identity-legacy-chunks.json. An id
+# that is not in the manifest is never a chunk, whatever its shape and whether or not it has a source dir.
 
 import re
 
 CHUNK_RE = re.compile(r"^(.+)-(\d+)$")
 
 
-def chunk_base(doc_id, docs):
-    """R1 (6.2): the base X when doc_id is a summary-only chunk <X>-N (no source dir of its own) of X with a source dir."""
-    m = CHUNK_RE.match(doc_id)
-    if not m or docs.get(doc_id, {}).get("has_source"):
+class MissingBase(ValueError):
+    """A listed chunk whose base does not exist (spec 6.2: refuse, and name the id)."""
+
+
+def chunk_base(doc_id, docs, manifest):
+    """R1 (6.2): the base the manifest names for doc_id, or None when doc_id is not listed."""
+    base = manifest.get(doc_id)
+    if base is None:
         return None
-    base = m.group(1)
-    return base if docs.get(base, {}).get("has_source") else None
+    if base not in docs:
+        raise MissingBase(doc_id)
+    return base
 
 
 def valid_mark(doc_id, docs):
@@ -290,39 +298,39 @@ def valid_mark(doc_id, docs):
     return target if target and target in docs and target != doc_id else None
 
 
-def resolve(doc_id, docs, _seen=()):
+def resolve(doc_id, docs, manifest, _seen=()):
     """R1 (6.2, transitive): a valid mark, or a chunk's base, followed to the end. A cycle refuses to resolve."""
     if doc_id in _seen:
         raise ValueError(f"cycle at {doc_id}")
     target = valid_mark(doc_id, docs)
     if target is not None:
-        return resolve(target, docs, _seen + (doc_id,))
-    base = chunk_base(doc_id, docs)
+        return resolve(target, docs, manifest, _seen + (doc_id,))
+    base = chunk_base(doc_id, docs, manifest)
     if base is not None:
-        return resolve(base, docs, _seen + (doc_id,))
+        return resolve(base, docs, manifest, _seen + (doc_id,))
     return doc_id
 
 
-def group(canonical, docs):
+def group(canonical, docs, manifest):
     """R2 (7.1): the canonical, valid-marked copies by ordinal, then chunks: D's own, then each copy's, each by N ascending.
     Returns (member_id, kind, via) with kind in {copy, chunk_D, chunk_copy}."""
-    copies = sorted((i for i in docs if i != canonical and valid_mark(i, docs) and resolve(i, docs) == canonical), key=utf16_sort)
+    copies = sorted((i for i in docs if i != canonical and valid_mark(i, docs) and resolve(i, docs, manifest) == canonical), key=utf16_sort)
     out = [(i, "copy", None) for i in copies]
 
     def by_n(ids):
         return sorted(ids, key=lambda i: int(CHUNK_RE.match(i).group(2)))
 
-    own = [i for i in docs if chunk_base(i, docs) == canonical]
+    own = [i for i in docs if chunk_base(i, docs, manifest) == canonical]
     out += [(i, "chunk_D", None) for i in by_n(own)]
     for c in copies:
-        out += [(i, "chunk_copy", c) for i in by_n([j for j in docs if chunk_base(j, docs) == c])]
+        out += [(i, "chunk_copy", c) for i in by_n([j for j in docs if chunk_base(j, docs, manifest) == c])]
     return out
 
 
-def union_v3(canonical, docs):
+def union_v3(canonical, docs, manifest):
     """R3 and R4 (7.4): the canonical's links first, then non-canonical members in group order, each dropped if near a kept link."""
     out, keys = {}, {}
-    order = [(canonical, "canonical", None)] + group(canonical, docs)
+    order = [(canonical, "canonical", None)] + group(canonical, docs, manifest)
     for mid, kind, via in order:
         summary = docs[mid]["summary"] if mid in docs else {}
         for l in links(summary):
@@ -348,9 +356,9 @@ def union_v3(canonical, docs):
     return out
 
 
-def documents(canonical, docs):
+def documents(canonical, docs, manifest):
     """R5 (7.5): distinct resolved ids of the group (the canonical's own id included)."""
-    return len({resolve(i, docs) for i in [canonical] + [m for m, _k, _v in group(canonical, docs)]})
+    return len({resolve(i, docs, manifest) for i in [canonical] + [m for m, _k, _v in group(canonical, docs, manifest)]})
 
 
 def extract_keeps(entry):
@@ -376,22 +384,53 @@ CHUNK_DOCS_E = {
     "c-2026-1": {"has_source": False, "summary": _s(("n2", "Only the chunk of the copy found this."))},
 }
 
+MANIFEST_A = {"d-2026-1": "d-2026"}
+MANIFEST_E = {"c-2026-1": "c-2026"}
+
+# An ordinary document whose id ends in -N, with its source dir missing from the checkout. The old
+# folder-only rule folded it into its neighbour (t/355#31).
+UNLISTED_DOCS = {
+    "r-2026": {"has_source": True, "summary": _s(("n1", "The report sets out four options."))},
+    "r-2026-1": {"has_source": False, "summary": _s(("n1", "A different document that happens to share the stem."))},
+}
+
+# (name, docs, manifest, id, expected). expected is the resolved id, or MissingBase for a refusal.
 RESOLVE_CASES_V3 = [
-    ("(d) a chunk whose base has no source dir resolves to itself", {"x-2026": {"has_source": False}, "x-2026-1": {"has_source": False}}, "x-2026-1", "x-2026-1"),
-    ("a chunk of a base with a source resolves to the base", CHUNK_DOCS_A, "d-2026-1", "d-2026"),
-    ("transitive: a chunk of a marked copy resolves to the copy's canonical (TL change 1)", CHUNK_DOCS_E, "c-2026-1", "d-2026"),
+    ("(d) an id shaped like a chunk but not in the manifest resolves to itself", {"x-2026": {"has_source": False}, "x-2026-1": {"has_source": False}}, {}, "x-2026-1", "x-2026-1"),
+    ("a listed chunk resolves to its base", CHUNK_DOCS_A, MANIFEST_A, "d-2026-1", "d-2026"),
+    ("transitive: a chunk of a marked copy resolves to the copy's canonical (TL change 1)", CHUNK_DOCS_E, MANIFEST_E, "c-2026-1", "d-2026"),
+    ("not listed, no source dir, base has one: stays its own source (TL t/355#43)", UNLISTED_DOCS, {}, "r-2026-1", "r-2026-1"),
+    ("the same documents, listed: folds", UNLISTED_DOCS, {"r-2026-1": "r-2026"}, "r-2026-1", "r-2026"),
+    ("a listed chunk that has a source dir of its own still folds: the list decides", {"d-2026": {"has_source": True}, "d-2026-1": {"has_source": True}}, MANIFEST_A, "d-2026-1", "d-2026"),
+    ("a listed chunk whose base does not exist is refused", {"d-2026-1": {"has_source": False}}, MANIFEST_A, "d-2026-1", MissingBase),
 ]
 
+# (name, canonical, docs, manifest)
 CHUNK_UNION_CASES_V3 = [
-    ("(a) chunk of the canonical: the near link is dropped, the distinct one is kept with chunk_of and N2", "d-2026", CHUNK_DOCS_A),
-    ("(e) chunk of a marked copy: kept with via the copy, never chunk_of", "d-2026", CHUNK_DOCS_E),
+    ("(a) chunk of the canonical: the near link is dropped, the distinct one is kept with chunk_of and N2", "d-2026", CHUNK_DOCS_A, MANIFEST_A),
+    ("(e) chunk of a marked copy: kept with via the copy, never chunk_of", "d-2026", CHUNK_DOCS_E, MANIFEST_E),
+    ("not listed: the -N document is not in the group, and none of its links are folded", "r-2026", UNLISTED_DOCS, {}),
 ]
+
+
+def _resolve_case(name, docs, manifest, doc_id, expected):
+    case = {"name": name, "docs": docs, "manifest": manifest, "id": doc_id}
+    try:
+        got = resolve(doc_id, docs, manifest)
+    except MissingBase:
+        got = MissingBase
+    assert got == expected, (name, got)
+    if expected is MissingBase:
+        case["expected_error"] = "missing_base"
+    else:
+        case["expected"] = expected
+    return case
 
 
 def main():
     fixture = {
         "spec": "docs/specs/source-identity.md section 7",
-        "version": 3,
+        "version": 4,
         "generator": "scripts/new_evidence_union_fixture.py",
         "key_cases": [{"name": n, "quote": q, "expected_key": key(q)} for n, q in KEY_INPUTS],
         "near_cases": [{"name": n, "a": a, "b": b, "expected": near(a, b)} for n, a, b in NEAR_INPUTS],
@@ -404,11 +443,12 @@ def main():
         "derived_key_regex": "^summary:[^#]+#via-",
         "derived_key_cases": [{"key": k, "derived": d} for k, d in DERIVED_KEY_CASES],
         # v3 (t/355, R1 to R7): resolve, the group, the union with provenance, the document count, and extraction.
-        "resolve_cases": [{"name": n, "docs": d, "id": i, "expected": e} for n, d, i, e in RESOLVE_CASES_V3],
-        "chunk_union_cases": [{"name": n, "canonical": c, "docs": d,
-                               "expected": union_v3(c, d), "expected_documents": documents(c, d),
-                               "expected_extracted": {node: [e for e in es if extract_keeps(e)] for node, es in union_v3(c, d).items()}}
-                              for n, c, d in CHUNK_UNION_CASES_V3],
+        # v4: each case names its chunks in `manifest`; a refusal is `expected_error`.
+        "resolve_cases": [_resolve_case(*c) for c in RESOLVE_CASES_V3],
+        "chunk_union_cases": [{"name": n, "canonical": c, "docs": d, "manifest": m,
+                               "expected": union_v3(c, d, m), "expected_documents": documents(c, d, m),
+                               "expected_extracted": {node: [e for e in es if extract_keeps(e)] for node, es in union_v3(c, d, m).items()}}
+                              for n, c, d, m in CHUNK_UNION_CASES_V3],
     }
     # Self-checks on the intended outcome of each boundary case, so a generator bug can't silently
     # bake a wrong expectation into the fixture.
@@ -445,9 +485,12 @@ def main():
     for c in fixture["derived_key_cases"]:
         assert bool(re.match(fixture["derived_key_regex"], c["key"])) == c["derived"], c["key"]
     # v3 self-checks: the intended outcome of each case (t/355 cases a to e and d, R1 to R7).
-    rs = {c["name"]: c["expected"] for c in fixture["resolve_cases"]}
-    assert rs["(d) a chunk whose base has no source dir resolves to itself"] == "x-2026-1"
-    assert rs["a chunk of a base with a source resolves to the base"] == "d-2026"
+    rs = {c["name"]: c.get("expected", c.get("expected_error")) for c in fixture["resolve_cases"]}
+    assert rs["(d) an id shaped like a chunk but not in the manifest resolves to itself"] == "x-2026-1"
+    assert rs["a listed chunk resolves to its base"] == "d-2026"
+    assert rs["not listed, no source dir, base has one: stays its own source (TL t/355#43)"] == "r-2026-1"
+    assert rs["the same documents, listed: folds"] == "r-2026"
+    assert rs["a listed chunk whose base does not exist is refused"] == "missing_base"
     assert rs["transitive: a chunk of a marked copy resolves to the copy's canonical (TL change 1)"] == "d-2026"
     cu = {c["name"]: c for c in fixture["chunk_union_cases"]}
     a = cu["(a) chunk of the canonical: the near link is dropped, the distinct one is kept with chunk_of and N2"]
@@ -464,6 +507,8 @@ def main():
     assert [x["quote"] for x in e["expected_extracted"]["n1"]] == ["The US will double down on exporting its tech stack."]
     assert [x["quote"] for x in e["expected_extracted"]["n2"]] == ["Only the chunk of the copy found this."], "extraction keeps a via fact (t/373#3)"
     assert [x["quote"] for x in a["expected_extracted"]["n1"]] == ["The US will double down on exporting its tech stack.", "Countries think they must control AI before it controls them."]
+    u = cu["not listed: the -N document is not in the group, and none of its links are folded"]
+    assert [x["quote"] for x in u["expected"]["n1"]] == ["The report sets out four options."] and u["expected_documents"] == 1
 
     path = os.path.join("tests", "fixtures", "evidence-union-cases.json")
     with open(path, "w", encoding="utf-8", newline="\n") as f:
