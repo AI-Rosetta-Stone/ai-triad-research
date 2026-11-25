@@ -50,8 +50,9 @@ function setup() {
     return { path: p, head: sh(p, 'git rev-parse HEAD') };
   };
   const pr = (branch, state, sha) => sh(tmp, `echo "${branch}|${state}|${sha}" >> "${posix(prMap)}"`);
-  const run = () => {
-    const r = spawnSync(bash, [posix(SCRIPT)], { cwd: repo, encoding: 'utf8', env: { ...process.env, SWEEP_GH: posix(fakeGh) } });
+  // recentMinutes 0 = no idle window, so a worktree made seconds ago can be swept in a test.
+  const run = ({ recentMinutes = 0 } = {}) => {
+    const r = spawnSync(bash, [posix(SCRIPT)], { cwd: repo, encoding: 'utf8', env: { ...process.env, SWEEP_GH: posix(fakeGh), SWEEP_RECENT_MINUTES: String(recentMinutes) } });
     return { code: r.status, out: `${r.stdout}${r.stderr}` };
   };
   const branchExists = (b) => spawnSync(bash, ['-c', `git rev-parse -q --verify refs/heads/${b}`], { cwd: repo }).status === 0;
@@ -71,13 +72,29 @@ test('merged PR at its head + clean tree -> removed, local branch deleted', opts
   assert.equal(s.branchExists('done1'), false);
 });
 
-test('merged PR, HEAD differs from the PR head but is on origin/main (squash/rebase landed) + clean -> removed', opts, () => {
+test('merged PR, local HEAD BEHIND the PR head (more was pushed from elsewhere) + clean -> removed', opts, () => {
   const s = setup();
-  const w = s.wt('landed', { commit: true, push: true });
-  s.pr('landed', 'MERGED', '0000000000000000000000000000000000000000');
+  const w = s.wt('behind', { commit: true });
+  const prHead = sh(w.path, 'echo two > two.txt && git add two.txt && git commit -qm two && git rev-parse HEAD');
+  sh(w.path, 'git reset -q --hard HEAD~1');
+  s.pr('behind', 'MERGED', prHead);
   const r = s.run();
-  assert.match(r.out, /removed .*landed \(landed, PR MERGED, HEAD on origin\/main\)/);
+  assert.match(r.out, /removed .*behind \(behind, PR MERGED, HEAD within the PR\)/);
   assert.equal(existsSync(w.path), false);
+});
+
+// Quality p/119#112: a reused branch name, reset to main with no new commits, must not be swept on the
+// strength of its OLD merged PR.
+test('a REUSED branch name reset to main (old PR merged, HEAD on main, clean) is NOT swept', opts, () => {
+  const s = setup();
+  const w = s.wt('reused', { commit: true });
+  s.pr('reused', 'MERGED', w.head);
+  // The PR lands as a SQUASH commit on main (not the branch's own commit), then the branch name is reused.
+  sh(s.repo, 'git checkout -q main && echo squashed > reused.txt && git add reused.txt && git commit -qm "squash of reused" && git push -q origin HEAD:main');
+  sh(w.path, 'git fetch -q origin && git reset -q --hard origin/main');
+  const r = s.run();
+  assert.match(r.out, /skip .*reused \(reused\): HEAD [0-9a-f]+ is neither the PR head/);
+  assert.equal(existsSync(w.path), true);
 });
 
 test('merged PR but an UNTRACKED file -> WARN naming it, left in place', opts, () => {
@@ -105,16 +122,17 @@ test('a fresh worktree cut from main with NO PR (on origin/main, clean) is never
   const s = setup();
   const w = s.wt('fresh');
   const r = s.run();
-  assert.doesNotMatch(r.out, /fresh/);
+  assert.match(r.out, /skip .*fresh \(fresh\): no PR/, 'the skip is logged with its reason (Security p/278#9)');
+  assert.doesNotMatch(r.out, /(removed|WOULD remove) .*fresh/);
   assert.equal(existsSync(w.path), true);
 });
 
-test('an OPEN PR is left alone, silently', opts, () => {
+test('an OPEN PR is left alone, with the skip logged', opts, () => {
   const s = setup();
   const w = s.wt('wip', { commit: true });
   s.pr('wip', 'OPEN', w.head);
   const r = s.run();
-  assert.doesNotMatch(r.out, /wip/);
+  assert.match(r.out, /skip .*wip \(wip\): PR OPEN, not merged/);
   assert.equal(existsSync(w.path), true);
 });
 
@@ -124,7 +142,7 @@ test('merged PR but HEAD has a commit that never reached main -> skip with the r
   s.pr('extra', 'MERGED', w.head);
   sh(w.path, 'echo more > more.txt && git add more.txt && git commit -qm more');
   const r = s.run();
-  assert.match(r.out, /skip .*extra \(extra\): HEAD [0-9a-f]+ is neither PR head/);
+  assert.match(r.out, /skip .*extra \(extra\): HEAD [0-9a-f]+ is neither the PR head/);
   assert.equal(existsSync(w.path), true);
 });
 
@@ -141,7 +159,26 @@ test('--dry-run reports WOULD remove and removes nothing', opts, () => {
   const s = setup();
   const w = s.wt('dry', { commit: true });
   s.pr('dry', 'MERGED', w.head);
-  const r = spawnSync(bash, [posix(SCRIPT), '--dry-run'], { cwd: s.repo, encoding: 'utf8', env: { ...process.env, SWEEP_GH: posix(path.join(path.dirname(s.repo), 'gh')) } });
+  const r = spawnSync(bash, [posix(SCRIPT), '--dry-run'], { cwd: s.repo, encoding: 'utf8', env: { ...process.env, SWEEP_GH: posix(path.join(path.dirname(s.repo), 'gh')), SWEEP_RECENT_MINUTES: '0' } });
   assert.match(`${r.stdout}${r.stderr}`, /WOULD remove .*dry/);
   assert.equal(existsSync(w.path), true);
+});
+
+// Security p/278#9 condition 1: an agent mid-work is never swept.
+test('merged + clean but a file modified within the idle window (2h default) -> skipped, with the file named', opts, () => {
+  const s = setup();
+  const w = s.wt('busy', { commit: true });
+  s.pr('busy', 'MERGED', w.head);
+  const r = s.run({ recentMinutes: 120 });
+  assert.match(r.out, /skip .*busy \(busy\): a file was modified in the last 120 minutes/);
+  assert.equal(existsSync(w.path), true);
+});
+
+test('the shared (main) checkout itself is never a candidate', opts, () => {
+  const s = setup();
+  const r = s.run();
+  // The main checkout's path, followed by a separator, must appear in no skip/removed/WARN line.
+  const lines = r.out.split('\n').filter((l) => /sweep-landed-worktrees: (skip|removed|WOULD remove|WARN) /.test(l));
+  const mainPath = posix(s.repo);
+  assert.ok(lines.every((l) => !l.includes(`${mainPath} `) && !l.includes(`${mainPath}:`)), `main checkout listed:\n${lines.join('\n')}`);
 });
