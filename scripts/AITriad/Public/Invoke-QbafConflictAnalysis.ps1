@@ -126,13 +126,25 @@ function Invoke-QbafConflictAnalysis {
         # are added after the main pass under the canonical's DocId (spec 7.4), so the same-document
         # skip below also keeps a doc from "conflicting" with its own copy (spec 7.5).
         $Resolution = Get-DefaultSourceResolution -Caller 'Invoke-QbafConflictAnalysis'
-        $SummaryFiles = @(Select-SelectableSummaryFile -Files $AllSummaryFiles -Resolution $Resolution)
+        $SummaryFiles = @(Select-SelectableSummaryFile -Files $AllSummaryFiles -Resolution $Resolution -ExcludeChunks)
     }
 
     $AllClaims = [System.Collections.Generic.List[PSObject]]::new()
     $Counter = @{ N = 0 }   # the claim index; a hashtable so the loader scriptblock can advance it
     $GroupKeys = @{}   # canonical doc id -> de-dup keys of the claims already loaded for its group
     $Canonicals = if ($Resolution) { [System.Collections.Generic.HashSet[string]]::new([string[]]@($Resolution.Resolved.Values), [System.StringComparer]::Ordinal) } else { $null }
+    # A listed legacy chunk is part of its base (spec 6.2, t/596): the base's canonical is a group too, so its
+    # own claims are tracked and a chunk's near-equal claim is skipped.
+    if ($Resolution) {
+        # The `if` expression above unrolls the set it builds: $Canonicals is $null (no marks), one string or an
+        # array. Build the set again, as a set, and add the bases of the listed chunks.
+        $CanonicalSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        foreach ($Known in @($Canonicals)) { if ($null -ne $Known) { [void]$CanonicalSet.Add([string]$Known) } }
+        foreach ($ChunkId in @((Get-SourceResolutionChunk -Resolution $Resolution).Keys)) {
+            [void]$CanonicalSet.Add((Get-SourceGroupRole -Resolution $Resolution -Id $ChunkId).CanonicalId)
+        }
+        $Canonicals = $CanonicalSet
+    }
 
     # Loads one summary's factual claims under $ClaimDocId. With $Via (a marked copy's exact id), a
     # claim near-equal to one already loaded for the group is skipped.
@@ -206,7 +218,8 @@ function Invoke-QbafConflictAnalysis {
     }
     $UnionCount = $AllClaims.Count
     if ($Resolution) {
-        foreach ($Copy in @(Get-MarkedCopySummary -Files $AllSummaryFiles -Resolution $Resolution -Caller 'Invoke-QbafConflictAnalysis')) {
+        # Marked copies and listed legacy chunks (spec 6.2, t/596): their claims join the canonical's.
+        foreach ($Copy in @(Get-MarkedCopySummary -Files $AllSummaryFiles -Resolution $Resolution -Caller 'Invoke-QbafConflictAnalysis' -IncludeChunks)) {
             & $AddClaims $Copy.Summary $Copy.CanonicalId $Copy.CopyId
         }
     }
