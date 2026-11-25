@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   latestBlocker, resolveOwner, citedTickets, planRun, recordSent, keyOf, run, parseArgs,
-  DEVOPS_LEAD, TECH_LEAD, SENDER, HEADER, ESCALATE_AFTER_MS, safeRemedy,
+  DEVOPS_LEAD, TECH_LEAD, SENDER, HEADER, ESCALATE_AFTER_MS, safeRemedy, TRAIN_OWNERS, trainArea,
 } from './stuck-pr-ping.mjs';
 import { ENQUEUE_REMEDY } from './stuck-pr-classifier.mjs';
 
@@ -156,6 +156,8 @@ function deps({ sendFails = new Set(), queryError = null, ledger = { keys: {} } 
       ledger,
       writeLedger: (l) => written.push(l),
       nowMs: NOW,
+      // No network in a test: the landing-vehicle check is always injected (t/535).
+      checkVehicle: async () => ({ allow: true, reason: 'train' }),
     },
   };
 }
@@ -283,4 +285,118 @@ test('t/535: latestBlocker rewrites an old alert comment\'s arm remedy, so planR
   assert.equal(b.class, 'approved-not-armed');
   assert.ok(b.remedy.endsWith(ENQUEUE_REMEDY));
   assert.doesNotMatch(b.remedy.split(ENQUEUE_REMEDY).join(''), /gh pr merge|merge directly/);
+});
+
+// ── t/535#24, Lead p/233#180 and #197: train routing, the landing-vehicle skip, the self-skip ─────────────────────
+
+test('trainArea: area trains (with a same-day letter suffix) and the weekly docs train; anything else is not a train', () => {
+  assert.equal(trainArea('train/devops-20261125'), 'devops');
+  assert.equal(trainArea('train/debate-20261125b'), 'debate');
+  assert.equal(trainArea('train/renderer-20261126'), 'renderer');
+  assert.equal(trainArea('docs/weekly-2026-48'), 'docs-weekly');
+  for (const b of ['feat/t611-x', 'train/devops', 'train/devops-2026112', 'xtrain/devops-20261125', 'docs/weekly-26-48', '']) assert.equal(trainArea(b), null, b);
+});
+
+test('resolveOwner: a train PR goes to its train owner, ahead of any ticket its title cites (#5522 case)', () => {
+  const live = new Set([...known, ...Object.values(TRAIN_OWNERS)]);
+  const p = pr(5522, { title: 'train/devops-20261125 (6): t/607, t/116b, t/605', branch: 'train/devops-20261125' });
+  const r = resolveOwner(p, { ticketAssignee: () => ({ id: A, kind: 'agent' }), fileOwners: null, known: live });
+  assert.deepEqual([r.to, r.fallback], [DEVOPS_LEAD, false]);
+  assert.match(r.why, /devops train owner/);
+  assert.equal(resolveOwner(pr(5487, { branch: 'train/debate-20261125b' }), { ticketAssignee: () => null, fileOwners: null, known: live }).to, TRAIN_OWNERS.debate);
+  assert.equal(resolveOwner(pr(5479, { branch: 'docs/weekly-2026-48' }), { ticketAssignee: () => null, fileOwners: null, known: live }).to, TRAIN_OWNERS['docs-weekly']);
+});
+
+test('resolveOwner: an unlisted train area, or a train owner who is not live, falls back to ticket routing with a WARN (never guessed)', () => {
+  const warns = [];
+  const r = resolveOwner(pr(1, { branch: 'train/infra-20261126', title: 'infra train t/501' }), { ticketAssignee: (n) => (n === 501 ? { id: A, kind: 'agent' } : null), fileOwners: null, known, warn: (w) => warns.push(w) });
+  assert.equal(r.to, A, 'routed by its ticket');
+  assert.match(warns[0], /unlisted area 'infra'/);
+  const warns2 = [];
+  const r2 = resolveOwner(pr(2, { branch: 'train/server-20261126' }), { ticketAssignee: () => null, fileOwners: null, known, warn: (w) => warns2.push(w) }); // TaxonomyServer not in `known`
+  assert.equal(r2.to, DEVOPS_LEAD);
+  assert.match(warns2[0], /server train, but its owner .* is not a live collaborator/);
+});
+
+test('planRun: a PR the landing-vehicle check would refuse, and a PR owned by the sender, are listed, never messaged, never recorded', () => {
+  const held = { ...item(5, A, 'approved-not-armed'), vehicleHold: 'not_a_vehicle' };
+  const mine = item(6, SENDER, 'approved-not-armed');
+  const r = planRun([held, mine, item(7, B)], { keys: {} }, NOW);
+  assert.deepEqual(r.messages.map((m) => m.to), [B]);
+  assert.deepEqual(r.vehicle.map((x) => x.pr.number), [5]);
+  assert.deepEqual(r.own.map((x) => x.pr.number), [6]);
+  assert.ok(r.messages.every((m) => m.to !== SENDER));
+});
+
+// t/535, Lead p/233#197 (t/656): the approved-not-armed ping asks enqueue-pr's own landing-vehicle check.
+function vehicleRun(facts, verdicts, extra = {}) {
+  const asked = [];
+  const logs = [];
+  return run(parseArgs([]), {
+    log: (s) => logs.push(s),
+    readAlerts: () => ({ OwnerAlerts: [...facts.keys()].map((number) => ({ number })), TLAlerts: [] }),
+    readPrFacts: (_r, ns) => new Map(ns.map((n) => [n, facts.get(n)])),
+    knownCollaborators: async () => new Set([...known, SENDER]),
+    fileOwnersFor: async () => null,
+    appRun: async (app, command, args) => {
+      if (app === 'tickets' && command === 'get') return { assignee: { 501: { id: A, kind: 'agent' }, 502: { id: B, kind: 'agent' }, 599: { id: SENDER, kind: 'agent' } }[Number(args.id.slice(2))] ?? null };
+      throw new Error(`unexpected ${app} ${command}`);
+    },
+    checkVehicle: async (n) => { asked.push(n); const v = verdicts[n]; if (v instanceof Error) throw v; return v; },
+    ledger: { keys: {} }, writeLedger: () => {}, nowMs: NOW, ...extra,
+  }).then((r) => ({ r, asked, logs }));
+}
+const at = (p, b) => ({ pr: p, blocker: { ...b, sha: p.head } });
+const ana = (n, branch) => [n, at(pr(n, { branch }), blocker('approved-not-armed', 'enqueue it'))];
+
+test('run: an approved, unarmed PR the landing-vehicle check refuses is listed, not pinged; an allowed one is pinged; an unreadable check is listed with a WARN', async () => {
+  const facts = new Map([
+    ana(20, 'devops/t501-a'),                                            // not a landing vehicle
+    ana(21, 'train/devops-20261126'),                                    // a train: allowed
+    ana(22, 'feat/t502-c'),                                              // the check cannot be read
+    ana(24, 'feat/t502-e'),                                              // a feature with one ticket
+    [23, at(pr(23, { branch: 'feat/t599-d' }), blocker('merge-conflict'))], // owned by the sender
+  ]);
+  const verdicts = {
+    20: { allow: false, reason: 'not_a_vehicle' }, 21: { allow: true, reason: 'train' },
+    22: { allow: false, reason: 'vehicle_read_failed', detail: 'HTTP 502' }, 24: { allow: false, reason: 'feature_too_small' },
+  };
+  const { r, asked, logs } = await vehicleRun(facts, verdicts);
+  assert.deepEqual(asked.sort((a, b) => a - b), [20, 21, 22, 24], 'only approved-not-armed PRs are checked');
+  assert.deepEqual(r.messages.map((m) => [m.to, m.keys.length]), [[DEVOPS_LEAD, 1]], 'only the train PR is pinged (to its train owner)');
+  assert.match(r.messages[0].body, /#21 /);
+  assert.ok(logs.includes(`would be refused by the landing-vehicle check (not_a_vehicle), not pinged: #20 \`approved-not-armed\` on devops/t501-a (owner ${A}).`), logs.join('\n'));
+  assert.ok(logs.includes(`would be refused by the landing-vehicle check (feature_too_small), not pinged: #24 \`approved-not-armed\` on feat/t502-e (owner ${B}).`), logs.join('\n'));
+  assert.ok(logs.some((l) => /^WARN: could not read the landing-vehicle check for #22 \(vehicle_read_failed: HTTP 502\)/.test(l)), logs.join('\n'));
+  assert.ok(logs.some((l) => /^owner is the sender, not pinged: #23 `merge-conflict`/.test(l)), logs.join('\n'));
+  assert.deepEqual(r.vehicle.map((x) => [x.pr.number, x.vehicleHold]), [[20, 'not_a_vehicle'], [22, 'vehicle_read_failed'], [24, 'feature_too_small']]);
+  assert.ok(!logs.some((l) => /budget|\b20\/day\b/i.test(l)), 'no message says budget (TL p/9#644)');
+});
+
+test('run: an incident/* PR is never vehicle-checked (no daemon read in a sweep); it is listed as enqueued by hand, not pinged', async () => {
+  const { r, asked, logs } = await vehicleRun(new Map([ana(30, 'incident/t579-fix')]), {});
+  assert.deepEqual(asked, [], 'no landing-vehicle call');
+  assert.deepEqual(r.messages, []);
+  assert.ok(logs.some((l) => l.startsWith('would be refused by the landing-vehicle check (incident (enqueued by hand with enqueue-pr.mjs)), not pinged: #30')), logs.join('\n'));
+});
+
+test('run (Quality p/119#108): a refusal reason outside the route reasons and the read failure is not a hold; the PR is pinged, with a WARN naming the reason', async () => {
+  for (const reason of ['budget_exempt_invalid', 'some_future_reason']) {
+    const { r, logs } = await vehicleRun(new Map([ana(31, 'feat/t502-f')]), { 31: { allow: false, reason } });
+    assert.deepEqual(r.messages.map((m) => m.to), [B], `${reason}: pinged as usual`);
+    assert.deepEqual(r.vehicle, [], `${reason}: not listed as a hold`);
+    assert.ok(logs.some((l) => l.includes(`refused for '${reason}', which is not a vehicle hold`)), logs.join('\n'));
+  }
+  const thrown = await vehicleRun(new Map([ana(32, 'feat/t502-g')]), { 32: new Error('daemon down') });
+  assert.deepEqual(thrown.r.vehicle.map((x) => x.vehicleHold), ['vehicle_read_failed'], 'a thrown check is a read failure: listed, not pinged');
+});
+
+test('pin (Lead p/233#201): every landing-vehicle TRAIN_AREAS entry, and docs/weekly, has a train owner here (a new area cannot fall back silently)', async () => {
+  const { TRAIN_AREAS } = await import('./landing-vehicle.mjs');
+  for (const area of TRAIN_AREAS) {
+    assert.match(String(TRAIN_OWNERS[area] ?? ''), /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, `train area '${area}' has no owner in TRAIN_OWNERS`);
+    assert.equal(trainArea(`train/${area}-20261126`), area, `trainArea reads train/${area}-YYYYMMDD`);
+  }
+  assert.ok(TRAIN_OWNERS['docs-weekly'], 'docs/weekly has an owner');
+  assert.deepEqual(Object.keys(TRAIN_OWNERS).filter((k) => k !== 'docs-weekly').sort(), [...TRAIN_AREAS].sort(), 'no owner for an area landing-vehicle does not accept');
 });

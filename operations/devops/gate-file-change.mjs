@@ -102,6 +102,11 @@ export const WORKFLOW_RUN_SCRIPTS = [
   // t/92 (SO p/44#102): the template staging-keyvault.yml applies. It grants Key Vault Secrets Officer, so an
   // edit (another principal, another scope) needs the same second reader as the workflow itself.
   'deploy/azure/staging-keyvault.bicep',
+
+  // t/627 (SO p/44#104): staging-data-account.yml applies this template and decides with this guard. Like
+  // staging-keyvault.bicep (t/92), an unreviewed edit must not change what the staging deploy creates.
+  'deploy/azure/staging-data-account.bicep',
+  'operations/devops/staging-data-account-whatif-guard.mjs',
   'operations/devops/test-check-merge-queue-liveness-headgreen.sh',
   'operations/devops/test-check-merge-queue-liveness-lookup-failure.sh',
   'operations/devops/test-check-vitest-shard-blobs.sh',
@@ -300,6 +305,9 @@ export const CODE_UNDER_TEST = [
   'operations/devops/role-review-verdicts.test.mjs', // test of role-review-verdicts.mjs
   'operations/devops/scheduled-workflow-health.test.mjs', // test of scheduled-workflow-health.mjs
   'operations/devops/staging-keyvault-whatif-guard.test.mjs', // test of staging-keyvault-whatif-guard (t/92)
+
+  'operations/devops/staging-data-account-whatif-guard.test.mjs', // test of staging-data-account-whatif-guard (t/627)
+  'operations/devops/sweep-landed-worktrees.test.mjs', // test of sweep-landed-worktrees.sh (t/9)
   'operations/devops/stuck-pr-classifier.test.mjs', // test of stuck-pr-classifier
   'operations/devops/t0-enqueue-sweep.test.mjs', // test of t0-enqueue-sweep.mjs
   'operations/devops/t0-rule-order.test.mjs', // rule-order test of t0-enqueue-sweep.mjs

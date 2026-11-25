@@ -202,7 +202,7 @@ export function cveSection({ kind, route, undecidable, runtime, buildOnly, jobRe
     `- Build-only (the runtime stage removes it): ${bo.length ? bo.join(', ') : 'none'}`);
   if (kind === 'pr') {
     out.push('', why || rt.length
-      ? 'This drift opens its own PR as a security fix (t/605); it can take a Tech Lead or Security `budget-exempt:` review.'
+      ? 'This drift opens its own PR as a security fix (t/605); docker/base-repin-* is an automated landing vehicle (t/656), so it needs no exemption.'
       : 'Note: the CVE check routed this drift to an issue, so this PR comes from the fallback path.');
   } else {
     out.push('', `Route: ${route === 'issue' ? 'issue (no CVE reaches the shipped image): batch the re-pin into a train' : 'pr'}.`);

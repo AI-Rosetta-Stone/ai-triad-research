@@ -9,7 +9,6 @@ Azure Container Apps is a serverless container platform built on Kubernetes (AKS
 - Containers run in "revisions" — immutable snapshots of config + image. Traffic splits between revisions.
 - Scaling is event-driven via KEDA rules (HTTP concurrent requests, queue depth, cron, custom metrics)
 - Zero-scale is real — apps can scale to 0 replicas and cold-start on demand
-- Networking is Envoy-based — ingress, service discovery, and mTLS between apps happen automatically within an environment
 - An "environment" is the security and networking boundary — apps in the same environment share a vnet subnet and can discover each other
 
 ## Responsibilities
@@ -52,9 +51,10 @@ Azure Container Apps is a serverless container platform built on Kubernetes (AKS
 ### Secrets Management
 - Secrets stored in Azure Key Vault, referenced by container apps via managed identity
 - Never store secrets in environment variables directly on the container app
-- API keys (Gemini, Anthropic, Groq) stored per-user in the BYOK model — not in infrastructure
+- API keys are per-user BYOK, not infrastructure
 - Rotate secrets via Key Vault versioning — apps pick up new versions on next revision deploy
-- Use secret volume mounts for file-based secrets (TLS certs, service account keys)
+- Use secret volume mounts for file-based secrets
+- Temporary grants (Key Vault or storage RBAC) state an expiry (default 30 min) when created. Remove at expiry even without a done-ping, re-grant if unfinished, and list live grants before ending a session.
 
 ### Cost Optimization
 - **Consumption tier**: pay per vCPU-second and GiB-second — optimize by right-sizing containers
@@ -83,7 +83,6 @@ Azure Container Apps is a serverless container platform built on Kubernetes (AKS
 ### CI/CD Integration
 - Own the deploy workflow (`.github/workflows/deploy-azure.yml`)
 - Deploy flow: build image (Docker agent) → push to ACR → update container app revision
-- Use `az containerapp update --image` for revision deploys
 - Implement health check gates: wait for new revision to pass readiness before shifting traffic
 - Rollback strategy: switch traffic back to previous revision on failure
 - Environment promotion: dev → staging → production with manual approval gate
@@ -125,7 +124,7 @@ Before any container app goes to production, verify:
 | Area | Files |
 |---|---|
 | Deploy workflow | `.github/workflows/deploy-azure.yml` (DeployAzure is the required reviewer; `docs/ownership-exceptions.md`, t/220) |
-| Bicep templates | `deploy/azure/*.bicep` (if present) |
+| Bicep templates | `deploy/azure/*.bicep` |
 | App configuration | Container App YAML or Bicep module |
 | Reference playbook | `AgentGuideLines/azure-container-apps-expert-playbook.md` |
 
@@ -133,7 +132,6 @@ Before any container app goes to production, verify:
 
 Deployment identity (app and environment names, region, registry, image, storage, scale, auth, cost) lives in the **canonical [Deployment Facts](../../../deploy/azure/runbooks/deployment-facts.md)** doc, verified against live Azure. Don't restate those values here; inline copies drift (t/1735). Before using a resource name, read it from that doc or query it live (`az containerapp list -g ai-triad`).
 
-- **Model keys**: BYOK — users provide their own API keys (stored client-side)
 
 ## Remote Diagnostics Cmdlets
 

@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// CSS brace-balance check (t/420). WARN-ONLY: it reports a verdict and never fails the job.
+// CSS brace-balance check (t/420). CI runs it with --strict (blocking, t/420's T2 flip); without
+// --strict it only reports a verdict and never fails.
 //
 // Why: nothing in the gate parses CSS (no stylelint; jsdom does not parse stylesheets), so a broken
 // brace in any of the ~260 tracked .css files passed every gate. This is option A from t/420#1: a
@@ -20,7 +21,7 @@
 // Run it:        node operations/devops/css-brace-check.mjs [--strict]
 //   Default (warn-only) always exits 0 and carries the verdict in its output, the step outputs
 //   (`gate=`, `verdict=`, `reason=` in $GITHUB_OUTPUT) and the step summary. `--strict` exits 1 on
-//   FAIL and 2 on GATE-UNREADABLE, for local use; CI must not pass it until the T2 promotion.
+//   FAIL and 2 on GATE-UNREADABLE; ci.yml's gate-self-health step passes it, so either fails ci-gate.
 
 import { readFileSync, appendFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';

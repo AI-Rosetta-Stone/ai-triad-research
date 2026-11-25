@@ -5,7 +5,7 @@
 #        (#5504, whose CVEs were all npm's, which the runtime image strips). Its own re-pin PR opens
 #        only when the drift fixes a CVE that REACHES the shipped image, or when that can't be
 #        decided (any scan failure counts as reaching it). That PR names the CVEs, or the failure,
-#        so it can take a Tech Lead/Security `budget-exempt:` review.
+#        and docker/base-repin-* is an automated landing vehicle (t/656), so enqueue-pr accepts it.
 #        Re-pin PRs declare `Tier: T0` (PI decision 4, t/305), so the T0 enqueue sweep merges
 #        them once ci-gate (incl. test-container) is green -- but ONLY when the committed diff is
 #        exactly the runtime ai-triad-base tag/digest line; anything else opens as T1.
