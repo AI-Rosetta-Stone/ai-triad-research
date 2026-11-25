@@ -99,3 +99,22 @@ test('second apply fails closed: a NoChange what-if (vault already exists) is no
   assert.equal(v.pass, false);
   assert.match(v.reasons.join('; '), /expected exactly 1 Create of the staging vault/);
 });
+
+test('main.bicep stagingKeyVaultUrl is @allowed-pinned to exactly the vault staging-keyvault.bicep creates', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const path = (await import('node:path')).default;
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const main = readFileSync(path.join(root, 'deploy', 'azure', 'main.bicep'), 'utf8');
+  const mod = readFileSync(path.join(root, 'deploy', 'azure', 'staging-keyvault.bicep'), 'utf8');
+  const vaultName = /param vaultName string = '([^']+)'/.exec(mod)?.[1];
+  assert.equal(vaultName, 'kv-ait-stg-kvwl3nywge4iw');
+  const expected = `https://${vaultName}.vault.azure.net/`;
+  const allowed = /@allowed\(\[\s*'([^']+)'\s*\]\)\s*param stagingKeyVaultUrl string = '([^']+)'/.exec(main);
+  assert.ok(allowed, 'stagingKeyVaultUrl must carry a single-value @allowed');
+  assert.equal(allowed[1], expected, '@allowed value');
+  assert.equal(allowed[2], expected, 'default value');
+  assert.match(main, /\{ name: 'AZURE_KEYVAULT_URL', value: stagingKeyVaultUrl \}/, 'staging override uses the pinned param');
+  assert.doesNotMatch(main, /existing[^\n]*kv-ait-stg|stagingKeyVault\b[^\n]*existing/, 'main.bicep must not reference the staging vault as existing');
+  assert.doesNotMatch(main, /empty\(githubAppPrivateKeySecretNameStaging\)/, 'no fallback to the prod key name');
+});
