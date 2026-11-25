@@ -89,6 +89,9 @@ $script:VerbatimSymbolRef = $true            # a footnote symbol read as a lette
 $script:VerbatimSymbolRefPattern = '(?<=\p{L})[' + [char]0xBA + [char]0xE7 + '](?=[\s,.;:)\]]|$)'
 $script:VerbatimListJoinMin = 2              # commas of the model's own at this many line breaks of the source make a list join
 $script:VerbatimRejectListJoin = $true
+# An item line of a list (CL t/389#78): the break before it holds a blank line or a bullet, or the line begins
+# with a capital or a digit. A sentence that only wraps onto the next line is not an item line.
+$script:VerbatimListBulletPattern = '\n[ \t]*[*\-' + [char]0x2022 + [char]0xB7 + [char]0x2013 + [char]0x25AA + [char]0x25CF + ']'
 $script:VerbatimParenRefList = $true         # "(998, 1003)": a parenthesised list of two or more numerals is a reference
 $script:VerbatimParenRefListPattern = '\(\s*\p{Nd}{1,4}\*?(?:\s*[,;]\s*\p{Nd}{1,4}\*?)+\s*\)'
 $script:VerbatimCaseMaxPlaces = 25          # places in the source tried for a quote kept as written
@@ -439,7 +442,12 @@ function Test-VerbatimListJoin {
     if ($SGaps.Count -ne $QGaps.Count) { return $false }
     $Joins = 0
     for ($I = 1; $I -lt $QGaps.Count - 1; $I++) {
-        if ($QGaps[$I] -match '[,;]' -and $SGaps[$I] -notmatch '[,;]' -and $SGaps[$I].Contains([char]10)) { $Joins++ }
+        if ($QGaps[$I] -match '[,;]' -and $SGaps[$I] -notmatch '[,;]' -and $SGaps[$I].Contains([char]10)) {
+            $Next = $Source.CharsCased[$P + $I]
+            $ItemLine = $SGaps[$I] -match '\n[ \t\r]*\n' -or $SGaps[$I] -match $script:VerbatimListBulletPattern -or
+                [char]::IsUpper($Next) -or [char]::IsDigit($Next)
+            if ($ItemLine) { $Joins++ }
+        }
     }
     $Joins -ge $script:VerbatimListJoinMin
 }
@@ -1180,6 +1188,7 @@ function Resolve-VerbatimSegment {
                 # quote has those digits at that place (the model wrote them), and comes out when it does not.
                 $Have = [System.Text.StringBuilder]::new()
                 $Remove = [System.Collections.Generic.List[object]]::new()   # references: out of the stored piece
+                $SymbolOut = $false
                 $Ignore = [System.Collections.Generic.List[object]]::new()   # no-break spaces: not compared, but stored
                 # The a-acute that is the converter's no-break space, between two letters (CL t/389#63 (1)):
                 # it matches as a space when the quote has no such letter at that place. A real a-acute the
@@ -1238,7 +1247,9 @@ function Resolve-VerbatimSegment {
                     }
                     $AtQuoteEdge = $Mark.Edge -and $null -ne $Want -and (($Have.Length -eq 0 -and $P.QStart -eq 0) -or
                         ($Have.Length -ge $Want.Length -and $P.QEnd -eq $QLetters.Length))
-                    if ($Wrote -or $null -eq $Want -or $AtQuoteEdge) { [void]$Have.Append($Token) } elseif ($Mark.Ref) { $Remove.Add($M) } else { $Ignore.Add($M) }
+                    if ($Wrote -or $null -eq $Want -or $AtQuoteEdge) { [void]$Have.Append($Token) }
+                    elseif ($Mark.Ref) { $Remove.Add($M); if ($Mark['Sym']) { $SymbolOut = $true } }
+                    else { $Ignore.Add($M) }
                     $At = $M.Index + $M.Length
                 }
                 [void]$Have.Append((& $Letters $PieceWork.Substring($At)))
@@ -1433,6 +1444,7 @@ function Resolve-VerbatimSegment {
                 }
                 if ($Remove.Count -gt 0) {
                     $script:VerbatimDiag.Add('reference digits removed')
+                    if ($SymbolOut) { $script:VerbatimDiag.Add('footnote symbol removed') }
                     # The same character ranges come out of the source's own text (the two copies share offsets).
                     $Raw = [System.Text.StringBuilder]::new($Source.Text.Substring($P.Start, $P.End - $P.Start))
                     for ($K = $Remove.Count - 1; $K -ge 0; $K--) { [void]$Raw.Remove($Remove[$K].Index, $Remove[$K].Length) }

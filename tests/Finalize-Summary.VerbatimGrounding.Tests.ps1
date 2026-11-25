@@ -875,6 +875,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             $Src = "Irina Bejan, Khoa Nguyen, Ishan Mishra$Sec, Koen van der Veen, Kyoko Eng, Lacey Strahm, Madhava Jay, Logan Graham$Dag,`nMatei Simtinica, and Peter Smith, Secure enclaves for AI evaluation, OpenMined, 2025.`n"
             $R = & $script:Decide74 $Src 'Irina Bejan, Khoa Nguyen, Ishan Mishra, Koen van der Veen, Kyoko Eng, Lacey Strahm, Madhava Jay, Logan Graham, Matei Simtinica, and Peter Smith, Secure enclaves for AI evaluation, OpenMined, 2025.'
             $R.Decision | Should -Be 'snapped'
+            $R.Diag | Should -Contain 'footnote symbol removed' -Because 'these are counted as their own class (t/389#78)'
             # A c-cedilla the model wrote stays a letter of the word.
             $Src2 = "The report by Fran${Dag}ois Dupont and Bar$Dag, the second author, describes how regulators have begun to ask for the results.`n"
             (& $script:Decide74 $Src2 "The report by Fran${Dag}ois Dupont and Bar$Dag, the second author, describes how regulators have begun to ask for the results.").Decision | Should -Be 'exact'
@@ -888,6 +889,12 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             # The same words as the source prints them, and a sentence whose commas are the source's, are kept.
             $Src2 = "The approaches are open source software, open data, open standards`r`nand open governance, as the survey of the members shows.`r`n"
             (& $script:Decide74 $Src2 'The approaches are open source software, open data, open standards and open governance, as the survey of the members shows.').Decision | Should -Be 'exact'
+            # A sentence that only wraps onto the next lines is not a list, whatever commas the model added (t/389#78).
+            $Wrap = "Regulators have begun to ask for evaluation results`r`nand developers answer that the tests were never designed for it`r`nbut auditors want access to the weights before any release.`r`n"
+            (& $script:Decide74 $Wrap 'Regulators have begun to ask for evaluation results, and developers answer that the tests were never designed for it, but auditors want access to the weights before any release.').Decision | Should -Be 'exact'
+            # Item lines without a blank line between them, each beginning with a capital, are a list.
+            $Tight = "The checklist covers:`r`nIntended purpose and use cases`r`nGuardrails preventing prohibited uses`r`nData governance and training data sources`r`nMore text follows here.`r`n"
+            (& $script:Decide74 $Tight 'Intended purpose and use cases, Guardrails preventing prohibited uses, Data governance and training data sources').Decision | Should -Be 'dropped'
             # One comma of the model's at a line break is not a list join.
             $Src3 = "Regulators have begun to ask for evaluation results`r`nand developers answer that the tests were never designed for it.`r`n"
             (& $script:Decide74 $Src3 'Regulators have begun to ask for evaluation results, and developers answer that the tests were never designed for it.').Decision | Should -Be 'exact'
