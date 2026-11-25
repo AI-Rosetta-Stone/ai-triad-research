@@ -401,7 +401,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // in-flight voices and still yields 'complete' with the PARTIAL set (TL gap 1).
     res.on('close', () => { clientGone = true; ac.abort(); });
 
-    writeFrame({ type: 'run_started', runId });
+    writeFrame({ type: 'run_started', runId, setId }); // t/703: setId lets the client check the set after an error-frame stop
     // Generate with the entitlement-resolved (free-tier-pinned) model, not the raw request.
     const request: GenerateOpEdRequest = { set_id: setId, topic, params: { ...params, model }, povs: povs as PovKey[], sourceMaterial, ...documentSourceFields(documentText, sourceName), signal: ac.signal };
     await driveOpEdRun(res, run, request, writeFrame, heartbeat, () => clientGone, funding.adapter);
