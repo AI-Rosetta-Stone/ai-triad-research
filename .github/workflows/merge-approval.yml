@@ -116,6 +116,28 @@ jobs:
           owner: ${{ github.repository_owner }}
           permission-checks: write
 
+      # t/537 (TL p/9#533): DIAGNOSTIC, read-only, never fails the job. Can the App's own token (checks:write
+      # and metadata:read only) read what the check needs on this public repo? If it can, reads move to
+      # the App's own quota, away from the GITHUB_TOKEN pool that ran dry on 2026-11-24. Logs HTTP
+      # statuses only, never a token or a body. Remove once decided.
+      - name: Probe App-token read access (diagnostic)
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          R: ${{ github.repository }}
+        run: |
+          code() { gh api -i "$@" 2>/dev/null | head -1 | awk '{print $2}'; }
+          n=$(gh api "repos/$R/pulls?state=all&per_page=1" --jq '.[0].number' 2>/dev/null || echo '')
+          echo "app-token read: pulls.list=$(code "repos/$R/pulls?per_page=1")"
+          echo "app-token read: issues.comments=$(code "repos/$R/issues/comments?per_page=1")"
+          if [ -n "$n" ]; then
+            echo "app-token read: pulls.get=$(code "repos/$R/pulls/$n") pulls.files=$(code "repos/$R/pulls/$n/files?per_page=1") pulls.reviews=$(code "repos/$R/pulls/$n/reviews?per_page=1")"
+          else
+            echo "app-token read: could not list a PR with the App token (pulls.list refused or empty)"
+          fi
+          echo "app-token read: graphql.mergeQueue=$(gh api graphql -f query='{repository(owner:"AI-Rosetta-Stone",name:"ai-triad-research"){mergeQueue(branch:"main"){entries(first:1){totalCount}}}}' --jq 'if .errors then "errors" else "ok" end' 2>/dev/null || echo refused)"
+
       - name: Evaluate and post merge-approval
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         env:
