@@ -40,7 +40,20 @@ export function resolveFromModule(relative: string): string {
   return decodeURIComponent(url.pathname).replace(/^\/@fs\//, '');
 }
 
-const CHILD_PATH = resolveFromModule('./isolated/child.mjs');
+/**
+ * t/631: in a packed app the module's own path is inside app.asar, a virtual archive a forked child cannot read under
+ * --permission (ERR_ACCESS_DENIED). lib/ is unpacked to app.asar.unpacked, so the child is forked from there. The
+ * source-tree path has no app.asar segment and is unchanged.
+ */
+export function unpackedPathForTest(path: string): string {
+  return unpackedPath(path);
+}
+
+function unpackedPath(path: string): string {
+  return path.replace(/app\.asar(?!\.unpacked)/, 'app.asar.unpacked');
+}
+
+const CHILD_PATH = unpackedPath(resolveFromModule('./isolated/child.mjs'));
 /** lib/ — the one source tree the child may read. */
 const LIB_ROOT = resolve(dirname(CHILD_PATH), '..', '..');
 

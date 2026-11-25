@@ -48,3 +48,14 @@ describe('parserStoreRootFor (t/631)', () => {
     }
   });
 });
+
+// t/631: a packed app's module path is under app.asar; the child must be forked from app.asar.unpacked instead.
+describe('unpackedPath mapping (t/631)', () => {
+  it('maps a packed app.asar path to app.asar.unpacked and leaves other paths alone', async () => {
+    const mod = await import('./isolatedParse.js');
+    expect(mod.unpackedPathForTest('C:\\r\\resources\\app.asar\\dist\\main\\lib\\isolated\\child.mjs'))
+      .toBe('C:\\r\\resources\\app.asar.unpacked\\dist\\main\\lib\\isolated\\child.mjs');
+    expect(mod.unpackedPathForTest('/src/lib/extraction/isolated/child.mjs')).toBe('/src/lib/extraction/isolated/child.mjs');
+    expect(mod.unpackedPathForTest('/r/app.asar.unpacked/dist/child.mjs')).toBe('/r/app.asar.unpacked/dist/child.mjs');
+  });
+});
