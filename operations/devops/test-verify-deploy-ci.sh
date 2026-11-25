@@ -117,6 +117,15 @@ if run 1; then
   ok '! echo "$OUT" | grep -q "passed for this commit"' "must not pass on the parent's green"
 fi
 
+# 7g. A rename of a code file into docs/ (Lead p/233#126): the shim emits filename then previous_filename,
+#     as the script's jq does. One file, two paths; the old path is code -> blocked.
+CASE=rename-into-docs; setup $CASE
+printf '%s\n%s\n' "$SHA" "$ANC" > "$FIX/commits"; row 962 push completed success main > "$FIX/runs.$ANC"; echo success > "$FIX/job.962"
+printf '1\ndocs/x.ts\nlib/oped/x.ts\n' > "$FIX/compare"
+if run 1; then ok 'echo "$OUT" | grep -q "no CI on $SHA: the commits since $ANC .*lib/oped/x.ts"' "should block a rename out of code"; fi
+# The shim does not run jq, so pin the script's jq expression itself (not the comment).
+if ! grep -qF '.files[] | .filename, (.previous_filename // empty)' "$SCRIPT_DIR/verify-deploy-ci.sh"; then echo "FAIL [$CASE]: the script's compare jq does not read previous_filename"; fail=1; fi
+
 # 7c. A truncated compare (GitHub's 300-file cap) -> cannot verify, never docs-only.
 CASE=compare-truncated; setup $CASE
 printf '%s\n%s\n' "$SHA" "$ANC" > "$FIX/commits"; row 962 push completed success main > "$FIX/runs.$ANC"; echo success > "$FIX/job.962"

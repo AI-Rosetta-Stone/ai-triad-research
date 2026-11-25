@@ -126,8 +126,9 @@ if [ "$JUDGED" != "$DEPLOY_SHA" ]; then
   # t/591 (DeployAzure t/591#5, Lead p/233#124): an ancestor's CI stands in ONLY when every file changed
   # since it is one ci.yml ignores, i.e. CI skipped those commits on purpose. A commit where CI simply
   # did not run (a hotfix push that started no CI) must not pass on its parent's green.
-  # First line: the file count; then one filename per line.
-  CMP=$(api "repos/${GH_REPO}/compare/${JUDGED}...${DEPLOY_SHA}" --jq '(.files | length | tostring), (.files[].filename)') || exit 1
+  # First line: the file count; then one path per line. A rename also lists its previous_filename, and
+  # both names must be ignored: renaming lib/x.ts to docs/x.ts removes code from the image (Lead p/233#126).
+  CMP=$(api "repos/${GH_REPO}/compare/${JUDGED}...${DEPLOY_SHA}" --jq '(.files | length | tostring), (.files[] | .filename, (.previous_filename // empty))') || exit 1
   NFILES=$(printf '%s\n' "$CMP" | head -n 1)
   [[ "$NFILES" =~ ^[0-9]+$ ]] || block "cannot verify CI (the compare of ${JUDGED}...${DEPLOY_SHA} returned no file count). This is not a CI failure."
   if [ "$NFILES" -ge "$COMPARE_FILE_CAP" ]; then
