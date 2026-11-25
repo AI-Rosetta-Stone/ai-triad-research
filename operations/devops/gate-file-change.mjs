@@ -29,6 +29,7 @@ export const GATE_SCRIPTS = [
   // enqueue-pr.mjs's import closure, so they run inside the wrapper).
   'operations/devops/pr-budget.mjs',
   'operations/devops/pr-budget-notify.mjs',
+  'operations/devops/landing-vehicle.mjs', // t/656: the vehicle check enqueue-pr runs
   'operations/devops/my-prs.mjs',
   'operations/devops/t1-approval-at-head.mjs',
   'operations/devops/t1-approval-guard-predicate.mjs',

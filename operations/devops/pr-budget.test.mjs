@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/564 phase A: PR budget. Pure core, the gh shim with an injected fake (no network), the enqueuePR
-// wiring (order: currency, then budget, then the gate-file check; refusal before any gh merge), the
-// CLI refusal ping and the report. Run: node --test operations/devops/pr-budget.test.mjs
+// t/564 phase A: PR budget counting (pure core, the gh shim with an injected fake, no network) and the
+// report. Since t/656 the count no longer gates enqueue-pr; the enqueue wiring, the CLI refusal ping and
+// the head-moved check are tested in landing-vehicle.test.mjs. Run: node --test operations/devops/pr-budget.test.mjs
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,9 +11,7 @@ import {
   ONE_UNIT_BRANCH_PATTERNS, SEARCH_CAP, budgetFor, budgetRefusalMessage, budgetVerdict, buildUnits, checkPrBudget,
   exemptionVerdict, fetchPrsCreated, isAccidentalClose, isOneUnitBranch, rankOf, unitKey, windowStartDay,
 } from './pr-budget.mjs';
-import { pingBudgetRefusal, resolvePrOwner } from './pr-budget-notify.mjs';
-import { analyze, planMessages, run as runReport } from './pr-budget-report.mjs';
-import { enqueuePR, runCli } from './enqueue-pr.mjs';
+import { resolvePrOwner } from './pr-budget-notify.mjs';
 import { GATE_SCRIPTS, REVIEWER_APP_REST_LOGIN } from './gate-file-change.mjs';
 
 const TODAY = '2026-11-24';
@@ -297,91 +295,6 @@ test('budgetRefusalMessage: names the day, units, budget, 3-day mean, rank or po
   assert.match(m2, /pooled_no_slot[\s\S]*2026-11-23 \(rank 23 of 20\)[\s\S]*position 3 of 3, with 0 free slot/);
 });
 
-// ── enqueuePR wiring ─────────────────────────────────────────────────────────────────────────
-
-const CURRENT = () => ({ ok: true, reason: 'current', mainSha: 'f'.repeat(40), paths: ['operations/devops/enqueue-pr.mjs'] });
-
-test('enqueuePR: the budget check runs after the currency check and before the gate-file check; a refusal throws before any gh call', async () => {
-  const order = [];
-  const g = (args) => { order.push(`gh ${args.slice(0, 2).join(' ')}`); throw new Error('no gh call may happen'); };
-  const refuse = (repo, n, opts) => { order.push('budget'); assert.equal(opts.gh, g); return { allow: false, reason: 'over_budget_today', today: TODAY, units: 21, budget: 20, mean: 3, counts: [3, 3, 3], rank: 21, nextDayStart: '2026-11-25T00:00:00Z', pr: { number: n } }; };
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, gh: g, currency: () => { order.push('currency'); return CURRENT(); }, budget: refuse }), (err) => {
-    assert.equal(err.name, 'ActionableError'); assert.equal(err.reason, 'over_budget_today'); assert.equal(err.budget.rank, 21);
-    assert.match(err.message, /refusing to arm\/enqueue #42 on o\/r \(over_budget_today\)[\s\S]*Goal:[\s\S]*Next steps:/);
-    return true;
-  });
-  assert.deepEqual(order, ['currency', 'budget']);
-});
-
-test('enqueuePR: a stale copy is refused before the budget check runs', async () => {
-  let budgetCalls = 0;
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, gh: () => { throw new Error('x'); }, currency: () => ({ ok: false, reason: 'differs', mainSha: 'f'.repeat(40), detail: 'x' }), budget: () => { budgetCalls++; return { allow: true }; } }));
-  assert.equal(budgetCalls, 0);
-});
-
-test('enqueuePR: an allowed budget passes on to the gate-file read; a throwing or empty budget check refuses', async () => {
-  const order = [];
-  const g = (args) => {
-    const j = args.join(' ');
-    if (j.includes('headRefOid,body,isDraft')) { order.push('pr-view'); return JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0', isDraft: false, labels: [] }); }
-    if (j.includes('{changed_files}')) { order.push('gate-files'); throw new Error('gh: HTTP 502'); }
-    order.push(`unexpected ${j}`);
-    throw new Error('unexpected');
-  };
-  const ok = () => { order.push('budget'); return { allow: true, reason: 'within_budget_today', units: 1, budget: 20, mean: 0, rank: 1, today: TODAY }; };
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, gh: g, currency: CURRENT, budget: ok }), /files_unreadable/);
-  assert.deepEqual(order, ['budget', 'pr-view', 'gate-files']);
-  for (const budget of [() => { throw new Error('boom'); }, () => undefined]) {
-    await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, gh: g, currency: CURRENT, budget }), (err) => err.reason === 'budget_read_failed');
-  }
-});
-
-test('GATE_SCRIPTS lists the t/564 modules', () => {
-  for (const p of ['pr-budget.mjs', 'pr-budget-notify.mjs', 'my-prs.mjs']) assert.ok(GATE_SCRIPTS.includes(`operations/devops/${p}`), p);
-});
-
-// ── CLI refusal ping ─────────────────────────────────────────────────────────────────────────
-
-const budgetErr = (reason = 'over_budget_today') => Object.assign(new Error(`enqueue-pr: refusing (${reason})`), { reason, budget: { reason, pr: { number: 42, title: 't', body: '', headRefName: 'fix/x' } } });
-
-test('runCli: a budget refusal pings once, with the --by sender, and exits 1; a non-budget error does not ping', async () => {
-  const pings = [];
-  const code = await runCli('o/r', 42, { by: 'devops-worker' }, { enqueue: async () => { throw budgetErr(); }, ping: async (a) => { pings.push(a); return { sent: true }; }, log: () => {}, error: () => {} });
-  assert.equal(code, 1); assert.equal(pings.length, 1);
-  assert.equal(pings[0].by, 'devops-worker'); assert.equal(pings[0].pr.number, 42); assert.equal(pings[0].reason, 'over_budget_today');
-  const none = [];
-  assert.equal(await runCli('o/r', 42, {}, { enqueue: async () => { throw new Error('other'); }, ping: async (a) => none.push(a), log: () => {}, error: () => {} }), 1);
-  assert.equal(none.length, 0);
-  assert.equal(await runCli('o/r', 42, {}, { enqueue: async () => ({ ok: true }), ping: async (a) => none.push(a), log: () => {}, error: () => {} }), 0);
-});
-
-test('pingBudgetRefusal: sends ONE chat to the resolved owner from the --by sender', async () => {
-  const sent = [];
-  const appRun = async (app, cmd, args) => { sent.push({ app, cmd, args }); return { ok: true }; };
-  const r = await pingBudgetRefusal({ repo: 'o/r', pr: budgetErr().budget.pr, reason: 'over_budget_today', message: 'M', by: 'sender-id' },
-    { appRun, resolveOwner: async () => ({ id: 'owner-id', why: 'title/branch cites t/9' }), ...quiet });
-  assert.deepEqual(r, { sent: true, to: 'owner-id' });
-  assert.equal(sent.length, 1); assert.equal(sent[0].app, 'chat'); assert.equal(sent[0].args.sender, 'sender-id'); assert.equal(sent[0].args.to, 'owner-id');
-  assert.match(sent[0].args.body, /#42[\s\S]*M/);
-});
-
-test('pingBudgetRefusal: daemon down, owner unresolved, owner human, or no --by -> WARN, nothing sent, never throws', async () => {
-  const pr = budgetErr().budget.pr;
-  const cases = [
-    [{ by: 's' }, { appRun: async () => { throw new Error('fetch failed ECONNREFUSED'); }, resolveOwner: async () => ({ id: 'o' }) }, 'send_failed'],
-    [{ by: 's' }, { appRun: async () => { throw new Error('should not send'); }, resolveOwner: async () => ({ id: null, why: 'none' }) }, 'owner_unresolved'],
-    [{ by: 's' }, { appRun: async () => { throw new Error('should not send'); }, resolveOwner: async () => ({ id: 'human' }) }, 'owner_unresolved'],
-    [{ by: null }, { appRun: async () => { throw new Error('should not send'); } }, 'no_sender'],
-  ];
-  for (const [args, deps, skipped] of cases) {
-    const warns = [];
-    const r = await pingBudgetRefusal({ repo: 'o/r', pr, reason: 'pooled_no_slot', message: 'M', ...args }, { ...deps, log: () => {}, warn: (m) => warns.push(m) });
-    assert.equal(r.sent, false); assert.equal(r.skipped, skipped);
-    assert.equal(warns.length, 1); assert.match(warns[0], /^WARN:/);
-  }
-  const r = await pingBudgetRefusal({ repo: 'o/r', pr, reason: 'budget_read_failed', message: 'M', by: 's' }, { appRun: async () => { throw new Error('no'); }, ...quiet });
-  assert.equal(r.sent, false);
-});
 
 test('resolvePrOwner: title/branch ticket, then body ticket, then file majority (my-prs order); human never returned', async () => {
   const tickets = { 't/40': { assignee: { id: 'agent-a', kind: 'agent' } }, 't/41': { assignee: { id: 'human', kind: 'human' } }, 't/50': { assignee: { id: 'agent-b', kind: 'agent' } } };
@@ -396,57 +309,6 @@ test('resolvePrOwner: title/branch ticket, then body ticket, then file majority 
   assert.equal((await resolvePrOwner({ number: 2, title: 'x', body: 'fixes t/50', headRefName: 'b' }, deps)).id, 'agent-b');
   assert.equal((await resolvePrOwner({ number: 3, title: 'x', body: '', headRefName: 'b' }, deps)).id, 'agent-s');
   assert.equal((await resolvePrOwner({ number: 4, title: 't/41: x', body: 'see t/50', headRefName: 'b' }, deps)).id, null);
-});
-
-// ── report ───────────────────────────────────────────────────────────────────────────────────
-
-test('report: today\'s numbers, over-budget PRs and pool; --send pings the TL once and each owner once, never human', async () => {
-  const y = day('2026-11-23', 22);
-  const t = day(TODAY, 21);
-  const prs = [...y, ...t];
-  const r = analyze(prs, NOW);
-  assert.equal(r.units, 21); assert.equal(r.budget, 20); assert.equal(r.slots, 0);
-  assert.deepEqual(r.overToday.map((x) => x.pr.number), [t[20].number]);
-  assert.deepEqual(r.pool.map((x) => [x.pr.number, x.position]), [[y[20].number, 1], [y[21].number, 2]]);
-  const owners = { [t[20].number]: 'agent-a', [y[20].number]: 'agent-a', [y[21].number]: 'human' };
-  const sent = [];
-  const out = await runReport({ repo: 'o/r', json: false, send: true, sender: 's', tl: 'tl-id' }, {
-    now: NOW_MS, fetch: () => ({ prs, calls: 1 }), resolveOwner: async (pr) => ({ id: owners[pr.number] ?? null }),
-    appRun: async (app, cmd, args) => { sent.push(args); return {}; }, log: () => {}, warn: () => {},
-  });
-  assert.deepEqual(sent.map((s) => s.to).sort(), ['agent-a', 'tl-id']);
-  assert.match(sent.find((s) => s.to === 'agent-a').body, new RegExp(`#${t[20].number}[\\s\\S]*#${y[20].number}`));
-  assert.equal(out.sent.length, 2);
-  assert.ok(planMessages({ ...r, overToday: [{ ...r.overToday[0], owner: 'human' }], pool: [] }, { tl: 'tl-id' }).every((m) => m.to !== 'human'));
-  // Dry run: nothing sent.
-  const dry = [];
-  await runReport({ repo: 'o/r', json: true, send: false, tl: 'tl-id' }, { now: NOW_MS, fetch: () => ({ prs, calls: 1 }), resolveOwner: async () => ({ id: 'x' }), appRun: async (...a) => { dry.push(a); }, log: () => {}, warn: () => {} });
-  assert.equal(dry.length, 0);
-});
-
-test('soft point (TL p/9#541): at 15 units nothing is refused, but the TL and each of today\'s PR owners get one "nearly used" ping; at 14, none', async () => {
-  const t15 = day(TODAY, 15);
-  const r15 = analyze(t15, NOW);
-  assert.equal(r15.nearlyUsed, true); assert.equal(r15.budget, 20); assert.equal(r15.overToday.length, 0);
-  assert.equal(budgetVerdict({ prs: t15, pr: t15[14], nowIso: NOW }).allow, true);
-  const owners = Object.fromEntries(t15.map((pr, i) => [pr.number, i % 3 === 0 ? 'agent-a' : i % 3 === 1 ? 'agent-b' : 'human']));
-  const sent = [];
-  await runReport({ repo: 'o/r', json: false, send: true, sender: 's', tl: 'tl-id' }, {
-    now: NOW_MS, fetch: () => ({ prs: t15, calls: 1 }), resolveOwner: async (pr) => ({ id: owners[pr.number] }),
-    appRun: async (app, cmd, args) => { sent.push(args); return {}; }, log: () => {}, warn: () => {},
-  });
-  assert.deepEqual(sent.map((s) => s.to).sort(), ['agent-a', 'agent-b', 'tl-id']); // once each, never human
-  assert.match(sent.find((s) => s.to === 'tl-id').body, /Budget nearly used:\*\* 15 of 20/);
-  assert.match(sent.find((s) => s.to === 'agent-a').body, /nearly used today \(15 of 20 units/);
-  const t14 = day(TODAY, 14);
-  assert.equal(analyze(t14, NOW).nearlyUsed, false);
-  const sent14 = [];
-  await runReport({ repo: 'o/r', json: false, send: true, sender: 's', tl: 'tl-id' }, {
-    now: NOW_MS, fetch: () => ({ prs: t14, calls: 1 }), resolveOwner: async () => ({ id: 'agent-a' }),
-    appRun: async (app, cmd, args) => { sent14.push(args); return {}; }, log: () => {}, warn: () => {},
-  });
-  assert.deepEqual(sent14.map((s) => s.to), ['tl-id']);
-  assert.doesNotMatch(sent14[0].body, /nearly used/);
 });
 
 // ── Second Opinion on #5473 (A, B, C) ────────────────────────────────────────────────────────
@@ -476,19 +338,6 @@ test('SO B: an over-budget PR older than the pool window is refused (pool_expire
   assert.equal(budgetVerdict({ prs, pr: old[5], nowIso: NOW }).reason, 'within_budget_earlier_day');
 });
 
-test('SO C: enqueuePR refuses when the head moved between the budget check and the enqueue read', async () => {
-  const g = (args) => {
-    const j = args.join(' ');
-    if (j.includes('headRefOid,body,isDraft')) return JSON.stringify({ headRefOid: 'newhead00', body: 'Tier: T0', isDraft: false, labels: [] });
-    throw new Error(`unexpected ${j}`);
-  };
-  const ok = () => ({ allow: true, reason: 'within_budget_today', units: 1, budget: 20, mean: 0, rank: 1, today: TODAY, pr: { number: 42, headRefOid: 'oldhead00' } });
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, gh: g, currency: CURRENT, budget: ok }),
-    (err) => err.reason === 'budget_read_failed' && /head moved between the budget check/.test(err.message));
-  // Same head: passes on (to the gate-file read, which this fake refuses as unexpected).
-  const same = () => ({ ...ok(), pr: { number: 42, headRefOid: 'newhead00' } });
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, gh: g, currency: CURRENT, budget: same }), (err) => err.reason !== 'budget_read_failed');
-});
 
 // ── TL p/9#565: an accidental open, closed unmerged within 1 h with no later commit, is not counted ──
 
@@ -514,17 +363,3 @@ test('an accidental open does not take a budget slot; a PR closed after the wind
   assert.equal(budgetVerdict({ prs: t, pr: t[20], nowIso: NOW }).rank, 19);
 });
 
-test('report: accidental opens are listed as not counted; it never pings its own sender', async () => {
-  const t = day(TODAY, 16);
-  t[0].state = 'CLOSED'; t[0].closedAt = at(TODAY, 10);
-  const r = analyze(t, NOW);
-  assert.equal(r.units, 15); assert.deepEqual(r.notCounted.map((p) => p.number), [t[0].number]);
-  const sent = [];
-  const logs = [];
-  await runReport({ repo: 'o/r', json: false, send: true, sender: 'me', tl: 'tl-id' }, {
-    now: NOW_MS, fetch: () => ({ prs: t, calls: 1 }), resolveOwner: async () => ({ id: 'me' }),
-    appRun: async (app, cmd, args) => { sent.push(args.to); return {}; }, log: (l) => logs.push(l), warn: () => {},
-  });
-  assert.match(logs.join('\n'), /Not counted: closed within 1 h \(1\): #/);
-  assert.deepEqual(sent, ['tl-id']); // the only owner is the sender itself: skipped, not a failed send
-});
