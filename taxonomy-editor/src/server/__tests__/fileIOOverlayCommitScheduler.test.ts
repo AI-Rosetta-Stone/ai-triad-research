@@ -136,6 +136,31 @@ describe('fileIO overlay commit scheduler (t/4258/t/4277 C3b)', () => {
     expect(fileIO.getOverlayCommitStatus('olga')?.state).toBe('committed');
   });
 
+  // TL t/503#22 N3: busy for longer than the lease lasts (12 rounds, 60 s) is worth one WARN, still without a retry count.
+  it('N3: one WARN after OVERLAY_COMMIT_BUSY_WARN_ROUNDS busy rounds in a row, not before, and the commit still lands', async () => {
+    const { log } = await import('../logger.js');
+    const { OVERLAY_COMMIT_BUSY_WARN_ROUNDS } = await import('../storage/overlayCommitScheduler.js');
+    const warn = vi.spyOn(log.storage, 'warn');
+    const busyWarns = () => warn.mock.calls.filter(c => String(c[1] ?? '').includes('t/503 N3')).length;
+    let calls = 0;
+    backend.commitImpl = async () => {
+      calls++;
+      if (calls <= OVERLAY_COMMIT_BUSY_WARN_ROUNDS + 1) throw Object.assign(new Error('another replica holds the commit lease'), { code: 'OVERLAY_COMMIT_BUSY' });
+      return { commitSha: 'sha', filesCommitted: 1 };
+    };
+    fileIO.scheduleOverlayCommit('nina');
+    await vi.advanceTimersByTimeAsync(2_000);
+    for (let i = 1; i < OVERLAY_COMMIT_BUSY_WARN_ROUNDS - 1; i++) await vi.advanceTimersByTimeAsync(5_000);
+    expect(busyWarns()).toBe(0);
+    await vi.advanceTimersByTimeAsync(5_000); // the 12th busy round
+    expect(busyWarns()).toBe(1);
+    await vi.advanceTimersByTimeAsync(5_000); // a 13th busy round: no second WARN
+    await vi.advanceTimersByTimeAsync(5_000); // then the commit
+    expect(busyWarns()).toBe(1);
+    expect(fileIO.getOverlayCommitStatus('nina')?.state).toBe('committed');
+    warn.mockRestore();
+  });
+
   it('retries with backoff on failure, surfaces failed status, then commits on the retry', async () => {
     let calls = 0;
     backend.commitImpl = async () => {

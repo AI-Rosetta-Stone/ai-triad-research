@@ -8,7 +8,7 @@
  * acknowledged only after its stage to the shared store succeeds. Two GitHubAPIBackend instances act as two replicas on
  * one Azurite-backed SharedOverlayStore; `forceActiveForTesting` turns shared state on (it is inert everywhere else).
  *
- * Own Azurite port (10011). Gated on isUndiciMajorAlignedWithRuntime like the other githubApi* files.
+ * Own Azurite port (10011). Gated on skipForUndiciSkewOutsideCi: skipped only locally, never in CI (TL t/503#22).
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
@@ -19,10 +19,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { BlobServiceClient } from '@azure/storage-blob';
-import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
+import { skipForUndiciSkewOutsideCi } from '../storage/undiciInvariant.js';
 import { SharedOverlayStore } from '../storage/sharedOverlayStore.js';
 
-const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
+// TL t/503#22: skips on a dev machine with undici skew only; in CI it always runs, so skew fails it loudly.
+const SKIP_LOCAL_SKEW = skipForUndiciSkewOutsideCi();
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AZURITE_MAIN = path.resolve(here, '../../../node_modules/azurite/dist/src/blob/main.js');
 const PORT = 10011;
@@ -114,7 +115,7 @@ async function createReplica(store: SharedOverlayStore, active = true) {
   return backend;
 }
 
-describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — shared overlay saves are acknowledged only after the stage (t/550)', () => {
+describe.skipIf(SKIP_LOCAL_SKEW)('GitHubAPIBackend — shared overlay saves are acknowledged only after the stage (t/550)', () => {
   let prefix: string;
 
   beforeAll(async () => {

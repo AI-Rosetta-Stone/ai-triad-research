@@ -270,6 +270,26 @@ function stopOnConflict(userId: string, result: OverlayCommitResult | null): boo
   });
 }
 
+/** TL t/503#22 N3: a lease held longer than its own duration (60 s, 12 busy rounds) means the holder is stuck or a
+ *  lease was stranded. Busy stays uncounted as a retry, but this streak is worth one WARN. */
+export const OVERLAY_COMMIT_BUSY_WARN_ROUNDS = 12;
+const consecutiveBusyRounds = new Map<string, number>();
+
+/** t/550: nothing committed and nothing failed; the status stays 'pending' and the attempt is not counted. */
+function rearmAfterBusy(userId: string, attempt: number): void {
+  const rounds = (consecutiveBusyRounds.get(userId) ?? 0) + 1;
+  consecutiveBusyRounds.set(userId, rounds);
+  if (rounds === OVERLAY_COMMIT_BUSY_WARN_ROUNDS) {
+    log.storage.warn({ userId, rounds, waitedMs: rounds * OVERLAY_COMMIT_BUSY_RETRY_MS },
+      'Scheduled overlay commit: busy for longer than the commit lease lasts; the holder may be stuck or the lease stranded (t/503 N3)');
+  } else {
+    log.storage.info({ userId, attempt, rounds, retryInMs: OVERLAY_COMMIT_BUSY_RETRY_MS },
+      'Scheduled overlay commit: another replica holds the commit lease; trying again (t/550)');
+  }
+  const timer = setTimeout(() => { void runScheduledOverlayCommit(userId, attempt); }, OVERLAY_COMMIT_BUSY_RETRY_MS);
+  retryingOverlayCommits.set(userId, { timer, attempt });
+}
+
 async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<void> {
   clearPendingOverlayCommit(userId);
   retryingOverlayCommits.delete(userId); // this invocation IS the retry firing (or the first attempt — a no-op delete either way)
@@ -281,6 +301,7 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
     // GitHubAPIBackend.getEffectiveRef() would otherwise fall back to
     // baseBranch and commitOverlayImpl would throw on every scheduled commit.
     const result = await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
+    consecutiveBusyRounds.delete(userId);
     if (stopOnConflict(userId, result)) return;
     setStatus(userId, { state: 'committed', at: Date.now() });
     const commitsInLastHour = recordCommitRate(userId);
@@ -293,13 +314,10 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
     });
   } catch (err) {
     if (isCommitBusy(err)) {
-      // t/550: nothing committed and nothing failed; the status stays 'pending' and the attempt is not counted.
-      log.storage.info({ userId, attempt, retryInMs: OVERLAY_COMMIT_BUSY_RETRY_MS },
-        'Scheduled overlay commit: another replica holds the commit lease; trying again (t/550)');
-      const timer = setTimeout(() => { void runScheduledOverlayCommit(userId, attempt); }, OVERLAY_COMMIT_BUSY_RETRY_MS);
-      retryingOverlayCommits.set(userId, { timer, attempt });
+      rearmAfterBusy(userId, attempt);
       return;
     }
+    consecutiveBusyRounds.delete(userId);
     const message = String((err as Error)?.message ?? err);
     const warnMsg = `Scheduled overlay commit failed for ${userId} (attempt ${attempt + 1}) — will retry (t/4258)`;
     log.storage.warn({ userId, attempt }, warnMsg);

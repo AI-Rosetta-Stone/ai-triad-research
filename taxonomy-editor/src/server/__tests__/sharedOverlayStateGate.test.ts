@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
+import { skipForUndiciSkewOutsideCi } from '../storage/undiciInvariant.js';
 
 vi.mock('fs/promises', () => ({
   default: {
@@ -54,7 +54,7 @@ async function makeBackendWithSpyStore() {
   return { b, store };
 }
 
-describe.skipIf(!isUndiciMajorAlignedWithRuntime())('shared overlay state is gated by OVERLAY_SHARED_STATE_ENABLED (t/503 flip)', () => {
+describe.skipIf(skipForUndiciSkewOutsideCi())('shared overlay state is gated by OVERLAY_SHARED_STATE_ENABLED (t/503 flip)', () => {
   beforeEach(() => {
     vi.stubEnv('AI_TRIAD_DATA_ROOT', '/var/cache/taxonomy-test');
     globalThis.fetch = vi.fn(async (input: string | URL | Request) => {

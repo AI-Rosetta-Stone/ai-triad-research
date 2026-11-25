@@ -7,13 +7,13 @@
  * concurrently.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { BlobServiceClient, RestError } from '@azure/storage-blob';
+import { BlobServiceClient, BlobLeaseClient, RestError } from '@azure/storage-blob';
 import { BlobLease } from '../storage/blobLease.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -179,5 +179,49 @@ describe('BlobLease (Azurite)', () => {
     expect(await lease.acquireOrRenew()).toBe(true);
     expect(await service.getContainerClient(CONTAINER).getBlockBlobClient(blobName).exists()).toBe(true);
     await lease.release();
+  });
+
+  // t/503 N1 (TL t/503#22): a renewal that fails for a non-conflict reason (network, 5xx) must keep the lease id.
+  // Clearing it made the fallback acquire conflict with our own live lease, so every replica read 'busy' until it lapsed.
+  it('N1: a renewal that fails with a non-conflict error throws and keeps the lease id; the next renewal succeeds', async () => {
+    const lease = makeLease(blobName);
+    expect(await lease.acquireOrRenew()).toBe(true);
+    const id = lease.getLeaseId();
+    const spy = vi.spyOn(BlobLeaseClient.prototype, 'renewLease')
+      .mockRejectedValueOnce(new RestError('simulated 503 from the service', { statusCode: 503 }));
+    try {
+      await expect(lease.acquireOrRenew()).rejects.toThrow(/renewLease/);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(lease.isHolder()).toBe(true);
+    expect(lease.getLeaseId()).toBe(id);
+    expect(await lease.acquireOrRenew()).toBe(true);
+    expect(lease.getLeaseId()).toBe(id);
+    await lease.release();
+  });
+
+  it('a renewal refused because the lease moved on (409) clears the id and reports not-holder', async () => {
+    const a = makeLease(blobName, 15);
+    expect(await a.acquireOrRenew()).toBe(true);
+    await service.getContainerClient(CONTAINER).getBlockBlobClient(blobName).getBlobLeaseClient(a.getLeaseId()).breakLease(0);
+    const b = makeLease(blobName, 15);
+    expect(await b.acquireOrRenew()).toBe(true);
+    expect(await a.acquireOrRenew()).toBe(false);
+    expect(a.isHolder()).toBe(false);
+    await b.release();
+  });
+
+  // t/503: two instances racing the first acquire on a blob that doesn't exist yet. The loser's seed upload can be
+  // refused for the winner's fresh lease (412 LeaseIdMissing); that is the lost race, so it must report false, not throw.
+  it('first-use race: of two instances acquiring a new blob at once, one holds and the other gets false, never a throw', async () => {
+    for (let i = 0; i < 5; i++) {
+      const name = `${blobName}-race-${i}`;
+      const [a, b] = [makeLease(name), makeLease(name)];
+      const results = await Promise.all([a.acquireOrRenew(), b.acquireOrRenew()]);
+      expect(results.filter(Boolean)).toHaveLength(1);
+      await a.release();
+      await b.release();
+    }
   });
 });

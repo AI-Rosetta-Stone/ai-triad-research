@@ -7,7 +7,7 @@
  * t/550 commit 2 (t/503 rulings, SO t/503#8 conditions 3 and 4): with shared overlay state active, a commit takes the
  * user's commit lease, takes its batch from the shared store alone, clears by ETag, and rebases an entry rewritten
  * mid-commit. Two GitHubAPIBackend replicas on one Azurite store and a small fake GitHub that records the trees, commits
- * and ref updates. Own Azurite port (10012). Gated on isUndiciMajorAlignedWithRuntime like the other githubApi* files.
+ * and ref updates. Own Azurite port (10012). Gated on skipForUndiciSkewOutsideCi: skipped only locally, never in CI (TL t/503#22).
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
@@ -18,11 +18,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { BlobServiceClient } from '@azure/storage-blob';
-import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
+import { skipForUndiciSkewOutsideCi } from '../storage/undiciInvariant.js';
 import { SharedOverlayStore } from '../storage/sharedOverlayStore.js';
 import { BlobLease } from '../storage/blobLease.js';
 
-const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
+// TL t/503#22: skips on a dev machine with undici skew only; in CI it always runs, so skew fails it loudly.
+const SKIP_LOCAL_SKEW = skipForUndiciSkewOutsideCi();
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AZURITE_MAIN = path.resolve(here, '../../../node_modules/azurite/dist/src/blob/main.js');
 const PORT = 10012;
@@ -75,7 +76,7 @@ function respond(status: number, body: unknown): Response {
 }
 
 /** A tiny GitHub: the session branch head, its committed blobs, and the trees/commits created. */
-type Gh = { head: string; committed: Map<string, string>; trees: Map<string, Array<{ path: string; content?: string; sha?: null }>>; commits: Map<string, string>; refUpdates: number; onTreePost?: () => Promise<void> };
+type Gh = { head: string; committed: Map<string, string>; trees: Map<string, Array<{ path: string; content?: string; sha?: null }>>; commits: Map<string, string>; parents: Map<string, string>; refUpdates: number; refRejections: number; onTreePost?: () => Promise<void> };
 let gh: Gh;
 let seq = 0;
 
@@ -97,11 +98,13 @@ async function fakeGithub(url: string, init?: RequestInit): Promise<Response> {
   if (method === 'POST' && p.endsWith('/git/commits')) {
     const sha = `commit-${++seq}`;
     gh.commits.set(sha, body.tree as string);
+    gh.parents.set(sha, (body.parents as string[])[0]);
     return respond(201, { sha });
   }
   if (method === 'PATCH' && p.includes('/git/refs/heads/')) {
-    gh.refUpdates++;
     const commit = body.sha as string;
+    if (body.force !== true && gh.parents.get(commit) !== gh.head) { gh.refRejections++; return respond(422, { message: 'Update is not a fast forward' }); }
+    gh.refUpdates++;
     for (const e of gh.trees.get(gh.commits.get(commit)!) ?? []) {
       if (e.sha === null) gh.committed.delete(e.path); else gh.committed.set(e.path, blobSha(e.content ?? ''));
     }
@@ -118,7 +121,7 @@ function committedTreeEntries(): Array<{ path: string; content?: string; sha?: n
 
 const originalFetch = globalThis.fetch;
 beforeEach(() => {
-  gh = { head: 'base-commit', committed: new Map(), trees: new Map(), commits: new Map(), refUpdates: 0 };
+  gh = { head: 'base-commit', committed: new Map(), trees: new Map(), commits: new Map(), parents: new Map(), refUpdates: 0, refRejections: 0 };
   vi.stubEnv('AI_TRIAD_DATA_ROOT', '/var/cache/taxonomy-test');
   globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -132,7 +135,7 @@ function makeStore(): SharedOverlayStore {
   return new SharedOverlayStore({ accountUrl: ACCOUNT_URL, container: CONTAINER, blobPrefix: prefix, serviceClient: service });
 }
 
-async function createReplica(lock: { leaseSeconds?: number; maxHoldMs?: number; draining?: boolean } = {}) {
+async function createReplica(lock: { leaseSeconds?: number; maxHoldMs?: number; draining?: boolean; lockService?: BlobServiceClient } = {}) {
   const { GitHubAPIBackend } = await import('../storage/githubAPIBackend');
   const backend = new GitHubAPIBackend({
     cacheDir: `/var/cache/taxonomy-test-${++counter}`,
@@ -141,7 +144,7 @@ async function createReplica(lock: { leaseSeconds?: number; maxHoldMs?: number; 
     coherencyProbeRate: 0,
     sharedOverlayState: {
       store: makeStore(), forceActiveForTesting: true, draining: lock.draining ?? false,
-      commitLock: { accountUrl: ACCOUNT_URL, container: `${CONTAINER}-locks-${prefix}`.toLowerCase().replace(/_/g, '-'), serviceClient: service, leaseSeconds: lock.leaseSeconds ?? 15, maxHoldMs: lock.maxHoldMs },
+      commitLock: { accountUrl: ACCOUNT_URL, container: `${CONTAINER}-locks-${prefix}`.toLowerCase().replace(/_/g, '-'), serviceClient: lock.lockService ?? service, leaseSeconds: lock.leaseSeconds ?? 15, maxHoldMs: lock.maxHoldMs },
     },
   });
   await backend.initialize();
@@ -153,7 +156,7 @@ function lockContainer(): string {
   return `${CONTAINER}-locks-${prefix}`.toLowerCase().replace(/_/g, '-');
 }
 
-describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — shared overlay commit under the per-user commit lease (t/550)', () => {
+describe.skipIf(SKIP_LOCAL_SKEW)('GitHubAPIBackend — shared overlay commit under the per-user commit lease (t/550)', () => {
   beforeAll(async () => {
     azuriteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azurite-overlay-commit-test-'));
     proc = spawn(process.execPath,
@@ -322,6 +325,123 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — shared overlay commit und
       globalThis.fetch = realFetch;
     }
   });
+
+  // ── t/503 review round (TL t/503#22, SO t/503#21) ───────────────────────────────────────────────
+
+  // N2 / t/685: a commit that landed but was never cleared (a crash after the ref update, a lost response, a failed
+  // unstage) leaves entries whose base is the pre-commit blob. They are already on the branch: cleared, not conflicts.
+  it('N2: an entry already on the branch (landed, never cleared) is cleared, not reported as a conflict', async () => {
+    const a = await createReplica();
+    await a.writeFile(FILE, 'landed'); // staged against an absent file
+    gh.committed.set(REPO_PATH, blobSha('landed')); // the earlier commit landed; its clear never ran
+    const result = await a.commitOverlay(USER, undefined, { branchName: BRANCH });
+    expect(result).toBeNull(); // nothing left to commit
+    expect(gh.refUpdates).toBe(0);
+    expect(await makeStore().listEntries(USER)).toEqual([]);
+    expect(a.getUncommittedOverlaySummary()).toEqual([]);
+  });
+
+  it('N2: with one landed entry and one pending, only the pending one is committed, and both are cleared', async () => {
+    const a = await createReplica();
+    await a.writeFile(FILE, 'landed');
+    await a.writeFile('/conflicts/bar.json', 'still pending');
+    gh.committed.set(REPO_PATH, blobSha('landed'));
+    const result = await a.commitOverlay(USER, undefined, { branchName: BRANCH });
+    expect(result).toMatchObject({ filesCommitted: 1 });
+    expect(result?.conflictedPaths ?? []).toEqual([]);
+    expect(committedTreeEntries()).toEqual([expect.objectContaining({ path: 'conflicts/bar.json', content: 'still pending' })]);
+    expect(await makeStore().listEntries(USER)).toEqual([]);
+  });
+
+  it('N2: a staged delete whose path is already gone from the branch is cleared, not a conflict', async () => {
+    gh.committed.set(REPO_PATH, blobSha('old'));
+    const a = await createReplica();
+    await a.deleteFile(FILE); // staged with base = blobSha('old')
+    gh.committed.delete(REPO_PATH); // the delete landed; its clear never ran
+    expect(await a.commitOverlay(USER, undefined, { branchName: BRANCH })).toBeNull();
+    expect(await makeStore().listEntries(USER)).toEqual([]);
+  });
+
+  // B1: A's save sits in A's local map. B commits it and clears the store; then the branch moves on. A must not serve,
+  // count or report its stale local copy.
+  it('B1: after another replica commits and clears the store, A serves no stale local content and reports nothing uncommitted', async () => {
+    const a = await createReplica();
+    const b = await createReplica();
+    await a.writeFile(FILE, 'X from A');
+    expect(await b.commitOverlay(USER, undefined, { branchName: BRANCH })).toMatchObject({ filesCommitted: 1 });
+    gh.committed.set(REPO_PATH, blobSha('Y committed later'));
+    expect(await a.readFile(FILE)).not.toBe('X from A');
+    expect(await a.commitOverlay(USER, undefined, { branchName: BRANCH })).toBeNull();
+    expect(a.getUncommittedOverlaySummary()).toEqual([]);
+  });
+
+  it('B1: a fresh listing that lacks a path drops A\'s local copy of it', async () => {
+    const a = await createReplica();
+    const b = await createReplica();
+    await a.writeFile(FILE, 'X from A');
+    await b.discardConflictedOverlayEntriesAsync(USER); // 'Use theirs' on B clears the store
+    expect(await a.readFile(FILE)).not.toBe('X from A');
+    expect(a.getUncommittedOverlaySummary()).toEqual([]);
+  });
+
+  // Two commits racing on the same branch: the lease lets one through; the other is busy or finds nothing left.
+  it('racing commits on two replicas: exactly one commit lands, and the other is busy or finds nothing', async () => {
+    const a = await createReplica();
+    const b = await createReplica();
+    await a.writeFile(FILE, 'pending');
+    const outcomes = await Promise.allSettled([
+      a.commitOverlay(USER, undefined, { branchName: BRANCH }),
+      b.commitOverlay(USER, undefined, { branchName: BRANCH }),
+    ]);
+    expect(gh.refUpdates).toBe(1);
+    const landed = outcomes.filter(o => o.status === 'fulfilled' && o.value?.filesCommitted === 1);
+    expect(landed).toHaveLength(1);
+    for (const o of outcomes) {
+      if (o.status === 'rejected') expect(o.reason, String((o.reason as Error).message)).toMatchObject({ code: 'OVERLAY_COMMIT_BUSY' });
+    }
+    expect(await makeStore().listEntries(USER)).toEqual([]);
+  });
+
+  // The last fence: a commit made outside the lease (another writer on the branch) moves the head between our read and
+  // our ref update. The non-forced update is refused (one CAS rejected); nothing is cleared, and the next round commits.
+  it('the branch moves under a commit: the non-forced ref update is refused, entries stay, the next commit lands', async () => {
+    const a = await createReplica();
+    await a.writeFile(FILE, 'pending');
+    gh.onTreePost = async () => { gh.head = 'someone-elses-commit'; gh.onTreePost = undefined; };
+    await expect(a.commitOverlay(USER, undefined, { branchName: BRANCH })).rejects.toBeTruthy();
+    expect(gh.refRejections).toBe(1);
+    expect(gh.refUpdates).toBe(0);
+    expect((await makeStore().listEntries(USER)).map(e => e.entry.content)).toEqual(['pending']);
+    await expect(a.commitOverlay(USER, undefined, { branchName: BRANCH })).resolves.toMatchObject({ filesCommitted: 1 });
+    expect(await makeStore().listEntries(USER)).toEqual([]);
+  });
+
+  // The store down on the commit path: fails closed, no GitHub write, and the lease is released for the next round.
+  it('store down while listing the batch: the commit fails, nothing reaches GitHub, and the lease is released', async () => {
+    const a = await createReplica();
+    await a.writeFile(FILE, 'pending');
+    const spy = vi.spyOn(SharedOverlayStore.prototype, 'listEntries').mockRejectedValueOnce(new Error('simulated store outage'));
+    try {
+      await expect(a.commitOverlay(USER, undefined, { branchName: BRANCH })).rejects.toThrow(/simulated store outage/);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(gh.refUpdates).toBe(0);
+    expect(committedTreeEntries()).toEqual([]);
+    await expect(a.commitOverlay(USER, undefined, { branchName: BRANCH })).resolves.toMatchObject({ filesCommitted: 1 }); // not busy
+  });
+
+  it('commit lock unreachable: the commit fails (not busy, not committed), with no GitHub write', async () => {
+    const writer = await createReplica();
+    await writer.writeFile(FILE, 'pending');
+    const dead = BlobServiceClient.fromConnectionString(CONN.replace(String(PORT), '1'), { retryOptions: { maxTries: 1 } });
+    const a = await createReplica({ lockService: dead });
+    const err = await a.commitOverlay(USER, undefined, { branchName: BRANCH }).then(() => null, (e: unknown) => e);
+    expect(err).toBeTruthy();
+    expect(err).not.toMatchObject({ code: 'OVERLAY_COMMIT_BUSY' });
+    expect(gh.refUpdates).toBe(0);
+    expect((await makeStore().listEntries(USER)).map(e => e.entry.content)).toEqual(['pending']);
+  }, 30_000);
 
   // ── t/552: the DRAINING rollback ──────────────────────────────────────────────────────────────
 
