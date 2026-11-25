@@ -63,7 +63,7 @@ export function registerOverlayConflictsRoutes(r: Router, ctx: ServerCtx): void 
       }
       // Captured before the rebase+commit clears the overlay — same pattern as POST
       // /api/sync/commit (routes/sync.ts) — so the broadcast below carries real content.
-      const pending = githubBackend.getOverlayEntries(userId);
+      const pending = await githubBackend.getOverlayEntriesForBroadcast(userId); // t/691: the store in shared mode; null skips the broadcast
       const result = await githubBackend.rebaseAndRecommitConflictedOverlayEntries(userId, branch);
       json(res, result);
       if (result.committed) {

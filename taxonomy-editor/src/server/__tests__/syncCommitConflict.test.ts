@@ -51,11 +51,11 @@ beforeEach(() => {
 
 describe('POST /api/sync/commit — conflict handling (SO F5, t/4312)', () => {
   it('returns 409 OVERLAY_CONFLICT, not ok:true, when commitOverlay reports conflicted paths', async () => {
-    const getOverlayEntries = vi.fn().mockReturnValue({ writes: [], deletes: [] });
+    const getOverlayEntriesForBroadcast = vi.fn().mockResolvedValue({ writes: [], deletes: [] });
     const commitOverlay = vi.fn().mockResolvedValue({ commitSha: '', filesCommitted: 0, conflictedPaths: ['a.json'] });
     const broadcastTaxonomyUpdate = vi.fn();
     const { status, body } = await invoke({
-      getGithubBackend: () => ({ getOverlayEntries, commitOverlay } as any),
+      getGithubBackend: () => ({ getOverlayEntriesForBroadcast, commitOverlay } as any),
       broadcastTaxonomyUpdate,
     });
     expect(status).toBe(409);
@@ -64,15 +64,34 @@ describe('POST /api/sync/commit — conflict handling (SO F5, t/4312)', () => {
   });
 
   it('still reports ok:true on a clean commit (no conflictedPaths)', async () => {
-    const getOverlayEntries = vi.fn().mockReturnValue({ writes: [{ path: 'a.json', content: '{}' }], deletes: [] });
+    const getOverlayEntriesForBroadcast = vi.fn().mockResolvedValue({ writes: [{ path: 'a.json', content: '{}' }], deletes: [] });
     const commitOverlay = vi.fn().mockResolvedValue({ commitSha: 'sha123', filesCommitted: 1 });
     const broadcastTaxonomyUpdate = vi.fn().mockResolvedValue(undefined);
     const { status, body } = await invoke({
-      getGithubBackend: () => ({ getOverlayEntries, commitOverlay } as any),
+      getGithubBackend: () => ({ getOverlayEntriesForBroadcast, commitOverlay } as any),
       broadcastTaxonomyUpdate,
     });
     expect(status).toBe(200);
     expect(body).toEqual({ ok: true, commitSha: 'sha123', filesCommitted: 1 });
     expect(broadcastTaxonomyUpdate).toHaveBeenCalled();
+  });
+
+  // t/691 (TL t/503#26 item 3): the broadcast is built from getOverlayEntriesForBroadcast (the shared store in shared
+  // mode), captured before the commit; a store failure (null) reaches broadcastTaxonomyUpdate as null, which skips it.
+  it('captures the broadcast entries before the commit and passes them, or null, to the broadcast', async () => {
+    const order: string[] = [];
+    const pending = { writes: [{ path: 'taxonomy/Origin/accelerationist.json', content: '{}' }], deletes: [] };
+    for (const entries of [pending, null]) {
+      order.length = 0;
+      const getOverlayEntriesForBroadcast = vi.fn(async () => { order.push('entries'); return entries; });
+      const commitOverlay = vi.fn(async () => { order.push('commit'); return { commitSha: 'sha1', filesCommitted: 1 }; });
+      const broadcastTaxonomyUpdate = vi.fn().mockResolvedValue(undefined);
+      const backend = { getOverlayEntriesForBroadcast, commitOverlay };
+      const { status } = await invoke({ getGithubBackend: () => backend as any, broadcastTaxonomyUpdate });
+      expect(status).toBe(200);
+      expect(order).toEqual(['entries', 'commit']);
+      expect(getOverlayEntriesForBroadcast).toHaveBeenCalledWith('tester');
+      expect(broadcastTaxonomyUpdate).toHaveBeenCalledWith(backend, entries, 'tester');
+    }
   });
 });
