@@ -21,8 +21,12 @@ describe('_local user flight recorder access (t/1111)', () => {
   });
 
   describe('flight recorder routes are reachable without admin', () => {
-    it('GET /api/flight-recorder/list is allowed for anonymous (and therefore _local)', () => {
-      expect(isAnonAllowedRoute('GET', '/api/flight-recorder/list')).toBe(true);
+    // t/579 (incident): list, download, view and server-dump are refused to ANONYMOUS callers on
+    // hosted (AUTH_OPTIONAL) deployments, because they served every user's server logs. Local and
+    // Electron users are unaffected: isAnonAllowedRoute is consulted only by the AUTH_OPTIONAL gates
+    // (server.ts enforceOptionalAuthGate / enforceAnonRouteGuard), which a local server does not run.
+    it('GET /api/flight-recorder/list is refused for hosted anonymous callers (t/579)', () => {
+      expect(isAnonAllowedRoute('GET', '/api/flight-recorder/list')).toBe(false);
     });
 
     it('GET /api/flight-recorder/download-merged/:dumpId is allowed for anonymous', () => {
@@ -33,8 +37,8 @@ describe('_local user flight recorder access (t/1111)', () => {
       expect(isAnonAllowedRoute('POST', '/api/flight-recorder/dump')).toBe(true);
     });
 
-    it('POST /api/flight-recorder/server-dump is in the safe POST allowlist', () => {
-      expect(isAnonAllowedRoute('POST', '/api/flight-recorder/server-dump')).toBe(true);
+    it('POST /api/flight-recorder/server-dump is NOT in the safe POST allowlist (t/579)', () => {
+      expect(isAnonAllowedRoute('POST', '/api/flight-recorder/server-dump')).toBe(false);
     });
 
     it('POST /api/admin/flight-recorder/dump is correctly admin-only (not in safe list)', () => {

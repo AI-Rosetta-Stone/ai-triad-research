@@ -21,7 +21,10 @@
 // this wrapper exists to catch.
 //
 //   node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber> [--gate-change-review=<review id>]
-//        [--budget-exempt-review=<review id>] [--by=<collaborator id>]
+//        [--budget-exempt-review=<review id>] [--by=<collaborator id>] [--override-hold]
+//
+// t/132: a PR carrying `no-auto-enqueue` is refused unless --override-hold is given; an override is
+// WARNed. Unreadable labels refuse.
 //
 // t/556: before anything else, the wrapper refuses unless its running copy (this file,
 // gate-file-change.mjs and every local module they import) is origin/main's
@@ -59,8 +62,8 @@
 // `t1-approval-guard` check run, which a PR-side workflow can forge. enqueuePR reads the PR's
 // commits, comments and reviews from the API at the head and runs the guard's predicate on them
 // (t1-approval-at-head.mjs: fetchApprovalInputs, approvalFromApiVerdict). An approval counts only
-// from a reviewer-App review bound to the head or an allowlisted commenter, never the shared login;
-// every read fails closed.
+// from a reviewer-App REVIEW bound to the head (commit_id); no comment ever approves, and the
+// `t1-approval-guard` row is never read (Security t/534#16). Every read fails closed.
 
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -76,6 +79,27 @@ import {
 // The row helpers are re-exported for their existing callers and tests only; enqueuePR decides with
 // fetchApprovalInputs + approvalFromApiVerdict and never reads a check run (t/534 part A).
 export { approvalAtHeadVerdict, approvalFromApiVerdict, classifyT1GuardForEnqueue, fetchApprovalInputs, fetchGuardRun, pickAuthoritativeGuardRun };
+
+export const NO_AUTO_ENQUEUE_LABEL = 'no-auto-enqueue';
+
+/**
+ * PURE (t/132). Decides whether the `no-auto-enqueue` label stops this enqueue. The label means
+ * "the author will push more": docs/pr-landing.md tells authors to add it before dequeuing to push
+ * a fix, and the sweeps skip a labelled PR. Arming one by hand would land the old head.
+ *  - labels not an array (unreadable)       -> refuse ('labels_unreadable'); fail closed.
+ *  - label present, no --override-hold      -> refuse ('no_auto_enqueue').
+ *  - label present, --override-hold         -> allow, with a WARN naming the label and the caller.
+ *  - label absent                           -> allow.
+ */
+export function holdLabelVerdict({ labels, overrideHold = false }) {
+  if (!Array.isArray(labels)) return { allow: false, reason: 'labels_unreadable' };
+  const names = labels.map((l) => (typeof l === 'string' ? l : l?.name)).filter(Boolean);
+  if (!names.includes(NO_AUTO_ENQUEUE_LABEL)) return { allow: true, reason: 'no_hold_label' };
+  if (overrideHold) {
+    return { allow: true, reason: 'hold_overridden', warn: `the PR carries \`${NO_AUTO_ENQUEUE_LABEL}\`; --override-hold was given, so it is being armed anyway` };
+  }
+  return { allow: false, reason: 'no_auto_enqueue' };
+}
 
 /**
  * PURE. Classifies a queue-state read into one of five outcomes:
@@ -189,7 +213,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * autoMergeRequest at all). Throws (never silently returns ok:false) if even the fallback
  * doesn't result in the PR being queued or armed.
  */
-export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh, expectedHeadOid = null, gateChangeReviewId = null, by = null, currency = checkRunningCopy, budget = checkPrBudget, budgetExemptReviewId = null } = {}) {
+export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh, expectedHeadOid = null, gateChangeReviewId = null, by = null, overrideHold = false, currency = checkRunningCopy, budget = checkPrBudget, budgetExemptReviewId = null } = {}) {
   // t/556: BEFORE ANY OTHER CHECK, refuse unless this running copy (this file, gate-file-change.mjs
   // and every local module they import) is origin/main's. A stale copy can lack a refusal entirely
   // (t/537#40). Fail closed: a failed fetch or read refuses. `currency` is injectable for tests only.
@@ -217,7 +241,7 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
   }
   if (bv.reason !== 'budget_exempt') console.log(budgetOkLine({ repo, prNumber, verdict: bv }));
 
-  const prMeta = JSON.parse(ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft']));
+  const prMeta = JSON.parse(ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft,labels']));
   const headSha = prMeta.headRefOid;
   const tier = extractTier(prMeta.body);
   // t/564 (Second Opinion on #5473, C): the budget (and any budget-exempt review) was judged on the head
@@ -241,6 +265,25 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
       '  Next steps: none for a sweep (the next run re-checks the new head); by hand, rerun after re-approval.',
     );
   }
+
+  // t/132: `no-auto-enqueue` means the author will push more. Refuse unless --override-hold; an
+  // override is WARNed. Before any other read, so a held PR costs no further API calls.
+  const hold = holdLabelVerdict({ labels: prMeta.labels, overrideHold });
+  if (hold.reason === 'labels_unreadable') {
+    console.warn(`WARN: enqueue-pr could not read the labels of #${prNumber} on ${repo}; refusing rather than risk arming a held PR.`);
+  }
+  if (!hold.allow) {
+    throw new Error(
+      `enqueue-pr: refusing to arm/enqueue #${prNumber} on ${repo} (${hold.reason}).\n` +
+      `  Goal:       land #${prNumber} via the merge queue.\n` +
+      `  Problem:    ${hold.reason === 'labels_unreadable'
+        ? 'the PR\'s labels could not be read, so a `no-auto-enqueue` hold cannot be ruled out.'
+        : `the PR carries \`${NO_AUTO_ENQUEUE_LABEL}\`, which means its author intends to push more.`}\n` +
+      '  Location:   operations/devops/enqueue-pr.mjs (holdLabelVerdict, t/132).\n' +
+      `  Next steps: ask the author whether the head is final; they remove the label. Only if they confirm and cannot, rerun with --override-hold.`,
+    );
+  }
+  if (hold.warn) console.warn(`WARN: ${hold.warn} (#${prNumber} on ${repo}, head ${headSha})`);
 
   // t/537: a PR that changes a workflow or a gate script is refused, at every tier, unless a
   // Tech Lead or Security reviewer-App approval bound to this head is named. Read from the API;
@@ -360,12 +403,12 @@ const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process
 if (isCliEntry) {
   const [repo, prNumberArg, ...flags] = process.argv.slice(2);
   const flag = (name) => flags.map((f) => new RegExp(`^--${name}=(.+)$`).exec(f)).find(Boolean)?.[1] ?? null;
-  const unknown = flags.filter((f) => !/^--(gate-change-review|budget-exempt-review|by)=.+$/.test(f));
+  const unknown = flags.filter((f) => !/^--(gate-change-review|budget-exempt-review|by)=.+$/.test(f) && f !== '--override-hold');
   if (!repo || !prNumberArg || unknown.length) {
-    console.error('Usage: node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber> [--gate-change-review=<review id>] [--budget-exempt-review=<review id>] [--by=<collaborator id>]');
+    console.error('Usage: node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber> [--gate-change-review=<review id>] [--budget-exempt-review=<review id>] [--by=<collaborator id>] [--override-hold]');
     process.exit(1);
   }
-  runCli(repo, Number(prNumberArg), { gateChangeReviewId: flag('gate-change-review'), budgetExemptReviewId: flag('budget-exempt-review'), by: flag('by') }).then(
+  runCli(repo, Number(prNumberArg), { gateChangeReviewId: flag('gate-change-review'), budgetExemptReviewId: flag('budget-exempt-review'), by: flag('by'), overrideHold: flags.includes('--override-hold') }).then(
     (code) => { process.exitCode = code; },
   );
 }

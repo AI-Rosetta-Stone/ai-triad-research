@@ -93,6 +93,7 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/merge-approval-run.mjs',
   'operations/devops/merge-approval-verdict.mjs',
   'operations/devops/rate-limit-snapshot-step.yml',
+  'operations/devops/rate-limit-snapshot-start-step.yml', // t/563
   'operations/devops/run-merge-guard-tests.sh',
   'operations/devops/run-schema-drift.ts',
   'operations/devops/scheduled-workflows.json',
@@ -259,6 +260,7 @@ export const CODE_UNDER_TEST = [
   'taxonomy-editor/src/renderer/hooks/useTaxonomyStore/slices/__tests__/registryCompleteness.test.ts', // test of product registry
   // Unit tests of operations/devops gate scripts. The scripts are protected; their tests are reviewed as code.
   'operations/devops/actions-cache-budget.test.mjs', // test of actions-cache-budget.mjs
+  'operations/devops/record-base-ref-retry.test.mjs', // t/238: unit test of the record-base-ref retry; reviewed as code
   'operations/devops/cancel-superseded-runs.test.mjs', // test of cancel-superseded-runs
   'operations/devops/check-action-pin-resolution.test.mjs', // test of check-action-pin-resolution.mjs
   'operations/devops/check-dockerfile-store-mounts.test.mjs', // test of check-dockerfile-store-mounts.mjs

@@ -36,7 +36,9 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
-import { checkVerdict, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
+import { checkVerdict, classifyEnqueueFailure, disarmViaGraphql, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
+// t/602: the refusals that mean "over the PR budget, wait for a slot" (the same set the budget report pings).
+import { PING_REASONS as BUDGET_SKIP_REASONS } from './pr-budget-notify.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { ejectedBatchVerdict, listMergeGroupRuns, listRunJobs, readJobLog } from './ejected-batch.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
@@ -460,7 +462,7 @@ function withRepinChecks(repo, prs) {
 
 /**
  * Enqueues one selected PR (`{ number, headRefOid, armed }`) and reports what happened:
- * 'enqueued', 'skipped' (the live re-read said no), 'raced' (the PR moved on by itself while
+ * 'enqueued', 'skipped' (the live re-read said no, or enqueue-pr refused it over the PR budget, t/602), 'raced' (the PR moved on by itself while
  * enqueuing) or 'failed'. Shared by the T0 and T1 sweeps (t/73); moved out of `sweep` unchanged.
  * `enqueueOpts` is passed to enqueuePR (the T1 sweep pins `expectedHeadOid`). `deps` replaces the
  * live read, the enqueue call and `gh` in tests.
@@ -477,7 +479,8 @@ export async function enqueueOne(repo, pr, { enqueueOpts, deps = {} } = {}) {
   try {
     // An arm that never reached the queue (the silent-miss class, t/4740) is a no-op to
     // re-arm, so clear it first.
-    if (pr.armed) ghFn(['pr', 'merge', String(pr.number), '-R', repo, '--disable-auto']);
+    // t/600: disarm through GraphQL; no `gh pr merge` outside enqueue-pr.mjs (Security p/131#66).
+    if (pr.armed) disarmViaGraphql(repo, pr.number, ghFn);
     const result = enqueueOpts ? await enqueue(repo, pr.number, enqueueOpts) : await enqueue(repo, pr.number);
     console.log(`enqueued #${pr.number} (${JSON.stringify(result)})`);
     return 'enqueued';
@@ -488,6 +491,14 @@ export async function enqueueOne(repo, pr, { enqueueOpts, deps = {} } = {}) {
     if (after.raced) {
       console.log(`skip #${pr.number}: ${after.reason} while enqueuing (race, not a failure): ${err.message ?? err}`);
       return 'raced';
+    }
+    // t/602: a budget refusal is the budget working, not a failed sweep. The PR waits for the next
+    // day's slots (the 12:00Z/18:00Z budget report already names it to its owner) and stays unarmed
+    // (t/600: never re-arm). Every other refusal and failure still fails the job.
+    const c = classifyEnqueueFailure(err);
+    if (c.kind === 'policy' && BUDGET_SKIP_REASONS.includes(c.reason)) {
+      console.log(`skip #${pr.number}: over the PR budget (${c.reason}); waits for the next day's slots`);
+      return 'skipped';
     }
     console.error(`::error::#${pr.number}: ${err.message ?? err}`);
     return 'failed';

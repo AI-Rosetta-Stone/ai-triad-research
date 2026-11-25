@@ -26,7 +26,7 @@ BeforeAll {
     Import-Module $ModulePath -Force -WarningAction SilentlyContinue
 }
 
-Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'health' {
+Describe 'Invoke-TaxEditorSmokeTest analytics write probe (t/2667; read-back removed, t/579)' -Tag 'health' {
 
     BeforeEach {
         InModuleScope AITriad {
@@ -77,86 +77,89 @@ Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'h
                     Body = $Body; ContentType = 'application/json'; RawBody = ''; Error = $(if (-not $Success) { "HTTP $Status" } else { $null })
                 }
             }
-        }
-    }
 
-    It 'clean round-trip: totalEvents increases → Analytics PASS, OverallPass true' {
-        InModuleScope AITriad {
-            $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
-                $script:QueryCall++
-                $total = if ($script:QueryCall -eq 1) { 5 } else { 6 }   # +1 after write
-                New-RCResult $true 200 ([PSCustomObject]@{
-                    summary    = [PSCustomObject]@{ totalEvents = $total }
-                    eventTypes = [PSCustomObject]@{ 'view.dwell' = if ($script:QueryCall -ge 2) { 1 } else { 0 } }
-                })
-            }
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/event' } -MockWith {
-                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 1 })
-            }
-
-            $result = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null
-
-            $result.OverallPass | Should -BeTrue -Because 'a clean analytics round-trip with all other phases green must pass'
-            @($result.FailedEndpoints | Where-Object { $_.Category -eq 'Analytics' }).Count |
-                Should -Be 0 -Because 'neither analytics probe should fail on a healthy round-trip'
-            @($result.Categories | Where-Object { $_.Category -eq 'Analytics' }).Count |
-                Should -Be 1 -Because 'the Analytics category must appear in the per-category breakdown'
-        }
-    }
-
-    It 'baseline AND read-back pass includeSystem=true — the probe writes as smoke-probe, a system identity (t/53)' {
-        InModuleScope AITriad {
+            # Incident t/579: GET /api/analytics/query exposed user identifiers to anonymous callers and now
+            # refuses them (#5500); it becomes admin-only (t/592). The smoke no longer reads it: an anonymous
+            # read-back could only fail, and a failing smoke rolls the deploy back. Every test here makes the
+            # query route answer 403, as production does, so a smoke that still read it would fail them.
+            # (In this one BeforeEach on purpose: a second BeforeEach in the same Describe replaces the first
+            # under the CI's Pester, which left these tests with no mocks at all.)
             Mock Invoke-RemoteCheck -ParameterFilter { $Path -like '/api/analytics/query*' } -MockWith {
-                New-RCResult $true 200 ([PSCustomObject]@{ summary = [PSCustomObject]@{ totalEvents = 1 }; eventTypes = [PSCustomObject]@{} })
+                New-RCResult $false 403 $null
             }
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/event' } -MockWith {
-                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 1 })
-            }
-
-            $null = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null
-
-            Should -Invoke Invoke-RemoteCheck -Times 2 -Exactly -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } `
-                -Because 'since t/4960 the default totals exclude smoke-* identities, so an opted-out read always sees delta=0'
-            Should -Invoke Invoke-RemoteCheck -Times 0 -Exactly -ParameterFilter { $Path -eq '/api/analytics/query' }
         }
     }
 
-    It 'SILENT DROP: totalEvents flat after a 200 write → delta FAILS, OverallPass false (the critical catch)' {
+    It 'write 200 + ok:true → Analytics PASS and OverallPass true, with the query route refusing anonymous reads (t/579)' {
         InModuleScope AITriad {
-            $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
-                $script:QueryCall++
-                New-RCResult $true 200 ([PSCustomObject]@{ summary = [PSCustomObject]@{ totalEvents = 5 } })  # never increases
-            }
             Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/event' } -MockWith {
-                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 1 })  # server reports success — the trap
+                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 2 })
             }
 
-            $result = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null
+            $result = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null 3>$null
 
-            $result.OverallPass | Should -BeFalse -Because 'a silent drop (write 200 but nothing stored) must sink the gate'
-            $delta = $result.FailedEndpoints | Where-Object { $_.Endpoint -like '*delta read-back*' }
-            $delta | Should -Not -BeNullOrEmpty -Because 'the delta read-back is the authoritative silent-drop detector'
-            $delta.Error | Should -Match 'Silent drop'
-            # The write probe alone reports 200+ok:true — proving it can NOT be the detector.
-            $write = $result.FailedEndpoints | Where-Object { $_.Endpoint -eq 'POST /api/analytics/event' }
-            $write | Should -BeNullOrEmpty -Because 'the write is reachability-only; it passes on the silent drop, which is exactly why the delta is needed'
+            $result.OverallPass | Should -BeTrue -Because 'a refused analytics read must never fail the smoke: it would roll back the deploy that refuses it'
+            @($result.FailedEndpoints | Where-Object { $_.Category -eq 'Analytics' }).Count | Should -Be 0
+            $cat = @($result.Categories | Where-Object { $_.Category -eq 'Analytics' })
+            $cat.Count | Should -Be 1 -Because 'the Analytics category must appear in the per-category breakdown'
+        }
+    }
+
+    It 'never calls GET /api/analytics/query, with or without includeSystem (t/579)' {
+        InModuleScope AITriad {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/event' } -MockWith {
+                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 2 })
+            }
+
+            $null = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null 3>$null
+
+            Should -Invoke Invoke-RemoteCheck -Times 0 -Exactly -ParameterFilter { $Path -like '/api/analytics/query*' } `
+                -Because 'the route exposed user identifiers to anonymous callers; the smoke must not read it as one'
+            Should -Invoke Invoke-RemoteCheck -Times 1 -Exactly -ParameterFilter { $Path -eq '/api/analytics/event' -and $Method -eq 'POST' }
+        }
+    }
+
+    It 'the phase emits the write check only, and says on every run that the read-back was skipped (t/579)' {
+        InModuleScope AITriad {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/event' } -MockWith {
+                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 2 })
+            }
+
+            $all = @(Invoke-SmokeAnalyticsPhase -BaseUrl 'https://stub' -TimeoutSec 5 3>&1 6>$null)
+            $warn = @($all | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+            $rows = @($all | Where-Object { $_ -isnot [System.Management.Automation.WarningRecord] })
+
+            $rows.Count | Should -Be 1
+            $rows[0].Endpoint | Should -Be 'POST /api/analytics/event'
+            $rows[0].Pass | Should -BeTrue
+            @($rows | Where-Object { $_.Endpoint -like '*analytics/query*' }).Count | Should -Be 0 -Because 'a skipped check is a logged note, not a result row that could fail'
+            @($warn | Where-Object { "$_" -match 'read-back needs admin \(t/579\), skipped' }).Count | Should -Be 1
+        }
+    }
+
+    It 'the write batch still carries the smoke-probe and view.dwell events' {
+        InModuleScope AITriad {
+            $script:SentBody = $null
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/event' } -MockWith {
+                $script:SentBody = $Body
+                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 2 })
+            }
+
+            $null = Invoke-SmokeAnalyticsPhase -BaseUrl 'https://stub' -TimeoutSec 5 3>$null 6>$null
+
+            $events = @(($script:SentBody | ConvertFrom-Json).events)
+            @($events.event_type) | Should -Be @('smoke-probe', 'view.dwell')
+            @($events.user | Sort-Object -Unique) | Should -Be @('smoke-probe')
         }
     }
 
     It 'WRITE UNREACHABLE: POST non-200 → write probe FAILS, OverallPass false' {
         InModuleScope AITriad {
-            $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
-                $script:QueryCall++
-                New-RCResult $true 200 ([PSCustomObject]@{ summary = [PSCustomObject]@{ totalEvents = 5 } })
-            }
             Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/event' } -MockWith {
                 New-RCResult $false 502 $null
             }
 
-            $result = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null
+            $result = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null 3>$null
 
             $result.OverallPass | Should -BeFalse
             $write = $result.FailedEndpoints | Where-Object { $_.Endpoint -eq 'POST /api/analytics/event' }
@@ -164,75 +167,42 @@ Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'h
         }
     }
 
-    It 'READ PATH BROKEN: baseline query non-200 → delta FAILS "Baseline read failed", OverallPass false' {
+    It 'WRITE REFUSED IN THE BODY: 200 with ok:false → write probe FAILS, OverallPass false' {
         InModuleScope AITriad {
-            $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
-                $script:QueryCall++
-                New-RCResult $false 302 $null   # e.g. auth redirect / read path down
-            }
             Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/event' } -MockWith {
-                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 1 })
+                New-RCResult $true 200 ([PSCustomObject]@{ ok = $false })
             }
 
-            $result = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null
+            $result = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null 3>$null
 
             $result.OverallPass | Should -BeFalse
-            $delta = $result.FailedEndpoints | Where-Object { $_.Endpoint -like '*delta read-back*' }
-            $delta | Should -Not -BeNullOrEmpty
-            $delta.Error | Should -Match 'Baseline read failed'
+            ($result.FailedEndpoints | Where-Object { $_.Endpoint -eq 'POST /api/analytics/event' }).Error | Should -Match 'ok=False'
         }
     }
 
-    It 'ANON SESSION: establishes one and threads it through all three Phase-5 calls (t/2684)' {
+    It 'ANON SESSION: establishes one and threads it through the write (t/2684)' {
         InModuleScope AITriad {
-            $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
-                $script:QueryCall++
-                $total = if ($script:QueryCall -eq 1) { 5 } else { 6 }
-                New-RCResult $true 200 ([PSCustomObject]@{
-                    summary    = [PSCustomObject]@{ totalEvents = $total }
-                    eventTypes = [PSCustomObject]@{ 'view.dwell' = if ($script:QueryCall -ge 2) { 1 } else { 0 } }
-                })
-            }
             Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/event' } -MockWith {
-                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 1 })
+                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 2 })
             }
 
-            Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null | Out-Null
+            Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null 3>$null | Out-Null
 
             # The anon session is established exactly once for the phase.
             Should -Invoke New-AnonymousWebSession -Times 1 -Exactly
-
-            # …and threaded to all three analytics calls (baseline GET, POST event,
-            # read-back GET) — the fix for the cookie-less interstitial false-positive.
-            Should -Invoke Invoke-RemoteCheck -Times 3 -Exactly -ParameterFilter {
-                ($Path -eq '/api/analytics/query?includeSystem=true' -or $Path -eq '/api/analytics/event') -and $null -ne $Session
-            }
+            Should -Invoke Invoke-RemoteCheck -Times 1 -Exactly -ParameterFilter { $Path -eq '/api/analytics/event' -and $null -ne $Session }
         }
     }
 
     It 'ANON SESSION UNAVAILABLE: warns and proceeds session-less, does not throw (t/2684)' {
         InModuleScope AITriad {
             Mock New-AnonymousWebSession -MockWith { $null }
-            $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
-                $script:QueryCall++
-                $total = if ($script:QueryCall -eq 1) { 5 } else { 6 }
-                New-RCResult $true 200 ([PSCustomObject]@{
-                    summary    = [PSCustomObject]@{ totalEvents = $total }
-                    eventTypes = [PSCustomObject]@{ 'view.dwell' = if ($script:QueryCall -ge 2) { 1 } else { 0 } }
-                })
-            }
             Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/event' } -MockWith {
-                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 1 })
+                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 2 })
             }
 
-            # No -Session flows through when the session could not be established.
-            { Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null } | Should -Not -Throw
-            Should -Invoke Invoke-RemoteCheck -Times 3 -Exactly -ParameterFilter {
-                ($Path -eq '/api/analytics/query?includeSystem=true' -or $Path -eq '/api/analytics/event') -and $null -eq $Session
-            }
+            { Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null 3>$null } | Should -Not -Throw
+            Should -Invoke Invoke-RemoteCheck -Times 1 -Exactly -ParameterFilter { $Path -eq '/api/analytics/event' -and $null -eq $Session }
         }
     }
 }
