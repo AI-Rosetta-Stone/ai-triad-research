@@ -43,6 +43,10 @@ Batch your work into a vehicle: every change lands in one of three. We measure t
 
 The data repo has no merge queue or branch protection, so `enqueue-pr.mjs` does not apply to it. The author merges after the required approvals (Quality's recount, plus the PI's go for a corpus write) and green checks, pinned to the approved head with `gh pr merge <N> -R AI-Rosetta-Stone/ai-triad-data --squash --match-head-commit <sha>`. The never-`gh pr merge` rule applies to ai-triad-research only.
 
+## Sources repo PRs (ai-triad-sources, TL t/652)
+
+The sources repo has no merge queue, and the reviewer App isn't installed there, so neither `enqueue-pr.mjs` nor a reviewer-App approval applies. Quality's verdict on the ticket, naming the exact head SHA, stands in for the App approval. The author merges after that verdict and green checks, pinned to that head with `gh pr merge <N> -R AI-Rosetta-Stone/ai-triad-sources --squash --match-head-commit <sha>`. Any push after the verdict voids it: get a new verdict at the new head. The never-`gh pr merge` rule applies to ai-triad-research only.
+
 ## PR-Flow Practice Rules
 
 - **Merge promptly on green,** or record why not.
