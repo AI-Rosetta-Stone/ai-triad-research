@@ -16,8 +16,10 @@
 #   • Warns ONLY on the shared checkout (git-dir == git-common-dir). Linked
 #     worktrees (git-dir != git-common-dir) are the CORRECT home for feature work
 #     and stay SILENT — warning there would be noise on every legitimate land.
-#   • Silent on `main` and on a detached HEAD (the pre-commit hook owns the
-#     detached-HEAD-commit case, t/2009).
+#   • Silent on `main`. A DETACHED HEAD on the shared checkout now warns too, loudly
+#     (t/565, Quality incident p/8#196: a review command ran `git checkout --detach` on the
+#     shared tree, and every session read a PR's files from it for 9 minutes, unflagged).
+#     Linked worktrees may sit detached (ff-redetach.sh, t/2008) and stay silent.
 #   • Non-blocking by construction: post-checkout cannot veto a checkout and its
 #     exit code is ignored by git. This hook always `exit 0` (advisory only).
 #   • Fail-OPEN: any git introspection error skips the warning — a broken guard
@@ -78,8 +80,27 @@ cdir=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd) ||
 # Linked worktree → the correct place for feature work. Stay silent.
 [ "$gd" = "$cdir" ] || exit 0
 
-# Detached HEAD → not a named-branch checkout; the pre-commit hook owns that case.
-branch=$(git symbolic-ref -q --short HEAD 2>/dev/null) || exit 0
+# Detached HEAD on the SHARED checkout (t/565): every session reads its files, so a detached
+# shared tree silently serves some other commit's code and rules. Warn loudly. No mode check:
+# even `direct` mode means "on a branch", never detached. Advisory only; git ignores the exit code.
+if ! branch=$(git symbolic-ref -q --short HEAD 2>/dev/null); then
+  _at=$(git rev-parse --short HEAD 2>/dev/null) || _at="?"
+  cat >&2 <<MSG
+
+  ████ WARNING: the SHARED checkout is now DETACHED at $_at, not on \`main\` (t/565). ████
+    Every session reads AGENTS.md, scripts and code from this tree. Until it is back on main,
+    they all see commit $_at instead of main.
+
+  Put it back now:
+    git checkout main
+  and look at other commits in a worktree instead:
+    git worktree add --detach .worktrees/<name> <commit>
+
+  (Advisory only: a hook cannot block a checkout.)
+
+MSG
+  exit 0
+fi
 
 # On `main` → the shared checkout is where it belongs. Silent.
 [ "$branch" = "main" ] && exit 0

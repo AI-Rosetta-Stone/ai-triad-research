@@ -1,0 +1,33 @@
+name: t1-approval-review-relay
+
+# t/534 part B (t/537, Security high): a `pull_request_review` run takes its workflow file from the
+# PR's side, so t1-approval-guard must no longer run on that event. This relay is the only thing
+# that does. It holds NO permissions and runs no PR code: one step that echoes the event. Its
+# completion triggers t1-approval-guard.yml through `workflow_run`, which GitHub always runs from
+# the default branch, so the guard's job, token and script come from main.
+#
+# A PR that edits this file can at most stop or add a re-evaluation of its own display row; it
+# cannot change what the guard decides, and (t/534 part A) enqueue-pr.mjs and the sweeps evaluate
+# the approval themselves from main and never read the row. LIMIT: a branch cut before this relay
+# existed has no relay, so a review on it re-evaluates only on the next comment, push or sweep.
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions: {}
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Relay the review event to t1-approval-guard (runs from main via workflow_run)
+        env:
+          ACTION: ${{ github.event.action }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # A block scalar: in a plain scalar, ` #` starts a YAML comment and cut the echo mid-quote,
+        # so every relay run exited 2 (Security p/275#7, run 45529348284).
+        run: |
+          echo "review $ACTION on PR #$PR at $HEAD_SHA; t1-approval-guard re-evaluates from main (workflow_run)."

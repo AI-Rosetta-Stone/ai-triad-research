@@ -11,8 +11,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   latestBlocker, resolveOwner, citedTickets, planRun, recordSent, keyOf, run, parseArgs,
-  DEVOPS_LEAD, TECH_LEAD, SENDER, HEADER, ESCALATE_AFTER_MS,
+  DEVOPS_LEAD, TECH_LEAD, SENDER, HEADER, ESCALATE_AFTER_MS, safeRemedy,
 } from './stuck-pr-ping.mjs';
+import { ENQUEUE_REMEDY } from './stuck-pr-classifier.mjs';
 
 const A = '11111111-1111-1111-1111-111111111111';
 const B = '22222222-2222-2222-2222-222222222222';
@@ -215,4 +216,71 @@ test('owner order (t/535#5): title/branch ticket, then the changed files, then a
   assert.equal(resolveOwner(pr(1, { branch: 'feat/x', body: 'see t/502' }), { ticketAssignee: ta, fileOwners: [A, B], known }).to, B, 'no majority -> the body ticket');
   const missingPrimary = resolveOwner(pr(1, { branch: 'feat/t4971', body: '' }), { ticketAssignee: () => undefined, fileOwners: [B, B, B], known });
   assert.equal(missingPrimary.to, B, 'a title/branch ticket not found here falls through to the files');
+});
+
+// ── t/535 (Lead p/233#56, t/537#27): an old alert comment's unsafe remedy is never forwarded ──
+const OLD_ARM_REMEDY = 'Every required context is green and the PR has an approved review, but auto-merge was never armed -- arm it (gh pr merge --auto --squash --match-head-commit <sha>), or merge directly if mergeStateStatus is already CLEAN.';
+const OLD_T0_REMEDY = 'Every required context is green and this is a T0 PR with no outstanding GitHub review required by default -- arm it, UNLESS the linked ticket\'s own acceptance criteria name a required review.';
+
+test('t/535 safeRemedy (approved-not-armed): a remedy naming gh pr merge, a direct merge or "arm it" is replaced by ENQUEUE_REMEDY', () => {
+  for (const r of [OLD_ARM_REMEDY, OLD_T0_REMEDY, 'merge it directly', 'do a direct merge', 'run gh  pr  merge 5 --squash']) {
+    const out = safeRemedy(r, 'approved-not-armed');
+    assert.ok(out.endsWith(ENQUEUE_REMEDY), out);
+    assert.match(out, /^\(the alert comment's remedy was replaced/);
+    assert.ok(!out.includes('--auto'), out);
+  }
+});
+
+// Quality on #5461: for any other class the enqueue text is never substituted; only the offending
+// part is dropped, so the run id and the re-run step survive.
+const OLD_STUCK_RUN = "Re-trigger first (toggle auto-merge or a label); if that doesn't clear it, cancel and re-run run 45507837195.";
+const MY_FIRST_STUCK_RUN = "Re-trigger first (toggle a label or push an empty commit; never re-arm with gh pr merge); if that doesn't clear it, cancel and re-run run 45507837195.";
+const NEW_STUCK_RUN = "Re-trigger first (toggle a label or push an empty commit); if that doesn't clear it, cancel and re-run run 45507837195.";
+
+test('t/535 safeRemedy (stuck-required-run, OLD text): drops only "(toggle auto-merge or a label)", keeps the run id and the re-run step', () => {
+  const out = safeRemedy(OLD_STUCK_RUN, 'stuck-required-run');
+  assert.equal(out, "Re-trigger first; if that doesn't clear it, cancel and re-run run 45507837195.");
+  assert.ok(!out.includes(ENQUEUE_REMEDY));
+});
+
+test('t/535 safeRemedy (stuck-required-run): the first #5461 wording loses only its parenthetical; the NEW wording passes through unchanged', () => {
+  assert.equal(safeRemedy(MY_FIRST_STUCK_RUN, 'stuck-required-run'), "Re-trigger first; if that doesn't clear it, cancel and re-run run 45507837195.");
+  assert.equal(safeRemedy(NEW_STUCK_RUN, 'stuck-required-run'), NEW_STUCK_RUN);
+});
+
+test('t/535 safeRemedy (other classes): an offending sentence is dropped, the rest kept; nothing safe left -> null; never the enqueue text', () => {
+  assert.equal(safeRemedy('Check the queue. Then merge it directly.', 'queued-stuck'), 'Check the queue.');
+  assert.equal(safeRemedy('merge it directly', 'idle'), null);
+  assert.equal(safeRemedy('gh pr merge 5 --squash', 'merge-conflict'), null);
+  for (const r of [OLD_ARM_REMEDY, 'Check the queue. Then merge it directly.']) {
+    const out = safeRemedy(r, 'queued-stuck');
+    assert.ok(out == null || !out.includes(ENQUEUE_REMEDY), String(out));
+    assert.ok(out == null || !/gh pr merge|merge directly|arm it/i.test(out), String(out));
+  }
+});
+
+test('t/535 safeRemedy: a safe remedy, the new classifier remedy, and null pass through unchanged, for any class', () => {
+  for (const cls of [null, 'approved-not-armed', 'stuck-required-run', 'queued-stuck']) {
+    for (const r of ['rebase onto main.', `Every required context is green ... -- ${ENQUEUE_REMEDY}`, 'disarm it first', 'it is already armed, do not re-arm it.', 'check run 123 for a hang', NEW_STUCK_RUN]) {
+      assert.equal(safeRemedy(r, cls), r, `${cls}: ${r}`);
+    }
+    assert.equal(safeRemedy(null, cls), null);
+  }
+});
+
+test('t/535: latestBlocker keeps a stuck-required-run alert\'s run id and re-run step (old comment text)', () => {
+  const c = [{ body: `Blocker: \`stuck-required-run\`\nRemedy: ${OLD_STUCK_RUN}\n<!-- stuck-pr-alert:stuck-required-run:0123456789abcdef -->` }];
+  const b = latestBlocker(c);
+  assert.equal(b.class, 'stuck-required-run');
+  assert.match(b.remedy, /cancel and re-run run 45507837195/);
+  assert.ok(!b.remedy.includes(ENQUEUE_REMEDY));
+  assert.doesNotMatch(b.remedy, /auto-merge/);
+});
+
+test('t/535: latestBlocker rewrites an old alert comment\'s arm remedy, so planRun never forwards it', () => {
+  const c = [{ body: `Blocker: \`approved-not-armed\`\nRemedy: ${OLD_ARM_REMEDY}\n<!-- stuck-pr-alert:approved-not-armed:0123456789abcdef -->` }];
+  const b = latestBlocker(c);
+  assert.equal(b.class, 'approved-not-armed');
+  assert.ok(b.remedy.endsWith(ENQUEUE_REMEDY));
+  assert.doesNotMatch(b.remedy.split(ENQUEUE_REMEDY).join(''), /gh pr merge|merge directly/);
 });

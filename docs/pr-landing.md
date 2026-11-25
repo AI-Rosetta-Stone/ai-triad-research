@@ -10,16 +10,30 @@ The full procedure behind root `AGENTS.md` → "Landing Code". This text moved o
 
 ## PR Budget and Batching (t/397, PI-approved 2026-11-11)
 
-Target: **≤20 new PRs a day** team-wide (7-day average). Most PRs are features, per `docs/tl-decomposition-rules.md` § One PR per feature.
+Target: **≤20 new PRs a day** team-wide (7-day average). PRs are few and big (t/567, PI-approved 2026-11-25); see the landing vehicles below and `docs/tl-decomposition-rules.md` § One PR per feature.
+
+**Landing vehicles (t/567).** Every ticket names its vehicle in a `Lands in:` line when it's created. No ticket gets its own PR unless the TL says so.
+
+- **Feature PR:** one per feature, on branch `feat/t<N>-<slug>` (t/N is the feature's parent ticket). Child tickets commit to that branch, each owner in its own commits. The PR gets one review pass (Quality; SO and TL for T2).
+- **Area train:** a rolling branch per area for small changes outside a feature, landed once a day by its owner with whatever is green. A failing commit is dropped back to its author; it never holds the train.
+  - `train/devops-YYYYMMDD`: `operations/devops`, `.github`, CI and gate scripts. Owner: DevOps Lead.
+  - `train/server-YYYYMMDD`: `taxonomy-editor/src/server`. Owner: TaxonomyServer.
+  - `train/renderer-YYYYMMDD`: `taxonomy-editor/src/renderer` and the web build. Owner: Rosetta Stone.
+  - `train/debate-YYYYMMDD`: `lib/debate` and `lib/ai-client`. Owner: Debate Engine.
+  - `docs/weekly-YYYY-WW`: docs, AGENTS.md and guidance (the weekly docs train). Owners: Documentation and AI Rosetta Stone.
+  - Other areas use the nearest train. When it's unclear, ask the TL.
+- **Own PR only** for broken `main`, an incident, a security fix, or a PI request, with the TL's recorded go. These still count against the budget.
+- **Experiment and throwaway PRs** don't go on this repo. They go to the sandbox repo (t/569, needs the PI).
+- **Backstop:** the t/564 budget counts each `feat/` or `train/` PR as one, however many tickets it carries.
+
+**Budget numbers (unchanged):**
 
 - **Per agent: at most 1 new PR a day, and at most 2 open PRs.**
   - Exempt, with the TL's ok: a fix for broken `main`, an incident, a security fix, or a PI request.
 - **Add to an open PR before opening a new one.** If you already have an open PR in the same area that isn't queued, the change goes there.
-- **Minimum size:** a non-urgent change under ~50 lines waits to be combined with your next change in the same area, or goes into the feature PR. Exempt as above.
-- **No separate PRs for review nits or small follow-ups.** Fix review findings in the same PR; the reviewer re-stamps the delta only (`docs/review-routing.md` § Delta re-stamp). A follow-up that really needs its own change goes into your next substantive PR or the weekly docs train, never a standalone PR.
-- **Weekly docs train:** agent-guidance, AGENTS.md, rule, ownership-table and docs edits go into one rolling PR per week, on branch `docs/weekly-YYYY-WW`. It's owned by Documentation and AI Rosetta Stone and landed every Monday, or sooner if urgent.
-  - Commit to that week's branch instead of opening your own docs PR.
-  - An urgent rule change, such as an incident, can still go alone with a TL go.
+- **Minimum size:** a non-urgent change under ~50 lines waits to be combined with your next change in the same area, or goes into the feature PR or the area train. Exempt as above.
+- **No separate PRs for review nits or small follow-ups.** Fix review findings in the same PR; the reviewer re-stamps the delta only (`docs/review-routing.md` § Delta re-stamp). A follow-up that really needs its own change goes into your next substantive PR or the area train, never a standalone PR.
+- **Docs edits go on the weekly docs train** (`docs/weekly-YYYY-WW`), as listed above. An urgent rule change, such as an incident, can still go alone with a TL go.
   - Overlay-only guidance (role AGENTS.md, playbooks, Interweave apps) never needs a main-repo PR: commit it with `ogit`.
 - **Team daily budget (t/564, PI directive 2026-11-25):** `enqueue-pr.mjs` refuses non-exempt PRs past 20 new PRs in a UTC day (`feat/` and `train/` branches count once). At 15 the TL and that day's authors are warned. Over-budget PRs wait, oldest first, for a later day's free slots (t/564). DevOps Lead's metric job still posts the day's count at 12:00Z and 18:00Z.
 

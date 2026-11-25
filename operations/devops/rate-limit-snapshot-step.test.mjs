@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync, chmodSync, existsSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { SNAPSHOT_TARGETS, jobBlock } from './rate-limit-snapshot-targets.mjs';
+import { SNAPSHOT_TARGETS, jobBlock, firstStepBlock } from './rate-limit-snapshot-targets.mjs';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -153,4 +153,44 @@ test('App variant script: readable /rate_limit logs a pool=app line, exit 0', { 
   assert.equal(r.code, 0);
   assert.match(r.out, /t\/314 rate-limit: pool=app workflow=joint-gv-guard job=joint-gv-guard core used=120 remaining=4880 limit=5000/);
   assert.match(r.summary, /GitHub App installation token rate limit/);
+});
+
+// ── t/563: the start-of-job snapshot, the FIRST step of every target job ──
+const START = lf(readFileSync(path.join(here, 'rate-limit-snapshot-start-step.yml'), 'utf8'));
+
+test('t/563: every target job starts with the canonical start-of-job snapshot verbatim (its first step)', () => {
+  for (const [file, job] of SNAPSHOT_TARGETS) {
+    const text = lf(readFileSync(path.join(root, '.github', 'workflows', file), 'utf8'));
+    const first = firstStepBlock(text, job);
+    assert.ok(first, `${file}: job '${job}' has no steps`);
+    assert.equal(first, START.trimEnd(), `${file}:${job}: the first step is not operations/devops/rate-limit-snapshot-start-step.yml verbatim`);
+  }
+});
+
+test('t/563: the start step can never fail or hang a job, and uses only GITHUB_TOKEN to read /rate_limit', () => {
+  assert.match(START, /^ {8}continue-on-error: true$/m);
+  assert.match(START, /^ {8}timeout-minutes: 1$/m);
+  assert.match(START, /^ {10}GH_TOKEN: \$\{\{ github\.token \}\}$/m);
+  assert.doesNotMatch(START, /GITHUB_STEP_SUMMARY/, 'one log line, no summary');
+});
+
+test('t/563: readable /rate_limit at job start -> one greppable line with core and graphql used and resets, exit 0', { skip: !BASH && 'no bash' }, () => {
+  const r = runWithFakeGh(`echo '812,1794371400,40,1794372000'`, START);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /t\/563 rate-limit-start: workflow=joint-gv-guard job=joint-gv-guard core used=812 reset=\d\d:\d\d:\d\dZ graphql used=40 graphql_reset=1794372000/);
+  assert.equal(r.summary, '');
+});
+
+test('t/563: an unreadable /rate_limit at job start WARNs only (exit 0), never a bogus line', { skip: !BASH && 'no bash' }, () => {
+  for (const body of [`echo 'HTTP 403' >&2; exit 1`, `echo 'garbage'`, `echo '1,2,3'`, `echo '1,2,3,4,5'`, `echo '1,,3,4'`]) {
+    const r = runWithFakeGh(body, START);
+    assert.equal(r.code, 0, body);
+    assert.match(r.out, /::warning::t\/563: could not read GET \/rate_limit at job start/, body);
+    assert.doesNotMatch(r.out, /rate-limit-start:/, body);
+  }
+});
+
+test('t/563: firstStepBlock returns the first step only, not the comments of the next', () => {
+  const wf = 'jobs:\n  a:\n    steps:\n      # c1\n      - name: one\n        run: x\n\n      # c2\n      - name: two\n';
+  assert.equal(firstStepBlock(wf, 'a'), '      # c1\n      - name: one\n        run: x');
 });
