@@ -272,6 +272,8 @@ export const CODE_UNDER_TEST = [
   'operations/devops/comment-filter-workflow.test.mjs', // test of the guard workflows' comment filters
   'operations/devops/dependabot-docker-gate.test.mjs', // test of dependabot-docker-gate.mjs
   'operations/devops/dependabot-enqueue-sweep.test.mjs', // test of dependabot-enqueue-sweep.mjs
+  'operations/devops/docker/base-pin-cves.test.mjs', // test of base-pin-cves.mjs, the drift issue-vs-PR routing (t/605)
+  'operations/devops/docker/base-pin-drift.test.mjs', // test of base-pin-drift.mjs, the runtime pin drift check (t/255)
   'operations/devops/docker/docker-digest-only.test.mjs', // test of the Docker digest pinning rule
   'operations/devops/ejected-batch.test.mjs', // test of ejected-batch.mjs
   'operations/devops/enqueue-pr.test.mjs', // test of enqueue-pr.mjs

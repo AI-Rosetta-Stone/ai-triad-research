@@ -2154,6 +2154,12 @@ jobs:
       - name: Dependabot docker digest-only gate suites
         run: node --test operations/devops/dependabot-docker-gate.test.mjs operations/devops/docker/docker-digest-only.test.mjs
 
+      # t/605: base-pin drift routing (issue vs security PR). Its strip-list pin reads the runtime stage
+      # of taxonomy-editor/Dockerfile, so a PR that adds or drops a strip fails HERE, not at the next
+      # drift run. Also the workflow-shape pins (only `repin` holds the author-app environment).
+      - name: Base pin drift + CVE routing suites
+        run: node --test operations/devops/docker/base-pin-drift.test.mjs operations/devops/docker/base-pin-cves.test.mjs
+
       # t/244: the advisory shared-input coverage step's crash path never fails the job, even
       # when its own comment post is rate-limited too.
       - name: shared-input coverage workflow crash-path suite
