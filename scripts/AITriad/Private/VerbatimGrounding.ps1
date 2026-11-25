@@ -81,6 +81,11 @@ $script:VerbatimNbspWordEdge = $true        # t/389#67 (1): the a-acute no-break
 # case alone. That is allowed only at the quote's first letter, or where the source word is all capitals (two
 # letters or more; the model may write it in any capitalisation, t/389#72). Anywhere else the quote fails.
 $script:VerbatimCaseRule = $true
+# CL t/389#74. Each can be switched off by an audit script.
+$script:VerbatimAlignExtras = $true          # a piece's letters are aligned to the quote's, so extra lines and the model's own digits are told apart
+$script:VerbatimSplitAtGluedSidebar = $true  # a sidebar word glued to the end of a line ("couldLaw") splits the piece there
+$script:VerbatimParenRefList = $true         # "(998, 1003)": a parenthesised list of two or more numerals is a reference
+$script:VerbatimParenRefListPattern = '\(\s*\p{Nd}{1,4}\*?(?:\s*[,;]\s*\p{Nd}{1,4}\*?)+\s*\)'
 $script:VerbatimCaseMaxPlaces = 25          # places in the source tried for a quote kept as written
 $script:VerbatimHyphenBreakPattern = '^[-' + [char]0xAD + [char]0x2010 + [char]0x2011 + '][ \t]*\r?\n\s*$'   # a word broken over a line end
 $script:VerbatimHeadAcrossRef = $true       # the snap reaches back over a reference to the quote's first words ("Causation 344 poses ...")
@@ -316,7 +321,7 @@ function Get-VerbatimCaseVerdict {
     # $Declared: places in the quote's letters where the model marked the changed capital itself, as "[F]uture"
     # (read as the letter since t/389#20). A marked change is permitted and counted.
     param([string]$SourceCased, [bool[]]$WordStart, [string]$QuoteCased, [bool]$FirstAllowed, [int[]]$Declared = @())
-    $R = @{ Fail = $false; First = $false; Caps = $false; Title = $false; Bracket = $false; At = ''; Unchecked = $false }
+    $R = @{ Fail = $false; First = $false; Caps = $false; Title = $false; Bracket = $false; At = ''; AtStart = $false; Unchecked = $false }
     if ($SourceCased -ceq $QuoteCased) { return $R }
     if ($SourceCased.Length -ne $QuoteCased.Length) { $R.Unchecked = $true; return $R }
     $N = $SourceCased.Length
@@ -333,10 +338,65 @@ function Get-VerbatimCaseVerdict {
             $I = $W1 - 1; continue
         }
         if ($I -eq 0 -and $FirstAllowed) { $R.First = $true; continue }
-        $R.Fail = $true; $R.At = "$SW | $QW"
+        $R.Fail = $true; $R.At = "$SW | $QW"; $R.AtStart = ($I -eq 0)
         return $R
     }
     $R
+}
+
+function Get-VerbatimLetterMatch {
+    # Aligns the letters of a source piece ($Have) to the letters the quote has for it ($Want), where the source
+    # may hold extra text between them (a header line, a reference, a no-break space read as a letter) and
+    # nothing else differs. Returns for each letter of $Have its place in $Want, or -1 for an extra letter;
+    # $null when $Want is not in $Have in order in this way (a word differs). $LineStart[i] says letter i is
+    # the first on its line: an extra stretch is laid on a line start when the letters allow either reading
+    # ("... man" / "many" / "manufacturer": the extra is "many", not "y" + "man").
+    param([string]$Have, [string]$Want, [bool[]]$LineStart = @())
+    $M = [int[]]::new($Have.Length)
+    for ($X = 0; $X -lt $M.Length; $X++) { $M[$X] = -1 }
+    $I = 0; $J = 0
+    while ($J -lt $Want.Length) {
+        if ($I -ge $Have.Length) { return $null }
+        if ($Have[$I] -ceq $Want[$J]) { $M[$I] = $J; $I++; $J++; continue }
+        $K = [Math]::Min(8, $Want.Length - $J)
+        $Next = $Have.IndexOf($Want.Substring($J, $K), $I, [System.StringComparison]::Ordinal)
+        if ($Next -lt 0) { return $null }
+        # The extra stretch is [$I, $Next). It can slide left while the letter before it equals its last letter.
+        $A = $I; $B = $Next
+        $Slide = 0
+        while ($A - $Slide - 1 -ge 0 -and $M[$A - $Slide - 1] -ge 0 -and $Have[$A - $Slide - 1] -ceq $Have[$B - $Slide - 1]) { $Slide++ }
+        $Use = 0
+        if ($LineStart.Count -eq $Have.Length) {
+            for ($S = 0; $S -le $Slide; $S++) { if ($LineStart[$A - $S]) { $Use = $S; break } }
+        }
+        for ($T = 1; $T -le $Use; $T++) { $M[$B - $T] = $M[$A - $T]; $M[$A - $T] = -1 }
+        $I = $Next
+    }
+    , $M
+}
+
+function Get-VerbatimLooseCaseVerdict {
+    # The case verdict for a quote against a passage that holds its letters in order with other text between
+    # them (page-marker lines, a footnote). Unchecked when the letters cannot be lined up.
+    param([string]$SourceText, [string]$QuoteText, [bool]$FirstAllowed, [string]$DeclaredFrom = $QuoteText)
+    $None = @{ Fail = $false; First = $false; Caps = $false; Title = $false; Bracket = $false; At = ''; AtStart = $false; Unchecked = $true }
+    $SG = Get-VerbatimWordGap -Text $SourceText
+    $QG = Get-VerbatimWordGap -Text $QuoteText
+    if ($QG.Letters.Length -eq 0) { return $None }
+    $M = Get-VerbatimLetterMatch -Have $SG.Letters -Want $QG.Letters
+    if ($null -eq $M) { return $None }
+    $Cased = [System.Text.StringBuilder]::new($QG.Letters.Length)
+    $WordStart = [bool[]]::new($QG.Letters.Length)
+    $Declared = [System.Collections.Generic.List[int]]::new()
+    foreach ($D in @(Get-VerbatimDeclaredCase -Text $DeclaredFrom)) { $Declared.Add($D) }
+    $SourceDeclared = @(Get-VerbatimDeclaredCase -Text $SourceText)
+    for ($I = 0; $I -lt $M.Length; $I++) {
+        if ($M[$I] -lt 0) { continue }
+        [void]$Cased.Append($SG.Cased[$I])
+        $WordStart[$M[$I]] = ($I -eq 0) -or $SG.Any[$I] -or ($M[$I - 1] -lt 0)
+        if ($SourceDeclared -contains $I) { $Declared.Add($M[$I]) }
+    }
+    Get-VerbatimCaseVerdict -SourceCased $Cased.ToString() -WordStart $WordStart -QuoteCased $QG.Cased -FirstAllowed $FirstAllowed -Declared $Declared.ToArray()
 }
 
 function Get-VerbatimDeclaredCase {
@@ -351,8 +411,9 @@ function Get-VerbatimExactCaseVerdict {
     # $DeclaredFrom: the quote before its noise was removed; that removal turns "[F]uture" into "Future".
     param([object]$Source, [string]$Quote, [bool]$FirstAllowed, [string]$DeclaredFrom = $Quote)
     $Q = Get-VerbatimWordGap -Text $Quote
-    $None = @{ Fail = $false; First = $false; Caps = $false; Title = $false; Bracket = $false; At = ''; Unchecked = $false }
+    $None = @{ Fail = $false; First = $false; Caps = $false; Title = $false; Bracket = $false; At = ''; AtStart = $false; Unchecked = $false }
     $Declared = @(Get-VerbatimDeclaredCase -Text $DeclaredFrom)
+    $KeyText = if ($Source.PSObject.Properties['Work'] -and $Source.Work.Length -eq $Source.Text.Length) { $Source.Work } else { $Source.Text }
     if ($Q.Letters.Length -eq 0 -or -not $Source.PSObject.Properties['CharsCased']) { $None.Unchecked = $true; return $None }
     if ($Source.CharsCased.Contains($Q.Cased, [System.StringComparison]::Ordinal)) { return $None }
     $Best = $null
@@ -364,12 +425,29 @@ function Get-VerbatimExactCaseVerdict {
         $W = [Array]::BinarySearch($Source.WordAt, $P)
         if ($W -lt 0) { $W = -bnot $W }
         for (; $W -lt $Source.WordAt.Count -and $Source.WordAt[$W] -lt $P + $Q.Letters.Length; $W++) { $WordStart[$Source.WordAt[$W] - $P] = $true }
-        $V = Get-VerbatimCaseVerdict -SourceCased $Source.CharsCased.Substring($P, $Q.Letters.Length) -WordStart $WordStart -QuoteCased $Q.Cased -FirstAllowed $FirstAllowed -Declared $Declared
+        # A letter the source itself has in brackets ("[i]ndividual", an editorial change in the source's own
+        # quotation) is a marked change too (CL t/389#74 (1)).
+        $Here = [System.Collections.Generic.List[int]]::new()
+        foreach ($D in $Declared) { $Here.Add($D) }
+        for ($X = 0; $X -lt $Q.Letters.Length; $X++) {
+            if ($Source.CharsCased[$P + $X] -ceq $Q.Cased[$X]) { continue }
+            $Off = Get-VerbatimTextOffset -Source $Source -Position ($P + $X)
+            if ($Off -gt 0 -and $Off + 1 -lt $KeyText.Length -and $KeyText[$Off - 1] -eq '[' -and $KeyText[$Off + 1] -eq ']') { $Here.Add($X) }
+        }
+        $V = Get-VerbatimCaseVerdict -SourceCased $Source.CharsCased.Substring($P, $Q.Letters.Length) -WordStart $WordStart -QuoteCased $Q.Cased -FirstAllowed $FirstAllowed -Declared $Here.ToArray()
         if (-not $V.Fail) { return $V }
         if ($null -eq $Best) { $Best = $V }
         $P++
     }
-    if ($null -eq $Best) { $None.Unchecked = $true; return $None }
+    if ($null -eq $Best) {
+        # Not found by a plain search of the letters (a character that is a letter only after folding): place
+        # the quote by alignment and judge the case over that passage.
+        $Snap = Find-VerbatimSnap -Source $Source -Quote $Quote
+        if ($Snap -and $Snap.Contiguous) {
+            return (Get-VerbatimLooseCaseVerdict -SourceText $KeyText.Substring($Snap.Start, $Snap.End - $Snap.Start) -QuoteText $Quote -FirstAllowed $FirstAllowed -DeclaredFrom $DeclaredFrom)
+        }
+        $None.Unchecked = $true; return $None
+    }
     $Best
 }
 
@@ -898,7 +976,29 @@ function Resolve-VerbatimSegment {
         if (-not $script:VerbatimCaseRule) { return $false }
         $V = Get-VerbatimExactCaseVerdict -Source $Source -Quote $Text -FirstAllowed $QuoteStart -DeclaredFrom $Segment
         if ($V.Unchecked) { $script:VerbatimDiag.Add('case not checked: the quote was not placed letter for letter'); return $false }
-        if ($V.Fail) { $script:VerbatimDiag.Add("case word: $($V.At)"); $script:VerbatimDiag.Add('case differs (as written)'); return $true }
+        if ($V.Fail) {
+            $script:VerbatimDiag.Add("case word: $($V.At)")
+            if ($V.AtStart) { $script:VerbatimDiag.Add('case differs at the start of a later segment or piece') }
+            $script:VerbatimDiag.Add('case differs (as written)'); return $true
+        }
+        if ($V.First) { $script:VerbatimDiag.Add('case: first letter of the quote, permitted') }
+        if ($V.Caps) { $script:VerbatimDiag.Add('case: capitals in the source, lower case in the quote, permitted') }
+        if ($V.Title) { $script:VerbatimDiag.Add('case: capitals in the source, other capitalisation in the quote, permitted') }
+        if ($V.Bracket) { $script:VerbatimDiag.Add('case: letter the model put in brackets, permitted') }
+        $false
+    }
+    # The same for a segment stored as written across marker lines or a footnote: the passage holds other text.
+    $LooseCaseFails = {
+        param($From, $To)
+        if (-not $script:VerbatimCaseRule) { return $false }
+        $Txt = if ($Source.PSObject.Properties['Work'] -and $Source.Work.Length -eq $Source.Text.Length) { $Source.Work } else { $Source.Text }
+        $V = Get-VerbatimLooseCaseVerdict -SourceText $Txt.Substring($From, $To - $From) -QuoteText $Segment -FirstAllowed $QuoteStart
+        if ($V.Unchecked) { $script:VerbatimDiag.Add('case not checked: the quote was not placed letter for letter'); return $false }
+        if ($V.Fail) {
+            $script:VerbatimDiag.Add("case word: $($V.At)")
+            if ($V.AtStart) { $script:VerbatimDiag.Add('case differs at the start of a later segment or piece') }
+            $script:VerbatimDiag.Add('case differs (as written)'); return $true
+        }
         if ($V.First) { $script:VerbatimDiag.Add('case: first letter of the quote, permitted') }
         if ($V.Caps) { $script:VerbatimDiag.Add('case: capitals in the source, lower case in the quote, permitted') }
         if ($V.Title) { $script:VerbatimDiag.Add('case: capitals in the source, other capitalisation in the quote, permitted') }
@@ -951,7 +1051,7 @@ function Resolve-VerbatimSegment {
             if ($WholeFigure.Verdict -ne 'drop' -and $WholeFigure.Markers -gt 0) {
                 $WholeLetters = ((ConvertTo-EvidenceKey -Quote $Source.Text.Substring($Whole.Start, $Whole.End - $Whole.Start)) -replace ' ', '').Length
                 if ($WholeLetters - $WholeFigure.MarkerLetters -eq $Whole.QuoteLetters) {
-                    if ($script:VerbatimCaseRule) { $script:VerbatimDiag.Add('case not checked: marker lines inside the passage') }
+                    if (& $LooseCaseFails $Whole.Start $Whole.End) { return (& $CaseDrop) }
                     return (& $Result 'snapped' @($Segment) 1.0 $Whole)
                 }
             }
@@ -968,7 +1068,7 @@ function Resolve-VerbatimSegment {
             $QLetters = (ConvertTo-EvidenceKey -Quote $Clean) -replace ' ', ''
             $TailEnd = Find-VerbatimTailAfterFootnote -Source $Source -Tail $QLetters.Substring($Only.QEnd) -After $Only.End
             if ($TailEnd -gt 0) {
-                if ($script:VerbatimCaseRule) { $script:VerbatimDiag.Add('case not checked: footnote inside the passage') }
+                if (& $LooseCaseFails $Snap.Start $TailEnd) { return (& $CaseDrop) }
                 $R = & $Result 'snapped' @($Segment) 1.0 $Snap
                 $R.End = $TailEnd
                 return $R
@@ -984,7 +1084,7 @@ function Resolve-VerbatimSegment {
         if ($Figure.Markers -gt 0 -and $Snap.Contiguous -and $Clean -ceq $Segment -and $Coverage -ge 1.0) {
             $SpanLetters = ((ConvertTo-EvidenceKey -Quote $Source.Text.Substring($Snap.Start, $Snap.End - $Snap.Start)) -replace ' ', '').Length
             if ($SpanLetters - $Figure.MarkerLetters -eq $Snap.QuoteLetters) {
-                if ($script:VerbatimCaseRule) { $script:VerbatimDiag.Add('case not checked: marker lines inside the passage') }
+                if (& $LooseCaseFails $Snap.Start $Snap.End) { return (& $CaseDrop) }
                 return (& $Result 'snapped' @($Segment) 1.0 $Snap)
             }
         }
@@ -1033,7 +1133,27 @@ function Resolve-VerbatimSegment {
                 # The a-acute that is the converter's no-break space, between two letters (CL t/389#63 (1)):
                 # it matches as a space when the quote has no such letter at that place. A real a-acute the
                 # model wrote is in the quote and stays. The stored text keeps the source's character.
+                # The piece's letters aligned to the quote's (CL t/389#74): which source letters the quote has, and
+                # which are extra. Without it a digit the model wrote ("900 billion", "August 7") after an extra
+                # line looked like a reference, and the piece failed instead of splitting at the line.
+                $MatchJ = $null
+                $LetterIx = [int[]]::new($PieceWork.Length)
+                if ($null -ne $Want -and $script:VerbatimAlignExtras) {
+                    $LineStart = [System.Collections.Generic.List[bool]]::new()
+                    $FirstOnLine = $true; $Count = 0
+                    for ($K = 0; $K -lt $PieceWork.Length; $K++) {
+                        $LetterIx[$K] = -1
+                        if ($PieceWork[$K] -eq [char]10) { $FirstOnLine = $true; continue }
+                        if ([char]::IsLetterOrDigit($PieceWork[$K])) { $LetterIx[$K] = $Count; $Count++; $LineStart.Add($FirstOnLine); $FirstOnLine = $false }
+                    }
+                    $Got0 = & $Letters $PieceWork
+                    # One character, one letter: else the places cannot be mapped back and the older test is used.
+                    if ($Got0.Length -eq $Count) { $MatchJ = Get-VerbatimLetterMatch -Have $Got0 -Want $Want -LineStart $LineStart.ToArray() }
+                }
                 $Marks = [System.Collections.Generic.List[object]]::new()
+                if ($script:VerbatimParenRefList) {
+                    foreach ($M in [regex]::Matches($PieceWork, $script:VerbatimParenRefListPattern)) { $Marks.Add(@{ M = $M; Ref = $true; Edge = $false }) }
+                }
                 foreach ($M in [regex]::Matches($PieceWork, $RefPattern)) { $Marks.Add(@{ M = $M; Ref = $true; Edge = $false }) }
                 if ($script:VerbatimNbspBetweenLetters) {
                     foreach ($M in [regex]::Matches($PieceWork, '(?<=\p{L})á(?=\p{L})')) { $Marks.Add(@{ M = $M; Ref = $false; Edge = $false }) }
@@ -1045,12 +1165,21 @@ function Resolve-VerbatimSegment {
                     foreach ($M in [regex]::Matches($PieceWork, '(?<!\p{L})á(?=\p{L})|(?<=\p{L})á(?!\p{L})')) { $Marks.Add(@{ M = $M; Ref = $false; Edge = $true }) }
                 }
                 $At = 0
-                foreach ($Mark in ($Marks | Sort-Object { $_.M.Index })) {
+                foreach ($Mark in ($Marks | Sort-Object { $_.M.Index }, { -$_.M.Length })) {
                     $M = $Mark.M
                     if ($M.Index -lt $At) { continue }
                     [void]$Have.Append((& $Letters $PieceWork.Substring($At, $M.Index - $At)))
                     $Token = if ($Mark.Ref) { [regex]::Replace($M.Value, '[^\p{Nd}]', '') } else { & $Letters $M.Value }
-                    $Wrote = $null -ne $Want -and $Have.Length + $Token.Length -le $Want.Length -and $Want.Substring($Have.Length, $Token.Length) -ceq $Token
+                    if ($null -ne $MatchJ) {
+                        # The model wrote the mark when the alignment found every letter of it in the quote.
+                        $InQuote = $true; $HasLetter = $false
+                        for ($K = $M.Index; $K -lt $M.Index + $M.Length; $K++) {
+                            if ($LetterIx[$K] -ge 0) { $HasLetter = $true; if ($MatchJ[$LetterIx[$K]] -lt 0) { $InQuote = $false } }
+                        }
+                        $Wrote = $HasLetter -and $InQuote
+                    } else {
+                        $Wrote = $null -ne $Want -and $Have.Length + $Token.Length -le $Want.Length -and $Want.Substring($Have.Length, $Token.Length) -ceq $Token
+                    }
                     $AtQuoteEdge = $Mark.Edge -and $null -ne $Want -and (($Have.Length -eq 0 -and $P.QStart -eq 0) -or
                         ($Have.Length -ge $Want.Length -and $P.QEnd -eq $QLetters.Length))
                     if ($Wrote -or $null -eq $Want -or $AtQuoteEdge) { [void]$Have.Append($Token) } elseif ($Mark.Ref) { $Remove.Add($M) } else { $Ignore.Add($M) }
@@ -1066,7 +1195,65 @@ function Resolve-VerbatimSegment {
                     # word differs, damaged in the source or changed by the model.
                     $Why = if ($Got.Length -gt $Want.Length) { 'left-out word' } else { 'word differs' }
                 }
-                if ($Why -eq 'left-out word' -and $null -ne $Want -and $script:VerbatimSplitAtExtraLine) {
+                if ($Why -eq 'left-out word' -and $null -ne $MatchJ -and $script:VerbatimSplitAtExtraLine) {
+                    # Extra text on lines of its own splits the piece (t/389#61 (2)), here for any number of such
+                    # stretches (a 'Demo' label, then a running header). A sidebar word glued to the end of a
+                    # line, a capital straight after a lower-case letter of the quote's word ("couldLaw"), splits
+                    # it too (CL t/389#74). Any other extra text fails the piece as before.
+                    $Skip = [bool[]]::new($PieceWork.Length)
+                    foreach ($M in @($Remove) + @($Ignore)) { for ($K = $M.Index; $K -lt $M.Index + $M.Length; $K++) { $Skip[$K] = $true } }
+                    $IsQuote = { param($K) $LetterIx[$K] -ge 0 -and -not $Skip[$K] -and $MatchJ[$LetterIx[$K]] -ge 0 }
+                    $IsExtra = { param($K) $LetterIx[$K] -ge 0 -and -not $Skip[$K] -and $MatchJ[$LetterIx[$K]] -lt 0 }
+                    $Cuts = [System.Collections.Generic.List[object]]::new()
+                    $CanSplit = $true
+                    $K = 0
+                    while ($K -lt $PieceWork.Length) {
+                        if (-not (& $IsExtra $K)) { $K++; continue }
+                        $C0 = $K; $C1 = $K; $K2 = $K + 1
+                        while ($K2 -lt $PieceWork.Length -and -not (& $IsQuote $K2)) { if (& $IsExtra $K2) { $C1 = $K2 }; $K2++ }
+                        $LineStart0 = $PieceWork.LastIndexOf([char]10, $C0) + 1
+                        $LineEnd = $PieceWork.IndexOf([char]10, $C1); if ($LineEnd -lt 0) { $LineEnd = $PieceWork.Length }
+                        $Before = 0; for ($X = $LineStart0; $X -lt $C0; $X++) { if (& $IsQuote $X) { $Before++ } }
+                        $After = 0; for ($X = $C1 + 1; $X -lt $LineEnd; $X++) { if (& $IsQuote $X) { $After++ } }
+                        if ($LineStart0 -gt 0 -and $LineEnd -lt $PieceWork.Length -and $Before -eq 0 -and $After -eq 0) {
+                            $Cuts.Add(@{ From = $LineStart0; To = $LineEnd; Kind = 'split at extra line' })
+                        } elseif ($script:VerbatimSplitAtGluedSidebar -and $After -eq 0 -and $LineEnd -lt $PieceWork.Length -and $C0 -gt 0 -and
+                            [char]::IsLower($PieceWork[$C0 - 1]) -and [char]::IsUpper($PieceWork[$C0]) -and (& $IsQuote ($C0 - 1)) -and
+                            $PieceWork.IndexOf([char]10, $C0, $C1 - $C0 + 1) -lt 0) {
+                            $Cuts.Add(@{ From = $C0; To = $LineEnd; Kind = 'split at a sidebar word glued to the line end' })
+                        } else { $CanSplit = $false; break }
+                        $K = $K2
+                    }
+                    if ($CanSplit -and $Cuts.Count -gt 0) {
+                        $Parts = [System.Collections.Generic.List[object]]::new()
+                        $From = 0
+                        foreach ($Cut in @($Cuts) + @(@{ From = $PieceWork.Length; To = $PieceWork.Length; Kind = '' })) {
+                            $First = -1; $Last = -1; $N = 0
+                            for ($X = $From; $X -lt $Cut.From; $X++) {
+                                if (& $IsQuote $X) { if ($First -lt 0) { $First = $X }; $Last = $X; $N++ }
+                            }
+                            if ($N -gt 0) {
+                                $S0 = $From; while ($S0 -lt $Cut.From -and [char]::IsWhiteSpace($PieceWork[$S0])) { $S0++ }
+                                $E0 = $Cut.From; while ($E0 -gt $S0 -and [char]::IsWhiteSpace($PieceWork[$E0 - 1])) { $E0-- }
+                                $Parts.Add([pscustomobject]@{ Start = $P.Start + $S0; End = $P.Start + $E0; QuoteLetters = $N
+                                        QStart = $P.QStart + $MatchJ[$LetterIx[$First]]; QEnd = $P.QStart + $MatchJ[$LetterIx[$Last]] + 1
+                                        TailAdded = 0; MidWordEnd = $false; HeadPartial = $false })
+                            }
+                            $From = $Cut.To
+                        }
+                        # Only when the model's words go on after the last extra stretch.
+                        $LastQuoteAt = -1; for ($X = $PieceWork.Length - 1; $X -ge 0; $X--) { if (& $IsQuote $X) { $LastQuoteAt = $X; break } }
+                        if ($Parts.Count -ge 2 -and $LastQuoteAt -ge $Cuts[$Cuts.Count - 1].To) {
+                            $Parts[0].HeadPartial = $P.HeadPartial
+                            $Parts[$Parts.Count - 1].TailAdded = $P.TailAdded; $Parts[$Parts.Count - 1].MidWordEnd = $P.MidWordEnd
+                            for ($X = $Parts.Count - 1; $X -ge 0; $X--) { $Queue.Insert(0, $Parts[$X]) }
+                            $IsContiguous = $false
+                            foreach ($Kind in @($Cuts | ForEach-Object { $_.Kind } | Select-Object -Unique)) { $script:VerbatimDiag.Add($Kind) }
+                            continue
+                        }
+                    }
+                }
+                elseif ($Why -eq 'left-out word' -and $null -ne $Want -and $script:VerbatimSplitAtExtraLine) {
                     # (2) Extra text that stands on lines of its own (a running header, a sidebar, table or chart
                     # cells) is not part of the passage and is not a word the model left out. The piece is
                     # split around those lines and the quote becomes interleaved. Only when the model's words
@@ -1146,7 +1333,7 @@ function Resolve-VerbatimSegment {
                             $WordStart = [bool[]]$SGap.Any.Clone(); $WordStart[0] = $true
                             $CaseSeen = Get-VerbatimCaseVerdict -SourceCased $SGap.Cased -WordStart $WordStart `
                                 -QuoteCased $QGap.Cased.Substring($P.QStart, $Want.Length) -FirstAllowed ($QuoteStart -and $P.QStart -eq 0) `
-                                -Declared @(Get-VerbatimDeclaredCase -Text $Segment | ForEach-Object { $_ - $P.QStart })
+                                -Declared (@(Get-VerbatimDeclaredCase -Text $Segment | ForEach-Object { $_ - $P.QStart }) + @(Get-VerbatimDeclaredCase -Text $Shown.ToString()))
                         }
                         $Split = 0
                         for ($K = 1; $K -lt $Want.Length; $K++) {
@@ -1165,7 +1352,11 @@ function Resolve-VerbatimSegment {
                         if ($Split -gt 0) { $Why = 'source splits a word' }
                         elseif ($Glued -gt 0 -and $script:VerbatimNoSpaceDeletion -eq 'both') { $Why = 'source glues words' }
                         if (-not $Why -and $null -ne $CaseSeen) {
-                            if ($CaseSeen.Fail) { $script:VerbatimDiag.Add("case word: $($CaseSeen.At)"); $Why = 'case differs' }
+                            if ($CaseSeen.Fail) {
+                                $script:VerbatimDiag.Add("case word: $($CaseSeen.At)")
+                                if ($CaseSeen.AtStart) { $script:VerbatimDiag.Add('case differs at the start of a later segment or piece') }
+                                $Why = 'case differs'
+                            }
                             elseif ($CaseSeen.Unchecked) { $script:VerbatimDiag.Add('case not checked: the quote was not placed letter for letter') }
                             else {
                                 if ($CaseSeen.First) { $script:VerbatimDiag.Add('case: first letter of the quote, permitted') }

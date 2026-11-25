@@ -798,6 +798,91 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         }
     }
 
+    Context 'CL t/389#74: extra lines with the model''s own digits, glued sidebar words, numeral lists, case on every path' {
+        BeforeAll {
+            $script:Decide74 = {
+                param($Src, $Quote)
+                InModuleScope AITriad -Parameters @{ S = $Src; Q = $Quote } {
+                    param($S, $Q)
+                    $script:VerbatimDiag.Clear()
+                    $R = Resolve-VerbatimQuote -Source (Get-VerbatimSource -Text $S) -Quote $Q
+                    [pscustomobject]@{ Decision = $R.Decision; Texts = @($R.Texts); Diag = @($script:VerbatimDiag.ToArray()) }
+                }
+            }
+        }
+
+        It 'a label on a line of its own splits the piece when the quote has digits of its own after it' {
+            $Src = "Foxconn, the largest contract electronics`n`nDemo`n`nmanufacturer, reported July revenue that`n`nexceeded 900 billion New Taiwan dollars for the first`n`ntime, a 54 percent year-over-year increase.`n"
+            $R = & $script:Decide74 $Src 'Foxconn, the largest contract electronics manufacturer, reported July revenue that exceeded 900 billion New Taiwan dollars for the first time, a 54 percent year-over-year increase.'
+            $R.Decision | Should -Be 'interleaved'
+            $R.Texts | Should -Be @('Foxconn, the largest contract electronics', 'manufacturer, reported July revenue that exceeded 900 billion New Taiwan dollars for the first time, a 54 percent year-over-year increase.')
+            $R.Diag | Should -Contain 'split at extra line'
+        }
+
+        It 'two extra stretches in one piece both split it; an extra word inside a line still fails' {
+            $Src = "Regulators in several countries have begun to ask`n`nDemo`n`nfor evaluation results before a model is released,`n`nVolume 30, Issue 2`n`nand developers answer that the tests were never designed for it.`n"
+            $R = & $script:Decide74 $Src 'Regulators in several countries have begun to ask for evaluation results before a model is released, and developers answer that the tests were never designed for it.'
+            $R.Decision | Should -Be 'interleaved'
+            @($R.Texts).Count | Should -Be 3
+            ($R.Texts -join ' ') | Should -Not -Match 'Demo|Volume'
+            $Src2 = "Regulators in several countries have recently begun to ask for evaluation results before a model is released.`n"
+            (& $script:Decide74 $Src2 'Regulators in several countries have begun to ask for evaluation results before a model is released.').Decision | Should -Be 'dropped'
+        }
+
+        It 'the extra stretch is laid on its own line when its letters could be read two ways' {
+            $Src = "Foxconn is the largest contract electronics man`n`nmany`n`nmanufacturer in the world and reported record revenue for the month of July.`n"
+            $R = & $script:Decide74 $Src 'Foxconn is the largest contract electronics man manufacturer in the world and reported record revenue for the month of July.'
+            $R.Decision | Should -Be 'interleaved'
+            ($R.Texts -join ' ') | Should -Not -Match 'many'
+        }
+
+        It 'a sidebar word glued to the end of a line splits the piece there' {
+            $Src = "When a corporation breaches a duty, the corporation`ncouldLaw`nbe held liable or its employee, if the employee acted outside the scope of authority.`n"
+            $R = & $script:Decide74 $Src 'When a corporation breaches a duty, the corporation could be held liable or its employee, if the employee acted outside the scope of authority.'
+            $R.Decision | Should -Be 'interleaved'
+            $R.Diag | Should -Contain 'split at a sidebar word glued to the line end'
+            ($R.Texts -join ' ') | Should -Not -Match 'Law'
+            # A capital inside a line with the quote's words after it is not a sidebar word.
+            $Src2 = "When a corporation breaches a duty, the corporation couldLaw be held liable or its employee, if the employee acted outside the scope.`n"
+            (& $script:Decide74 $Src2 'When a corporation breaches a duty, the corporation could be held liable or its employee, if the employee acted outside the scope.').Decision | Should -Be 'dropped'
+        }
+
+        It 'a parenthesised list of numerals is a reference; a single year in parentheses is not' {
+            $Src = "However, benchmarks significantly vary in quality and scope (998, 1003), and it can be difficult to judge their validity.`n"
+            $R = & $script:Decide74 $Src 'However, benchmarks significantly vary in quality and scope, and it can be difficult to judge their validity.'
+            $R.Decision | Should -Be 'snapped'
+            $R.Diag | Should -Contain 'reference digits removed'
+            $Kept = & $script:Decide74 $Src 'However, benchmarks significantly vary in quality and scope (998, 1003), and it can be difficult to judge their validity.'
+            $Kept.Decision | Should -Be 'exact'
+            $Year = "However, benchmarks significantly vary in quality and scope (2024), and it can be difficult to judge their validity.`n"
+            (& $script:Decide74 $Year 'However, benchmarks significantly vary in quality and scope, and it can be difficult to judge their validity.').Decision | Should -Be 'dropped'
+        }
+
+        It 'the case rule runs on a quote stored across a page-marker line' {
+            $A = 'Regulators in several countries have begun to ask for evaluation results before'
+            $B = 'a model is released to the public, and developers answer that the tests were not designed for it.'
+            $Src = "Opening text of the page that runs on for a line.`r`n`r`n$A`r`n`r`n27`r`n`r`n$B`r`n"
+            $Same = & $script:Decide74 $Src "$A $B"
+            $Same.Decision | Should -Not -Be 'dropped'
+            @($Same.Diag | Where-Object { $_ -match 'case not checked' }).Count | Should -Be 0
+            $Changed = & $script:Decide74 $Src "$A $($B -replace 'developers', 'Developers')"
+            $Changed.Decision | Should -Be 'dropped'
+            $Changed.Diag | Should -Contain 'case word: developers | Developers'
+        }
+
+        It 'a letter the source has in brackets is a marked change; a case drop at a later segment''s start is counted apart' {
+            $Src = "The court held that `"[i]ndividual citizens may have a hard time finding out who they should turn to`" in such cases. Later text follows here for the second part.`n"
+            $R = & $script:Decide74 $Src 'The court held that Individual citizens may have a hard time finding out who they should turn to'
+            $R.Decision | Should -Not -Be 'dropped'
+            $R.Diag | Should -Contain 'case: letter the model put in brackets, permitted'
+            $L = & $script:Decide74 $Src 'The court held that [...] Later Text follows here for the second part.'
+            $L.Decision | Should -Be 'dropped'
+            $L2 = & $script:Decide74 $Src 'The court held that [...] Citizens may have a hard time finding out who they should turn to'
+            $L2.Decision | Should -Be 'dropped'
+            $L2.Diag | Should -Contain 'case differs at the start of a later segment or piece'
+        }
+    }
+
     It 'an interleaved piece with a word the model left out, with no elision mark, fails the quote (t/389#52 (4), i37)' {
         # Two-column layout: a line of the other column sits between the quote's two halves, and the source
         # has "Meta CEO" where the model wrote only the name.
