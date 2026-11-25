@@ -4556,6 +4556,11 @@ jobs:
             const withRetry = async (label, fn) => withGitHubRetry(label, fn, {
               warn: (m) => core.warning(m),
               prefix: 't1-approval-guard (merge_group)',
+              // t/562 (Lead p/233#71): a merge-group guard that fails on a rate limit stalls the queue
+              // (ci-infra-rerun skips merge_group runs, t/4567 FM3), so this path waits up to 15 min for
+              // one reset; the job's timeout-minutes (25) covers it. A second limit fails closed.
+              maxRateWaitMs: 15 * 60 * 1000,
+              maxRateWaits: 1,
             });
 
             const perPrResults = [];
