@@ -39,7 +39,6 @@ $script:VerbatimFooterMinRepeats = 3
 $script:VerbatimFooterMaxChars = 80
 $script:VerbatimFooterMinWords = 3     # a repeated line of this many words is a page header at VerbatimFooterMinRepeats
 $script:VerbatimShortLineMinRepeats = 6 # a one- or two-word line (an author name) needs this many, at a page boundary
-$script:VerbatimPageNumberPattern = '^(?i)(?:page\s+)?\d{1,4}(?:\s*(?:of|/)\s*\d{1,4})?$'
 $script:VerbatimHtmlTagPattern = '(?i)</?(?:a|abbr|article|aside|b|blockquote|br|caption|cite|code|div|em|figcaption|figure|footer|h[1-6]|header|hr|i|img|li|mark|nav|ol|p|pre|q|s|section|small|span|strong|sub|sup|table|tbody|td|th|thead|tr|u|ul)(?:\s[^<>\r\n]{0,400})?/?>'
 $script:VerbatimWordTail = 2           # source letters past a quote word's end that a stored piece may take (a plural)
 $script:VerbatimElisionPattern = '\[\s*(?:\.{3,}|\u2026)\s*\]|\(\s*(?:\.{3,}|\u2026)\s*\)|(?:\.[ \u00A0]){2,}\.|\.{3,}|\u2026'
@@ -70,8 +69,9 @@ function Get-VerbatimSource {
     # A page header or footer: a short line that repeats, compared with case.
     #   - A line of three or more words, at VerbatimFooterMinRepeats.
     #   - A one- or two-word line, at VerbatimShortLineMinRepeats and only at a page boundary: the nearest
-    #     non-blank line before or after it is a header line of the first kind or a page number. A short
-    #     line that repeats elsewhere is a table label or a sidebar word, and is text (CL, t/389#20, #24).
+    #     non-blank line before or after it is a header line of the first kind. A bare number line is not
+    #     a boundary: tables are full of them. A short line that repeats elsewhere is a table label or a
+    #     sidebar word, and is text (CL, t/389#20, #24, p/70#83).
     # Blanking only hides text from matching. Only lines of the first kind are ever removed from a quote.
     $Counts = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
     $Trimmed = [string[]]::new($Lines.Count)
@@ -84,14 +84,13 @@ function Get-VerbatimSource {
             $Counts[$T] = $N0 + 1
         }
     }
-    # 1 = a header line of the first kind, 2 = a page number, 0 = neither. Lines sit at even indexes.
+    # 1 = a header line of the first kind, 0 = not. Lines sit at even indexes.
     $Kind = [int[]]::new($Lines.Count)
     for ($I = 0; $I -lt $Lines.Count; $I += 2) {
         $T = $Trimmed[$I]
         if ($T.Length -eq 0) { continue }
         $Seen0 = 0
-        if ($T -match $script:VerbatimPageNumberPattern) { $Kind[$I] = 2 }
-        elseif ($Counts.TryGetValue($T, [ref]$Seen0) -and $Seen0 -ge $script:VerbatimFooterMinRepeats -and
+        if ($Counts.TryGetValue($T, [ref]$Seen0) -and $Seen0 -ge $script:VerbatimFooterMinRepeats -and
             $T.Split([char[]]" `t", [System.StringSplitOptions]::RemoveEmptyEntries).Count -ge $script:VerbatimFooterMinWords) { $Kind[$I] = 1 }
     }
     $Footers = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
