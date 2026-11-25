@@ -124,8 +124,8 @@ are shown under their own names, below.
 
 - The Reasoning, Claims and Vocabulary pills keep their meaning and remain the switch.
 - The HOW body is one scroll under the pills.
-- The Convergence pill is removed from the pill row (human, 2026-11-25, p/109#5). The row is Reasoning,
-  Claims and Vocabulary, in that order. A pill with no body is a dead control.
+- The Convergence pill is removed from the pill row (human, 2026-11-25, p/109#5). The other pills keep their
+  order, and Lineage still shows only when the statement has lineage refs. A pill with no body is a dead control.
 
 ## Shared rules
 
