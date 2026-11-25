@@ -42,8 +42,10 @@ function Get-EmiSummaryFiles {
         # Add-EmiUnionContainers under the canonical's namespace (spec 7.4, TL p/360#661).
         $all = @(Get-ChildItem -LiteralPath $SummDir -Filter '*.json' -File | Sort-Object -Property Name)
         $res = Get-DefaultSourceResolution -Caller 'Update-EntityMentionIndex'
-        $kept = Select-SelectableSummaryFile -Files $all -Resolution $res
-        $copies = @(Get-MarkedCopySummary -Files $all -Resolution $res -Caller 'Update-EntityMentionIndex')
+        # A listed legacy chunk (spec 6.2, t/596) is part of its base: no summary:<chunk> containers either,
+        # and its distinct items come back through the same union, under the keys of spec 7.7.
+        $kept = Select-SelectableSummaryFile -Files $all -Resolution $res -ExcludeChunks
+        $copies = @(Get-MarkedCopySummary -Files $all -Resolution $res -Caller 'Update-EntityMentionIndex' -IncludeChunks)
         return [pscustomobject]@{ Files = @($kept | ForEach-Object { $_.FullName }); Copies = $copies }
     }
     Write-Verbose "Summaries dir not found: $SummDir; skipping summary containers."
@@ -168,6 +170,12 @@ function Add-EmiUnionContainers {
         where <n> is the item's index in the copy's own array, so the text is rebuildable from
         summaries/<copy>.json exactly as summary:<doc>#… is from summaries/<doc>.json. No summary:<copy> key
         is made and no existing key changes.
+        A listed legacy chunk is a member of the group too (spec 7.7, t/596). Members go in spec 7.1 order: the
+        copies, then the canonical's own chunks by N, then each copy's chunks by N. A chunk's kept item gets
+            summary:<canonical>#chunk-<chunk>-<pov>-kp-<n>              (a chunk of the canonical)
+            summary:<canonical>#via-<copy>-chunk-<chunk>-<pov>-kp-<n>   (a chunk of a marked copy)
+        and the same with fc-<n>, <n> indexing the chunk's own array. The first form is not a derived key:
+        the manifest is a reviewed file, not a mark that comes and goes.
         THESE KEYS ARE DERIVED: they appear or disappear when duplicate_of marks or the union change, so
         nothing may persist a reference to one. Human mentions on them are dropped with a WARN
         (Add-EmiHumanMentions).
@@ -175,8 +183,17 @@ function Add-EmiUnionContainers {
     param([AllowEmptyCollection()][object[]]$Copies, [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Specialized.OrderedDictionary]$Containers)
     if (@($Copies).Count -eq 0) { return }
     # Spec 7.1 group order, applied here so a caller can't change which copy's item survives.
+    # A member with no Kind (an older caller, a test double) is a copy.
+    $kindOf = { param($m) if ($m.PSObject.Properties['Kind'] -and $m.Kind) { [string]$m.Kind } else { 'copy' } }
+    $viaOf = { param($m) if ($m.PSObject.Properties['Via'] -and $m.Via) { [string]$m.Via } else { '' } }
+    $rank = @{ copy = '0'; chunk_D = '1'; chunk_copy = '2' }
     $ordered = [object[]]@($Copies)
-    $sortKeys = [string[]]@(foreach ($c in $ordered) { "$($c.CanonicalId)`u{0001}$($c.CopyId)" })
+    $sortKeys = [string[]]@(foreach ($c in $ordered) {
+            $kind = & $kindOf $c
+            # N is zero-padded so the ordinal sort of chunks is numeric (chunk 2 before chunk 10).
+            $n = if ($kind -eq 'copy') { '' } else { ([regex]::Match([string]$c.CopyId, '(\d+)$').Groups[1].Value).PadLeft(20, '0') }
+            "$($c.CanonicalId)`u{0001}$($rank[$kind])`u{0001}$(& $viaOf $c)`u{0001}$n`u{0001}$($c.CopyId)"
+        })
     [Array]::Sort([Array]$sortKeys, [Array]$ordered, [System.Collections.IComparer][StringComparer]::Ordinal)
     $groupKeys = @{}   # canonical id -> de-dup keys of the container texts already in its group
     foreach ($copy in $ordered) {
@@ -198,7 +215,12 @@ function Add-EmiUnionContainers {
             foreach ($kk in $groupKeys[$canon]) { if (Test-EvidenceNearEqual -A $k -B $kk) { $dup = $true; break } }
             if ($dup) { continue }
             $groupKeys[$canon].Add($k)
-            $Containers["summary:$canon#via-$($copy.CopyId)-$($cid.Substring('summary:x#'.Length))"] = $text
+            $member = switch (& $kindOf $copy) {
+                'chunk_D' { "chunk-$($copy.CopyId)-" }
+                'chunk_copy' { "via-$(& $viaOf $copy)-chunk-$($copy.CopyId)-" }
+                default { "via-$($copy.CopyId)-" }
+            }
+            $Containers["summary:$canon#$member$($cid.Substring('summary:x#'.Length))"] = $text
         }
     }
 }

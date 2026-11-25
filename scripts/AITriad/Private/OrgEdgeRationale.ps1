@@ -27,7 +27,11 @@ function New-OrgEdgeRationale {
         states only what the pipeline saw and names no status, because nothing rewrites an organization
         edge's rationale when the edge is approved or rejected (CL p/70#99, Design p/113#11). Kind
         'Published': a PUBLISHED edge a review has approved, on the org's own domain; no pipeline writes
-        it. Kind 'Withdrawn': a matched edge whose supporting claim no longer exists.
+        it. Kind 'Withdrawn': a matched edge whose supporting claim no longer exists. Kind 'Rejected'
+        (t/680): a PUBLISHED edge a review has rejected. It says only what is recorded (CL p/70#103, table
+        on t/584#20): the site the document is on, with the reviewer's note quoted whole when there is
+        one; or, with -CanonicalTitle, that the document is a marked copy of that document. No pipeline
+        writes it: it is for whatever rejects an edge.
         The text is never cut. The document is named by its title, or by its id when it has none.
     .OUTPUTS
         [string]
@@ -35,7 +39,7 @@ function New-OrgEdgeRationale {
     [CmdletBinding()]
     [OutputType([string])]
     param(
-        [Parameter(Mandatory)][ValidateSet('Matched', 'SiteListed', 'Published', 'Withdrawn')][string]$Kind,
+        [Parameter(Mandatory)][ValidateSet('Matched', 'SiteListed', 'Published', 'Withdrawn', 'Rejected')][string]$Kind,
         [string]$OrgName,
         [string]$DocumentTitle,
         [string]$DocumentId,
@@ -43,7 +47,11 @@ function New-OrgEdgeRationale {
         [string]$Proposition,
         [ValidateSet('ADVOCATES_FOR', 'OPPOSES')][string]$EdgeType = 'ADVOCATES_FOR',
         [bool]$OwnDocument = $true,
-        [string]$SiteHost
+        [string]$SiteHost,
+        # Rejected only: the reviewer's recorded note, quoted as it stands.
+        [string]$ReviewNote,
+        # Rejected only: the title (or id) of the document this one is a marked copy of.
+        [string]$CanonicalTitle
     )
     Set-StrictMode -Version Latest
     $Open = [string][char]0x201C; $Close = [string][char]0x201D
@@ -54,7 +62,17 @@ function New-OrgEdgeRationale {
                 -NextSteps @('Pass the missing value from the writer', 'See the wording table on t/584#8'))
     }
     if ($Kind -eq 'Withdrawn') { return 'Proposed by automated claim matching; the supporting claim was later withdrawn.' }
+    if ($Kind -eq 'Rejected' -and -not [string]::IsNullOrWhiteSpace($CanonicalTitle)) {
+        return "Rejected: the document is a marked copy of $($CanonicalTitle.Trim()). It is not shown as a publisher of its own."
+    }
     if ([string]::IsNullOrWhiteSpace($OrgName)) { & $Fail "No organization name was given for a '$Kind' rationale." }
+    if ($Kind -eq 'Rejected') {
+        if ([string]::IsNullOrWhiteSpace($SiteHost)) { & $Fail "Neither a site host nor a canonical document was given for a 'Rejected' rationale." }
+        $Sentence = "Rejected: the document is on $($SiteHost.Trim()), one of the sites listed in $($OrgName.Trim())'s links."
+        # The note is stored as recorded, never trimmed or cut: it is a quotation.
+        if (-not [string]::IsNullOrWhiteSpace($ReviewNote)) { $Sentence += " Reviewer's note: $Open$ReviewNote$Close" }
+        return $Sentence
+    }
     if ($Kind -in 'Published', 'SiteListed') {
         if ([string]::IsNullOrWhiteSpace($SiteHost)) { & $Fail "No site host was given for a '$Kind' rationale." }
         if ($Kind -eq 'SiteListed') { return "The document is on $($SiteHost.Trim()), one of the sites listed in $($OrgName.Trim())'s links." }
