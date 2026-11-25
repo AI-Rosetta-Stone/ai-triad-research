@@ -76,7 +76,8 @@ Describe 'Repair-SummaryKeyPointVerbatim (t/389)' -Tag 'summarization' {
 
     It 'handles a list mixing exact, near and paraphrase quotes' {
         $Exact = 'Briggs argues that the systems are used by a human operator'
-        $Near = 'the systems are used by a human operator who keeps final control of it'
+        # Near: one word changed in the middle ("a" for the source's "by a"): snapped to the source's text.
+        $Near = 'the systems are used by the human operator who keeps final control'
         $Para = 'people will remain in charge of the machines at all times'
         $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = @($Exact, $Near, $Para) })
         $R = InModuleScope AITriad -Parameters @{ S = $script:Snapshot; Sum = $Sum } {
@@ -273,14 +274,18 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Best.Coverage | Should -BeGreaterThan 0.75
     }
 
-    It 'a snapped span begins and ends on a word of the quote, not on part of one' {
-        # The source's first word is corrupted ("Xhe" for "The"), so the quote's "The" is only partly
-        # matched and is given up. "constructionwork" is glued text: the span ends with the quote's word.
-        $Src = 'Constituents are restless. Xhe meteoric emergence of the data-center rebellion is a response to the speed and scale of constructionwork nearby.'
-        $Quote = 'The meteoric emergence of the data-center rebellion is a response to the speed and scale of construction'
-        $Out = & $script:Run $Src $Quote 'doc-word-boundary'
-        $Out.R.Snapped | Should -Be 1
-        $Out.Stored | Should -Be 'meteoric emergence of the data-center rebellion is a response to the speed and scale of construction'
+    It 'a quote whose first or last word is not a whole word of the source is dropped (t/389#47 (3); it was trimmed under t/389#20)' {
+        # The source's first word is corrupted ("Xhe" for "The"): the quote's first word is not in the source.
+        $Src = 'Constituents are restless. Xhe meteoric emergence of the data-center rebellion is a response to the speed and scale of building work nearby.'
+        (& $script:Run $Src 'The meteoric emergence of the data-center rebellion is a response to the speed and scale of building work' 'doc-first-word-corrupt').R.Dropped | Should -Be 1
+        # "constructionwork" is glued text: the quote's last word ends inside a source word.
+        $Src2 = 'Constituents are restless. The meteoric emergence of the data-center rebellion is a response to the speed and scale of constructionwork nearby.'
+        (& $script:Run $Src2 'The meteoric emergence of the data-center rebellion is a response to the speed and scale of construction' 'doc-last-word-glued').R.Dropped | Should -Be 1
+        # A corrupted word in the middle is still a snap, and the source keeps its own text.
+        $Src3 = 'Constituents are restless. The meteoric emergence of the data-center rebelXion is a response to the speed and scale of building work nearby.'
+        $Mid = & $script:Run $Src3 'The meteoric emergence of the data-center rebellion is a response to the speed and scale of building work' 'doc-mid-word-corrupt'
+        $Mid.R.Snapped | Should -Be 1
+        $Mid.Stored | Should -Be 'The meteoric emergence of the data-center rebelXion is a response to the speed and scale of building work'
     }
 
     It 'ignores a page header and a URL that the model copied into the quote' {
@@ -478,11 +483,42 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.Stored | Should -Be $Quote
     }
 
-    It 'a numbers-only line between two segments of an elided quote is a page marker: the quote is dropped (t/389#45 (c))' {
+    It 'one page number between two sentences of an elided quote is still running prose; a chart is not (t/389#47 (1))' {
         $A = 'Developers answer that the evaluations they run today were never designed for licensing.'
         $B = 'Auditors therefore ask for access to the weights and to the training data.'
-        (& $script:Run "$A`r`n`r`n17`r`n`r`nSome text between the two.`r`n$B`r`n" "$A [...] $B" 'doc-elision-one-number').R.Dropped | Should -Be 1
+        $Prose = 'A full line of running prose that carries on over the page break without ending its sentence in'
+        # One bare page number between prose lines: kept.
+        $One = & $script:Run "$A $Prose`r`n`r`n17`r`n`r`nthe next page, where the paragraph goes on for a while. $B`r`n" "$A [...] $B" 'doc-elision-page-number'
+        $One.R.Dropped | Should -Be 0
+        $One.Stored | Should -Be @($A, $B)
+        # Two numbers-only lines, or a value that is not a bare number: a chart.
         (& $script:Run "$A`r`n`r`n64%`r`n`r`n39%`r`n`r`nSome text between the two.`r`n$B`r`n" "$A [...] $B" 'doc-elision-two-numbers').R.Dropped | Should -Be 1
+        (& $script:Run "$A $Prose`r`n`r`n64%`r`n`r`nthe next page. $B`r`n" "$A [...] $B" 'doc-elision-percent').R.Dropped | Should -Be 1
+        # A bare number beside a short line that is not the page's running header: a label and its value.
+        (& $script:Run "$A`r`n`r`nSkills gaps reported`r`n`r`n17`r`n`r`nMore text about the survey follows here. $B`r`n" "$A [...] $B" 'doc-elision-label').R.Dropped | Should -Be 1
+    }
+
+    It 'a page number with the running header beside it is one page boundary, not a chart (t/389#47, H06)' {
+        $A = 'A significant amount of recent work has focused on the AI alignment problem, broadly defined.'
+        $B = 'Broadly, our proposal can be thought of as contributing to better alignment with law and policy.'
+        $Head = 'Foundation Models and Fair Use'
+        $Body = (1..3 | ForEach-Object { "Text of page $_ that runs on for a full line of ordinary prose here.`r`n`r`n$_`r`n`r`n$Head`r`n`r`nA PREPRINT`r`n`r`n" }) -join ''
+        $Src = $Body + "$A Hendrycks et al. provide a survey of the unsolved challenges that remain in AI`r`n`r`n27`r`n`r`n$Head`r`n`r`nA PREPRINT`r`n`r`nSafety, including alignment. $B`r`n"
+        $Out = & $script:Run $Src "$A [...] $B" 'doc-elision-running-header'
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be @($A, $B)
+    }
+
+    It 'a snapped quote whose first or last word is not the source''s is dropped, not stored with the source''s word (t/389#47 (3), H07)' {
+        $Src = "Brundage et al., Towards Publicly Accountable Frontier LLMs: Building an External Scrutiny Ecosystem under the ASPIRE Framework for audits.`r`n"
+        # The model wrote "Toward"; the source has "Towards".
+        (& $script:Run $Src 'Toward Publicly Accountable Frontier LLMs: Building an External Scrutiny Ecosystem under the ASPIRE Framework' 'doc-first-word').R.Dropped | Should -Be 1
+        # The model changed the last word.
+        (& $script:Run $Src 'Publicly Accountable Frontier LLMs: Building an External Scrutiny Ecosystem under the ASPIRE Frameworks' 'doc-last-word').R.Dropped | Should -Be 1
+        # A changed word in the middle is still a snap to the source's text.
+        $Mid = & $script:Run $Src 'Publicly Accountable Frontier LLMs: Building the External Scrutiny Ecosystem under the ASPIRE Framework' 'doc-mid-word'
+        $Mid.R.Dropped | Should -Be 0
+        $Mid.R.Snapped | Should -Be 1
     }
 
     It 'two bibliography entries joined by an ellipsis are not one passage (t/389#45 (a), G08, H04, H10)' {
@@ -532,11 +568,13 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.Stored | Should -Be @($A, $B)
     }
 
-    It 'an elided quote whose segments are out of source order, or have a page break between them, is dropped (t/389#40 (4))' {
+    It 'an elided quote whose segments are out of source order, or two page breaks apart, is dropped (t/389#40 (4), t/389#47)' {
         $A = 'Developers answer that the evaluations they run today were never designed for licensing.'
         $B = 'Auditors therefore ask for access to the weights and to the training data.'
         (& $script:Run "$B Some text between. $A`n" "$A [...] $B" 'doc-elision-order').R.Dropped | Should -Be 1
-        (& $script:Run "$A`n$([char]12)$B`n" "$A [...] $B" 'doc-elision-pagebreak').R.Dropped | Should -Be 1
+        # One page break inside a paragraph is still running prose (t/389#47 (1)); two are not.
+        (& $script:Run "$A`n$([char]12)$B`n" "$A [...] $B" 'doc-elision-pagebreak').R.Dropped | Should -Be 0
+        (& $script:Run "$A`n$([char]12)A page of other text.`n$([char]12)$B`n" "$A [...] $B" 'doc-elision-two-pagebreaks').R.Dropped | Should -Be 1
     }
 
     It 'a figure inside a line of prose is part of the passage' {

@@ -51,7 +51,9 @@ $script:VerbatimLigatureMojibake = @(
 # The start of a list or bibliography entry, tested on the first line of a paragraph (CL t/389#45, stipulated):
 # a leading number ("113 ", "1416 R. Fang", "349. F. Heiding", "2)"), a bracketed tag ("[industry]"), or an
 # author with initials ("Heiding, F." / "F. Heiding,").
-$script:VerbatimEntryStartPattern = '^(?:\(?\p{Nd}{1,4}[.)*]?(?:\s|$|(?=\p{Lu}))|\[[^\]\r\n]{1,40}\]|\p{Lu}[\p{L}\u2019''\-]+,\s+(?:\p{Lu}\.[ \u00A0]?)+|(?:\p{Lu}\.[ \u00A0]?)+\p{Lu}[\p{L}\u2019''\-]+,)'
+$script:VerbatimEntryStartPattern = '^(?:\(?\p{Nd}{1,4}[.)*]?(?:\s+\S|(?=\p{Lu}))|\[[^\]\r\n]{1,40}\]|\p{Lu}[\p{L}\u2019''\-]+,\s+(?:\p{Lu}\.[ \u00A0]?)+|(?:\p{Lu}\.[ \u00A0]?)+\p{Lu}[\p{L}\u2019''\-]+,)'
+$script:VerbatimLabelMaxWords = 6        # a line of at most this many words with no closing punctuation reads as a label (CL t/389#47)
+$script:VerbatimRequireEndWords = $true  # a snapped segment must begin and end on the source's own words (CL t/389#47 (3))
 $script:VerbatimListMarkerPattern = '^\(?\p{Nd}{1,3}[.)]$'   # "1." or "2)" on a line of its own: a list numeral, never a figure (CL t/389#42)
 $script:VerbatimElisionMaxGap = 1000   # letters between two segments of an elided quote (CL t/389#40, stipulated; to be revisited)
 $script:VerbatimWordTail = 2           # source letters past a quote word's end that a stored piece may take (a plural)
@@ -172,6 +174,7 @@ function Get-VerbatimSource {
         WordOffset = $WordOffset
         Footers    = $Footers
         BlankedAt  = $BlankedAt.ToArray()
+        LineCounts = $Counts          # trimmed line (up to VerbatimFooterMaxChars) -> how often it occurs
     }
 }
 
@@ -425,18 +428,25 @@ function Find-VerbatimSnap {
         # Only the part that matches one for one can be given up letter by letter.
         if ($Ds -gt $P.Head -or $De -gt $P.Tail) { continue }
         $Letters = ($P.QLast + 1 - $De) - ($P.QFirst + $Ds)
+        # Where the piece begins and ends in the quote's letters (for the edge rule, t/389#47 (3)).
+        $QS = $P.QFirst + $Ds; $QE = $P.QLast + 1 - $De
         if ($Letters -le 0) { continue }
         $PS = Get-VerbatimTextOffset -Source $Source -Position ($P.First + $Ds)
         $PE = (Get-VerbatimTextOffset -Source $Source -Position ($P.Last - $De)) + 1
         # Finish the source's own word when only a letter or two of it is left.
         $More = 0
         while ($PE + $More -lt $Text.Length -and [char]::IsLetterOrDigit($Text[$PE + $More])) { $More++ }
-        if ($More -le $script:VerbatimWordTail) { $PE += $More }
+        # TailAdded: source letters past the quote's last matched letter that the piece took (the source says
+        # "models", the quote "model"). MidWordEnd: the source's word goes on further than that.
+        $TailAdded = 0
+        if ($More -le $script:VerbatimWordTail) { $PE += $More; $TailAdded = $More }
+        $MidWordEnd = $More -gt $script:VerbatimWordTail
         # The second half of a word the piece before lost to a hyphenated break ("cod-" ... "ing") goes too.
         if ($CarryHyphen) {
             $W0 = $PS
             while ($W0 -lt $PE -and [char]::IsLetterOrDigit($Text[$W0])) { $W0++ }
             $Letters -= ($W0 - $PS)
+            $QS += ($W0 - $PS)
             while ($W0 -lt $PE -and -not [char]::IsLetterOrDigit($Text[$W0])) { $W0++ }
             $PS = $W0
         }
@@ -447,6 +457,7 @@ function Find-VerbatimSnap {
             $W1 = $PE
             while ($W1 -gt $PS -and [char]::IsLetterOrDigit($Text[$W1 - 1])) { $W1-- }
             $Letters -= ($PE - $W1)
+            $QE -= ($PE - $W1); $TailAdded = 0; $MidWordEnd = $false
             while ($W1 -gt $PS -and -not [char]::IsLetterOrDigit($Text[$W1 - 1])) { $W1-- }
             $PE = $W1
             $CarryHyphen = $true
@@ -479,7 +490,8 @@ function Find-VerbatimSnap {
             }
         }
         if ($Skips.Count -eq 0) {
-            $Pieces.Add([pscustomobject]@{ Start = $PS; End = $PE; QuoteLetters = $Letters })
+            $Pieces.Add([pscustomobject]@{ Start = $PS; End = $PE; QuoteLetters = $Letters; QStart = $QS; QEnd = $QE
+                    TailAdded = $TailAdded; MidWordEnd = $MidWordEnd; HeadPartial = ($PS -gt 0 -and [char]::IsLetterOrDigit($Text[$PS - 1])) })
             continue
         }
         # Split at each; the quote's letters are shared out by the parts' own letters.
@@ -492,7 +504,14 @@ function Find-VerbatimSnap {
         if ($PE -gt $From) { $Parts.Add(@{ Start = $From; End = $PE }) }
         foreach ($Part in $Parts) {
             $PartLetters = ([regex]::Replace($Text.Substring($Part.Start, $Part.End - $Part.Start), '[^\p{L}\p{Nd}]', '')).Length
-            if ($PartLetters -gt 0) { $Pieces.Add([pscustomobject]@{ Start = $Part.Start; End = $Part.End; QuoteLetters = [Math]::Min($PartLetters, $Letters) }) }
+            if ($PartLetters -gt 0) {
+                # Only the first part begins where the piece did and only the last ends where it did.
+                $IsFirst = $Part.Start -eq $PS; $IsLast = $Part.End -eq $PE
+                $Pieces.Add([pscustomobject]@{ Start = $Part.Start; End = $Part.End; QuoteLetters = [Math]::Min($PartLetters, $Letters)
+                        QStart = $(if ($IsFirst) { $QS } else { -1 }); QEnd = $(if ($IsLast) { $QE } else { -1 })
+                        TailAdded = $(if ($IsLast) { $TailAdded } else { 0 }); MidWordEnd = ($IsLast -and $MidWordEnd)
+                        HeadPartial = ($IsFirst -and $PS -gt 0 -and [char]::IsLetterOrDigit($Text[$PS - 1])) })
+            }
         }
     }
     if ($Pieces.Count -eq 0) { return $null }
@@ -621,6 +640,7 @@ function Resolve-VerbatimSegment {
             }
         }
         $Texts = [System.Collections.Generic.List[string]]::new()
+        $StoredPieces = [System.Collections.Generic.List[object]]::new()
         $StoredLetters = 0
         foreach ($P in $Snap.Pieces) {
             # A piece too short to have been placed by itself is not stored as a quote.
@@ -630,12 +650,30 @@ function Resolve-VerbatimSegment {
             # stored (CL, t/389#24).
             if ($T -match '\|\s[^|\r\n]*\|' -or $T -match '(?m)^\s*\|') { continue }
             $Texts.Add($T)
+            $StoredPieces.Add($P)
             $StoredLetters += $P.QuoteLetters
         }
         # What is stored must itself cover the quote (CL ruling t/389#20): pieces that add up to less read
         # as fragments of other text, not as the quote.
         # [double] on both: with an int 1 for full coverage, Min binds its int overload and rounds the share up.
         $Coverage = [Math]::Min([double]$Coverage, [double]$StoredLetters / [double]$Snap.QuoteLetters)
+        if ($Texts.Count -gt 0 -and $Coverage -ge $script:VerbatimSnapThreshold -and $script:VerbatimRequireEndWords) {
+            # The stored text is the source's. It must begin with the quote's first word and end with its last:
+            # the first stored piece starts at the quote's first letter on the start of a source word, and the
+            # last ends at the quote's last letter on the end of a source word. Otherwise the model changed,
+            # added or cut a word at the edge ("Toward" for the source's "Towards"; "model" for "models"): the
+            # quote is not verbatim there, and storing the source's word would store text the model did not
+            # give us (CL t/389#47 (3)). Judged by position, not by comparing the words' text, so mojibake in
+            # the source's copy of the word does not matter.
+            $Head = $StoredPieces[0]; $Tail = $StoredPieces[$StoredPieces.Count - 1]
+            if ($Head.QStart -ne 0 -or $Head.HeadPartial -or $Tail.QEnd -ne $Snap.QuoteLetters -or $Tail.TailAdded -gt 0 -or $Tail.MidWordEnd) {
+                $EdgeDrop = & $Result 'dropped' @() $Coverage $null
+                # The segment IS in the source, but not as the model wrote it at its edge: a rejection, as
+                # against a segment the source does not have at all (Resolve-VerbatimQuote treats them apart).
+                Add-Member -InputObject $EdgeDrop -NotePropertyName Rejected -NotePropertyValue $true
+                return $EdgeDrop
+            }
+        }
         if ($Texts.Count -gt 0 -and $Coverage -ge $script:VerbatimSnapThreshold) {
             $Decision = if ($Snap.Contiguous) { 'snapped' } else { 'interleaved' }
             return (& $Result $Decision $Texts.ToArray() $Coverage $Snap)
@@ -685,28 +723,53 @@ function Test-VerbatimElisionGap {
     if ($NextStart -lt $PrevEnd) { return $false }
     $Gap = $Source.Text.Substring($PrevEnd, $NextStart - $PrevEnd)
     if (([regex]::Replace($Gap, '[^\p{L}\p{Nd}]', '')).Length -gt $script:VerbatimElisionMaxGap) { return $false }
-    if ($Gap.IndexOf([char]12) -ge 0) { return $false }
     if ($Gap -match '(?m)^\s*\|' -or $Gap -match '\|\s[^|\r\n]*\|') { return $false }
-    # A numbers-only line, taken over whole source lines: the gap's first stretch is the rest of the previous
-    # segment's line (a footnote reference after its full stop, ".180", is not a line of its own), and its
-    # last stretch is the start of the next segment's line.
+    # One page boundary inside a paragraph is still running prose (CL t/389#47 (1)): the paragraph does not
+    # end at the page break. So ONE page break and ONE page or footnote number are allowed, with the page's
+    # running header beside it. What is not allowed:
+    #   - two or more numbers-only lines, or more than one page break: a chart, or text pages apart;
+    #   - a numbers-only line that is not a bare number of up to four digits ("64%" is a chart value);
+    #   - a numbers-only line beside a short label-like line: a chart label and its value. A short line that
+    #     occurs VerbatimFooterMinRepeats times or more in the document is the page's running header, not a
+    #     label (a label repeated in every chart comes with a "%" value, which the rule above already fails).
+    # Lines are taken whole: the gap's first stretch is the rest of the previous segment's line (a footnote
+    # reference after its full stop, ".180", is not a line of its own) and its last stretch is the start of
+    # the next segment's line.
+    if (([regex]::Matches($Gap, "`f")).Count -gt 1) { return $false }
     $GapLines = $Gap -split '\r?\n'
     $FirstWhole = if ($PrevEnd -eq 0 -or $Source.Text[$PrevEnd - 1] -eq [char]10) { 0 } else { 1 }
+    $NumberAt = -1
     for ($I = $FirstWhole; $I -lt $GapLines.Count - 1; $I++) {
-        if ($GapLines[$I] -match '^[^\p{L}]*\p{Nd}[^\p{L}]*$') { return $false }
+        if ($GapLines[$I] -match '^[^\p{L}]*\p{Nd}[^\p{L}]*$') {
+            if ($NumberAt -ge 0) { return $false }
+            $NumberAt = $I
+        }
     }
-    if ($Source.BlankedAt.Count -gt 0) {
-        $B = [Array]::BinarySearch($Source.BlankedAt, $PrevEnd)
-        if ($B -lt 0) { $B = -bnot $B }
-        if ($B -lt $Source.BlankedAt.Count -and $Source.BlankedAt[$B] -lt $NextStart) { return $false }
+    if ($NumberAt -ge 0) {
+        if ($GapLines[$NumberAt].Trim([char[]]" `t`f") -notmatch '^\p{Nd}{1,4}\*?$') { return $false }
+        foreach ($Step in -1, 1) {
+            $J = $NumberAt + $Step
+            while ($J -ge $FirstWhole -and $J -lt $GapLines.Count - 1 -and $GapLines[$J].Trim([char[]]" `t`f").Length -eq 0) { $J += $Step }
+            if ($J -lt $FirstWhole -or $J -ge $GapLines.Count - 1) { continue }
+            $Near = $GapLines[$J].Trim([char[]]" `t`f")
+            $Words = $Near.Split([char[]]" `t", [System.StringSplitOptions]::RemoveEmptyEntries).Count
+            $LabelLike = $Words -le $script:VerbatimLabelMaxWords -and $Near -notmatch '[.!?:;,]$'
+            if (-not $LabelLike) { continue }
+            $Seen = 0
+            $Running = $Source.LineCounts.TryGetValue($Near, [ref]$Seen) -and $Seen -ge $script:VerbatimFooterMinRepeats
+            if (-not $Running) { return $false }
+        }
     }
-    # The first line of each paragraph in the gap. The gap's own first stretch continues the previous
-    # segment's line, so it is not a paragraph start; its last stretch may be the start of the next segment's
-    # entry ("... \n\n113 " before the segment), which counts.
-    $Paragraphs = [regex]::Split($Gap, '\r?\n[ \t]*(?:\r?\n[ \t]*)+')
+    # The first line of each paragraph in the gap starts no list or bibliography entry. The gap's own first
+    # stretch continues the previous segment's line, so it is not a paragraph start. Its last stretch may be
+    # the start of the next segment's entry ("... \n\n113 " before the segment), so the test reads a little
+    # way into the segment. A number alone on its line is the page or footnote number judged above.
+    $Reach = [Math]::Min($Source.Text.Length, $NextStart + 24)
+    $Paragraphs = [regex]::Split($Source.Text.Substring($PrevEnd, $Reach - $PrevEnd), '\r?\n[ \t]*(?:\r?\n[ \t]*)+')
     for ($I = 1; $I -lt $Paragraphs.Count; $I++) {
-        $First = ($Paragraphs[$I] -split '\r?\n')[0].TrimStart()
-        if ($First.Length -gt 0 -and $First -cmatch $script:VerbatimEntryStartPattern) { return $false }
+        $First = ($Paragraphs[$I] -split '\r?\n')[0].Trim([char[]]" `t`f")
+        if ($First.Length -eq 0 -or $First -match '^[^\p{L}]*\p{Nd}[^\p{L}]*$') { continue }
+        if ($First -cmatch $script:VerbatimEntryStartPattern) { return $false }
     }
     $true
 }
@@ -735,6 +798,8 @@ function Resolve-VerbatimQuote {
     $Kept = [System.Collections.Generic.List[object]]::new()
     $BestCoverage = 0.0
     $AllLetters = 0
+    $AnyRejected = $false   # a segment the source has, rejected at its edge (t/389#47 (3))
+    $RunCut = $false        # a link between two kept segments failed (t/389#45)
     foreach ($Part in $Parts) {
         $PartLetters = ((ConvertTo-EvidenceKey -Quote $Part) -replace ' ', '').Length
         $AllLetters += $PartLetters
@@ -742,7 +807,10 @@ function Resolve-VerbatimQuote {
         if ($PartLetters -lt $script:VerbatimMinRun) { continue }
         $R = Resolve-VerbatimSegment -Source $Source -Segment $Part
         if ($R.Coverage -gt $BestCoverage) { $BestCoverage = $R.Coverage }
-        if ($R.Decision -eq 'dropped') { continue }
+        if ($R.Decision -eq 'dropped') {
+            if ($R.PSObject.Properties['Rejected'] -and $R.Rejected) { $AnyRejected = $true }
+            continue
+        }
         # Where the segment is, for the elision rule below. A segment accepted as written was not placed yet.
         if ($null -eq $R.Start) {
             $At = Find-VerbatimSnap -Source $Source -Quote $R.Texts[0]
@@ -782,10 +850,18 @@ function Resolve-VerbatimQuote {
                 $L = 0; foreach ($R in $Candidate) { $L += $R.Letters }
                 if ($L -gt $BestLetters) { $BestLetters = $L; $BestRun = $Candidate }
             }
-            $Share = if ($AllLetters -gt 0) { [double]$BestLetters / [double]$AllLetters } else { 0.0 }
-            if ($Share -lt $script:VerbatimSnapThreshold) { $Dropped.Coverage = [Math]::Min([double]$BestCoverage, $Share); return $Dropped }
             $Kept = $BestRun
+            $RunCut = $true
         }
+    }
+    # When part of the quote was found in the source and still not kept (a segment outside the run, or one
+    # rejected at its edge), what is stored must hold VerbatimSnapThreshold of the whole quote: a smaller
+    # part is a partial quote that misstates the claim (CL t/389#42 (3)). A segment the source does not
+    # have at all is simply removed, as before (t/389#11, S23).
+    if ($RunCut -or $AnyRejected) {
+        $KeptLetters = 0; foreach ($R in $Kept) { $KeptLetters += $R.Letters }
+        $Share = if ($AllLetters -gt 0) { [double]$KeptLetters / [double]$AllLetters } else { 0.0 }
+        if ($Share -lt $script:VerbatimSnapThreshold) { $Dropped.Coverage = [Math]::Min([double]$BestCoverage, $Share); return $Dropped }
     }
     $MinCoverage = 1.0
     foreach ($R in $Kept) { if ($R.Coverage -lt $MinCoverage) { $MinCoverage = $R.Coverage } }
