@@ -212,6 +212,7 @@ export function exemptionVerdict({ review, headSha, reviewerLogin = REVIEWER_APP
   if (!review || typeof review !== 'object') return { valid: false, detail: 'the named review could not be read' };
   const why = [];
   if (review.user?.login !== reviewerLogin) why.push(`it is from ${review.user?.login ?? 'an unknown account'}, not the reviewer App`);
+  // lint:review-state-ok: one review named by id (--budget-exempt-review), bound to the head; its role comes from the body
   if (review.state !== 'APPROVED') why.push(`its state is ${review.state ?? 'unknown'}, not APPROVED`);
   if (!headSha || review.commit_id !== headSha) why.push(`it is bound to ${String(review.commit_id).slice(0, 9)}, not the current head ${String(headSha).slice(0, 9)}`);
   const m = /^Approved \(([^)]+)\): budget-exempt:([\s\S]*)$/.exec(String(review.body ?? '').trimStart());
