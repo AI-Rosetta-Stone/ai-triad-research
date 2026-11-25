@@ -274,7 +274,7 @@ param stagingKeyVaultUrl string = 'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.
 // be true once that environment's pair exists in its vault (Azure's read-back on t/669).
 // tests/BicepEasyAuthKeys.Tests.ps1 pins each app to its own vault.
 @description('t/669: staging uses its own EasyAuth cookie keys from kv-ait-stg. True only after both secrets exist there.')
-param easyAuthOwnKeysStaging bool = false
+param easyAuthOwnKeysStaging bool = true
 @description('t/669: prod uses its own EasyAuth cookie keys from kv-ait. True only after both secrets exist there, and after staging proved them.')
 param easyAuthOwnKeysProd bool = false
 
