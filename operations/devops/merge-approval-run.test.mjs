@@ -335,3 +335,18 @@ test('run: a GraphQL error on a merge group posts failure on the group SHA and t
   assert.equal(w.posts[0].head_sha, GROUP_SHA);
   assert.equal(w.posts[0].conclusion, 'failure');
 });
+
+test('wiring (Security p/131#58): the /recheck-guards arm runs only for OWNER, MEMBER or COLLABORATOR commenters', () => {
+  const yml = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'merge-approval.yml'), 'utf8');
+  const m = /\n    if: >-\n([\s\S]*?)\n    steps:/.exec(yml);
+  assert.ok(m, 'the compute job has a job-level if: block');
+  const cond = m[1].replace(/\s+/g, ' ');
+  // Exactly one /recheck-guards clause, and it is ANDed with the association allowlist in the same group.
+  assert.equal((cond.match(/\/recheck-guards/g) || []).length, 1, 'one /recheck-guards clause');
+  assert.match(cond, /\(contains\(github\.event\.comment\.body, '\/recheck-guards'\) && contains\(fromJSON\('\["OWNER","MEMBER","COLLABORATOR"\]'\), github\.event\.comment\.author_association\)\)/);
+  // No other comment arm admits arbitrary commenters: the only other comment arm is the reviewer App by login.
+  const commentArm = /github\.event_name == 'issue_comment'([\s\S]*?)\) \|\| \(github\.event_name == 'workflow_run'/.exec(cond);
+  assert.ok(commentArm, 'the issue_comment arm is delimited');
+  assert.match(commentArm[1], /github\.event\.comment\.user\.login == 'ai-triad-reviewer-jpsnover\[bot\]'/);
+  assert.doesNotMatch(commentArm[1].replace(/\(contains\(github\.event\.comment\.body, '\/recheck-guards'\) && contains\(fromJSON\([^)]*\), github\.event\.comment\.author_association\)\)/, ''), /contains\(github\.event\.comment\.body/);
+});
