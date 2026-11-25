@@ -43,13 +43,20 @@
  * new ETag will find the entry (it was already written before the bump that
  * produced that ETag).
  *
- * **D2 (SO e/332#8, option (a)): a `_gen` bump failure deletes the
- * just-written entry before returning the error.** Without this, an entry
- * could exist in the store with no caller ever told it succeeded — and the
- * (later, separate-PR) commit path lists entries, not `_gen`, so it would
- * still commit an edit the user was told had failed. The invariant this
- * preserves: an entry that exists in the store is always one whose write was
- * successfully acknowledged.
+ * **The acknowledgment point is the entry's conditional upload (t/549; SO t/503#10, TL t/503#11).**
+ * This replaces D2 and E1 from e/332, which deleted the just-written entry when the `_gen` bump
+ * failed. Under t/503's option 2 the save is acknowledged only after its stage, so the invariant is:
+ * an entry exists in the store if and only if the caller was told its save succeeded.
+ * - A successful conditional upload is a successful save, with or without an ETag in the response.
+ * - A `_gen` bump failure after that still returns ok (`genBumped: false`, WARN). The entry is
+ *   durable and the commit lists the store directly, so a missed bump costs only freshness for other
+ *   replicas' reads, bounded by the reader's periodic re-list (`SHARED_OVERLAY_RELIST_MS`).
+ * - There is no delete-on-failure path, so no orphan can exist and no sweep is needed. The old
+ *   delete also removed another replica's acknowledged value when ours had overwritten it.
+ * - An ambiguous upload failure (no status, a timeout, or a 5xx) can have landed without the caller
+ *   knowing, so `stage()` reads the entry back once: it is ours if its `stageId` matches.
+ * - Every upload is conditional (ifMatch or ifNoneMatch). The caller says which in `expect`; the
+ *   store never re-uploads blindly after a 412.
  */
 
 import { randomUUID } from 'crypto';
@@ -64,9 +71,25 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
  *  recorded value, distinct from "no entry exists at all". */
 export interface SharedOverlayEntry {
   content: string | null;
-  baseSha: string | 'unknown';
+  /** t/549: `null` means the file did not exist on the branch when the path was first staged, matching
+   *  the local map's convention. Entries already staged as `'unknown'` always conflict, which is safe. */
+  baseSha: string | null | 'unknown';
+  /** Set once, when the save arrives, and never refreshed on a retry (SO t/503#14 condition 1). */
   stagedAt: string;
+  /** t/549: a random id per save, set once like `stagedAt`. The ambiguous-failure read-back compares
+   *  it (SO t/503#14 condition 4). Absent only on entries written before t/549. */
+  stageId?: string;
 }
+
+/** The precondition for one stage. The store turns it into ifMatch / ifNoneMatch; the caller's semantic
+ *  check (baseSha against the entry, or 'absent') happens before, on what it read.
+ *  - `etag`: the entry the caller read and checked must still be there unchanged.
+ *  - `absent`: there must be no entry (the caller checked the branch file itself).
+ *  - `latestWins`: no semantic precondition (deletes, and the logged no-baseSha write). Still ifMatch on
+ *    the ETag just read, so a 412 re-reads; an entry with a later `stagedAt` is never overwritten. */
+export type SharedOverlayStageExpect = { etag: string } | { absent: true } | { latestWins: true };
+
+export type SharedOverlayEntryWithEtag = { entry: SharedOverlayEntry; etag: string };
 
 export interface SharedOverlayStoreOptions {
   /** e.g. https://<account>.blob.core.windows.net — from AZURE_STORAGE_ACCOUNT_URL. */
@@ -81,17 +104,39 @@ export interface SharedOverlayStoreOptions {
   container: string;
   /** Default `'overlay-state'`. */
   blobPrefix?: string;
-  /** Bounded retries on an ETag CAS conflict (412) for a per-entry stage,
-   *  before giving up as `'storage_unavailable'`. Default 5. The `_gen`
+  /** Bounded retries on an ETag CAS conflict (412) for a `latestWins` stage,
+   *  before giving up as `'storage_unavailable'`. Default 5. `etag` / `absent` stages
+   *  never retry inside the store: the caller re-checks and bounds its own loop (t/549). The `_gen`
    *  bump itself is never retried this way — it's unconditional (D1). */
   maxCasRetries?: number;
   /** Test seam: inject a pre-built client (e.g. an Azurite shared-key client). */
   serviceClient?: BlobServiceClient;
 }
 
+/** t/549. `ok: true` means the save is acknowledged: the entry is in the store.
+ *  - `precondition_failed` (`etag` / `absent` only): the entry changed since the caller read it, or
+ *    appeared; `current` is what is there now, for the caller's bounded re-check.
+ *  - `newer_exists` (`latestWins` only): a 412 re-read found an entry staged later than ours. It is not
+ *    overwritten; the caller reports success, ordered before it (the two saves overlapped).
+ *  - `storage_unavailable`: a definite failure; nothing of ours is in the store. */
 export type SharedOverlayStageResult =
-  | { ok: true; gen: string }
+  | { ok: true; etag: string | null; gen: string | null; genBumped: boolean }
+  | { ok: false; reason: 'precondition_failed'; current: SharedOverlayEntryWithEtag | null }
+  | { ok: false; reason: 'newer_exists'; current: SharedOverlayEntryWithEtag }
   | { ok: false; reason: 'storage_unavailable' };
+
+/** An upload error after which the write may or may not have landed: no HTTP status at all (a
+ *  network error or a client-side timeout), a request timeout, or a server error. */
+function isAmbiguousUploadFailure(err: unknown): boolean {
+  if (!(err instanceof RestError) || err.statusCode === undefined) return true;
+  return err.statusCode === 408 || err.statusCode >= 500;
+}
+
+function isLater(a: string, b: string): boolean {
+  const ta = Date.parse(a);
+  const tb = Date.parse(b);
+  return Number.isFinite(ta) && Number.isFinite(tb) && ta > tb;
+}
 
 function isNotFound(err: unknown): boolean {
   return err instanceof RestError ? (err.statusCode === 404 || err.code === 'BlobNotFound') : false;
@@ -99,6 +144,12 @@ function isNotFound(err: unknown): boolean {
 
 function isPreconditionFailed(err: unknown): boolean {
   return err instanceof RestError && err.statusCode === 412;
+}
+
+/** t/549: an upload's condition was not met. ifMatch answers 412; ifNoneMatch '*' on a blob that exists
+ *  answers 409 BlobAlreadyExists, not 412 (seen on Azurite; the same is documented for Put Blob). */
+function isUploadConditionNotMet(err: unknown): boolean {
+  return isPreconditionFailed(err) || (err instanceof RestError && err.statusCode === 409 && err.code === 'BlobAlreadyExists');
 }
 
 function wrapOverlayError(err: unknown, op: string, blobName: string): ActionableError {
@@ -150,7 +201,7 @@ export class SharedOverlayStore {
   /** Unconditional PUT of a fresh nonce (D1) — never CAS, never retried on
    *  412 (there is no conditional to fail). A thrown error here is a
    *  genuine store failure; the caller decides what that means for the
-   *  write that triggered it (see `stage()`'s D2 handling). */
+   *  write that triggered it (`stage()` acknowledges the save anyway, t/549). */
   private async bumpGeneration(userId: string): Promise<string> {
     const client = this.genBlobClient(userId);
     const body = randomUUID();
@@ -167,122 +218,224 @@ export class SharedOverlayStore {
     }
   }
 
-  /** Stage one path's content, ETag-conditional (CAS, bounded retry) so two
-   *  replicas racing the SAME path's write never silently clobber each
-   *  other — same-user DIFFERENT-path writes never contend here at all,
-   *  since each path has its own blob.
+  /** Stage one path's content under the caller's precondition (t/549; see the header). Different paths
+   *  never contend, since each path has its own blob.
    *
-   *  Not acknowledged (`{ ok: true }`) until the `_gen` bump lands (D1/D2):
-   *  on a bump failure, the just-written entry is deleted before returning
-   *  `{ ok: false }`, so an entry only ever exists in the store once its
-   *  write was successfully acknowledged. */
-  async stage(userId: string, repoPath: string, entry: SharedOverlayEntry): Promise<SharedOverlayStageResult> {
-    const pathKey = encodePathKey(repoPath);
-    const client = this.entryBlobClient(userId, pathKey);
-    const body = JSON.stringify(entry);
-    let lastErr: unknown;
-    for (let attempt = 0; attempt < this.maxCasRetries; attempt++) {
-      let current: { etag: string } | null;
-      try {
-        current = await this.readEntryEtag(client);
-      } catch (err) {
-        getGlobalRecorder()?.record({
-          type: 'system.error', component: 'shared-overlay-store', level: 'error',
-          message: `stage failed reading current entry etag; refusing (fail closed): ${client.name}`,
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
-        return { ok: false, reason: 'storage_unavailable' };
-      }
-      let writtenEtag: string | undefined;
-      try {
-        const uploadResp = await client.upload(body, Buffer.byteLength(body), {
-          conditions: current ? { ifMatch: current.etag } : { ifNoneMatch: '*' },
-        });
-        writtenEtag = uploadResp.etag;
-      } catch (err) {
-        if (isPreconditionFailed(err)) { lastErr = err; continue; } // lost the race — re-read and retry
-        getGlobalRecorder()?.record({
-          type: 'system.error', component: 'shared-overlay-store', level: 'error',
-          message: `stage upload failed; refusing (fail closed): ${client.name}`,
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
-        return { ok: false, reason: 'storage_unavailable' };
-      }
-      // Entry write landed — now the D1/D2/F2 generation bump + cleanup.
-      const bumpResult = await this.bumpGenerationOrCleanup(userId, client, writtenEtag);
-      if (bumpResult.ok) return { ok: true, gen: bumpResult.gen };
-      return { ok: false, reason: 'storage_unavailable' };
-    }
-    return this.failStorageUnavailable(lastErr ?? new Error('CAS retries exhausted'), 'stage', client.name);
+   *  `etag` / `absent`: one conditional upload. A 412 returns `precondition_failed` with what is there
+   *  now, so the caller re-runs its semantic check; the store never re-uploads on its own. `latestWins`:
+   *  read, then upload ifMatch / ifNoneMatch on what was read, up to `maxCasRetries` times; an entry
+   *  with a later `stagedAt` is never overwritten (`newer_exists`).
+   *
+   *  `entry.stagedAt` and `entry.stageId` are the caller's, set once per save; they are written as given.
+   *
+   *  **Our own write behind a failed condition (Quality on #5459).** The SDK retries an upload whose
+   *  response was lost. If the first attempt landed, the retry's condition fails against our own write
+   *  (412, or 409 for ifNoneMatch). So whenever a condition fails, the entry found is checked first: if
+   *  its `stageId` is ours, the save landed and is acknowledged.
+   *
+   *  **Read-back window.** The read-back after an ambiguous failure, and the re-read after a failed
+   *  condition, see only what the store holds at that moment. A write the service applies after that read
+   *  (a request still in flight when the client gave up) is reported as not saved although it exists. That
+   *  is the one residual case of "exists but not acknowledged"; a later save of the path replaces it, and
+   *  its content was the user's own intended edit.
+   *
+   *  **stagedAt ordering** (`latestWins` only) uses replica clocks. Skew between replicas can order two
+   *  overlapping saves either way. That is acceptable only because `newer_exists` arises only when the two
+   *  saves were in flight together, where either order is a valid outcome (SO t/503#14). */
+  async stage(userId: string, repoPath: string, entry: SharedOverlayEntry & { stageId: string }, expect: SharedOverlayStageExpect): Promise<SharedOverlayStageResult> {
+    const client = this.entryBlobClient(userId, encodePathKey(repoPath));
+    if ('latestWins' in expect) return this.stageLatestWins(userId, repoPath, client, entry);
+
+    const conditions = 'etag' in expect ? { ifMatch: expect.etag } : { ifNoneMatch: '*' };
+    const uploaded = await this.conditionalUpload(userId, repoPath, client, entry, conditions);
+    if (uploaded.kind === 'precondition_failed') return this.preconditionFailed(userId, repoPath, client, entry.stageId);
+    if (uploaded.kind === 'failed') return { ok: false, reason: 'storage_unavailable' };
+    return this.acknowledge(userId, client, uploaded.etag);
   }
 
-  /** Extracted from stage() to keep its own complexity under budget. Returns
-   *  the new `_gen` token on a successful bump (the write is now
-   *  acknowledged — t/4311 follow-up: callers cache this to skip a
-   *  round-trip on their own immediate next read), or `{ ok: false }` on a
-   *  bump failure (cleanup already attempted internally per D2/E1/F2). */
-  private async bumpGenerationOrCleanup(userId: string, client: BlockBlobClient, writtenEtag: string | undefined): Promise<{ ok: true; gen: string } | { ok: false }> {
+  private async stageLatestWins(userId: string, repoPath: string, client: BlockBlobClient, entry: SharedOverlayEntry & { stageId: string }): Promise<SharedOverlayStageResult> {
+    for (let attempt = 0; attempt < this.maxCasRetries; attempt++) {
+      let current: SharedOverlayEntryWithEtag | null;
+      try {
+        current = await this.getEntryWithEtag(userId, repoPath);
+      } catch (err) {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'shared-overlay-store', level: 'error',
+          message: `stage (latestWins) could not read the current entry; refusing (fail closed): ${client.name}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        return { ok: false, reason: 'storage_unavailable' };
+      }
+      // A previous attempt's upload landed although its condition then failed on an SDK retry (see stage()).
+      if (current && current.entry.stageId === entry.stageId) return this.acknowledge(userId, client, current.etag);
+      if (current && isLater(current.entry.stagedAt, entry.stagedAt)) return { ok: false, reason: 'newer_exists', current };
+      const conditions = current ? { ifMatch: current.etag } : { ifNoneMatch: '*' };
+      const uploaded = await this.conditionalUpload(userId, repoPath, client, entry, conditions);
+      if (uploaded.kind === 'precondition_failed') continue; // lost a race: re-read, re-compare stagedAt
+      if (uploaded.kind === 'failed') return { ok: false, reason: 'storage_unavailable' };
+      return this.acknowledge(userId, client, uploaded.etag);
+    }
+    return this.failStorageUnavailable(new Error(`CAS retries exhausted (${this.maxCasRetries})`), 'stage', client.name);
+  }
+
+  /** One conditional upload. An ambiguous failure gets one read-back: the write is ours, and landed,
+   *  only if the entry's `stageId` is ours (SO t/503#14 condition 4). */
+  private async conditionalUpload(
+    userId: string, repoPath: string, client: BlockBlobClient, entry: SharedOverlayEntry & { stageId: string },
+    conditions: { ifMatch: string } | { ifNoneMatch: string },
+  ): Promise<{ kind: 'ok'; etag: string | null } | { kind: 'precondition_failed' } | { kind: 'failed' }> {
+    const body = JSON.stringify(entry);
+    try {
+      const resp = await client.upload(body, Buffer.byteLength(body), { conditions });
+      // A 2xx without an ETag still landed (t/503#12 / #14): ok, with no read-back.
+      return { kind: 'ok', etag: resp.etag ?? null };
+    } catch (err) {
+      if (isUploadConditionNotMet(err)) return { kind: 'precondition_failed' };
+      if (!isAmbiguousUploadFailure(err)) {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'shared-overlay-store', level: 'error',
+          message: `stage upload failed (definite); nothing written: ${client.name}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        return { kind: 'failed' };
+      }
+      return this.readBackAfterAmbiguousFailure(userId, repoPath, client, entry.stageId, err);
+    }
+  }
+
+  private async readBackAfterAmbiguousFailure(
+    userId: string, repoPath: string, client: BlockBlobClient, stageId: string, uploadErr: unknown,
+  ): Promise<{ kind: 'ok'; etag: string | null } | { kind: 'failed' }> {
+    let back: SharedOverlayEntryWithEtag | null;
+    try {
+      back = await this.getEntryWithEtag(userId, repoPath);
+    } catch (readErr) {
+      // The upload's outcome stays unknown, so it is not acknowledged.
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'error',
+        message: `stage upload failed ambiguously (${String(uploadErr)}) and the read-back failed; reported as not saved: ${client.name}`,
+        error: { name: (readErr as Error).name ?? 'Error', message: String(readErr), stack: (readErr as Error).stack },
+      });
+      return { kind: 'failed' };
+    }
+    if (back && back.entry.stageId === stageId) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'warn',
+        message: `stage upload failed ambiguously but the read-back shows it landed; acknowledged: ${client.name}`,
+        error: { name: (uploadErr as Error).name ?? 'Error', message: String(uploadErr), stack: (uploadErr as Error).stack },
+      });
+      return { kind: 'ok', etag: back.etag };
+    }
+    this.recordFailure('stage upload failed ambiguously and the read-back shows it did not land; reported as not saved', client.name, uploadErr);
+    return { kind: 'failed' };
+  }
+
+  private async preconditionFailed(userId: string, repoPath: string, client: BlockBlobClient, stageId: string): Promise<SharedOverlayStageResult> {
+    let current: SharedOverlayEntryWithEtag | null;
+    try {
+      current = await this.getEntryWithEtag(userId, repoPath);
+    } catch (err) {
+      // The re-read failed, so whether an SDK retry hid our own landed write is unknown: not acknowledged.
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'error',
+        message: `stage could not re-read the entry after its condition failed; refusing: ${client.name}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      return { ok: false, reason: 'storage_unavailable' };
+    }
+    // Our own write, landed on an earlier SDK attempt (see stage()): the save succeeded.
+    if (current && current.entry.stageId === stageId) return this.acknowledge(userId, client, current.etag);
+    return { ok: false, reason: 'precondition_failed', current };
+  }
+
+  /** The upload landed, so the save is acknowledged whatever happens to the `_gen` bump. */
+  private async acknowledge(userId: string, client: BlockBlobClient, etag: string | null): Promise<SharedOverlayStageResult> {
     try {
       const gen = await this.bumpGeneration(userId);
-      return { ok: true, gen };
+      return { ok: true, etag, gen, genBumped: true };
     } catch (bumpErr) {
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'shared-overlay-store', level: 'warn',
-        message: `_gen bump failed after a successful entry write — deleting the unacknowledged entry: ${client.name}`,
+        message: `_gen bump failed after a successful entry write; the save is acknowledged, other replicas see it at their next periodic re-list: ${client.name}`,
         error: { name: (bumpErr as Error).name ?? 'Error', message: String(bumpErr), stack: (bumpErr as Error).stack },
       });
-      // SO e/332#10 E1: delete conditional on OUR OWN just-written ETag.
-      // Without this, if another replica staged the same path and was
-      // acknowledged between our upload and our failed bump, an
-      // unconditional delete here would destroy that already-acknowledged
-      // write — a silent lost update, not an unacknowledged-entry cleanup.
-      //
-      // F2 (SO e/332#12): if upload() itself returned no ETag, we have no
-      // safe precondition to delete with — `ifMatch: undefined` would
-      // silently become an unconditional delete, reintroducing E1. Skip
-      // the cleanup entirely rather than risk it; the orphan sweep (a
-      // separate follow-up PR) is the backstop for this already-rare case.
-      if (writtenEtag) {
-        await this.deleteUnacknowledgedEntry(client, writtenEtag);
-      } else {
-        getGlobalRecorder()?.record({
-          type: 'system.error', component: 'shared-overlay-store', level: 'warn',
-          message: `Skipped unacknowledged-entry cleanup — upload() returned no ETag to delete conditionally on: ${client.name}`,
-          data: { blobName: client.name },
-        });
-      }
-      return { ok: false };
+      return { ok: true, etag, gen: null, genBumped: false };
     }
   }
 
-  /** D2: the bump failed (WARN-logged by the caller, `stage()`), so the
-   *  write this entry represents was never acknowledged to the caller.
-   *  Delete it, conditional on `ifMatch: ourEtag` (SO e/332#10 E1) — our own
-   *  ETag from the upload that just succeeded. If another replica staged
-   *  the SAME path and was acknowledged in the gap between our upload and
-   *  our failed bump, its write now has a different ETag, the delete gets
-   *  a 412, and we correctly do nothing — their acknowledged edit survives.
-   *  Best-effort beyond that: if the conditional delete itself fails for a
-   *  genuine store reason, the orphan-TTL sweep (a separate follow-up PR)
-   *  is the backstop. */
-  private async deleteUnacknowledgedEntry(client: BlockBlobClient, ourEtag: string): Promise<void> {
+  /** Compare-and-set of an entry's `baseSha` only (t/549, t/503#3): after a commit, a path rewritten
+   *  during it keeps its newer content but must be based on the blob just committed, or the next commit
+   *  sees a false conflict. Content, `stagedAt` and `stageId` are kept. `'changed'` means the entry is no
+   *  longer the one at `ifMatch` (or is gone); `'failed'` is a store error. */
+  async rebaseEntry(userId: string, repoPath: string, opts: { ifMatch: string; baseSha: string | null }): Promise<'rebased' | 'changed' | 'failed'> {
+    const client = this.entryBlobClient(userId, encodePathKey(repoPath));
+    let current: SharedOverlayEntryWithEtag | null;
     try {
-      await client.deleteIfExists({ conditions: { ifMatch: ourEtag } });
-    } catch (deleteErr) {
-      if (isPreconditionFailed(deleteErr)) {
-        getGlobalRecorder()?.record({
-          type: 'system.error', component: 'shared-overlay-store', level: 'warn',
-          message: `Unacknowledged-entry cleanup skipped — the entry changed since our write (another replica's acknowledged edit survives): ${client.name}`,
-          data: { blobName: client.name },
-        });
-        return;
-      }
+      current = await this.getEntryWithEtag(userId, repoPath);
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'error',
+        message: `rebaseEntry could not read the entry: ${client.name}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      return 'failed';
+    }
+    if (!current || current.etag !== opts.ifMatch) return 'changed';
+    const uploaded = await this.uploadRebase(userId, repoPath, client, current.entry, opts);
+    if (uploaded !== 'rebased') return uploaded;
+    try {
+      await this.bumpGeneration(userId);
+    } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'shared-overlay-store', level: 'warn',
-        message: `Failed to delete an unacknowledged entry after a _gen bump failure — it will be caught by the orphan sweep: ${client.name}`,
-        error: { name: (deleteErr as Error).name ?? 'Error', message: String(deleteErr), stack: (deleteErr as Error).stack },
+        message: `_gen bump failed after rebaseEntry; readers see the new base at their next periodic re-list: ${client.name}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
     }
+    return 'rebased';
+  }
+
+  /** Extracted from rebaseEntry() to keep its complexity under budget: the conditional upload of the new base. */
+  private async uploadRebase(
+    userId: string, repoPath: string, client: BlockBlobClient, before: SharedOverlayEntry, opts: { ifMatch: string; baseSha: string | null },
+  ): Promise<'rebased' | 'changed' | 'failed'> {
+    const body = JSON.stringify({ ...before, baseSha: opts.baseSha });
+    try {
+      await client.upload(body, Buffer.byteLength(body), { conditions: { ifMatch: opts.ifMatch } });
+      return 'rebased';
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: isPreconditionFailed(err) ? 'warn' : 'error',
+        message: `rebaseEntry upload failed (${isPreconditionFailed(err) ? 'condition not met' : 'store error'}): ${client.name}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      if (!isPreconditionFailed(err)) return 'failed';
+      // A 412 can be an SDK retry hitting our own landed rebase (see stage()): same save, our new base.
+      return (await this.isOwnRebase(userId, repoPath, before, opts.baseSha)) ? 'rebased' : 'changed';
+    }
+  }
+
+  /** True when the entry now holds the same save (`stageId`) with the base we just wrote. */
+  private async isOwnRebase(userId: string, repoPath: string, before: SharedOverlayEntry, baseSha: string | null): Promise<boolean> {
+    try {
+      const now = await this.getEntryWithEtag(userId, repoPath);
+      return !!now && before.stageId !== undefined && now.entry.stageId === before.stageId && now.entry.baseSha === baseSha;
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'warn',
+        message: `rebaseEntry could not re-read after a failed condition; reporting 'changed': ${repoPath}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      return false;
+    }
+  }
+
+  private recordFailure(message: string, blobName: string, err: unknown): void {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'shared-overlay-store', level: 'error',
+      message: `${message}: ${blobName}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
   }
 
   private failStorageUnavailable(err: unknown, op: string, blobName: string): SharedOverlayStageResult {
@@ -298,7 +451,7 @@ export class SharedOverlayStore {
    *  — a separate follow-up PR — is clearing a committed one). Bumps `_gen`
    *  best-effort after a real delete: unlike `stage()`, a bump failure here
    *  has no compensating action to take (there is nothing to "un-delete"),
-   *  so it's WARN-logged and left for the orphan sweep rather than failing
+   *  so it's WARN-logged rather than failing
    *  the caller — a reader on a stale generation simply keeps seeing the
    *  entry for a bit longer, which is a staleness window, not a
    *  lost-update risk.
@@ -351,7 +504,7 @@ export class SharedOverlayStore {
    *  "clear only if unchanged" semantics (SO e/332#10 E3) — exposed
    *  separately so `getEntry`'s public contract (just the entry) stays
    *  unchanged for callers that don't need it. */
-  private async getEntryWithEtag(userId: string, repoPath: string): Promise<{ entry: SharedOverlayEntry; etag: string } | null> {
+  async getEntryWithEtag(userId: string, repoPath: string): Promise<SharedOverlayEntryWithEtag | null> {
     const pathKey = encodePathKey(repoPath);
     const client = this.entryBlobClient(userId, pathKey);
     try {
@@ -421,27 +574,6 @@ export class SharedOverlayStore {
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
       throw err instanceof ActionableError ? err : wrapOverlayError(err, 'listEntries', prefix);
-    }
-  }
-
-  private async readEntryEtag(client: BlockBlobClient): Promise<{ etag: string } | null> {
-    try {
-      const props = await client.getProperties();
-      if (!props.etag) throw wrapOverlayError(new Error('getProperties succeeded but returned no ETag'), 'readEntryEtag', client.name);
-      return { etag: props.etag };
-    } catch (err) {
-      // SO e/332#10 minor: no record here — this fires on EVERY first stage
-      // of EVERY new path (the common case, not a degraded one), so a WARN
-      // per occurrence would flood the flight recorder for routine traffic.
-      // Same "expected, not exceptional" status as the 412-retry branch in
-      // stage()'s own loop just above, which is likewise unrecorded.
-      if (isNotFound(err)) return null; /* telemetry — silent by design: routine "no entry yet", not a degraded condition */
-      getGlobalRecorder()?.record({
-        type: 'system.error', component: 'shared-overlay-store', level: 'error',
-        message: `readEntryEtag failed: ${client.name}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      throw err;
     }
   }
 }

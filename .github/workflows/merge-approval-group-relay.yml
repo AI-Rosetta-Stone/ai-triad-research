@@ -1,0 +1,24 @@
+name: merge-approval-group-relay
+
+# t/537: a wake-up call, nothing more. merge_group has no base-branch variant, so a workflow that
+# runs on it is taken from the merge-group commit, which contains the queued PRs' changes. This
+# one therefore holds no secret, checks nothing out, has no token permissions, and produces
+# nothing anyone reads. Its only effect is the workflow_run event that starts merge-approval.yml
+# (from main), which judges the group from the API alone. A PR can edit or delete this file in its
+# own group; deleting it means no `merge-approval` check on the group, so the group fails.
+# merge-approval.yml accepts the event only if workflow_run.event is merge_group, the head
+# repository is this repository, and the head branch is gh-readonly-queue/main/pr-<n>-<sha>.
+
+on:
+  merge_group:
+    types: [checks_requested]
+
+permissions: {}
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake merge-approval
+        run: echo "merge-approval relay for a merge group; merge-approval.yml on main does the work."

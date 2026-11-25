@@ -12,6 +12,7 @@ const { mockApi, mockRecord, mockGetLabelForId, taxonomyNodes } = vi.hoisted(() 
   /** Accelerationist POV nodes the mocked taxonomy store returns (t/3995 tag tests set it). */
   const taxonomyNodes: { skeptic: Array<{ id: string; pov_tags?: string[] }> } = { skeptic: [] };
   const mockApi = {
+    checkAnonymousSession: vi.fn().mockResolvedValue(false),
     listChatSessions: vi.fn().mockResolvedValue([]),
     loadChatSession: vi.fn(),
     saveChatSession: vi.fn().mockResolvedValue(undefined),
@@ -21,6 +22,14 @@ const { mockApi, mockRecord, mockGetLabelForId, taxonomyNodes } = vi.hoisted(() 
     startChatStream: vi.fn().mockResolvedValue('{"response":"hello","taxonomy_refs":[]}'),
     onChatStreamChunk: vi.fn().mockReturnValue(() => {}),
     trackEvent: vi.fn(),
+    // t/348: per-turn relevance and statements. Scores follow fixture order (best first).
+    computeQueryEmbedding: vi.fn().mockResolvedValue({ vector: [0.1, 0.2] }),
+    fetchRelevantNodes: vi.fn(async () => ({
+      povNodes: (taxonomyNodes.skeptic as { id: string }[]).map((n, i) => ({ nodeId: n.id, score: 1 - i * 0.01 })),
+      situationNodes: [],
+    })),
+    chatSyntheticStatements: vi.fn(async (p: { nodeIds: string[] }) =>
+      Object.fromEntries(p.nodeIds.map(id => [id, { text: `S-${id}`, index: 0 }]))),
   };
   return { mockApi, mockRecord, mockGetLabelForId, taxonomyNodes };
 });
@@ -291,9 +300,9 @@ describe('useChatStore', () => {
 
   describe('POV tag (t/3995)', () => {
     const NODES = [
-      { id: 'skp-beliefs-001', pov_tags: ['critical'] },
-      { id: 'skp-beliefs-002' },
-      { id: 'skp-desires-001', pov_tags: ['critical', 'other'] },
+      { id: 'skp-beliefs-001', category: 'Beliefs', pov_tags: ['critical'] },
+      { id: 'skp-beliefs-002', category: 'Beliefs' },
+      { id: 'skp-desires-001', category: 'Desires', pov_tags: ['critical', 'other'] },
     ];
     const sentNodeIds = () => vi.mocked(formatTaxonomyContext).mock.calls.map(c => c[0].povNodes.map(n => n.id));
     const tagWarns = () => mockRecord.mock.calls.filter(([e]) => e.component === 'chat-store' && e.level === 'warn' && /tag/i.test(e.message));
@@ -348,7 +357,7 @@ describe('useChatStore', () => {
     });
 
     it('a Scope chat at or above the minimum does not WARN', async () => {
-      taxonomyNodes.skeptic = Array.from({ length: 6 }, (_, i) => ({ id: `skp-beliefs-00${i}`, pov_tags: i < 5 ? ['critical'] : [] }));
+      taxonomyNodes.skeptic = Array.from({ length: 6 }, (_, i) => ({ id: `skp-beliefs-00${i}`, category: 'Beliefs', pov_tags: i < 5 ? ['critical'] : [] }));
       await opening({ pov_tag: 'critical', tag_mode: 'scope' });
       expect(sentNodeIds()[0]).toHaveLength(5);
       expect(tagWarns()).toHaveLength(0);
@@ -360,7 +369,7 @@ describe('useChatStore', () => {
 
     it('a Prioritize chat gets every node, with its tagged ids passed to the formatter', async () => {
       await opening({ pov_tag: 'critical', tag_mode: 'prioritize' });
-      expect(sentNodeIds()).toEqual([NODES.map(n => n.id)]);
+      expect([...sentNodeIds()[0]].sort()).toEqual(NODES.map(n => n.id).sort());
       const sel = sentTagSelection()[0];
       expect(sel?.mode).toBe('prioritize');
       expect([...(sel?.taggedIds ?? [])].sort()).toEqual(['skp-beliefs-001', 'skp-desires-001']);
@@ -385,7 +394,7 @@ describe('useChatStore', () => {
     });
 
     it('a Prioritize chat whose tag no longer matches any node WARNs and still sends every node', async () => {
-      taxonomyNodes.skeptic = [{ id: 'skp-beliefs-009' }];
+      taxonomyNodes.skeptic = [{ id: 'skp-beliefs-009', category: 'Beliefs' }];
       await opening({ pov_tag: 'critical', tag_mode: 'prioritize' });
       expect(sentNodeIds()).toEqual([['skp-beliefs-009']]);
       expect(tagWarns()).toHaveLength(1);

@@ -18,6 +18,13 @@ import { SO_CLEARED_RE } from './fleet-delivery-metrics.mjs';
 import { extractTier } from './tier-check-predicate.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
 
+// t/535 (Lead p/233#56, t/537#27, t/531#5): the ONE remedy for a PR that is ready but not queued.
+// `gh pr merge` in any form, or a direct merge, skips enqueue-pr.mjs and #5439's gate-file check, so
+// no remedy may suggest it. stuck-pr-ping.mjs also rewrites an older alert comment's remedy that does.
+export const ENQUEUE_REMEDY =
+  'enqueue it with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>` from a checkout at origin/main ' +
+  '(add --gate-change-review=<review id> --by=<id> if it changes a gate file); never gh pr merge or a direct merge.';
+
 export const REQUIRED_CONTEXTS = ['ci-gate', 'CodeQL', 'joint-gv-guard', 'consult-hold-guard'];
 
 // MUST-fix (Lead review, PR #3141): `actions/runs`' `name` field is the WORKFLOW name
@@ -258,7 +265,7 @@ export function classifyBlocker(pr, nowMs) {
           class: 'stuck-required-run',
           detail: {
             context: name, runId: run.id, stuckMinutes: Math.round(stuckMinutes), stuckKind: 'queued',
-            remedy: `Re-trigger first (toggle auto-merge or a label); if that doesn't clear it, cancel and re-run run ${run.id}.`,
+            remedy: `Re-trigger first (toggle a label or push an empty commit); if that doesn't clear it, cancel and re-run run ${run.id}.`,
           },
         };
       }
@@ -391,7 +398,7 @@ export function classifyBlocker(pr, nowMs) {
     if (allGreen && pr.hasApproval) {
       // A real APPROVED review already happened -- that review IS the named-review question
       // settled, so no caveat is needed here.
-      return { class: 'approved-not-armed', detail: { remedy: 'Every required context is green and the PR has an approved review, but auto-merge was never armed -- arm it (gh pr merge --auto --squash --match-head-commit <sha>), or merge directly if mergeStateStatus is already CLEAN.' } };
+      return { class: 'approved-not-armed', detail: { remedy: `Every required context is green and the PR has an approved review, but it was never enqueued -- ${ENQUEUE_REMEDY}` } };
     }
     if (allGreen && tier === 'T0') {
       // t/4566 (TL, p/702#97): PR #3926 was nudged to arm and merged before the CL's required
@@ -403,7 +410,7 @@ export function classifyBlocker(pr, nowMs) {
       // named-reviewer language here (TL: "a follow-up T0 is fine") -- freeform-text parsing
       // for "names a reviewer" risks a false negative that looks identical to no requirement
       // at all, which would be worse than this caveat alone.
-      return { class: 'approved-not-armed', detail: { remedy: 'Every required context is green and this is a T0 PR with no outstanding GitHub review required by default -- arm it, UNLESS the linked ticket\'s own acceptance criteria name a required review (e.g. CL, Quality, PI copy review) that has not yet cleared. Check the ticket before arming.' } };
+      return { class: 'approved-not-armed', detail: { remedy: `Every required context is green and this is a T0 PR with no outstanding GitHub review required by default. Check the linked ticket first: unless its acceptance criteria name a required review (e.g. CL, Quality, PI copy review) that has not yet cleared (then wait for it), ${ENQUEUE_REMEDY}` } };
     }
   }
 

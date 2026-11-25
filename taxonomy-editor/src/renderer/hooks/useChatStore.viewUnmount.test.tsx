@@ -15,6 +15,7 @@ import { render, cleanup } from '@testing-library/react';
 const { mockApi, mockRecord } = vi.hoisted(() => {
   const mockRecord = vi.fn();
   const mockApi = {
+    checkAnonymousSession: vi.fn().mockResolvedValue(false),
     listChatSessions: vi.fn().mockResolvedValue([]),
     loadChatSession: vi.fn(),
     saveChatSession: vi.fn().mockResolvedValue(undefined),
@@ -124,7 +125,8 @@ describe('useChatStore — surviving a view unmount mid-generation (t/4687)', ()
 
     // Start generation while the view is mounted (e.g. the user just sent a message).
     const generating = useChatStore.getState().generateOpening();
-    expect(mockApi.startChatStream).toHaveBeenCalledTimes(1);
+    // t/348: the taxonomy turn is awaited before the stream starts.
+    await vi.waitFor(() => expect(mockApi.startChatStream).toHaveBeenCalledTimes(1));
 
     // Rail switch: the item view unmounts while the stream is still in flight.
     unmount();

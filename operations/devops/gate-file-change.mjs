@@ -45,7 +45,8 @@ export const GATE_SCRIPTS = [
 ];
 
 // Every operations/devops script that a required-check workflow runs or loads (ci.yml,
-// joint-gv-guard.yml, consult-hold-guard.yml, codeql.yml, t1-approval-guard.yml, tier-check.yml).
+// joint-gv-guard.yml, consult-hold-guard.yml, codeql.yml, t1-approval-guard.yml, tier-check.yml,
+// merge-approval.yml).
 // A PR that edits one of these changes what its own required check runs. Kept current by
 // gate-file-change.test.mjs, which walks those workflows and fails on a script missing here.
 export const WORKFLOW_RUN_SCRIPTS = [
@@ -79,6 +80,8 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/gate-verdict.mjs',
   'operations/devops/get-merge-group-prs.sh',
   'operations/devops/guard-pr-read.sh',
+  'operations/devops/merge-approval-run.mjs',
+  'operations/devops/merge-approval-verdict.mjs',
   'operations/devops/rate-limit-snapshot-step.yml',
   'operations/devops/run-merge-guard-tests.sh',
   'operations/devops/scheduled-workflows.json',
@@ -87,6 +90,7 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/test-check-vitest-shard-blobs.sh',
   'operations/devops/test-get-merge-group-prs-ejected.sh',
   'operations/devops/test-get-merge-group-prs-f4.sh',
+  'operations/devops/test-get-merge-group-prs-ratelimit.sh',
   'operations/devops/test-powershell-shard-durations.json',
 ];
 
