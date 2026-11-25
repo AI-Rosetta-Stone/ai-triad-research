@@ -2169,6 +2169,11 @@ jobs:
       - name: pr-triage activity-facts suite
         run: node --test operations/devops/pr-triage-activity.test.mjs
 
+      # t/92: the staging Key Vault what-if guard (staging-keyvault.yml) allows only the vault, its
+      # diagnostics and one Secrets Officer role, and never a change naming the shared vault.
+      - name: staging Key Vault what-if guard suite
+        run: node --test operations/devops/staging-keyvault-whatif-guard.test.mjs
+
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
 

@@ -1,0 +1,89 @@
+# t/92 (TL p/12#227, SO p/44#99; Security t/626). Staging-only deploy of deploy/azure/staging-keyvault.bicep.
+# Dispatch-only. It never runs main.bicep and never touches the shared vault kv-ait-kvwl3nywge4iw. It creates
+# exactly the staging vault, its audit diagnostics and ONE role (staging's identity, Secrets Officer, on that
+# vault only). The what-if guard refuses anything else. On a clean what-if, the TL's approval of the PR that
+# adds this workflow is the go for its first apply (TL p/12#227).
+#
+# Runbook (SO p/44#102): this is a ONE-TIME create. Once the vault exists, a second run's what-if shows
+# NoChange instead of three Creates, and the guard stops it (fail closed, by design). A later change to the
+# vault is a reviewed edit to staging-keyvault.bicep (a gate file) with an updated guard, not a re-run.
+name: Staging Key Vault (t/92)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'what-if (read-only, default) or apply (creates kv-ait-stg-kvwl3nywge4iw, its diagnostics and one role only)'
+        required: true
+        default: what-if
+        type: choice
+        options: [what-if, apply]
+      confirm:
+        description: 'For apply only: type APPLY-STAGING-KEYVAULT exactly'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: staging-keyvault
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: "kv-ait-stg-kvwl3nywge4iw (${{ inputs.mode }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    env:
+      AZ_RG: ai-triad
+      TEMPLATE: deploy/azure/staging-keyvault.bicep
+      STAGING_VAULT: kv-ait-stg-kvwl3nywge4iw
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          ref: main
+
+      - name: "Guard: apply needs the typed confirmation"
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$MODE" = "apply" ] && [ "$CONFIRM" != "APPLY-STAGING-KEYVAULT" ]; then
+            echo "::error::apply requires confirm=APPLY-STAGING-KEYVAULT. Nothing run."; exit 1
+          fi
+
+      - name: "Guard: template is the staging vault module only"
+        run: |
+          test -f "$TEMPLATE"
+          if grep -qi "main.bicep" "$TEMPLATE" || grep -q "kv-ait-kvwl3nywge4iw" "$TEMPLATE"; then
+            echo "::error::the staging module must not reference main.bicep or the shared vault kv-ait-kvwl3nywge4iw."; exit 1
+          fi
+
+      - name: "Azure login (OIDC, the same repo secrets as deploy-azure.yml)"
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: "What-if (read-only), then parse the JSON changeType values and the role's principal"
+        run: |
+          # SO p/44#102: the role must grant staging's identity and no other. Read it live; the guard fails
+          # closed when it is empty, not a GUID, or different from the what-if's principalId.
+          STAGING_PRINCIPAL=$(az containerapp show -n taxonomy-editor-staging -g "$AZ_RG" --query identity.principalId -o tsv)
+          az deployment group what-if -g "$AZ_RG" -f "$TEMPLATE" --no-pretty-print -o json > whatif.json
+          node operations/devops/staging-keyvault-whatif-guard.mjs whatif.json "$STAGING_PRINCIPAL"
+
+      - name: "Apply (staging vault, its diagnostics and one role only; mode=apply, confirmed, guard passed)"
+        if: inputs.mode == 'apply' && inputs.confirm == 'APPLY-STAGING-KEYVAULT'
+        run: |
+          az deployment group create -g "$AZ_RG" -f "$TEMPLATE"
+          # Read-back: the vault, and the role assignments on it (expect exactly staging's Secrets Officer).
+          az keyvault show -n "$STAGING_VAULT" -g "$AZ_RG" \
+            --query "{uri:properties.vaultUri,rbac:properties.enableRbacAuthorization,purgeProtection:properties.enablePurgeProtection}" -o json
+          VAULT_ID=$(az keyvault show -n "$STAGING_VAULT" -g "$AZ_RG" --query id -o tsv)
+          az role assignment list --scope "$VAULT_ID" --query "[].{role:roleDefinitionName,principal:principalId,type:principalType}" -o table
