@@ -41,7 +41,7 @@ function Read-TaxonomySummaryCorpus {
     # canonical's run missed but can't inflate a count. SummaryStats stays one row per resolved doc.
     $AllFiles     = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
     $Resolution   = Get-SourceResolution -SourcesDir $SourcesDir
-    $SummaryFiles = @(Select-SelectableSummaryFile -Files $AllFiles -Resolution $Resolution)
+    $SummaryFiles = @(Select-SelectableSummaryFile -Files $AllFiles -Resolution $Resolution -ExcludeChunks)
     $UnmappedAgg  = @{}
     $SummaryStats = [System.Collections.Generic.List[PSObject]]::new()
 
@@ -83,7 +83,8 @@ function Read-TaxonomySummaryCorpus {
         })
     }
 
-    foreach ($Copy in @(Get-MarkedCopySummary -Files $AllFiles -Resolution $Resolution -Caller 'Get-TaxonomyHealthData')) {
+    # Marked copies and listed legacy chunks (spec 6.2, t/596) count under the canonical, once per document.
+    foreach ($Copy in @(Get-MarkedCopySummary -Files $AllFiles -Resolution $Resolution -Caller 'Get-TaxonomyHealthData' -IncludeChunks)) {
         [void](Add-SummaryKeyPointCitations -Summary $Copy.Summary -DocId $Copy.CanonicalId -NodeIndex $NodeIndex -OncePerDoc)
         [void](Add-SummaryUnmappedConcepts -Summary $Copy.Summary -DocId $Copy.CanonicalId -UnmappedAgg $UnmappedAgg -OncePerDoc)
     }

@@ -317,12 +317,14 @@ function Get-ListedSummaryFile {
         [Parameter(Mandatory)][string]$SummariesDir,
         [AllowEmptyString()][string]$DocId,
         [switch]$IncludeDuplicates,
-        [string]$Caller = 'AITriad'
+        [string]$Caller = 'AITriad',
+        # Also skip the summaries of listed legacy chunks (spec 6.2, t/596): a chunk is part of its base.
+        [switch]$ExcludeChunks
     )
     $all = [System.IO.FileInfo[]]@(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
     $isLookup = $DocId -and -not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($DocId)
     if ($IncludeDuplicates -or $isLookup -or $all.Count -eq 0) { return $all }
-    Select-SelectableSummaryFile -Files $all -Resolution (Get-DefaultSourceResolution -Caller $Caller)
+    Select-SelectableSummaryFile -Files $all -Resolution (Get-DefaultSourceResolution -Caller $Caller) -ExcludeChunks:$ExcludeChunks
 }
 
 function Get-SourceChunksHash {
