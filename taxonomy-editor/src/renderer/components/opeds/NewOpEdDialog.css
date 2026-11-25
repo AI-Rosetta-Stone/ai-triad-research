@@ -248,6 +248,20 @@
 
 .oped-footer-right { display: flex; gap: 0.5rem; }
 
+/* t/276 (Design p/25#136): the blocked Start uses aria-disabled so it stays focusable and its reason is
+   announced, which drops .btn:disabled's look. Restore the design-system disabled treatment, with no
+   hover change. The reason line beside it keeps full strength. */
+.oped-dialog-footer .btn[aria-disabled="true"] {
+  opacity: 0.35;
+  filter: grayscale(40%);
+  cursor: not-allowed;
+}
+.oped-dialog-footer .btn[aria-disabled="true"]:hover { background: var(--bg-panel); }
+.oped-dialog-footer .btn-primary[aria-disabled="true"]:hover { background: var(--success); }
+
+/* "Draft 3 op-eds" must not break at the hyphen at 390px (Design p/25#136). */
+.oped-footer-right .btn { white-space: nowrap; }
+
 .oped-start-error {
   border: 1px solid var(--danger, var(--warning));
   border-radius: 4px;
