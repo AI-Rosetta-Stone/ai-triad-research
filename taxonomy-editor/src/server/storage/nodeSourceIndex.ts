@@ -31,6 +31,7 @@ import {
 } from './snapshotHashCache.js';
 import { loadSourcesIndex } from './sourcesIndexReader.js';
 import type { SourcesIndexFile } from '../../../../lib/sourceIndex/sourcesIndexSchema.js';
+import { BASE_BRANCH_REF } from './baseBranchRef.js';
 
 export type { SourceReference, SourceCardMeta, NodeSourceIndex };
 
@@ -59,7 +60,7 @@ async function computeSnapshotHash(sourcesDir: string, docId: string, hashCache:
   const backend = getBackend();
   const snapshotPath = path.join(sourcesDir, docId, 'snapshot.md');
   try {
-    const raw = await backend.readFile(snapshotPath, { ref: 'main' });
+    const raw = await backend.readFile(snapshotPath, { ref: BASE_BRANCH_REF });
     if (raw === null) return null;
     const blobSha = gitBlobSha(raw);
     const cached = lookupCachedHash(hashCache, docId, blobSha);
@@ -109,7 +110,7 @@ function buildIdentityMetaFromRawJson(meta: Record<string, unknown>): SourceIden
 async function readAndParseMetadata(backend: ReturnType<typeof getBackend>, metaPath: string): Promise<unknown> {
   let metaRaw: string | null;
   try {
-    metaRaw = await backend.readFile(metaPath, { ref: 'main' });
+    metaRaw = await backend.readFile(metaPath, { ref: BASE_BRANCH_REF });
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'node-source-index', level: 'warn',
@@ -210,7 +211,7 @@ async function loadNodeMetaCacheFromSourcesDir(sourcesDir: string | null): Promi
   const metaCache: Record<string, NodeSourceMeta> = {};
   const identityMeta: Record<string, SourceIdentityMeta> = {};
   const snapshotHashes: Record<string, string | null> = {};
-  const sourceEntries = sourcesDir ? await getBackend().listDirectory(sourcesDir, { ref: 'main' }) : [];
+  const sourceEntries = sourcesDir ? await getBackend().listDirectory(sourcesDir, { ref: BASE_BRANCH_REF }) : [];
   if (sourcesDir) warnIfEmptyConfiguredDir('sourcesDir', sourcesDir, sourceEntries);
   // t/4350: one persisted cache load/save per build, not per doc — entries
   // for docs no longer in sourceEntries are dropped on save.
@@ -265,7 +266,7 @@ async function readSummaryFileWithRetry(summariesDir: string, file: string): Pro
   let lastErr: unknown;
   for (let attempt = 0; attempt < SUMMARY_READ_MAX_ATTEMPTS; attempt++) {
     try {
-      const raw = await getBackend().readFile(path.join(summariesDir, file), { ref: 'main' });
+      const raw = await getBackend().readFile(path.join(summariesDir, file), { ref: BASE_BRANCH_REF });
       if (raw !== null) return raw;
       lastErr = new Error('backend.readFile returned null for a just-listed summary file');
     } catch (err) {
@@ -393,7 +394,7 @@ async function indexSummaryFiles(
 
   const batchStart = Date.now();
   const absolutePaths = jsonFiles.map(f => path.join(summariesDir, f));
-  const { contents, fallbackCount: archiveFallbackCount, graphqlCost } = await readFilesBatchOrEmpty(absolutePaths, { ref: 'main' });
+  const { contents, fallbackCount: archiveFallbackCount, graphqlCost } = await readFilesBatchOrEmpty(absolutePaths, { ref: BASE_BRANCH_REF });
   const batchFetchMs = Date.now() - batchStart;
 
   await mapWithConcurrencyLimit(jsonFiles, SUMMARY_READ_CONCURRENCY, async (file) => {
@@ -562,7 +563,7 @@ export async function buildNodeSourceIndex(): Promise<NodeSourceIndex> {
   const sourcesDir = getSourcesDir();
   const index: NodeSourceIndex = {};
 
-  const summaryFiles = await backend.listDirectory(summariesDir, { ref: 'main' });
+  const summaryFiles = await backend.listDirectory(summariesDir, { ref: BASE_BRANCH_REF });
   if (summaryFiles.length === 0) {
     warnIfEmptyConfiguredDir('summariesDir', summariesDir, summaryFiles);
     return index;
@@ -610,7 +611,7 @@ let nodeSourceIndexFirstRequestLogged = false;
 
 async function currentInvalidationSignature(): Promise<string> {
   const summariesDir = resolveDataPath(loadDataConfig().summaries_dir);
-  const files = await getBackend().listDirectory(summariesDir, { ref: 'main' });
+  const files = await getBackend().listDirectory(summariesDir, { ref: BASE_BRANCH_REF });
   return files.slice().sort().join('|');
 }
 
@@ -649,7 +650,7 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const index: NodeSourceIndex = {};
 
   let t = Date.now();
-  const summaryFiles = await getBackend().listDirectory(summariesDir, { ref: 'main' });
+  const summaryFiles = await getBackend().listDirectory(summariesDir, { ref: BASE_BRANCH_REF });
   warnIfEmptyConfiguredDir('summariesDir', summariesDir, summaryFiles);
   const summaryListMs = Date.now() - t;
 

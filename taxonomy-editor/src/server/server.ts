@@ -43,6 +43,8 @@ import {
 import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool, computeEmbeddingsOffThread } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
+import { pollLeaseConfigFromEnv } from './pollLeaseConfig.js';
+import { writeLifecycleDump, lifecycleDumpPruneSince, LIFECYCLE_DUMP_MAX_COUNT, LIFECYCLE_DUMP_MAX_AGE_MS } from './lifecycleDumps.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
@@ -258,9 +260,15 @@ if (STORAGE_MODE === 'github-api') {
   validateStagingBootGuard();
   validateStagingBranchPrefix();
 
+  // t/509 (t/504): pass the poll lease. Inert at one replica (the backend arms it only when maxReplicas > 1).
+  const pollLease = pollLeaseConfigFromEnv(process.env, getMaxReplicas());
+  // t/613: the shutdown/crash dump cap and its prune floor, so the live retention rule is visible in the boot log.
+  { const since = lifecycleDumpPruneSince(); log.server.info({ maxCount: LIFECYCLE_DUMP_MAX_COUNT, maxAgeDays: LIFECYCLE_DUMP_MAX_AGE_MS / 86_400_000, pruneSince: since === null ? 'none' : new Date(since).toISOString() }, 'lifecycle dump retention at boot (t/613)'); }
+  log.server.info({ pollLease: pollLease ? { maxReplicas: pollLease.maxReplicas, armed: pollLease.maxReplicas > 1 } : null }, 'GitHub poll lease config at boot (t/509)');
   githubBackend = new GitHubAPIBackend({
     cacheDir: CACHE_DIR,
     recorder: serverRecorder,
+    ...(pollLease ? { pollLease } : {}),
   });
   sessionManager = new SessionBranchManager(githubBackend, serverRecorder);
   fileIO.setBackend(githubBackend);
@@ -1131,9 +1139,8 @@ function shutdown(signal: string) {
   try {
     serverRecorder.record({ type: 'lifecycle', component: 'server', level: 'info', message: `Shutdown: ${signal}` });
     const ndjson = appendServerLogs(serverRecorder.buildDump('manual').ndjson);
-    const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
-    fs.mkdirSync(dumpDir, { recursive: true });
-    fs.writeFileSync(path.join(dumpDir, `server-shutdown-${Date.now()}.jsonl`), ndjson);
+    // t/613: write, then prune old shutdown/crash dumps (newest 200, under 14 days). Never throws.
+    writeLifecycleDump(path.join(getStateRoot(), 'flight-recorder'), 'shutdown', ndjson); // t/2643: class-A writable state
   } catch { /* telemetry — silent by design;  best effort */ }
 
   // 1a. Stop GitHubAPIBackend polling (also logs the immediate uncommitted-overlay snapshot, t/4258 Part 1)
@@ -1190,9 +1197,7 @@ process.on('uncaughtException', (err) => {
   try {
     serverRecorder.record({ type: 'system.error', component: 'server', level: 'fatal', message: err.message, error: { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) } });
     const { ndjson } = serverRecorder.buildDump('uncaught_error', { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) });
-    const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
-    fs.mkdirSync(dumpDir, { recursive: true });
-    fs.writeFileSync(path.join(dumpDir, `server-crash-${Date.now()}.jsonl`), ndjson);
+    writeLifecycleDump(path.join(getStateRoot(), 'flight-recorder'), 'crash', ndjson); // t/613 + t/2643: pruned, never throws
   } catch { /* telemetry — silent by design;  best effort */ }
   log.server.fatal({ err }, 'Uncaught exception');
   process.exit(1);

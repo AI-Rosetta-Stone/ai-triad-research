@@ -23,6 +23,7 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getBackend, getTaxonomyDir } from './fileIO.js';
+import { BASE_BRANCH_REF } from './baseBranchRef.js';
 
 export async function validateDataRoot(): Promise<void> {
   const backend = getBackend();
@@ -53,7 +54,7 @@ export async function validateDataRoot(): Promise<void> {
       let lastErr: unknown;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          const entries = await strictFn(dir, { ref: 'main' });
+          const entries = await strictFn(dir, { ref: BASE_BRANCH_REF });
           if (entries.length === 0) {
             throw new ActionableError({
               goal: 'Serve taxonomy and dictionary data',
@@ -119,7 +120,7 @@ const SENTINEL_FILES = ['entities.json', 'organizations.json', 'organization_edg
 /** The same read fileIO's readFileMainStrict uses: readFileStrict where the backend has it (github-api
  *  throws a transient error instead of collapsing it to null), else a plain read pinned to main. */
 function readSentinelFile(backend: Backend, filePath: string): Promise<string | null> {
-  return backend.readFileStrict ? backend.readFileStrict(filePath) : backend.readFile(filePath, { ref: 'main' });
+  return backend.readFileStrict ? backend.readFileStrict(filePath) : backend.readFile(filePath, { ref: BASE_BRANCH_REF });
 }
 
 type Backend = ReturnType<typeof getBackend>;

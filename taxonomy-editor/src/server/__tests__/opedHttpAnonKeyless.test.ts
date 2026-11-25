@@ -66,6 +66,12 @@ vi.mock('../storage/fileIO.js', () => ({
   fetchUrlContent: vi.fn(),
   upsertOpedRun: vi.fn(async () => undefined), countRunningOpedRuns: vi.fn(async () => 0), getOpedRun: vi.fn(async () => null),
 }));
+// The grounding query embedding is not on the key path. The real one cold-loads an ONNX session, which timed out
+// under parallel CI load (t/630).
+vi.mock('../../../../lib/embeddings/onnxEmbedding.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/embeddings/onnxEmbedding.js')>()),
+  computeEmbedding: vi.fn(async () => new Array(384).fill(0)),
+}));
 
 import { runWithUser } from '../security/userContext.js';
 import { registerOpedRoutes } from '../routes/oped.js';

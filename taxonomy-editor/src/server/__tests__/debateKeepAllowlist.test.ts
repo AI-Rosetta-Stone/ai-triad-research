@@ -173,7 +173,7 @@ describe('Debate community allowlist: 13 KEEP keys (t/196#25)', () => {
       speakers_involved: ['A', 'B'],
       status: 'addressed',
       confidence: 'high',
-      embedding: [0.12, 0.34, 0.56],
+      embedding: [0.987654321, 0.34, 0.56], // t/623: a sentinel that can't occur by chance (0.12 matched inside an ISO timestamp)
       owner_note: 'PRIVATE CRUX NOTE',
     };
     seed('deb-1', {
@@ -191,7 +191,7 @@ describe('Debate community allowlist: 13 KEEP keys (t/196#25)', () => {
       confidence: 'high',
     });
     expect(kept).not.toHaveProperty('embedding');
-    expect(JSON.stringify(copy)).not.toContain('0.12');
+    expect(JSON.stringify(copy)).not.toContain('0.987654321');
     expect(JSON.stringify(copy)).not.toContain('PRIVATE CRUX NOTE');
   });
 

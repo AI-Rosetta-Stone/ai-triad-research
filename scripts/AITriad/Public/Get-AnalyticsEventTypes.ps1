@@ -63,7 +63,12 @@ function Get-AnalyticsEventTypes {
 
         [Parameter()]
         [ValidateRange(1, 600)]
-        [int]$TimeoutSec = 30
+        [int]$TimeoutSec = 30,
+
+        # Request headers of an administrator's session (for example @{ Cookie = '...' }). Required: the
+        # route is administrator-only since incident t/579, and this cmdlet no longer reads it anonymously.
+        [Parameter()]
+        [hashtable]$AuthHeaders = @{}
     )
 
     Set-StrictMode -Version Latest
@@ -88,10 +93,17 @@ function Get-AnalyticsEventTypes {
     }
     $BaseUrl = $BaseUrl.TrimEnd('/')
 
-    # ── Establish anon session (avoid the AUTH_OPTIONAL interstitial, t/2684) ──
-    $Session = New-AnonymousWebSession -BaseUrl $BaseUrl -TimeoutSec $TimeoutSec
-    if (-not $Session) {
-        Write-Host '  (anonymous session not established — the query may return the auth interstitial)' -ForegroundColor DarkYellow
+    # ── Administrator only (t/579, t/592) ─────────────────────────────────
+    # GET /api/analytics/query exposed user identifiers to anonymous callers. It now refuses them, so an
+    # anonymous read can only fail. This cmdlet does not attempt one: without an administrator's headers
+    # it refuses before any request is made.
+    if (-not $AuthHeaders -or $AuthHeaders.Count -eq 0) {
+        throw (New-ActionableError -AsErrorRecord `
+            -Goal 'Query analytics event types' `
+            -Problem 'GET /api/analytics/query is administrator-only since incident t/579 (it exposed user identifiers to anonymous callers), and no -AuthHeaders were given.' `
+            -Location $CallerName `
+            -NextSteps @("Pass -AuthHeaders with the request headers of an administrator's session, for example @{ Cookie = '<session cookie>' }",
+                         'There is no shared or CI credential for this route; one needs the PI''s approval'))
     }
 
     # ── Query the aggregated endpoint ────────────────────────────────────
@@ -99,10 +111,17 @@ function Get-AnalyticsEventTypes {
     $To   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')
     $Path = "/api/analytics/query?from=$From&to=$To"
 
-    $Params = @{ BaseUrl = $BaseUrl; Path = $Path; Method = 'GET'; TimeoutSec = $TimeoutSec; AcceptableStatusCodes = @(200) }
-    if ($Session) { $Params.Session = $Session }
+    $Params = @{ BaseUrl = $BaseUrl; Path = $Path; Method = 'GET'; TimeoutSec = $TimeoutSec; AcceptableStatusCodes = @(200); ExtraHeaders = $AuthHeaders }
     $Check = Invoke-RemoteCheck @Params
 
+    if (-not $Check.Success -and $Check.StatusCode -in @(401, 403)) {
+        throw (New-ActionableError -AsErrorRecord `
+            -Goal 'Query analytics event types' `
+            -Problem "GET /api/analytics/query refused the request (status=$($Check.StatusCode)): the headers given are not an administrator's session. GET /api/analytics/query is administrator-only since incident t/579 (it exposed user identifiers to anonymous callers)." `
+            -Location $CallerName `
+            -NextSteps @('Sign in as an administrator and pass that session''s headers in -AuthHeaders',
+                         'Check that the session has not expired'))
+    }
     if (-not $Check.Success) {
         throw (New-ActionableError -AsErrorRecord `
             -Goal 'Query analytics event types' `
@@ -118,8 +137,8 @@ function Get-AnalyticsEventTypes {
             -Goal 'Query analytics event types' `
             -Problem 'Response had no eventTypes field (likely the auth Sign-In interstitial or an unexpected payload)' `
             -Location $CallerName `
-            -NextSteps @('Confirm the anonymous session was established (re-run; watch for the warning above)',
-                         'Verify /api/analytics/query is anon-allowed on this deployment'))
+            -NextSteps @('Check that the -AuthHeaders are a signed-in administrator''s (an expired session gets the Sign-In page)',
+                         'Open the same URL in that browser session and confirm it returns JSON'))
     }
 
     # ── Emit per-event-type rows (descending by count) ───────────────────
