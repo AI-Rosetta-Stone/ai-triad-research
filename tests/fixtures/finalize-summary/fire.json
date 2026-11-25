@@ -2,6 +2,7 @@
   "scenario": "fire",
   "transcript": [
     "[warning] Finalize-Summary: doc-1 : no snapshot text available; numeric-grounding guard skipped (t/375)",
+    "[warning] Finalize-Summary: doc-1 : no snapshot text available; verbatim-grounding guard skipped (t/389)",
     "[Gray]   │  points: 3 (1 unmapped)  factual: 1  new_concepts: 0",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
@@ -57,6 +58,10 @@
       "    \"density_retries\": 0,",
       "    \"camp_bridge_dropped\": 0,",
       "    \"numeric_ungrounded_dropped\": null,",
+      "    \"verbatim_snapped\": null,",
+      "    \"verbatim_dropped\": null,",
+      "    \"verbatim_interleaved\": null,",
+      "    \"verbatim_interleaved_rate\": null,",
       "    \"fire_confidence_threshold\": 0.7,",
       "    \"fire_stats\": {",
       "      \"api_calls\": 9,",
