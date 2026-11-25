@@ -196,6 +196,19 @@ extract_pushed() {
   done
 }
 
+# t/686 (Security, t/682#2): git exports GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE and friends to hooks.
+# A test that runs real git in its own temp repo inherits them and acts on THIS repo instead (a stray
+# local commit and a declined `push origin HEAD:main`, t/682). So every CHILD runner (eslint, tsc,
+# pnpm scripts, vitest, the pwsh parse and lint suites, py_compile) runs through run_clean, which drops
+# every GIT_* variable in a subshell before exec. The hook's own git calls (extract_pushed, rev-parse,
+# status) are not wrapped: they are meant to act on this repo.
+run_clean() {
+  (
+    for v in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+    exec "$@"
+  )
+}
+
 find_python() {
   for py in python3 python; do
     # The Windows Store "python" stub exists on PATH but cannot run code, so probe it.
@@ -320,9 +333,9 @@ for step in $PLAN; do
   start=$(date +%s)
   exact=""; tmp=""
   case "$kind" in
-    eslint)         label="$pkg: eslint (changed files)"; ( cd "$ROOT/$pkg" && pnpm exec eslint --no-warn-ignored "$@" ) ;;
-    tsc)            label="$pkg: tsc -p $arg";            ( cd "$ROOT/$pkg" && pnpm exec tsc --noEmit -p "$arg" ) ;;
-    script)         label="$pkg: pnpm run $arg";          ( cd "$ROOT/$pkg" && pnpm run --silent "$arg" ) ;;
+    eslint)         label="$pkg: eslint (changed files)"; ( cd "$ROOT/$pkg" && run_clean pnpm exec eslint --no-warn-ignored "$@" ) ;;
+    tsc)            label="$pkg: tsc -p $arg";            ( cd "$ROOT/$pkg" && run_clean pnpm exec tsc --noEmit -p "$arg" ) ;;
+    script)         label="$pkg: pnpm run $arg";          ( cd "$ROOT/$pkg" && run_clean pnpm run --silent "$arg" ) ;;
     vitest-related)
       label="$pkg: vitest related (max ${VITEST_WORKERS} workers)"
       if ! acquire_vitest_lock; then
@@ -330,7 +343,7 @@ for step in $PLAN; do
 '
         continue
       fi
-      ( cd "$ROOT/$pkg" && pnpm exec vitest related --run --passWithNoTests --pool=forks --maxWorkers="$VITEST_WORKERS" "$@" )
+      ( cd "$ROOT/$pkg" && run_clean pnpm exec vitest related --run --passWithNoTests --pool=forks --maxWorkers="$VITEST_WORKERS" "$@" )
       rc=$?
       release_vitest_lock
       ( exit $rc ) ;;
@@ -346,7 +359,7 @@ for step in $PLAN; do
       # thousands of changed .ps1 files would pass Windows' ~32 K limit and block the push with an
       # unrelated error. printf is a builtin, so it has no such limit. Still the literal `pwsh` (t/289).
       tmp=$(mktemp -d) && extract_pushed "$tmp" "$@" && parselist=$(mktemp) && printf '%s\n' "$@" > "$parselist" &&
-        ( cd "$tmp" && pwsh -NoProfile -NonInteractive -File "$ROOT/operations/devops/Test-PowerShellSyntax.ps1" -PathsFile "$parselist" ) >&2
+        ( cd "$tmp" && run_clean pwsh -NoProfile -NonInteractive -File "$ROOT/operations/devops/Test-PowerShellSyntax.ps1" -PathsFile "$parselist" ) >&2
       rc=$?
       rm -f "$parselist"
       ( exit $rc ) ;;
@@ -380,7 +393,7 @@ $LINT_DIRTY" >&2
       # after a main merge can list thousands of paths and pass Windows' ~32 K command-line limit, which
       # would block the push with an unrelated error. printf is a shell builtin, so it has no such limit.
       lintlist=$(mktemp) && printf '%s\n' "$@" > "$lintlist"
-      "$PWSH" -NoProfile -NonInteractive -File "$ROOT/operations/devops/Invoke-PrePushPsLint.ps1" -RepoRoot "$ROOT" -ChangedFilesPath "$lintlist" >&2
+      run_clean "$PWSH" -NoProfile -NonInteractive -File "$ROOT/operations/devops/Invoke-PrePushPsLint.ps1" -RepoRoot "$ROOT" -ChangedFilesPath "$lintlist" >&2
       rc=$?
       rm -f "$lintlist"
       if [ $rc -eq 3 ]; then
@@ -409,7 +422,7 @@ $LINT_DIRTY" >&2
       # without it the scratch dir is sys.path[0], so a pushed top-level file named like a stdlib
       # module (py_compile.py, importlib/...) would run instead of it and could fake a pass.
       tmp=$(mktemp -d) && extract_pushed "$tmp" "$@" &&
-        ( cd "$tmp" && "$pybin" -I -m py_compile "$@" ) ;;
+        ( cd "$tmp" && run_clean "$pybin" -I -m py_compile "$@" ) ;;
   esac
   rc=$?
   [ -n "$exact" ] && [ -n "$tmp" ] && rm -rf "$tmp" && tmp=""
