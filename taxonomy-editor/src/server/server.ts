@@ -44,6 +44,7 @@ import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool, computeEmbeddingsOffThread } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { pollLeaseConfigFromEnv } from './pollLeaseConfig.js';
+import { sharedOverlayStateFromEnv, startSharedOverlayDrainFromEnv } from './sharedOverlayWiring.js';
 import { writeLifecycleDump, lifecycleDumpPruneSince, LIFECYCLE_DUMP_MAX_COUNT, LIFECYCLE_DUMP_MAX_AGE_MS } from './lifecycleDumps.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
@@ -257,6 +258,7 @@ if (process.env.AUTH_DISABLED === '1') {
 // ── Storage backend selection ──
 
 let githubBackend: GitHubAPIBackend | null = null;
+let stopSharedOverlayDrain: (() => void) | null = null; // t/552 DRAINING timer, stopped in shutdown()
 let sessionManager: SessionBranchManager | null = null;
 
 if (STORAGE_MODE === 'github-api') {
@@ -269,11 +271,16 @@ if (STORAGE_MODE === 'github-api') {
   // t/613: the shutdown/crash dump cap and its prune floor, so the live retention rule is visible in the boot log.
   { const since = lifecycleDumpPruneSince(); log.server.info({ maxCount: LIFECYCLE_DUMP_MAX_COUNT, maxAgeDays: LIFECYCLE_DUMP_MAX_AGE_MS / 86_400_000, pruneSince: since === null ? 'none' : new Date(since).toISOString() }, 'lifecycle dump retention at boot (t/613)'); }
   log.server.info({ pollLease: pollLease ? { maxReplicas: pollLease.maxReplicas, armed: pollLease.maxReplicas > 1 } : null }, 'GitHub poll lease config at boot (t/509)');
+  // t/553 (t/503 PR 4): shared overlay state + commit lock, only when the account URL and container are both set.
+  const sharedOverlayState = sharedOverlayStateFromEnv(process.env);
+  log.server.info({ sharedOverlayState: !!sharedOverlayState, draining: process.env.OVERLAY_SHARED_STATE_DRAINING === '1' }, 'shared overlay state config at boot (t/553)');
   githubBackend = new GitHubAPIBackend({
     cacheDir: CACHE_DIR,
     recorder: serverRecorder,
     ...(pollLease ? { pollLease } : {}),
+    ...(sharedOverlayState ? { sharedOverlayState } : {}),
   });
+  stopSharedOverlayDrain = startSharedOverlayDrainFromEnv(process.env);
   sessionManager = new SessionBranchManager(githubBackend, serverRecorder);
   fileIO.setBackend(githubBackend);
   serverRecorder.record({
@@ -1093,6 +1100,7 @@ function shutdown(signal: string) {
   } catch { /* telemetry — silent by design;  best effort */ }
 
   // 1a. Stop GitHubAPIBackend polling (also logs the immediate uncommitted-overlay snapshot, t/4258 Part 1)
+  stopSharedOverlayDrain?.(); // t/553: no drain round starts after shutdown begins
   if (githubBackend) {
     githubBackend.shutdown();
   }

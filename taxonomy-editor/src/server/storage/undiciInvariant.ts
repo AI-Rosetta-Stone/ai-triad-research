@@ -46,3 +46,11 @@ export function isUndiciMajorAlignedWithRuntime(): boolean {
   ).version;
   return undiciMajorsAligned(userlandVersion, bundledVersion);
 }
+
+// t/503 (TL t/503#22, gate integrity): the skip is for dev machines only. In CI (`CI` set, as GitHub Actions does) a
+// suite gated by this always runs, so a runner whose undici major drifts from Node's fails the suite instead of
+// skipping it in silence. Use for suites that prove a safety property (the shared overlay save/commit suites).
+export function skipForUndiciSkewOutsideCi(): boolean {
+  if (process.env.CI) return false;
+  return !isUndiciMajorAlignedWithRuntime();
+}
