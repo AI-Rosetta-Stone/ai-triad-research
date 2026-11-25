@@ -53,6 +53,8 @@ $script:VerbatimLigatureMojibake = @(
 # author with initials ("Heiding, F." / "F. Heiding,").
 $script:VerbatimEntryStartPattern = '^(?:\(?\p{Nd}{1,4}[.)*]?(?:\s+\S|(?=\p{Lu}))|\[[^\]\r\n]{1,40}\]|\p{Lu}[\p{L}\u2019''\-]+,\s+(?:\p{Lu}\.[ \u00A0]?)+|(?:\p{Lu}\.[ \u00A0]?)+\p{Lu}[\p{L}\u2019''\-]+,)'
 $script:VerbatimFootnoteMaxGap = 500      # letters of footnote text that may sit between two words of a quote (CL t/389#52 (1), stipulated)
+$script:VerbatimRejectDamagedWord = $true    # a stored piece with a word that is not the quote's word fails (CL t/389#56 (3))
+$script:VerbatimDiag = [System.Collections.Generic.List[string]]::new()   # why the last quotes were rejected or changed; read and cleared by audit scripts only
 $script:VerbatimRejectPieceDeletion = 'all'   # which stored classes may not hold source words the quote lacks: 'all', 'interleaved', 'none' (CL t/389#52 (4), #54 (2))
 # A footnote reference glued to a word or to the punctuation after it: one to three digits (and more of them
 # after commas, "5,21") that follow a letter or a closing mark and are followed by a space, a mark or the end.
@@ -733,37 +735,68 @@ function Resolve-VerbatimSegment {
         $Texts = [System.Collections.Generic.List[string]]::new()
         $StoredPieces = [System.Collections.Generic.List[object]]::new()
         $StoredLetters = 0
-        # A stored piece is the source's text, and it must match the model's words in order (CL t/389#52 (4),
-        # t/389#54 (2)): the only omissions allowed are the ones the model marked with an elision. If a piece
-        # has more letters than the part of the quote it stands for, the source has something there that the
-        # quote does not:
-        #   - footnote references glued to a word or its punctuation ("curve5,21." / "harms.12 Developers"):
-        #     not words. They are taken out of the stored piece, and the piece stands if that accounts for
-        #     every extra letter;
-        #   - anything else is a word the model left out with no mark ("Meta CEO Mark Zuckerberg" for the
-        #     quote's "Mark Zuckerberg"): the segment fails rather than put the word back into the quote.
-        # Letters are counted on the repaired copy with the quote's own key (mojibake, ligatures and hyphen
-        # breaks folded). VerbatimRejectPieceDeletion: 'all' (every stored class), 'interleaved', or 'none'.
+        # A stored piece is the source's text, and it must be the model's words in order, letter for letter
+        # once mojibake, ligatures, hyphen breaks, case and punctuation are folded (CL t/389#52 (4), #54 (2),
+        # #56). The only omissions allowed are the ones the model marked with an elision. So a snap now mends
+        # layout only: line breaks, hyphenation, marks, page furniture. What fails:
+        #   - a word the model left out with no mark ("Meta CEO Mark Zuckerberg" for "Mark Zuckerberg");
+        #   - a word that differs: damaged in the source ("resuts") or changed by the model. Storing the
+        #     source's text would store the misspelling; storing the model's would store text the source
+        #     lacks. (This ends the t/389#5 behaviour of snapping across a corrupted word.)
+        # Footnote references glued to a word or its punctuation ("curve5,21.", "harms.12 Developers") are
+        # not words: they come out of the stored piece where the quote does not have them.
+        # VerbatimRejectPieceDeletion: 'all' (every stored class), 'interleaved', or 'none'.
         $CleanedPiece = @{}
-        $CheckPieces = $script:VerbatimRejectPieceDeletion -eq 'all' -or ($script:VerbatimRejectPieceDeletion -eq 'interleaved' -and -not $Snap.Contiguous)
+        $Mode = [string]$script:VerbatimRejectPieceDeletion
+        $CheckPieces = $Mode -eq 'all' -or ($Mode -eq 'interleaved' -and -not $Snap.Contiguous)
         if ($CheckPieces) {
             $KeyText = if ($Source.PSObject.Properties['Work'] -and $Source.Work.Length -eq $Source.Text.Length) { $Source.Work } else { $Source.Text }
+            $Letters = { param($T) (ConvertTo-EvidenceKey -Quote $T) -replace ' ', '' }
+            $QLetters = & $Letters $Clean
             foreach ($P in $Snap.Pieces) {
                 if ($P.QuoteLetters -lt $script:VerbatimMinRun) { continue }
+                # A part of a piece cut at a page header has no place of its own in the quote; it is judged by
+                # the count alone, below.
+                $Want = if ($P.QStart -ge 0 -and $P.QEnd -gt $P.QStart -and $P.QEnd -le $QLetters.Length) { $QLetters.Substring($P.QStart, $P.QEnd - $P.QStart) } else { $null }
                 $PieceWork = $KeyText.Substring($P.Start, $P.End - $P.Start)
-                $PieceLetters = ((ConvertTo-EvidenceKey -Quote $PieceWork) -replace ' ', '').Length
-                if ($PieceLetters -le $P.QuoteLetters) { continue }
-                $Refs = [regex]::Matches($PieceWork, $script:VerbatimGluedRefPattern)
-                $RefLetters = 0; foreach ($M in $Refs) { $RefLetters += ([regex]::Replace($M.Value, '[^\p{Nd}]', '')).Length }
-                if ($Refs.Count -eq 0 -or $PieceLetters - $RefLetters -gt $P.QuoteLetters) {
-                    $Deletion = & $Result 'dropped' @() $Coverage $null
-                    Add-Member -InputObject $Deletion -NotePropertyName Rejected -NotePropertyValue $true
-                    return $Deletion
+                # Walk the piece: its text between glued references, and each reference. A reference stays
+                # when the quote has those digits at that place (the model wrote them), and comes out when it
+                # does not (CL t/389#56 (1)).
+                $Have = [System.Text.StringBuilder]::new()
+                $Remove = [System.Collections.Generic.List[object]]::new()
+                $At = 0
+                foreach ($M in [regex]::Matches($PieceWork, $script:VerbatimGluedRefPattern)) {
+                    [void]$Have.Append((& $Letters $PieceWork.Substring($At, $M.Index - $At)))
+                    $Digits = [regex]::Replace($M.Value, '[^\p{Nd}]', '')
+                    $Wrote = $null -ne $Want -and $Have.Length + $Digits.Length -le $Want.Length -and $Want.Substring($Have.Length, $Digits.Length) -ceq $Digits
+                    if ($Wrote -or $null -eq $Want) { [void]$Have.Append($Digits) } else { $Remove.Add($M) }
+                    $At = $M.Index + $M.Length
                 }
-                # The same character ranges come out of the source's own text (the two copies share offsets).
-                $Raw = [System.Text.StringBuilder]::new($Source.Text.Substring($P.Start, $P.End - $P.Start))
-                for ($I = $Refs.Count - 1; $I -ge 0; $I--) { [void]$Raw.Remove($Refs[$I].Index, $Refs[$I].Length) }
-                $CleanedPiece[$P.Start] = $Raw.ToString()
+                [void]$Have.Append((& $Letters $PieceWork.Substring($At)))
+                $Got = $Have.ToString()
+                $Why = $null
+                if ($null -eq $Want) {
+                    if ($Got.Length -gt $P.QuoteLetters) { $Why = 'left-out word' }
+                } elseif ($Got -cne $Want) {
+                    # More letters in the source: it has a word the model left out with no mark. The same number
+                    # or fewer: a word differs, damaged in the source or changed by the model; storing the
+                    # source's stores the misspelling, storing the model's stores text the source lacks.
+                    $Why = if ($Got.Length -gt $Want.Length) { 'left-out word' } else { 'word differs' }
+                }
+                if ($Why -eq 'word differs' -and -not $script:VerbatimRejectDamagedWord) { $Why = $null; $Remove.Clear() }
+                if ($Why) {
+                    $script:VerbatimDiag.Add("$Why ($(if ($Snap.Contiguous) { 'one piece' } else { 'interleaved' }))")
+                    $Rejection = & $Result 'dropped' @() $Coverage $null
+                    Add-Member -InputObject $Rejection -NotePropertyName Rejected -NotePropertyValue $true
+                    return $Rejection
+                }
+                if ($Remove.Count -gt 0) {
+                    $script:VerbatimDiag.Add('glued digits removed')
+                    # The same character ranges come out of the source's own text (the two copies share offsets).
+                    $Raw = [System.Text.StringBuilder]::new($Source.Text.Substring($P.Start, $P.End - $P.Start))
+                    for ($I = $Remove.Count - 1; $I -ge 0; $I--) { [void]$Raw.Remove($Remove[$I].Index, $Remove[$I].Length) }
+                    $CleanedPiece[$P.Start] = $Raw.ToString()
+                }
             }
         }
         foreach ($P in $Snap.Pieces) {
@@ -791,6 +824,7 @@ function Resolve-VerbatimSegment {
             # the source's copy of the word does not matter.
             $Head = $StoredPieces[0]; $Tail = $StoredPieces[$StoredPieces.Count - 1]
             if ($Head.QStart -ne 0 -or $Head.HeadPartial -or $Tail.QEnd -ne $Snap.QuoteLetters -or $Tail.TailAdded -gt 0 -or $Tail.MidWordEnd) {
+                $script:VerbatimDiag.Add('edge word')
                 $EdgeDrop = & $Result 'dropped' @() $Coverage $null
                 # The segment IS in the source, but not as the model wrote it at its edge: a rejection, as
                 # against a segment the source does not have at all (Resolve-VerbatimQuote treats them apart).

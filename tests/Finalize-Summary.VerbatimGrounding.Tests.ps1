@@ -45,19 +45,30 @@ Describe 'Repair-SummaryKeyPointVerbatim (t/389)' -Tag 'summarization' {
         $Sum.pov_summaries.accelerationist.key_points[0].verbatim | Should -Be $Quote
     }
 
-    It 'snaps a near quote to the source text, not the model text' {
-        # The model adds "the" that the source doesn't have. The source span covers the rest.
+    It 'drops a near quote: a word the source does not have is not mended by a snap (t/389#56)' {
+        # The model adds "the" that the source doesn't have. Storing the source's text would store words the
+        # model did not give; storing the model's would store text the source lacks.
         $Near = 'AI will impact less than 5% of all the work tasks, with a productivity increase'
         $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = $Near })
         $R = InModuleScope AITriad -Parameters @{ S = $script:Snapshot; Sum = $Sum } {
             param($S, $Sum)
-            Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-near'
+            Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-near' 3>$null
         }
-        $R.Snapped | Should -Be 1
+        $R.Snapped | Should -Be 0
+        $R.Dropped | Should -Be 1
+    }
+
+    It 'snaps a quote whose words are the source''s and whose layout is not: a line break and a hyphenated word' {
+        $Src = "Acemoglu projects that AI will impact less than 5% of all work`r`ntasks, with a produc-`r`ntivity increase of 0.5% over the next decade."
+        $Quote = 'AI will impact less than 5% of all work tasks, with a productivity increase of 0.5%'
+        $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = $Quote })
+        $R = InModuleScope AITriad -Parameters @{ S = $Src; Sum = $Sum } {
+            param($S, $Sum)
+            Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-layout' 3>$null
+        }
         $R.Dropped | Should -Be 0
         $Stored = $Sum.pov_summaries.accelerationist.key_points[0].verbatim
-        $Stored | Should -Be 'AI will impact less than 5% of all work tasks, with a productivity increase'
-        $script:Snapshot.Contains($Stored) | Should -BeTrue
+        $Src.Contains($Stored) | Should -BeTrue -Because 'a snap stores the source''s own text'
     }
 
     It 'drops a paraphrase quote and keeps the key point' {
@@ -84,12 +95,12 @@ Describe 'Repair-SummaryKeyPointVerbatim (t/389)' -Tag 'summarization' {
             param($S, $Sum)
             Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-mix'
         }
-        $R.Snapped | Should -Be 1
-        $R.Dropped | Should -Be 1
+        # The near quote changes a word, so it drops with the paraphrase (t/389#56); the exact one stays.
+        $R.Snapped | Should -Be 0
+        $R.Dropped | Should -Be 2
         $Stored = @($Sum.pov_summaries.accelerationist.key_points[0].verbatim)
-        $Stored.Count | Should -Be 2
+        $Stored.Count | Should -Be 1
         $Stored[0] | Should -Be $Exact
-        $script:Snapshot.Contains($Stored[1]) | Should -BeTrue
     }
 
     It 'snaps a quote across a corrupted word (t/389#5 row 44): the source keeps its own corrupted text' {
@@ -289,11 +300,9 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         # "constructionwork" is glued text: the quote's last word ends inside a source word.
         $Src2 = 'Constituents are restless. The meteoric emergence of the data-center rebellion is a response to the speed and scale of constructionwork nearby.'
         (& $script:Run $Src2 'The meteoric emergence of the data-center rebellion is a response to the speed and scale of construction' 'doc-last-word-glued').R.Dropped | Should -Be 1
-        # A corrupted word in the middle is still a snap, and the source keeps its own text.
+        # A corrupted word in the middle fails too (t/389#56 (3)): storing it would store the misspelling.
         $Src3 = 'Constituents are restless. The meteoric emergence of the data-center rebelXion is a response to the speed and scale of building work nearby.'
-        $Mid = & $script:Run $Src3 'The meteoric emergence of the data-center rebellion is a response to the speed and scale of building work' 'doc-mid-word-corrupt'
-        $Mid.R.Snapped | Should -Be 1
-        $Mid.Stored | Should -Be 'The meteoric emergence of the data-center rebelXion is a response to the speed and scale of building work'
+        (& $script:Run $Src3 'The meteoric emergence of the data-center rebellion is a response to the speed and scale of building work' 'doc-mid-word-corrupt').R.Dropped | Should -Be 1
     }
 
     It 'ignores a page header and a URL that the model copied into the quote' {
@@ -325,7 +334,8 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-speed' 3>$null
         }
         $Sw.Stop()
-        $R.Snapped | Should -Be 40
+        # Each quote adds a word the source lacks, so each is placed and then dropped (t/389#56); the test is the time.
+        $R.Dropped | Should -Be 40
         $Sw.Elapsed.TotalSeconds | Should -BeLessThan 20
     }
 
@@ -538,19 +548,28 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         (& $script:Run "$Body`r`n`r`nSome other paragraph of the text.`r`n`r`nlives.26 Thus.`r`n" "$Body lives." 'doc-not-footnote').R.Dropped | Should -Be 1
     }
 
-    It 'a one-piece snapped quote with a word the model left out fails too; a glued footnote reference is taken out (t/389#54 (2))' {
-        $Src = "Taking note of this trend, Meta CEO Mark Zuckerberg expects that a lot of the code in apps will be bilt by AI in 2025, as reported.`r`n"
+    It 'a one-piece snapped quote must be the model''s words: a left-out word or a damaged source word fails (t/389#54 (2), #56 (3))' {
+        $Src = "Taking note of this trend, Meta CEO Mark Zuckerberg expects that a lot of the code`r`nin apps will be built by AI in 2025, as reported.`r`n"
         # The model left out "Meta CEO" and marked nothing.
         (& $script:Run $Src 'Taking note of this trend, Mark Zuckerberg expects that a lot of the code in apps will be built by AI in 2025' 'doc-snap-deletion').R.Dropped | Should -Be 1
-        # The model's words are the source's (one misspelt in the source): snapped to the source's text.
+        # The model's words are the source's; only the line break differs: stored (the words match exactly).
         $Same = & $script:Run $Src 'Taking note of this trend, Meta CEO Mark Zuckerberg expects that a lot of the code in apps will be built by AI in 2025' 'doc-snap-same-words'
-        $Same.R.Snapped | Should -Be 1
-        $Same.Stored | Should -Be 'Taking note of this trend, Meta CEO Mark Zuckerberg expects that a lot of the code in apps will be bilt by AI in 2025'
-        # Footnote references glued inside the passage are not words: the piece is stored without them.
-        $Src2 = "Developers warn of serious harms.12 Regulators have begun to ask for the evaluation resuts,7 and auditors want access to the weights.`r`n"
-        $Refs = & $script:Run $Src2 'Developers warn of serious harms. Regulators have begun to ask for the evaluation results, and auditors want access to the weights.' 'doc-snap-glued-refs'
+        $Same.R.Dropped | Should -Be 0
+        # A word damaged in the source ("bilt"): not stored as the misspelling, and not replaced by the model's.
+        $Bad = $Src.Replace('built', 'bilt')
+        (& $script:Run $Bad 'Taking note of this trend, Meta CEO Mark Zuckerberg expects that a lot of the code in apps will be built by AI in 2025' 'doc-snap-damaged-word').R.Dropped | Should -Be 1
+    }
+
+    It 'footnote references glued inside a passage come out of the stored piece; digits the model wrote stay (t/389#56 (1))' {
+        $Src = "Developers warn of serious harms.12 Regulators have begun to ask for the evaluation results,7 and auditors`r`nwant access to the weights by 2027.`r`n"
+        $Refs = & $script:Run $Src 'Developers warn of serious harms. Regulators have begun to ask for the evaluation results, and auditors want access to the weights by 2027' 'doc-snap-glued-refs'
         $Refs.R.Dropped | Should -Be 0
-        $Refs.Stored | Should -Be 'Developers warn of serious harms. Regulators have begun to ask for the evaluation resuts, and auditors want access to the weights'
+        $Refs.Stored | Should -Be "Developers warn of serious harms. Regulators have begun to ask for the evaluation results, and auditors`r`nwant access to the weights by 2027"
+        # The model copied the reference "12" into its quote: that one stays, the other still comes out.
+        $Kept = & $script:Run $Src 'Developers warn of serious harms.12 Regulators have begun to ask for the evaluation results, and auditors want access to the weights by 2027' 'doc-snap-kept-ref'
+        $Kept.R.Dropped | Should -Be 0
+        "$($Kept.Stored)" | Should -Match 'harms\.12 Regulators'
+        "$($Kept.Stored)" | Should -Not -Match 'results,7'
     }
 
     It 'an interleaved piece with a word the model left out, with no elision mark, fails the quote (t/389#52 (4), i37)' {
@@ -569,11 +588,10 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
     It 'a footnote reference glued to the quote''s first or last word is not part of the word (t/389#47 (3))' {
         # "125Large-scale" and "SMEs3": the reference number is glued on by the converter. The quote's words are
         # whole words of the source, so the edge rule does not reject it; the stored text is the source's.
-        $Src = "Earlier text ends here.125Large-scale AI training is highly resource intenxive and needs caps and subsidized insurance for SMEs3 (Figure 2).`r`n"
+        $Src = "Earlier text ends here.125Large-scale AI training is highly resource`r`nintensive and needs caps and subsidized insurance for SMEs3 (Figure 2).`r`n"
         $Out = & $script:Run $Src 'Large-scale AI training is highly resource intensive and needs caps and subsidized insurance for SMEs.' 'doc-glued-footnote'
         $Out.R.Dropped | Should -Be 0
-        $Out.R.Snapped | Should -Be 1
-        $Out.Stored | Should -Be 'Large-scale AI training is highly resource intenxive and needs caps and subsidized insurance for SMEs'
+        $Out.Stored | Should -Be "Large-scale AI training is highly resource`r`nintensive and needs caps and subsidized insurance for SMEs"
     }
 
     It 'a snapped quote whose first or last word is not the source''s is dropped, not stored with the source''s word (t/389#47 (3), H07)' {
@@ -582,10 +600,8 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         (& $script:Run $Src 'Toward Publicly Accountable Frontier LLMs: Building an External Scrutiny Ecosystem under the ASPIRE Framework' 'doc-first-word').R.Dropped | Should -Be 1
         # The model changed the last word.
         (& $script:Run $Src 'Publicly Accountable Frontier LLMs: Building an External Scrutiny Ecosystem under the ASPIRE Frameworks' 'doc-last-word').R.Dropped | Should -Be 1
-        # A changed word in the middle is still a snap to the source's text.
-        $Mid = & $script:Run $Src 'Publicly Accountable Frontier LLMs: Building the External Scrutiny Ecosystem under the ASPIRE Framework' 'doc-mid-word'
-        $Mid.R.Dropped | Should -Be 0
-        $Mid.R.Snapped | Should -Be 1
+        # A changed word in the middle fails as well (t/389#56 (3)).
+        (& $script:Run $Src 'Publicly Accountable Frontier LLMs: Building the External Scrutiny Ecosystem under the ASPIRE Framework' 'doc-mid-word').R.Dropped | Should -Be 1
     }
 
     It 'two bibliography entries joined by an ellipsis are not one passage (t/389#45 (a), G08, H04, H10)' {
