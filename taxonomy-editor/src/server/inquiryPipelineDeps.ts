@@ -132,6 +132,12 @@ function createInquiryAdapter(): AIAdapter {
     async computeQueryEmbedding(text: string): Promise<{ vector: number[] }> {
       return { vector: await ai.computeQueryEmbedding(text) };
     },
+    // t/561: the debate phases' batch embeds (opening frames, cross-respond paragraphs, narrative voicing). Without
+    // this the engine loaded a second, main-thread ONNX session next to the worker's (t/520#21, #22). ai.computeEmbeddings
+    // uses the worker when the offload is on, in bounded sub-batches (t/520), so the process keeps one session.
+    async computeEmbeddings(texts: string[]): Promise<number[][]> {
+      return (await ai.computeEmbeddings(texts, undefined, undefined, { requester: 'debate' })).vectors;
+    },
     // t/3614: required AIAdapter member — host-loaded registry data (cached via getModelRegistry),
     // the same source buildInquiryRunPipeline uses for deps.registry below.
     registry: getModelRegistry(),
