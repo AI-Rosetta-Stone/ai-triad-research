@@ -38,7 +38,8 @@ $script:VerbatimMaxInnerGap = 8        # source letters one skip inside a snappe
 $script:VerbatimFooterMinRepeats = 3
 $script:VerbatimFooterMaxChars = 80
 $script:VerbatimFooterMinWords = 3     # a repeated line of this many words is a page header at VerbatimFooterMinRepeats
-$script:VerbatimShortLineMinRepeats = 6 # a one- or two-word line (an author name, a section label) needs this many
+$script:VerbatimShortLineMinRepeats = 6 # a one- or two-word line (an author name) needs this many, at a page boundary
+$script:VerbatimPageNumberPattern = '^(?i)(?:page\s+)?\d{1,4}(?:\s*(?:of|/)\s*\d{1,4})?$'
 $script:VerbatimHtmlTagPattern = '(?i)</?(?:a|abbr|article|aside|b|blockquote|br|caption|cite|code|div|em|figcaption|figure|footer|h[1-6]|header|hr|i|img|li|mark|nav|ol|p|pre|q|s|section|small|span|strong|sub|sup|table|tbody|td|th|thead|tr|u|ul)(?:\s[^<>\r\n]{0,400})?/?>'
 $script:VerbatimWordTail = 2           # source letters past a quote word's end that a stored piece may take (a plural)
 $script:VerbatimElisionPattern = '\[\s*(?:\.{3,}|\u2026)\s*\]|\(\s*(?:\.{3,}|\u2026)\s*\)|(?:\.[ \u00A0]){2,}\.|\.{3,}|\u2026'
@@ -63,32 +64,55 @@ function Get-VerbatimSource {
     # Same-length blanking of what is not text (t/389#20): HTML tags, and two mojibake forms of a
     # no-break space and an ellipsis that read as letters ("N.<a-acute>Li", "Ma, <a-grave> D. Hendrycks").
     $W = [regex]::Replace($W, $script:VerbatimHtmlTagPattern, { param($M) ' ' * $M.Length })
-    $W = [regex]::Replace($W, '(?<=[\.,;:\)\]\d])\u00E1(?=[\p{Lu}\d\(\[])', ' ')
+    $W = [regex]::Replace($W, '(?<!\p{Ll})\u00E1(?!\p{Ll})', ' ')
     $W = [regex]::Replace($W, '(?<=\s)\u00E0(?=\s)', ' ')
     $Lines = $W -split "(\r?\n)"
-    # A page header or footer: a short line that repeats, compared with case. A line of three or more
-    # words needs VerbatimFooterMinRepeats; a one- or two-word line needs VerbatimShortLineMinRepeats,
-    # because words repeat as lines in sidebars and tables (S07, t/389#20). Blanking only hides text from
-    # matching. Only the longer lines are ever removed from a quote (Footers).
+    # A page header or footer: a short line that repeats, compared with case.
+    #   - A line of three or more words, at VerbatimFooterMinRepeats.
+    #   - A one- or two-word line, at VerbatimShortLineMinRepeats and only at a page boundary: the nearest
+    #     non-blank line before or after it is a header line of the first kind or a page number. A short
+    #     line that repeats elsewhere is a table label or a sidebar word, and is text (CL, t/389#20, #24).
+    # Blanking only hides text from matching. Only lines of the first kind are ever removed from a quote.
     $Counts = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
-    foreach ($L in $Lines) {
-        $T = $L.Trim()
+    $Trimmed = [string[]]::new($Lines.Count)
+    for ($I = 0; $I -lt $Lines.Count; $I += 2) {
+        $T = $Lines[$I].Trim()
+        $Trimmed[$I] = $T
         if ($T.Length -gt 0 -and $T.Length -le $script:VerbatimFooterMaxChars) {
             $N0 = 0
             [void]$Counts.TryGetValue($T, [ref]$N0)
             $Counts[$T] = $N0 + 1
         }
     }
+    # 1 = a header line of the first kind, 2 = a page number, 0 = neither. Lines sit at even indexes.
+    $Kind = [int[]]::new($Lines.Count)
+    for ($I = 0; $I -lt $Lines.Count; $I += 2) {
+        $T = $Trimmed[$I]
+        if ($T.Length -eq 0) { continue }
+        $Seen0 = 0
+        if ($T -match $script:VerbatimPageNumberPattern) { $Kind[$I] = 2 }
+        elseif ($Counts.TryGetValue($T, [ref]$Seen0) -and $Seen0 -ge $script:VerbatimFooterMinRepeats -and
+            $T.Split([char[]]" `t", [System.StringSplitOptions]::RemoveEmptyEntries).Count -ge $script:VerbatimFooterMinWords) { $Kind[$I] = 1 }
+    }
     $Footers = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $Out = [System.Text.StringBuilder]::new($W.Length)
     $BlankedAt = [System.Collections.Generic.List[int]]::new()   # start offsets of the blanked lines, ascending
-    foreach ($L in $Lines) {
-        $T = $L.Trim()
-        $Seen0 = 0
-        $Long = $T.Split([char[]]" `t", [System.StringSplitOptions]::RemoveEmptyEntries).Count -ge $script:VerbatimFooterMinWords
-        $Need = if ($Long) { $script:VerbatimFooterMinRepeats } else { $script:VerbatimShortLineMinRepeats }
-        if ($T.Length -gt 0 -and $Counts.TryGetValue($T, [ref]$Seen0) -and $Seen0 -ge $Need) {
-            if ($Long) { [void]$Footers.Add($T) }
+    for ($I = 0; $I -lt $Lines.Count; $I++) {
+        $L = $Lines[$I]
+        $Blank = $false
+        if ($I % 2 -eq 0 -and $Trimmed[$I].Length -gt 0) {
+            $T = $Trimmed[$I]
+            $Seen0 = 0
+            if ($Kind[$I] -eq 1) { $Blank = $true; [void]$Footers.Add($T) }
+            elseif ($Kind[$I] -eq 0 -and $Counts.TryGetValue($T, [ref]$Seen0) -and $Seen0 -ge $script:VerbatimShortLineMinRepeats) {
+                $Prev = $I - 2
+                while ($Prev -ge 0 -and $Trimmed[$Prev].Length -eq 0) { $Prev -= 2 }
+                $Next = $I + 2
+                while ($Next -lt $Lines.Count -and $Trimmed[$Next].Length -eq 0) { $Next += 2 }
+                $Blank = ($Prev -ge 0 -and $Kind[$Prev] -ne 0) -or ($Next -lt $Lines.Count -and $Kind[$Next] -ne 0)
+            }
+        }
+        if ($Blank) {
             $BlankedAt.Add($Out.Length)
             [void]$Out.Append((' ' * $L.Length))
         } else {
@@ -342,6 +366,7 @@ function Find-VerbatimSnap {
 
     $Text = $Source.Text
     $Pieces = [System.Collections.Generic.List[object]]::new()
+    $CarryHyphen = $false
     foreach ($P in $Best.Pieces) {
         # A piece that starts or ends inside a quote word: take the rest of the word when the source has
         # it right there (the neighbouring piece's run had claimed those letters), else give the word up.
@@ -373,6 +398,26 @@ function Find-VerbatimSnap {
         $More = 0
         while ($PE + $More -lt $Text.Length -and [char]::IsLetterOrDigit($Text[$PE + $More])) { $More++ }
         if ($More -le $script:VerbatimWordTail) { $PE += $More }
+        # The second half of a word the piece before lost to a hyphenated break ("cod-" ... "ing") goes too.
+        if ($CarryHyphen) {
+            $W0 = $PS
+            while ($W0 -lt $PE -and [char]::IsLetterOrDigit($Text[$W0])) { $W0++ }
+            $Letters -= ($W0 - $PS)
+            while ($W0 -lt $PE -and -not [char]::IsLetterOrDigit($Text[$W0])) { $W0++ }
+            $PS = $W0
+        }
+        # A piece that ends with the first half of a hyphenated word (a hyphen, then a break or other text)
+        # gives that half up: it is not a word (CL, t/389#24).
+        $CarryHyphen = $false
+        if ($PE -lt $Text.Length -and $Text[$PE] -eq '-' -and ($PE + 1 -ge $Text.Length -or [char]::IsWhiteSpace($Text[$PE + 1]))) {
+            $W1 = $PE
+            while ($W1 -gt $PS -and [char]::IsLetterOrDigit($Text[$W1 - 1])) { $W1-- }
+            $Letters -= ($PE - $W1)
+            while ($W1 -gt $PS -and -not [char]::IsLetterOrDigit($Text[$W1 - 1])) { $W1-- }
+            $PE = $W1
+            $CarryHyphen = $true
+        }
+        if ($PE -le $PS -or $Letters -le 0) { continue }
         # A blanked header or footer line inside a piece splits it: the line is not quote text.
         $Cuts = [System.Collections.Generic.List[int]]::new()
         if ($Source.BlankedAt.Count -gt 0) {
@@ -455,7 +500,11 @@ function Resolve-VerbatimSegment {
         foreach ($P in $Snap.Pieces) {
             # A piece too short to have been placed by itself is not stored as a quote.
             if ($P.QuoteLetters -lt $script:VerbatimMinRun) { continue }
-            $Texts.Add($Source.Text.Substring($P.Start, $P.End - $P.Start).Trim())
+            $T = $Source.Text.Substring($P.Start, $P.End - $P.Start).Trim()
+            # Markdown table cells are source text but not prose; a piece that runs across them is not
+            # stored (CL, t/389#24).
+            if ($T -match '\|\s[^|\r\n]*\|' -or $T -match '(?m)^\s*\|') { continue }
+            $Texts.Add($T)
             $StoredLetters += $P.QuoteLetters
         }
         # What is stored must itself cover the quote (CL ruling t/389#20): pieces that add up to less read

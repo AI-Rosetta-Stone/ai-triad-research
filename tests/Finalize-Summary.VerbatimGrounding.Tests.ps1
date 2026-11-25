@@ -406,8 +406,9 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.Stored | Should -BeNullOrEmpty
     }
 
-    It 'an author name repeated on every page is blanked, so a quote across it is still exact' {
-        $Src = "Lawmakers should enforce existing laws to prohibit`nErik Torenberg`n`nharms and punish bad actors.`n" + (("Erik Torenberg`nMore text $([guid]::NewGuid().ToString('N')).`n") * 6)
+    It 'an author name repeated at a page boundary is blanked, so a quote across it is still exact' {
+        $Page = "A printed page header here`nErik Torenberg`n"
+        $Src = "Lawmakers should enforce existing laws to prohibit`n$Page`nharms and punish bad actors.`n" + (("More text $([guid]::NewGuid().ToString('N')).`n$Page") * 6)
         $Quote = 'Lawmakers should enforce existing laws to prohibit harms and punish bad actors.'
         $Out = & $script:Run $Src $Quote 'doc-short-header'
         $Out.R.Snapped | Should -Be 0
@@ -420,5 +421,43 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out = & $script:Run $Src 'std::vector<int> to_activate;' 'doc-code'
         $Out.R.Dropped | Should -Be 0
         $Out.Stored | Should -Be 'std::vector<int> to_activate;'
+    }
+
+    It 'a short line repeated six times away from any page boundary is text, not a header (t/389#24)' {
+        # "Yes" is a table label: it repeats, but no header or page number is next to it.
+        $Rows = (1..7 | ForEach-Object { "Question $_ about the survey wording for this group.`nYes`n" }) -join ''
+        $Src = "The respondents were asked whether they agreed.`nYes`nwas the answer most of them gave to the interviewer.`n$Rows"
+        $Quote = 'The respondents were asked whether they agreed. Yes was the answer most of them gave to the interviewer.'
+        $Out = & $script:Run $Src $Quote 'doc-table-label'
+        $Out.R.Snapped | Should -Be 0
+        $Out.R.Interleaved | Should -Be 0
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+    }
+
+    It 'gives up both halves of a word split by a hyphen at a line end (t/389#24, I25)' {
+        $Src = "downward pressure on code quality, https://www. gitclear. com/cod- pooling for proxy caching`ning on copilot data shows ais downward pressure on code quality/, https://github.com/sup`n"
+        $Quote = 'downward pressure on code quality, https://www. gitclear. com/cod- ing on copilot data shows ais downward pressure on code quality/'
+        $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = $Quote })
+        $Texts = InModuleScope AITriad -Parameters @{ S = $Src; Q = $Quote } {
+            param($S, $Q)
+            $Source = Get-VerbatimSource -Text $S
+            @((Find-VerbatimSnap -Source $Source -Quote $Q).Pieces | ForEach-Object { $S.Substring($_.Start, $_.End - $_.Start) })
+        }
+        $Texts[0] | Should -Match 'gitclear\. com$'
+        $Texts[1] | Should -Match '^on copilot data shows'
+    }
+
+    It 'does not store a piece that runs across markdown table cells (t/389#24, I04)' {
+        $Src = "The data is often`n|     | sourced | without | explicit | user consent |`n| --- | --- | --- | --- | --- |`nand this raises ethical and privacy concerns for everyone involved.`n"
+        $Quote = 'The data is often sourced without explicit user consent and this raises ethical and privacy concerns for everyone involved.'
+        $Out = & $script:Run $Src $Quote 'doc-table-cells'
+        foreach ($S in @($Out.Stored)) { $S | Should -Not -Match '\|' }
+    }
+
+    It 'reads the mojibake no-break space next to a symbol as a space (t/389#24, D27)' {
+        $Src = 'OpenAI, A' + [char]0xE1 + '$50 Million Fund to Build with Communities (2025); the announcement.'
+        $Out = & $script:Run $Src 'OpenAI, A $50 Million Fund to Build with Communities (2025)' 'doc-mojibake-space'
+        $Out.R.Dropped | Should -Be 0
     }
 }
