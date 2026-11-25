@@ -168,11 +168,11 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     replicaA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     replicaB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    replicaA.writeToOverlay('/taxonomy/foo.json', 'from A');
+    replicaA.writeToOverlay('/conflicts/foo.json', 'from A');
 
-    await waitUntil(() => replicaB.readFile('/taxonomy/foo.json'), v => v === 'from A');
-    expect(await replicaB.fileExists('/taxonomy/foo.json')).toBe(true);
-    const listing = await waitUntil(() => replicaB.listDirectory('/taxonomy'), v => v.includes('foo.json'));
+    await waitUntil(() => replicaB.readFile('/conflicts/foo.json'), v => v === 'from A');
+    expect(await replicaB.fileExists('/conflicts/foo.json')).toBe(true);
+    const listing = await waitUntil(() => replicaB.listDirectory('/conflicts'), v => v.includes('foo.json'));
     expect(listing).toContain('foo.json');
   });
 
@@ -186,11 +186,11 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     replicaA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     replicaB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    replicaA.writeToOverlay('/taxonomy/shared.json', 'X (from A)');
-    await waitUntil(() => replicaB.readFile('/taxonomy/shared.json'), v => v === 'X (from A)');
+    replicaA.writeToOverlay('/conflicts/shared.json', 'X (from A)');
+    await waitUntil(() => replicaB.readFile('/conflicts/shared.json'), v => v === 'X (from A)');
 
-    replicaB.writeToOverlay('/taxonomy/shared.json', 'Y (from B)');
-    const seenOnA = await waitUntil(() => replicaA.readFile('/taxonomy/shared.json'), v => v !== 'X (from A)');
+    replicaB.writeToOverlay('/conflicts/shared.json', 'Y (from B)');
+    const seenOnA = await waitUntil(() => replicaA.readFile('/conflicts/shared.json'), v => v !== 'X (from A)');
     expect(seenOnA).toBe('Y (from B)');
   });
 
@@ -202,12 +202,12 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     replicaA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     replicaB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    replicaA.writeToOverlay('/taxonomy/gone.json', 'will be deleted');
-    await waitUntil(() => replicaB.fileExists('/taxonomy/gone.json'), v => v === true);
+    replicaA.writeToOverlay('/conflicts/gone.json', 'will be deleted');
+    await waitUntil(() => replicaB.fileExists('/conflicts/gone.json'), v => v === true);
 
-    await replicaA.deleteFromOverlay('/taxonomy/gone.json', 'api-session/alice');
-    await waitUntil(() => replicaB.fileExists('/taxonomy/gone.json'), v => v === false);
-    expect(await replicaB.readFile('/taxonomy/gone.json')).toBeNull();
+    await replicaA.deleteFromOverlay('/conflicts/gone.json', 'api-session/alice');
+    await waitUntil(() => replicaB.fileExists('/conflicts/gone.json'), v => v === false);
+    expect(await replicaB.readFile('/conflicts/gone.json')).toBeNull();
   });
 
   // Caught during implementation (t/4311#29/#31's posted design didn't call
@@ -218,12 +218,12 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     const replica = await createReplica(store);
     replica.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    replica.writeToOverlay('/taxonomy/own-write.json', 'written just now');
+    replica.writeToOverlay('/conflicts/own-write.json', 'written just now');
     // No await between the write above and the read below beyond what
     // readFile itself performs — if the shared store were trusted blindly
     // (no per-path local fallback), this would race the _gen bump network
     // call and could return null.
-    expect(await replica.readFile('/taxonomy/own-write.json')).toBe('written just now');
+    expect(await replica.readFile('/conflicts/own-write.json')).toBe('written just now');
   });
 
   // t/549 (SO t/503#10): a stage whose `_gen` bump failed is still acknowledged, so a reader must not trust an
@@ -234,25 +234,25 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     const replicaB = await createReplica(makeStore(prefix));
     replicaB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    await storeA.stage('alice', 'taxonomy/seed.json', { content: 'seed', baseSha: null, stagedAt: new Date().toISOString(), stageId: 'seed-1' }, { absent: true });
-    expect(await replicaB.readFile('/taxonomy/seed.json')).toBe('seed'); // B has listed at this generation
+    await storeA.stage('alice', 'conflicts/seed.json', { content: 'seed', baseSha: null, stagedAt: new Date().toISOString(), stageId: 'seed-1' }, { absent: true });
+    expect(await replicaB.readFile('/conflicts/seed.json')).toBe('seed'); // B has listed at this generation
 
     const ctor = Object.getPrototypeOf(service.getContainerClient(CONTAINER).getBlockBlobClient('x')).constructor;
     const realUpload = ctor.prototype.upload;
     const spy = vi.spyOn(ctor.prototype, 'upload').mockImplementation(function (this: { name: string }, ...args: unknown[]) {
       return this.name.endsWith('/_gen') ? Promise.reject(new Error('simulated _gen bump failure')) : realUpload.apply(this, args);
     });
-    const r = await storeA.stage('alice', 'taxonomy/late.json', { content: 'late', baseSha: null, stagedAt: new Date().toISOString(), stageId: 'late-1' }, { absent: true });
+    const r = await storeA.stage('alice', 'conflicts/late.json', { content: 'late', baseSha: null, stagedAt: new Date().toISOString(), stageId: 'late-1' }, { absent: true });
     spy.mockRestore();
     expect(r).toMatchObject({ ok: true, genBumped: false });
 
     // Same generation and a fresh listing: B still serves its cached listing.
-    expect(await replicaB.fileExists('/taxonomy/late.json')).toBe(false);
+    expect(await replicaB.fileExists('/conflicts/late.json')).toBe(false);
 
     const realNow = Date.now.bind(Date);
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + SHARED_OVERLAY_RELIST_MS + 1_000);
     try {
-      expect(await replicaB.readFile('/taxonomy/late.json')).toBe('late');
+      expect(await replicaB.readFile('/conflicts/late.json')).toBe('late');
     } finally {
       nowSpy.mockRestore();
     }
@@ -265,9 +265,9 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     replicaA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     replicaB.setSessionContext({ userId: 'bob', branchName: 'api-session/bob' });
 
-    replicaA.writeToOverlay('/taxonomy/alice-only.json', 'alice content');
-    await waitUntil(() => replicaA.readFile('/taxonomy/alice-only.json'), v => v === 'alice content');
+    replicaA.writeToOverlay('/conflicts/alice-only.json', 'alice content');
+    await waitUntil(() => replicaA.readFile('/conflicts/alice-only.json'), v => v === 'alice content');
 
-    expect(await replicaB.fileExists('/taxonomy/alice-only.json')).toBe(false);
+    expect(await replicaB.fileExists('/conflicts/alice-only.json')).toBe(false);
   });
 });

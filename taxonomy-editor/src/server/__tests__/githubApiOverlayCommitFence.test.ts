@@ -125,7 +125,7 @@ function handleRemote(url: string, init: RequestInit): { status: number; body: u
 
 const originalFetch = globalThis.fetch;
 beforeEach(() => {
-  resetRemote({ 'taxonomy/nodes.json': '{"v":0}' });
+  resetRemote({ 'conflicts/nodes.json': '{"v":0}' });
   vi.stubEnv('AI_TRIAD_DATA_ROOT', '/var/cache/taxonomy-test');
   globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -155,35 +155,35 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4312 overlay commit bas
     backendB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
     const base = gitBlobSha('{"v":0}');
-    await backendA.writeFile('/taxonomy/nodes.json', '{"v":"A"}', { baseSha: base });
-    await backendB.writeFile('/taxonomy/nodes.json', '{"v":"B-stale"}', { baseSha: base });
+    await backendA.writeFile('/conflicts/nodes.json', '{"v":"A"}', { baseSha: base });
+    await backendB.writeFile('/conflicts/nodes.json', '{"v":"B-stale"}', { baseSha: base });
 
     const resultA = await backendA.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
     expect(resultA?.filesCommitted).toBe(1);
-    expect(contentByPath.get('taxonomy/nodes.json')).toBe('{"v":"A"}');
+    expect(contentByPath.get('conflicts/nodes.json')).toBe('{"v":"A"}');
 
     // B's commit starts AFTER A's succeeded — reads the new head (A's), and
     // its own PATCH would succeed as a fast-forward (no 422). Assert the
     // per-path base check still excludes B's stale write from the tree.
     const resultB = await backendB.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
 
-    expect(contentByPath.get('taxonomy/nodes.json')).toBe('{"v":"A"}'); // not overwritten
+    expect(contentByPath.get('conflicts/nodes.json')).toBe('{"v":"A"}'); // not overwritten
     expect(resultB?.filesCommitted).toBe(0);
-    expect(resultB?.conflictedPaths).toEqual(['taxonomy/nodes.json']);
-    expect(backendB.getSessionOverlay('alice')?.get('taxonomy/nodes.json')).toBe('{"v":"B-stale"}'); // stays staged
+    expect(resultB?.conflictedPaths).toEqual(['conflicts/nodes.json']);
+    expect(backendB.getSessionOverlay('alice')?.get('conflicts/nodes.json')).toBe('{"v":"B-stale"}'); // stays staged
 
     backendA.shutdown(); backendB.shutdown();
   });
 
   it('non-overlapping paths still commit cleanly together (regression guard)', async () => {
-    contentByPath.set('taxonomy/other.json', '{"other":true}');
+    contentByPath.set('conflicts/other.json', '{"other":true}');
     const backendA = await createBackend();
     const backendB = await createBackend();
     backendA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     backendB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    await backendA.writeFile('/taxonomy/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
-    await backendB.writeFile('/taxonomy/other.json', '{"other":"B"}', { baseSha: gitBlobSha('{"other":true}') });
+    await backendA.writeFile('/conflicts/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
+    await backendB.writeFile('/conflicts/other.json', '{"other":"B"}', { baseSha: gitBlobSha('{"other":true}') });
 
     const resultA = await backendA.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
     expect(resultA?.filesCommitted).toBe(1);
@@ -191,8 +191,8 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4312 overlay commit bas
     const resultB = await backendB.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
     expect(resultB?.filesCommitted).toBe(1);
     expect(resultB?.conflictedPaths).toBeUndefined();
-    expect(contentByPath.get('taxonomy/nodes.json')).toBe('{"v":"A"}');
-    expect(contentByPath.get('taxonomy/other.json')).toBe('{"other":"B"}');
+    expect(contentByPath.get('conflicts/nodes.json')).toBe('{"v":"A"}');
+    expect(contentByPath.get('conflicts/other.json')).toBe('{"other":"B"}');
 
     backendA.shutdown(); backendB.shutdown();
   });
@@ -201,7 +201,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4312 overlay commit bas
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    await backend.writeFile('/taxonomy/nodes.json', '{"v":"first"}', { baseSha: gitBlobSha('{"v":0}') });
+    await backend.writeFile('/conflicts/nodes.json', '{"v":"first"}', { baseSha: gitBlobSha('{"v":0}') });
 
     // Simulate a mid-flight edit landing between the commit's base-fetch and
     // its post-commit cleanup, by writing again right after kicking off the
@@ -209,19 +209,19 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4312 overlay commit bas
     // (t/4277 C1) already guards against; this proves t/4312's base refresh
     // works the same way for the base-sha side of that guard.
     const commitPromise = backend.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
-    await backend.writeFile('/taxonomy/nodes.json', '{"v":"mid-flight"}'); // no baseSha — direct overlay rewrite
+    await backend.writeFile('/conflicts/nodes.json', '{"v":"mid-flight"}'); // no baseSha — direct overlay rewrite
     const result = await commitPromise;
 
     expect(result?.filesCommitted).toBe(1);
-    expect(contentByPath.get('taxonomy/nodes.json')).toBe('{"v":"first"}'); // what actually committed
-    expect(backend.getSessionOverlay('alice')?.get('taxonomy/nodes.json')).toBe('{"v":"mid-flight"}'); // stays staged
+    expect(contentByPath.get('conflicts/nodes.json')).toBe('{"v":"first"}'); // what actually committed
+    expect(backend.getSessionOverlay('alice')?.get('conflicts/nodes.json')).toBe('{"v":"mid-flight"}'); // stays staged
 
     // The next commit attempt must NOT treat this as a conflict with itself —
     // its base should have been refreshed to what was just committed.
     const result2 = await backend.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
     expect(result2?.conflictedPaths).toBeUndefined();
     expect(result2?.filesCommitted).toBe(1);
-    expect(contentByPath.get('taxonomy/nodes.json')).toBe('{"v":"mid-flight"}');
+    expect(contentByPath.get('conflicts/nodes.json')).toBe('{"v":"mid-flight"}');
 
     backend.shutdown();
   });
@@ -229,7 +229,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4312 overlay commit bas
   it('fails closed when the base-tree lookup is truncated', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
-    await backend.writeFile('/taxonomy/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
+    await backend.writeFile('/conflicts/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
 
     const realHandle = handleRemote;
     globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -244,8 +244,8 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4312 overlay commit bas
 
     const result = await backend.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
     expect(result?.filesCommitted).toBe(0);
-    expect(result?.conflictedPaths).toEqual(['taxonomy/nodes.json']);
-    expect(contentByPath.get('taxonomy/nodes.json')).toBe('{"v":0}'); // untouched
+    expect(result?.conflictedPaths).toEqual(['conflicts/nodes.json']);
+    expect(contentByPath.get('conflicts/nodes.json')).toBe('{"v":0}'); // untouched
 
     backend.shutdown();
   });
@@ -256,18 +256,18 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4312 overlay commit bas
     backendA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     backendB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    await backendA.writeFile('/taxonomy/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
-    await backendB.deleteFile('/taxonomy/nodes.json');
+    await backendA.writeFile('/conflicts/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
+    await backendB.deleteFile('/conflicts/nodes.json');
 
     const resultA = await backendA.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
     expect(resultA?.filesCommitted).toBe(1);
-    expect(contentByPath.has('taxonomy/nodes.json')).toBe(true);
+    expect(contentByPath.has('conflicts/nodes.json')).toBe(true);
 
     // B's delete was staged against the OLD content — must not delete A's new write.
     const resultB = await backendB.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
     expect(resultB?.filesCommitted).toBe(0);
-    expect(resultB?.conflictedPaths).toEqual(['taxonomy/nodes.json']);
-    expect(contentByPath.get('taxonomy/nodes.json')).toBe('{"v":"A"}'); // not deleted
+    expect(resultB?.conflictedPaths).toEqual(['conflicts/nodes.json']);
+    expect(contentByPath.get('conflicts/nodes.json')).toBe('{"v":"A"}'); // not deleted
 
     backendA.shutdown(); backendB.shutdown();
   });
@@ -285,43 +285,43 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4312 overlay commit bas
       backendA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
       backendB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-      await backendA.writeFile('/taxonomy/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
-      await backendB.writeFile('/taxonomy/nodes.json', '{"v":"B-stale"}', { baseSha: gitBlobSha('{"v":0}') });
-      await backendB.writeFile('/taxonomy/unrelated.json', '{"u":"B"}'); // staged, never conflicts itself
+      await backendA.writeFile('/conflicts/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
+      await backendB.writeFile('/conflicts/nodes.json', '{"v":"B-stale"}', { baseSha: gitBlobSha('{"v":0}') });
+      await backendB.writeFile('/conflicts/unrelated.json', '{"u":"B"}'); // staged, never conflicts itself
 
       await backendA.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
       const resultB = await backendB.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
-      expect(resultB?.conflictedPaths).toEqual(['taxonomy/nodes.json']); // only this path actually conflicted
-      expect(backendB.getSessionOverlay('alice')?.has('taxonomy/unrelated.json')).toBe(true); // still staged
+      expect(resultB?.conflictedPaths).toEqual(['conflicts/nodes.json']); // only this path actually conflicted
+      expect(backendB.getSessionOverlay('alice')?.has('conflicts/unrelated.json')).toBe(true); // still staged
 
       const discarded = backendB.discardConflictedOverlayEntries('alice');
-      expect(discarded.sort()).toEqual(['taxonomy/nodes.json', 'taxonomy/unrelated.json']); // BOTH, not just the conflicting one
+      expect(discarded.sort()).toEqual(['conflicts/nodes.json', 'conflicts/unrelated.json']); // BOTH, not just the conflicting one
       expect(backendB.getSessionOverlay('alice')).toBeUndefined(); // whole batch gone
 
       backendA.shutdown(); backendB.shutdown();
     });
 
     it('"Keep mine" re-bases and commits the ENTIRE staged batch, including paths that did not conflict', async () => {
-      contentByPath.set('taxonomy/unrelated.json', '{"u":"orig"}');
+      contentByPath.set('conflicts/unrelated.json', '{"u":"orig"}');
       const backendA = await createBackend();
       const backendB = await createBackend();
       backendA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
       backendB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-      await backendA.writeFile('/taxonomy/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
-      await backendB.writeFile('/taxonomy/nodes.json', '{"v":"B-stale"}', { baseSha: gitBlobSha('{"v":0}') });
-      await backendB.writeFile('/taxonomy/unrelated.json', '{"u":"B"}', { baseSha: gitBlobSha('{"u":"orig"}') });
+      await backendA.writeFile('/conflicts/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
+      await backendB.writeFile('/conflicts/nodes.json', '{"v":"B-stale"}', { baseSha: gitBlobSha('{"v":0}') });
+      await backendB.writeFile('/conflicts/unrelated.json', '{"u":"B"}', { baseSha: gitBlobSha('{"u":"orig"}') });
 
       await backendA.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
       const resultB = await backendB.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
-      expect(resultB?.conflictedPaths).toEqual(['taxonomy/nodes.json']);
+      expect(resultB?.conflictedPaths).toEqual(['conflicts/nodes.json']);
 
       const resolved = await backendB.rebaseAndRecommitConflictedOverlayEntries('alice', 'api-session/alice');
       expect(resolved.committed).toBe(true);
       expect(resolved.stillConflicted).toEqual([]);
       expect(resolved.filesCommitted).toBe(2); // both paths committed together, not just the conflicting one
-      expect(contentByPath.get('taxonomy/nodes.json')).toBe('{"v":"B-stale"}'); // B's explicit overwrite
-      expect(contentByPath.get('taxonomy/unrelated.json')).toBe('{"u":"B"}');
+      expect(contentByPath.get('conflicts/nodes.json')).toBe('{"v":"B-stale"}'); // B's explicit overwrite
+      expect(contentByPath.get('conflicts/unrelated.json')).toBe('{"u":"B"}');
       expect(backendB.getSessionOverlay('alice')).toBeUndefined();
 
       backendA.shutdown(); backendB.shutdown();
