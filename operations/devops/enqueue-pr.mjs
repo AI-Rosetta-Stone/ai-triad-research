@@ -30,11 +30,12 @@
 // gate-file-change.mjs and every local module they import) is origin/main's
 // (running-copy-current.mjs). A stale copy can lack a refusal entirely (t/537#40). Fail closed.
 //
-// t/564: right after the currency check, the team PR budget (pr-budget.mjs): a non-Dependabot PR
-// past its creation day's budget, or waiting in the carryover pool with no free slot today, is
-// refused unless a TL/Security `budget-exempt:` review at its head is named with
-// --budget-exempt-review (logged as BUDGET-EXEMPT). Unreadable counts refuse. The CLI (never a
-// library caller) pings the PR's owner once on an over-budget refusal (pr-budget-notify.mjs).
+// t/656 (t/655, PI 2026-11-25; replaces t/564's daily count): right after the currency check, the
+// landing vehicle (landing-vehicle.mjs): an area train, a feature PR spanning 3+ tickets or 2+
+// owners, an open INCIDENT's PR, Dependabot, or an automated base re-pin. Anything else is refused,
+// except PRs opened before the cutover (48 h grandfather, WARN). --budget-exempt-review is accepted
+// for incident PRs only (logged as BUDGET-EXEMPT). Unreadable facts refuse. The CLI (never a library
+// caller) pings the PR's owner once on a wrong-vehicle refusal (pr-budget-notify.mjs).
 //
 // t/537: a PR that changes a workflow or a gate script is refused at every tier unless a
 // reviewer-App `Approved (Tech Lead):` or `Approved (Security):` review bound to the current head is
@@ -70,8 +71,8 @@ import { fileURLToPath } from 'node:url';
 import { extractTier } from './tier-check-predicate.mjs';
 import { fetchChangedFiles, fetchReview, gateFileChangeVerdict, gateFileRefusalMessage } from './gate-file-change.mjs';
 import { checkRunningCopy, currencyOkLine, currencyRefusalMessage } from './running-copy-current.mjs';
-import { budgetOkLine, budgetRefusalMessage, checkPrBudget } from './pr-budget.mjs';
-import { pingBudgetRefusal } from './pr-budget-notify.mjs';
+import { checkLandingVehicle, vehicleOkLine, vehicleRefusalMessage } from './landing-vehicle.mjs';
+import { pingVehicleRefusal } from './pr-budget-notify.mjs';
 import {
   approvalAtHeadVerdict, approvalFromApiVerdict, classifyT1GuardForEnqueue, fetchApprovalInputs, fetchGuardRun, pickAuthoritativeGuardRun,
 } from './t1-approval-at-head.mjs';
@@ -213,7 +214,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * autoMergeRequest at all). Throws (never silently returns ok:false) if even the fallback
  * doesn't result in the PR being queued or armed.
  */
-export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh, expectedHeadOid = null, gateChangeReviewId = null, by = null, overrideHold = false, currency = checkRunningCopy, budget = checkPrBudget, budgetExemptReviewId = null } = {}) {
+export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh, expectedHeadOid = null, gateChangeReviewId = null, by = null, overrideHold = false, currency = checkRunningCopy, vehicle = checkLandingVehicle, budgetExemptReviewId = null } = {}) {
   // t/556: BEFORE ANY OTHER CHECK, refuse unless this running copy (this file, gate-file-change.mjs
   // and every local module they import) is origin/main's. A stale copy can lack a refusal entirely
   // (t/537#40). Fail closed: a failed fetch or read refuses. `currency` is injectable for tests only.
@@ -225,31 +226,32 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
   }
   console.log(currencyOkLine(current));
 
-  // t/564: the team PR budget, before the gate-file check and any other PR read. Fail closed: a
-  // check that throws or returns nothing refuses. `budget` is injectable for tests only.
+  // t/656 (replaces t/564's daily count): the landing vehicle, before the gate-file check and any
+  // other PR read. Fail closed: a check that throws or returns nothing refuses. `vehicle` is
+  // injectable for tests only.
   let bv;
   try {
-    bv = budget(repo, prNumber, { gh: ghFn, exemptReviewId: budgetExemptReviewId, by });
+    bv = await vehicle(repo, prNumber, { gh: ghFn, exemptReviewId: budgetExemptReviewId, by });
   } catch (err) {
-    bv = { allow: false, reason: 'budget_read_failed', detail: `the budget check threw: ${err?.message ?? err}` };
+    bv = { allow: false, reason: 'vehicle_read_failed', detail: `the vehicle check threw: ${err?.message ?? err}` };
   }
   if (!bv?.allow) {
-    const verdict = bv ?? { allow: false, reason: 'budget_read_failed', detail: 'the budget check returned nothing' };
-    throw Object.assign(new Error(budgetRefusalMessage({ repo, prNumber, verdict })), {
-      name: 'ActionableError', reason: verdict.reason, budget: verdict,
+    const verdict = bv ?? { allow: false, reason: 'vehicle_read_failed', detail: 'the vehicle check returned nothing' };
+    throw Object.assign(new Error(vehicleRefusalMessage({ repo, prNumber, verdict })), {
+      name: 'ActionableError', reason: verdict.reason, vehicle: verdict,
     });
   }
-  if (bv.reason !== 'budget_exempt') console.log(budgetOkLine({ repo, prNumber, verdict: bv }));
+  console.log(vehicleOkLine({ repo, prNumber, verdict: bv }));
 
   const prMeta = JSON.parse(ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft,labels']));
   const headSha = prMeta.headRefOid;
   const tier = extractTier(prMeta.body);
-  // t/564 (Second Opinion on #5473, C): the budget (and any budget-exempt review) was judged on the head
-  // the budget check read. Refuse if the head this enqueue pins is a different one.
+  // t/564 (Second Opinion on #5473, C), kept for t/656: the vehicle (and any budget-exempt review) was
+  // judged on the head the vehicle check read. Refuse if the head this enqueue pins is a different one.
   if (bv.pr && bv.pr.headRefOid !== headSha) {
-    const verdict = { allow: false, reason: 'budget_read_failed', today: bv.today, nextDayStart: bv.nextDayStart,
-      detail: `the head moved between the budget check (${String(bv.pr.headRefOid).slice(0, 9)}) and the enqueue read (${String(headSha).slice(0, 9)}); rerun` };
-    throw Object.assign(new Error(budgetRefusalMessage({ repo, prNumber, verdict })), { name: 'ActionableError', reason: verdict.reason, budget: verdict });
+    const verdict = { allow: false, reason: 'vehicle_read_failed',
+      detail: `the head moved between the vehicle check (${String(bv.pr.headRefOid).slice(0, 9)}) and the enqueue read (${String(headSha).slice(0, 9)}); rerun` };
+    throw Object.assign(new Error(vehicleRefusalMessage({ repo, prNumber, verdict })), { name: 'ActionableError', reason: verdict.reason, vehicle: verdict });
   }
 
   // t/73: a caller that verified the approval at a specific head pins the enqueue to it. Both
@@ -414,17 +416,17 @@ if (isCliEntry) {
 }
 
 /**
- * The CLI: enqueuePR, and on an over-budget refusal ONE ping to the PR's owner (t/564; library callers
+ * The CLI: enqueuePR, and on a wrong-vehicle refusal ONE ping to the PR's owner (t/656; library callers
  * such as the sweeps never ping). Returns the exit code. `deps` ({ enqueue, ping, log, error }) is for tests.
  */
 export async function runCli(repo, prNumber, opts, deps = {}) {
-  const { enqueue = enqueuePR, ping = pingBudgetRefusal, log = console.log, error = console.error } = deps;
+  const { enqueue = enqueuePR, ping = pingVehicleRefusal, log = console.log, error = console.error } = deps;
   try {
     log(JSON.stringify(await enqueue(repo, prNumber, opts)));
     return 0;
   } catch (err) {
     error(err?.message ?? err);
-    if (err?.budget) await ping({ repo, pr: err.budget.pr, reason: err.reason, message: err.message, by: opts.by });
+    if (err?.vehicle) await ping({ repo, pr: err.vehicle.pr, reason: err.reason, message: err.message, by: opts.by });
     return 1;
   }
 }

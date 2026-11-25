@@ -37,8 +37,9 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
 import { checkVerdict, classifyEnqueueFailure, disarmViaGraphql, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
-// t/602: the refusals that mean "over the PR budget, wait for a slot" (the same set the budget report pings).
-import { PING_REASONS as BUDGET_SKIP_REASONS } from './pr-budget-notify.mjs';
+// t/602, kept for t/656: the refusals that mean "land it on the right vehicle" are the policy working,
+// logged as skips, never a failed sweep (landing-vehicle.mjs ROUTE_REASONS, the set enqueue-pr pings).
+import { ROUTE_REASONS as BUDGET_SKIP_REASONS } from './landing-vehicle.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { ejectedBatchVerdict, listMergeGroupRuns, listRunJobs, readJobLog } from './ejected-batch.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
@@ -462,7 +463,7 @@ function withRepinChecks(repo, prs) {
 
 /**
  * Enqueues one selected PR (`{ number, headRefOid, armed }`) and reports what happened:
- * 'enqueued', 'skipped' (the live re-read said no, or enqueue-pr refused it over the PR budget, t/602), 'raced' (the PR moved on by itself while
+ * 'enqueued', 'skipped' (the live re-read said no, or enqueue-pr refused its landing vehicle, t/602/t/656), 'raced' (the PR moved on by itself while
  * enqueuing) or 'failed'. Shared by the T0 and T1 sweeps (t/73); moved out of `sweep` unchanged.
  * `enqueueOpts` is passed to enqueuePR (the T1 sweep pins `expectedHeadOid`). `deps` replaces the
  * live read, the enqueue call and `gh` in tests.
@@ -497,7 +498,7 @@ export async function enqueueOne(repo, pr, { enqueueOpts, deps = {} } = {}) {
     // (t/600: never re-arm). Every other refusal and failure still fails the job.
     const c = classifyEnqueueFailure(err);
     if (c.kind === 'policy' && BUDGET_SKIP_REASONS.includes(c.reason)) {
-      console.log(`skip #${pr.number}: over the PR budget (${c.reason}); waits for the next day's slots`);
+      console.log(`skip #${pr.number}: not on a landing vehicle (${c.reason}); land it on an area train (t/656)`);
       return 'skipped';
     }
     console.error(`::error::#${pr.number}: ${err.message ?? err}`);

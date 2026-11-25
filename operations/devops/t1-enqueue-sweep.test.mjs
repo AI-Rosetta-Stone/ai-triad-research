@@ -405,8 +405,8 @@ const refusal = (reason) => Object.assign(
   { name: 'ActionableError', reason });
 const liveOpen = { state: 'OPEN', isInMergeQueue: false, isDraft: false, headRefOid: HEAD };
 
-test('t/602: a budget refusal (over_budget_today, pooled_no_slot, pool_expired) is a logged skip; the sweep does not throw and nothing is re-armed', async () => {
-  for (const reason of ['over_budget_today', 'pooled_no_slot', 'pool_expired']) {
+test('t/602, t/656: a wrong-vehicle refusal (not_a_vehicle, feature_too_small, incident_not_open) is a logged skip; the sweep does not throw and nothing is re-armed', async () => {
+  for (const reason of ['not_a_vehicle', 'feature_too_small', 'incident_not_open']) {
     const logs = [];
     const mocks = [mock.method(console, 'log', (l) => logs.push(String(l))), mock.method(console, 'warn', () => {}),
       mock.method(console, 'error', (l) => logs.push(`ERR ${l}`))];
@@ -415,18 +415,18 @@ test('t/602: a budget refusal (over_budget_today, pooled_no_slot, pool_expired) 
       deps.enqueueDeps.enqueue = async (repo, n, opts) => { calls.enqueue.push({ n, opts }); throw refusal(reason); };
       assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps }), { 1: 'skipped' }, reason);
       assert.equal(calls.enqueue.length, 1, reason);
-      assert.ok(logs.includes(`skip #1: over the PR budget (${reason}); waits for the next day's slots`), logs.join('\n'));
+      assert.ok(logs.includes(`skip #1: not on a landing vehicle (${reason}); land it on an area train (t/656)`), logs.join('\n'));
       assert.ok(!logs.some((l) => l.startsWith('ERR ')), `no ::error:: for ${reason}`);
       assert.ok(!calls.gh.some((a) => a.join(' ').includes('enablePullRequestAutoMerge')), 'never re-armed (t/600)');
     } finally { mocks.forEach((m) => m.mock.restore()); }
   }
 });
 
-test('t/602: every other refusal still fails the sweep (gate files, approval, budget_read_failed, budget_exempt_invalid) and a non-refusal error too', async () => {
+test('t/602: every other refusal still fails the sweep (gate files, approval, vehicle_read_failed, budget_exempt_invalid) and a non-refusal error too', async () => {
   const errs = [
     new Error('enqueue-pr: refusing to arm/enqueue #1 on o/r (gate_files_changed).\n  Goal: x'),
     new Error('enqueue-pr: refusing to arm/enqueue #1 on o/r (no_approval_at_head).'),
-    refusal('budget_read_failed'),
+    refusal('vehicle_read_failed'),
     refusal('budget_exempt_invalid'),
     new Error('gh: HTTP 502'),
   ];
@@ -443,7 +443,7 @@ test('t/602: every other refusal still fails the sweep (gate files, approval, bu
 test('t/602: the T0 path shares enqueueOne, so a budget refusal returns skipped there too', async () => {
   const mocks = [mock.method(console, 'log', () => {}), mock.method(console, 'error', () => {})];
   try {
-    const deps = { readLive: () => liveOpen, enqueue: async () => { throw refusal('over_budget_today'); }, ghFn: () => '' };
+    const deps = { readLive: () => liveOpen, enqueue: async () => { throw refusal('not_a_vehicle'); }, ghFn: () => '' };
     assert.equal(await enqueueOne('o/r', { number: 1, headRefOid: HEAD, armed: false }, { deps }), 'skipped');
     deps.enqueue = async () => { throw new Error('enqueue-pr: refusing to arm/enqueue #1 on o/r (gate_files_changed).'); };
     assert.equal(await enqueueOne('o/r', { number: 1, headRefOid: HEAD, armed: false }, { deps }), 'failed');
