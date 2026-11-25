@@ -184,12 +184,12 @@ const MANIFEST_FILE = 'manifest.json';
 // consulted directly; see OVERLAY_SHARED_STATE_COMMIT_READY below.
 const OVERLAY_SHARED_STATE_ENABLED = process.env.OVERLAY_SHARED_STATE_ENABLED === '1';
 
-// Hardcoded false until the commit-path follow-up PR (t/4311#30 R2) wires
-// unstage(ifMatch) into commit/discard/revert. Without that, nothing ever
-// clears a shared entry, so turning reads+writes on now would let
-// discarded or already-committed content keep serving as "staged" to
-// other replicas forever. Flips to true in that later PR, never by env var.
-const OVERLAY_SHARED_STATE_COMMIT_READY = false;
+// t/503: true now that the commit path exists (t/550 commit lease and commit from the store, clear by ETag, t/551
+// discard and rebase on the shared entries, t/552 DRAINING rollback). It was hardcoded false until then (t/4311#30
+// R2), because nothing cleared a shared entry. It is never an env var. Shared state is still OFF unless the
+// deployment also sets OVERLAY_SHARED_STATE_ENABLED=1 (Azure's Bicep, t/554, staging first) and server.ts passes
+// sharedOverlayState with commitLock.
+const OVERLAY_SHARED_STATE_COMMIT_READY = true;
 
 /** t/549 (SO t/503#10): a reader re-lists a user's shared overlay entries at least this often even when
  *  `_gen` has not moved, because a stage whose `_gen` bump failed is still acknowledged. */
