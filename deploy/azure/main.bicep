@@ -72,7 +72,15 @@ param trafficPinRevisionNameStaging string = ''
 // (p/241#90) — confirming class-A writes already route to /mnt/staging-state, not /mnt/shared.
 // The RO flip makes the hard boundary live: missed write sites EROFS instead of silently
 // mutating prod. Lands with the first deploy after the t/4258 hold, with the PI's go.
-@description('Flip /mnt/shared to read-only on staging (ARM step 3 of t/2643 isolation).')
+// t/617: staging's /mnt/shared is now always read-only (see the shared-data volume below).
+// This parameter stays because deploy-azure.yml still passes it, but only true is allowed:
+// a deploy with stagingSharedReadOnly=false fails validation instead of mounting prod's
+// share read-write on staging.
+@description('Must be true. Staging always mounts /mnt/shared read-only (t/2643, t/617).')
+@allowed([
+  true
+])
+#disable-next-line no-unused-params // kept only so deploy-azure.yml's parameter is accepted; @allowed is the guard
 param stagingSharedReadOnly bool = true
 
 // ── Staging load-test sizing (t/4203) ──
@@ -1168,7 +1176,11 @@ resource containerAppStaging 'Microsoft.App/containerApps@2025-01-01' = {
           // test itself a write load against production storage. Confirming staging runs
           // correctly against RO shared data is exactly the open t/2643 arm-B question, so
           // this also doubles as that verification once a load test actually runs.
-          storageName: (stagingSharedReadOnly || stagingLoadTestSize) ? 'taxonomy-data-ro' : 'taxonomy-data'
+          //
+          // t/617: always the read-only registration. The read-write branch
+          // ('taxonomy-data' when stagingSharedReadOnly=false) is removed, so staging can
+          // never mount prod's share writable. stagingSharedReadOnly now only accepts true.
+          storageName: 'taxonomy-data-ro'
         }
         {
           // Staging-isolated RW share for class-A state (t/2643).
