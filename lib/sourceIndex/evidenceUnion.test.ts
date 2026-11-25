@@ -41,10 +41,11 @@ const fixture = JSON.parse(readFileSync(fixturePath, 'utf-8')) as {
   }[];
   derived_key_regex: string;
   derived_key_cases: { key: string; derived: boolean }[];
-  resolve_cases: { name: string; docs: Record<string, EvidenceDoc & { summary?: unknown }>; id: string; expected: string }[];
+  resolve_cases: { name: string; docs: Record<string, EvidenceDoc & { summary?: unknown }>; manifest: Record<string, string>; id: string; expected?: string; expected_error?: string }[];
   chunk_union_cases: {
     name: string;
     canonical: string;
+    manifest: Record<string, string>;
     docs: Record<string, EvidenceDoc & { summary?: unknown; chunk_generated_at?: string; chunk_model?: string }>;
     expected: Record<string, Array<EvidenceLink & { doc: string; via?: string; chunk_of?: string; chunk_generated_at?: string; chunk_model?: string }>>;
     expected_documents: number;
@@ -93,7 +94,11 @@ describe(`evidence-union fixture v${fixture.version} (t/4337 section 7)`, () => 
   describe('resolve_cases', () => {
     for (const c of fixture.resolve_cases) {
       it(c.name, () => {
-        expect(resolveDocId(c.id, c.docs)).toBe(c.expected);
+        if (c.expected_error) {
+          expect(() => resolveDocId(c.id, c.docs, c.manifest)).toThrow(expect.objectContaining({ code: c.expected_error }) as never);
+        } else {
+          expect(resolveDocId(c.id, c.docs, c.manifest)).toBe(c.expected);
+        }
       });
     }
   });
@@ -101,7 +106,7 @@ describe(`evidence-union fixture v${fixture.version} (t/4337 section 7)`, () => 
   describe('chunk_union_cases', () => {
     for (const c of fixture.chunk_union_cases) {
       it(c.name, () => {
-        const members = groupMembers(c.canonical, c.docs);
+        const members = groupMembers(c.canonical, c.docs, c.manifest);
         const withLinks = (id: string) => extractSummaryEvidenceLinks(c.docs[id]?.summary as never);
         const all: EvidenceUnionMember<EvidenceLink>[] = [
           { id: c.canonical, links: withLinks(c.canonical) },
@@ -119,7 +124,7 @@ describe(`evidence-union fixture v${fixture.version} (t/4337 section 7)`, () => 
         // Extraction reads every kept fact (7.6, 7.6a): nothing is skipped on via or chunk_of.
         expect(merged).toEqual(c.expected_extracted);
         // 7.5: the group is one document, however many chunks it has.
-        const documents = new Set(all.map(m => resolveDocId(m.id, c.docs)));
+        const documents = new Set(all.map(m => resolveDocId(m.id, c.docs, c.manifest)));
         expect(documents.size).toBe(c.expected_documents);
       });
     }
