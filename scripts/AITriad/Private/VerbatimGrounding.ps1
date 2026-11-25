@@ -48,11 +48,16 @@
 # be left out when the source does not have it, when it is shorter than 12 letters and so cannot be
 # placed, or when it does not stand with the others as one passage. What is stored must then still hold
 # 0.9 of the whole quote's letters; if it does not, the quote is dropped.
-# A segment that IS in the source but not as the model wrote it (a changed or left-out word, a changed
-# capital, a word that cannot be stored) is never left out: it fails the whole quote (t/389#99). An
-# elision mark says the text left out was passage text, so a misquote left out at a mark would look
-# like an accurate partial quote. Nothing is left out silently inside a segment either: that is the
-# unstored-word rule.
+# "The source does not have it" means: the matcher finds no run of 12 letters of the segment anywhere
+# in the snapshot (t/389#103). A segment with such a run IS in the source, and when it is not there as
+# the model wrote it (a changed or left-out word, a changed capital, a word that cannot be stored, or
+# only part of it found), it is never left out: it fails the whole quote (t/389#99). An elision mark
+# says the text left out was passage text, so a misquote left out at a mark would look like an accurate
+# partial quote.
+# THE LIMIT OF THIS RULE: a segment shorter than 12 letters has no run to find, so a short misquote
+# ("it is wrong." for the source's "it is correct.") is treated as a segment the source does not have
+# and is left out under the 0.9 rule.
+# Nothing is left out silently inside a segment either: that is the unstored-word rule.
 # Two segments stand as one passage only in source order, within 1,000 letters, with running prose
 # between them: no table row, no paragraph that starts a list or bibliography entry, at most one page
 # boundary (t/389#45, #47 (1)).
@@ -1783,6 +1788,14 @@ function Resolve-VerbatimQuote {
             # elision mark says the text left out was passage text.
             if ($script:VerbatimRejectedSegmentFailsQuote -and $R.PSObject.Properties['Rejected'] -and $R.Rejected) {
                 $script:VerbatimDiag.Add('elided quote: a segment is in the source but not as written')
+                $Dropped.Coverage = $BestCoverage
+                return $Dropped
+            }
+            # The source "does not have" a segment only when the matcher found no run of VerbatimMinRun letters
+            # of it anywhere in the snapshot (CL t/389#103). With such a run the segment is a misquote of
+            # source text, however much else differs, and it fails the whole quote in the same way.
+            if ($script:VerbatimRejectedSegmentFailsQuote -and $R.Coverage -gt 0) {
+                $script:VerbatimDiag.Add('elided quote: a segment is partly in the source')
                 $Dropped.Coverage = $BestCoverage
                 return $Dropped
             }

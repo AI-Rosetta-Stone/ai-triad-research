@@ -984,10 +984,20 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             $Changed = & $script:Decide74 $Src "$A. [...] $($B -replace 'model', 'total')."
             $Changed.Decision | Should -Be 'dropped'
             $Changed.Diag | Should -Contain 'elided quote: a segment is in the source but not as written'
+            # A segment changed near its start is not placed at 0.9, but a run of 12 of its letters is in the
+            # source: it is a misquote, not an absent segment, and fails the quote too (CL t/389#103).
+            $Partly = & $script:Decide74 $Src "$A. [...] $($B -replace 'want', 'wish')."
+            $Partly.Decision | Should -Be 'dropped'
+            $Partly.Diag | Should -Contain 'elided quote: a segment is partly in the source'
             # A second segment the source does not have at all is left out, and the rest holds 0.9 of the quote.
             $Absent = & $script:Decide74 $Src "$A. [...] Nobody objected at all."
             $Absent.Decision | Should -Not -Be 'dropped'
             @($Absent.Texts).Count | Should -Be 1
+            # The rule's limit: a segment under 12 letters has no run to find, so a short misquote is left out
+            # like an absent segment ("Later, they adopted it" is not in the source; "Later, no" is 7 letters).
+            $Short = & $script:Decide74 $Src "$A. [...] Later, no."
+            $Short.Decision | Should -Not -Be 'dropped'
+            @($Short.Texts).Count | Should -Be 1
             # Both segments as the source has them: kept as two quotes.
             $Both = & $script:Decide74 $Src "$A. [...] $B."
             $Both.Decision | Should -Not -Be 'dropped'
