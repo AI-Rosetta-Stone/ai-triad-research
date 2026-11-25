@@ -101,9 +101,9 @@ describe('POST /api/sync/overlay-conflicts/use-theirs (t/4315)', () => {
 });
 
 describe('POST /api/sync/overlay-conflicts/keep-mine (t/4315)', () => {
-  function fakeBackend(overrides: Partial<{ rebaseAndRecommitConflictedOverlayEntries: any; getOverlayEntries: any }> = {}) {
+  function fakeBackend(overrides: Partial<{ rebaseAndRecommitConflictedOverlayEntries: any; getOverlayEntriesForBroadcast: any }> = {}) {
     return {
-      getOverlayEntries: vi.fn().mockReturnValue({ writes: [{ path: 'a.json', content: '{}' }], deletes: [] }),
+      getOverlayEntriesForBroadcast: vi.fn().mockResolvedValue({ writes: [{ path: 'a.json', content: '{}' }], deletes: [] }),
       rebaseAndRecommitConflictedOverlayEntries: vi.fn().mockResolvedValue({
         committed: true, commitSha: 'sha123', filesCommitted: 1, stillConflicted: [],
       }),
@@ -125,6 +125,22 @@ describe('POST /api/sync/overlay-conflicts/keep-mine (t/4315)', () => {
     expect(body).toEqual({ committed: true, commitSha: 'sha123', filesCommitted: 1, stillConflicted: [] });
     expect(backend.rebaseAndRecommitConflictedOverlayEntries).toHaveBeenCalledWith('tester', 'api-session/tester');
     expect(broadcastTaxonomyUpdate).toHaveBeenCalledWith(backend, { writes: [{ path: 'a.json', content: '{}' }], deletes: [] }, 'tester');
+  });
+
+  // t/691: in shared mode a store failure yields null entries; the commit still answers, the broadcast gets null (skipped).
+  it('passes null entries through to the broadcast when the store listing failed', async () => {
+    const backend = fakeBackend({ getOverlayEntriesForBroadcast: vi.fn().mockResolvedValue(null) });
+    const broadcastTaxonomyUpdate = vi.fn().mockResolvedValue(undefined);
+    const { status } = await invoke('/api/sync/overlay-conflicts/keep-mine', {
+      ctx: {
+        getGithubBackend: () => backend as any,
+        getSessionManager: () => ({ getActiveBranch: () => 'api-session/tester' } as any),
+        broadcastTaxonomyUpdate,
+      },
+    });
+    expect(status).toBe(200);
+    expect(backend.getOverlayEntriesForBroadcast).toHaveBeenCalledWith('tester');
+    expect(broadcastTaxonomyUpdate).toHaveBeenCalledWith(backend, null, 'tester');
   });
 
   it('does not broadcast when nothing committed (empty overlay)', async () => {
