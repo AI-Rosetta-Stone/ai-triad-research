@@ -355,7 +355,8 @@ function isAnonUserContentRoute(urlPath: string): boolean {
 // else blocked. Exact-match allowlist (no prefixes).
 const ANON_SAFE_POST_PATHS = [
   '/api/flight-recorder/dump',
-  '/api/flight-recorder/server-dump',
+  // t/579 (incident): '/api/flight-recorder/server-dump' removed. It writes the unfiltered server
+  // event buffer plus the drained server logs to a file that the GET routes below served to anyone.
   '/api/debates/export',
   '/api/source-evidence',
   '/api/analytics/event',
@@ -389,6 +390,15 @@ const ANON_SAFE_POST_REGEXES = [
   /^\/api\/community\/opeds\/[^/]+\/share$/,
 ];
 
+/** t/579: flight-recorder GET routes refused to anonymous callers: the folder listing and the
+ *  per-file download and viewer (they serve server dumps). Matched on the lower-cased path so
+ *  '/api/flight-recorder/list/', '/API/Flight-Recorder/download/x' and similar are caught too. */
+const ANON_BLOCKED_FLIGHT_RECORDER_GET_RE = /^\/api\/flight-recorder\/(?:list(?:\/|$)|download\/|view\/)/;
+
+function isAnonBlockedFlightRecorderGet(urlPath: string): boolean {
+  return ANON_BLOCKED_FLIGHT_RECORDER_GET_RE.test(urlPath.toLowerCase());
+}
+
 /** t/3259: the debate-only ~400MB synthetic-embeddings corpus GET — anon access is gated on the
  *  anon-debates flag rather than the blanket GET-allow below. */
 const SYNTHETIC_EMBEDDINGS_PATH = '/api/taxonomy/synthetic-embeddings';
@@ -414,6 +424,12 @@ export function isAnonAllowedRoute(method: string, urlPath: string): boolean {
     // → blocked) and a trailing slash makes matchRoute's exact segment-count match 404 (nothing served);
     // the trailing-slash strip here blocks `/synth/` at the gate too.
     if (urlPath.replace(/\/+$/, '') === SYNTHETIC_EMBEDDINGS_PATH) return false;
+    // t/579 (incident): the flight-recorder file routes (list, download, view) serve the shared dump
+    // folder, including server dumps with every user's server events and log lines. Anonymous callers
+    // get none of them. Prefix match, case-insensitive, so no trailing slash, encoding or case variant
+    // of these paths gets through. download-merged/:dumpId stays: it omits the server side for
+    // anonymous sessions (diagnostics.ts, includeServer).
+    if (isAnonBlockedFlightRecorderGet(urlPath)) return false;
     return true;
   }
 

@@ -53,7 +53,6 @@ const ANON_ALLOWED_ROUTES: Array<{ method: string; path: string; desc: string }>
   { method: 'POST', path: '/api/community/submit', desc: 'community submission' },
   { method: 'POST', path: '/api/debates/export', desc: 'export debate' },
   { method: 'POST', path: '/api/flight-recorder/dump', desc: 'flight recorder dump' },
-  { method: 'POST', path: '/api/flight-recorder/server-dump', desc: 'server flight recorder dump' },
   { method: 'POST', path: '/api/analytics/event', desc: 'analytics event' },
   { method: 'POST', path: '/focus-node', desc: 'set focused node' },
 ];
@@ -72,6 +71,7 @@ const INTENTIONALLY_BLOCKED_ROUTES: Array<{ method: string; path: string; desc: 
   { method: 'POST', path: '/api/nli/classify', desc: 'NLI argument classification (AI route)' },
   { method: 'POST', path: '/api/evidence-qbaf', desc: 'QBAF evidence scoring (explicitly blocked)' },
   { method: 'POST', path: '/api/embeddings/query', desc: 'semantic search queries (AI route)' },
+  { method: 'POST', path: '/api/flight-recorder/server-dump', desc: 'server flight-recorder dump (t/579 incident: anonymous callers may not dump server logs)' },
 ];
 
 describe('debate pipeline anonymous route allowlist (t/1110)', () => {
