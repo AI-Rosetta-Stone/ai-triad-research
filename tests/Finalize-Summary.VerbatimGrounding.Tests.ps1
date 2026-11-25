@@ -407,6 +407,14 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.Stored | Should -BeNullOrEmpty
     }
 
+    It 'the chart-label rule holds with CRLF line ends, as the corpus snapshots have (p/70#93)' {
+        $Label = 'Skills gaps in the labour market'
+        $Src = "ECONOMY GLOBAL`r`n`r`n$Label`r`n`r`n72%`r`n`r`n63%`r`n`r`n47%`r`n`r`n46%`r`n`r`nGrowing`r`n`r`nMore text about the survey of employers.`r`n"
+        $Out = & $script:Run $Src "$Label 72% 63%" 'doc-chart-label-crlf'
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
+    }
+
     It 'prose that ends with a figure on its own line keeps the prose and not the figure (p/70#93)' {
         $Prose = 'Employers surveyed expect that skills gaps in the labour market will hinder their transformation over the next five years'
         $Src = "Some other text about the survey.`n`n$Prose`n`n63%`n`nMore text about the survey of employers.`n"

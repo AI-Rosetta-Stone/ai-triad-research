@@ -455,8 +455,9 @@ function Find-VerbatimSnap {
             $G0 = $PS + $Gap.Index; $G1 = $G0 + $Gap.Length
             $L0 = $Text.LastIndexOf([char]10, [Math]::Max(0, $G0 - 1)) + 1
             $L1 = $Text.IndexOf([char]10, $G1); if ($L1 -lt 0) { $L1 = $Text.Length }
-            if ($Text.Substring($L0, $G0 - $L0) -match $script:VerbatimFigureLinePattern -or
-                $Text.Substring($G1, $L1 - $G1) -match $script:VerbatimFigureLinePattern) {
+            # Trim: with CRLF line ends the line after the gap still carries its carriage return.
+            if ($Text.Substring($L0, $G0 - $L0).Trim() -match $script:VerbatimFigureLinePattern -or
+                $Text.Substring($G1, $L1 - $G1).Trim() -match $script:VerbatimFigureLinePattern) {
                 $Skips.Add(@{ Start = $G0; End = $G1 })
                 $FigureSplit = $true
             }
