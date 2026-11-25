@@ -59,26 +59,33 @@ $script:Phases = @(
     [pscustomobject]@{ Name = 'IdentityAllowlist'; Kind = 'warn' }
 )
 
+function Test-StrictTrue {
+    <# PURE (SO p/273#12). Only a real boolean $true passes: [bool]'false' is $true in PowerShell, and
+       'True' -eq $true is true too, so neither a cast nor -eq is strict enough for a gate. #>
+    param($Value)
+    return ($Value -is [bool]) -and $Value
+}
+
 function Get-ContainerSmokePhaseVerdict {
     <# PURE. { Pass, Detail } for one phase's return value. Unknown shapes fail (fail closed). #>
     param([string]$Name, $Result)
     switch ($Name) {
         'Health' {
-            $bad = @($Result.Checks | Where-Object { -not $_.Healthy } | ForEach-Object { "$($_.Endpoint): $($_.Detail)" })
-            return [pscustomobject]@{ Pass = [bool]$Result.Healthy; Detail = if ($Result.Healthy) { 'healthy' } else { "unhealthy: $($bad -join '; ')" } }
+            $bad = @($Result.Checks | Where-Object { -not (Test-StrictTrue $_.Healthy) } | ForEach-Object { "$($_.Endpoint): $($_.Detail)" })
+            return [pscustomobject]@{ Pass = (Test-StrictTrue $Result.Healthy); Detail = if (Test-StrictTrue $Result.Healthy) { 'healthy' } else { "unhealthy: $($bad -join '; ')" } }
         }
         { $_ -in 'Endpoint', 'AnonEndpoint', 'Analytics', 'DataPresence' } {
             $rows = @($Result)
             if ($rows.Count -eq 0) { return [pscustomobject]@{ Pass = $false; Detail = 'returned no results (fail closed)' } }
-            $failed = @($rows | Where-Object { -not $_.Pass })
+            $failed = @($rows | Where-Object { -not (Test-StrictTrue $_.Pass) })
             $detail = if ($failed.Count) {
                 "$($failed.Count)/$($rows.Count) failed: " + (($failed | ForEach-Object { "$($_.Endpoint) -> $($_.Status) $($_.Error)".Trim() }) -join '; ')
             } else { "$($rows.Count)/$($rows.Count) passed" }
             return [pscustomobject]@{ Pass = ($failed.Count -eq 0); Detail = $detail }
         }
-        'OpedFiles' { return [pscustomobject]@{ Pass = [bool]$Result.Pass; Detail = if ($Result.Pass) { 'assets present' } else { "$($Result.Result.Error)" } } }
+        'OpedFiles' { return [pscustomobject]@{ Pass = (Test-StrictTrue $Result.Pass); Detail = if (Test-StrictTrue $Result.Pass) { 'assets present' } else { "$($Result.Result.Error)" } } }
         'EmbeddingLatency' { return [pscustomobject]@{ Pass = ($Result.Status -eq 'ok'); Detail = "$($Result.Status), $($Result.Ms) ms" } }
-        'CachePresence' { return [pscustomobject]@{ Pass = [bool]$Result.Present; Detail = "$($Result.Status)" } }
+        'CachePresence' { return [pscustomobject]@{ Pass = (Test-StrictTrue $Result.Present); Detail = "$($Result.Status)" } }
         'IdentityAllowlist' { return [pscustomobject]@{ Pass = ($Result.Status -eq 'ok'); Detail = "$($Result.Status), unreachable=$($Result.Count)" } }
         default { return [pscustomobject]@{ Pass = $false; Detail = "no verdict rule for phase '$Name' (add one to Get-ContainerSmokePhaseVerdict)" } }
     }

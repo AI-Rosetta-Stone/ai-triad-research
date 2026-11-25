@@ -39,6 +39,13 @@ Describe 'Invoke-ContainerSmoke: nothing is skipped silently (t/611 step 4)' -Ta
         $smoke | Should -Match ([regex]::Escape('$OverallPass = $Health.Healthy -and $Failed -eq 0 -and $Azure.Healthy'))
     }
 
+    It 'the runner, the phase functions it runs, and the OverallPass it is pinned to are gate files (SO p/273#12)' {
+        $gfc = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'operations' 'devops' 'gate-file-change.mjs')
+        foreach ($rel in 'operations/devops/Invoke-ContainerSmoke.ps1', 'scripts/AITriad/Private/TaxEditorSmokeTestPhases.ps1', 'scripts/AITriad/Public/Invoke-TaxEditorSmokeTest.ps1') {
+            $gfc | Should -Match ([regex]::Escape("'$rel'")) -Because "a PR must not loosen $rel and lock a route in one change without a gate-change review"
+        }
+    }
+
     It 'every run phase has a verdict rule (an unknown phase fails closed)' {
         foreach ($p in @($script:Phases | Where-Object Kind -ne 'skip')) {
             (Get-ContainerSmokePhaseVerdict -Name $p.Name -Result $null).Detail | Should -Not -Match 'no verdict rule'
@@ -61,6 +68,17 @@ Describe 'Invoke-ContainerSmoke: verdicts' -Tag 'devops' {
     It 'an endpoint-style phase that returns nothing fails closed' {
         (Get-ContainerSmokePhaseVerdict -Name 'Endpoint' -Result @()).Pass | Should -BeFalse
         (Get-ContainerSmokePhaseVerdict -Name 'DataPresence' -Result $null).Pass | Should -BeFalse
+    }
+
+    It 'only a real boolean $true passes (SO p/273#12): a string, $null or 1 never does' {
+        foreach ($v in @('True', 'false', 'yes', 1, $null, @($true))) {
+            Test-StrictTrue $v | Should -BeFalse -Because "$(if ($null -eq $v) { '$null' } else { "'$v' ($($v.GetType().Name))" }) is not a boolean true"
+        }
+        Test-StrictTrue $true | Should -BeTrue
+        $row = [pscustomobject]@{ Endpoint = 'GET /api/x'; Status = 200; Pass = 'false'; Error = $null }
+        (Get-ContainerSmokePhaseVerdict -Name 'Endpoint' -Result @($row)).Pass | Should -BeFalse -Because "[bool]'false' is `$true; the verdict must not cast"
+        (Get-ContainerSmokePhaseVerdict -Name 'Health' -Result ([pscustomobject]@{ Healthy = 'true'; Checks = @() })).Pass | Should -BeFalse
+        (Get-ContainerSmokePhaseVerdict -Name 'OpedFiles' -Result ([pscustomobject]@{ Pass = 1; Result = $null })).Pass | Should -BeFalse
     }
 
     It 'Health passes only when healthy, and names the failing checks' {
@@ -95,8 +113,13 @@ Describe 'ci.yml test-container: the container smoke step (t/611)' -Tag 'devops'
         $script:Ci | Should -Match 'openssl x509 -noout -fingerprint -sha256'
         $script:Ci | Should -Match 'header_up X-Forwarded-Proto https'
         $script:Ci | Should -Match ([regex]::Escape('curl -fsS --max-time 5 -o /dev/null https://localhost/healthz'))
-        # Lead p/233#174 condition 2: never a cert-skip anywhere in the workflow.
-        $script:Ci | Should -Not -Match 'SkipCertificateCheck|NODE_TLS_REJECT_UNAUTHORIZED|curl[^\n]*\s-k\b|--insecure'
+        # Lead p/233#174 condition 2: never a cert-skip anywhere in the workflow, nor (SO p/273#12) in the
+        # PowerShell the step runs: the runner and the smoke's phase and orchestration files.
+        $bypass = 'SkipCertificateCheck|NODE_TLS_REJECT_UNAUTHORIZED|curl[^\n]*\s-k\b|--insecure|ServerCertificateValidationCallback|ServerCertificateCustomValidationCallback'
+        $script:Ci | Should -Not -Match $bypass
+        foreach ($rel in 'operations/devops/Invoke-ContainerSmoke.ps1', 'scripts/AITriad/Private/TaxEditorSmokeTestPhases.ps1', 'scripts/AITriad/Public/Invoke-TaxEditorSmokeTest.ps1') {
+            Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot $rel) | Should -Not -Match $bypass -Because "$rel must not bypass certificate checks"
+        }
         $script:Ci | Should -Match ([regex]::Escape('Invoke-ContainerSmoke.ps1 -BaseUrl https://localhost'))
         # The reason TLS is needed: the app marks the anon session cookie Secure in production.
         $src = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'taxonomy-editor' 'src' 'server' 'routes' 'anonSessionCreated.ts')

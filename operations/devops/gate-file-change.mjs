@@ -154,6 +154,12 @@ export const VERDICT_SCRIPTS = [
   // t/543#7: the PowerShell complexity steps call this cmdlet to compute their verdict. Reached through
   // the AITriad module, so neither walk sees it; listed by hand.
   'scripts/AITriad/Public/Test-ComplexityBudget.ps1',
+  // t/611 (SO p/273#12): ci.yml test-container's container smoke runs these phase functions from the PR's
+  // own tree (through operations/devops/Invoke-ContainerSmoke.ps1, which imports the module), so a PR
+  // could loosen a phase and lock a route in one change. Reached through the module; listed by hand.
+  'scripts/AITriad/Private/TaxEditorSmokeTestPhases.ps1',
+  // Defines the deploy smoke's OverallPass, which the container smoke's gate is pinned to.
+  'scripts/AITriad/Public/Invoke-TaxEditorSmokeTest.ps1',
   // t/543 (Security p/131#48): its `test` block chooses which taxonomy-editor and lib tests the
   // required vitest run executes. Same class as poviewer/vitest.config.ts; read by default name.
   'taxonomy-editor/vite.config.ts',
