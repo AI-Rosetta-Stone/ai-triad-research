@@ -72,6 +72,12 @@ $script:VerbatimQuoteMojibakeMore = @(
     @("`u{00EF}`u{00BF}`u{00BD}", ' '), @("`u{FFFD}", ' ')
 )
 $script:VerbatimNbspBetweenLetters = $true  # CL t/389#63 (1): the a-acute that is a no-break space, between two letters, matches as a space
+# CL t/389#64: the source side is normalised for matching, with three limits; and t/389#67 (1).
+$script:VerbatimSourceNfkc = $true          # (1) the source's letters are NFKC-folded, as the quote's already are (a kept ligature character matches "fi")
+$script:VerbatimNoSpaceDeletion = 'source'  # (2) a space is never deleted: 'source' fails a source space inside a quote word; 'both' also fails glued source words; 'none'
+$script:VerbatimStoreModelWords = $true     # (3) where the normalised match holds, the model's own words are stored, not the source's text
+$script:VerbatimNbspWordEdge = $true        # t/389#67 (1): the a-acute no-break space also at a word's start or end, never at the quote's own start or end
+$script:VerbatimHyphenBreakPattern = '^[-' + [char]0xAD + [char]0x2010 + [char]0x2011 + '][ \t]*\r?\n\s*$'   # a word broken over a line end
 $script:VerbatimHeadAcrossRef = $true       # the snap reaches back over a reference to the quote's first words ("Causation 344 poses ...")
 $script:VerbatimRejectDamagedWord = $true    # a stored piece with a word that is not the quote's word fails (CL t/389#56 (3))
 $script:VerbatimDiag = [System.Collections.Generic.List[string]]::new()   # why the last quotes were rejected or changed; read and cleared by audit scripts only
@@ -109,7 +115,9 @@ function Get-VerbatimSource {
     # Ligatures whose UTF-8 bytes were read as code page 437 ("signi" + U+2229 U+00BC U+00FC + "cant" for
     # "significant"; t/389#45, H06). Without this the word does not match the model's quote, and the stored
     # piece starts after it. Same length, like the repairs above; only the matching copy changes.
-    foreach ($P in $script:VerbatimLigatureMojibake) { $W = $W.Replace($P[0], $P[1].PadRight(3)) }
+    # The padding is a zero-width space, not a space: a space would read as the source splitting the word
+    # in two, and a space is never deleted (CL t/389#64 (2)).
+    foreach ($P in $script:VerbatimLigatureMojibake) { $W = $W.Replace($P[0], $P[1].PadRight(3, [char]0x200B)) }
     # Same-length blanking of what is not text (t/389#20): HTML tags, and two mojibake forms of a
     # no-break space and an ellipsis that read as letters ("N.<a-acute>Li", "Ma, <a-grave> D. Hendrycks").
     $W = [regex]::Replace($W, $script:VerbatimHtmlTagPattern, { param($M) ' ' * $M.Length })
@@ -202,17 +210,41 @@ function Get-VerbatimSource {
     $Words = [regex]::Matches($Lower, '[\p{L}\p{Nd}]+')
     $WordAt = [int[]]::new($Words.Count)
     $WordOffset = [int[]]::new($Words.Count)
+    # A word that NFKC changes (a ligature character, a full-width letter) goes into Chars folded, as the
+    # quote's letters are (CL t/389#64 (1)). WordMap[i] then gives, for each folded letter of word i, the
+    # offset in the word of the character it came from. A ligature the converter dropped is not restored.
+    $CharsOut = [System.Text.StringBuilder]::new($Lower.Length)
+    $WordMap = @{}
+    $KC = [System.Text.NormalizationForm]::FormKC
     $At = 0; $WordIx = 0
     foreach ($M in $Words) {
         $WordAt[$WordIx] = $At; $WordOffset[$WordIx] = $M.Index
-        $At += $M.Length; $WordIx++
+        $Word = $M.Value
+        if ($script:VerbatimSourceNfkc -and -not $Word.IsNormalized($KC)) {
+            $Folded = [System.Text.StringBuilder]::new()
+            $Map = [System.Collections.Generic.List[int]]::new()
+            for ($C = 0; $C -lt $Word.Length; $C++) {
+                foreach ($Ch in ([string]$Word[$C]).Normalize($KC).ToLowerInvariant().ToCharArray()) {
+                    if ([char]::IsLetterOrDigit($Ch)) { [void]$Folded.Append($Ch); $Map.Add($C) }
+                }
+            }
+            # Folding character by character must give what folding the word gives; else the word stays as it is.
+            $Whole = [regex]::Replace($Word.Normalize($KC).ToLowerInvariant(), '[^\p{L}\p{Nd}]', '')
+            if ($Folded.Length -gt 0 -and $Folded.ToString() -ceq $Whole) {
+                $Word = $Whole
+                $WordMap[$WordIx] = $Map.ToArray()
+            }
+        }
+        [void]$CharsOut.Append($Word)
+        $At += $Word.Length; $WordIx++
     }
     [pscustomobject]@{
         Text       = $Text
         Key        = ' ' + (ConvertTo-EvidenceKey -Quote $Work) + ' '
-        Chars      = [regex]::Replace($Lower, '[^\p{L}\p{Nd}]+', '')
+        Chars      = $CharsOut.ToString()
         WordAt     = $WordAt
         WordOffset = $WordOffset
+        WordMap    = $WordMap         # word index -> offsets within the word, for the words NFKC changed
         Footers    = $Footers
         BlankedAt  = $BlankedAt.ToArray()
         LineCounts = $Counts          # trimmed line (up to VerbatimFooterMaxChars) -> how often it occurs
@@ -225,7 +257,71 @@ function Get-VerbatimTextOffset {
     param([object]$Source, [int]$Position)
     $I = [Array]::BinarySearch($Source.WordAt, $Position)
     if ($I -lt 0) { $I = (-bnot $I) - 1 }
-    $Source.WordOffset[$I] + ($Position - $Source.WordAt[$I])
+    $Rel = $Position - $Source.WordAt[$I]
+    if ($Source.PSObject.Properties['WordMap'] -and $Source.WordMap.Count -gt 0 -and $Source.WordMap.ContainsKey($I)) {
+        $Map = $Source.WordMap[$I]
+        return $Source.WordOffset[$I] + $Map[[Math]::Min($Rel, $Map.Count - 1)]
+    }
+    $Source.WordOffset[$I] + $Rel
+}
+
+function Get-VerbatimWordGap {
+    # The letters of a text as the spec 7.2 key has them, and for each letter what stands before it:
+    # Any[i] is true when anything at all separates letter i from letter i-1, Space[i] when that is white
+    # space. A word broken over a line end with a hyphen ("inter-" / "national") is not white space.
+    param([string]$Text)
+    $S = $Text
+    foreach ($Pair in $script:EvidenceMojibakeSequences) { $S = $S.Replace($Pair[0], $Pair[1]) }
+    foreach ($Pair in $script:EvidenceMojibakeSingles) { $S = $S.Replace($Pair[0], $Pair[1]) }
+    $S = $S.Normalize([System.Text.NormalizationForm]::FormKC).ToLowerInvariant()
+    $Letters = [System.Text.StringBuilder]::new($S.Length)
+    $Any = [System.Collections.Generic.List[bool]]::new()
+    $Space = [System.Collections.Generic.List[bool]]::new()
+    $GapFrom = -1
+    for ($I = 0; $I -lt $S.Length; $I++) {
+        if ([char]::IsLetterOrDigit($S[$I])) {
+            $HasSpace = $false
+            if ($GapFrom -ge 0) {
+                $Gap = $S.Substring($GapFrom, $I - $GapFrom)
+                $HasSpace = $Gap -match '\s' -and $Gap -notmatch $script:VerbatimHyphenBreakPattern
+            }
+            $Any.Add($GapFrom -ge 0); $Space.Add($HasSpace)
+            [void]$Letters.Append($S[$I])
+            $GapFrom = -1
+        } elseif ($GapFrom -lt 0) { $GapFrom = $I }
+    }
+    [pscustomobject]@{ Letters = $Letters.ToString(); Any = $Any.ToArray(); Space = $Space.ToArray() }
+}
+
+function Get-VerbatimQuoteCut {
+    # The model's own text for letters $From..$To of its quote ($QuoteLetters are the quote's key letters),
+    # with the marks that are attached to its first and last word. $null when it cannot be cut cleanly.
+    param([string]$Quote, [string]$QuoteLetters, [int]$From, [int]$To)
+    if ($From -lt 0 -or $To -le $From -or $To -gt $QuoteLetters.Length) { return $null }
+    if ($From -eq 0 -and $To -eq $QuoteLetters.Length) { return $Quote.Trim() }
+    $Count = { param($C) ((ConvertTo-EvidenceKey -Quote $Quote.Substring(0, $C)) -replace ' ', '').Length }
+    $First = {
+        # The shortest prefix of the quote that holds $Target letters.
+        param($Target)
+        $Lo = 0; $Hi = $Quote.Length
+        while ($Lo -lt $Hi) {
+            $Mid = [int][Math]::Floor(($Lo + $Hi) / 2)
+            if ((& $Count $Mid) -ge $Target) { $Hi = $Mid } else { $Lo = $Mid + 1 }
+        }
+        $Lo
+    }
+    $S = (& $First ($From + 1)) - 1
+    $E = & $First $To
+    if ($S -lt 0 -or $E -le $S) { return $null }
+    $S2 = $S
+    while ($S2 -gt 0 -and -not [char]::IsWhiteSpace($Quote[$S2 - 1]) -and -not [char]::IsLetterOrDigit($Quote[$S2 - 1])) { $S2-- }
+    if ($S2 -eq 0 -or [char]::IsWhiteSpace($Quote[$S2 - 1])) { $S = $S2 }
+    $E2 = $E
+    while ($E2 -lt $Quote.Length -and -not [char]::IsWhiteSpace($Quote[$E2]) -and -not [char]::IsLetterOrDigit($Quote[$E2])) { $E2++ }
+    if ($E2 -eq $Quote.Length -or [char]::IsWhiteSpace($Quote[$E2])) { $E = $E2 }
+    $Cut = $Quote.Substring($S, $E - $S).Trim()
+    if (((ConvertTo-EvidenceKey -Quote $Cut) -replace ' ', '') -cne $QuoteLetters.Substring($From, $To - $From)) { return $null }
+    $Cut
 }
 
 function Test-VerbatimExact {
@@ -789,6 +885,7 @@ function Resolve-VerbatimSegment {
             }
         }
         $Texts = [System.Collections.Generic.List[string]]::new()
+        $ModelTextDiffers = $false
         $StoredPieces = [System.Collections.Generic.List[object]]::new()
         $StoredLetters = 0
         # A stored piece is the source's text, and it must be the model's words in order, letter for letter
@@ -815,6 +912,7 @@ function Resolve-VerbatimSegment {
             $Queue = [System.Collections.Generic.List[object]]::new()
             foreach ($P in $Snap.Pieces) { $Queue.Add($P) }
             $Checked = [System.Collections.Generic.List[object]]::new()
+            $QGap = $null
             $Guard = 0
             while ($Queue.Count -gt 0) {
                 $P = $Queue[0]; $Queue.RemoveAt(0)
@@ -832,9 +930,15 @@ function Resolve-VerbatimSegment {
                 # it matches as a space when the quote has no such letter at that place. A real a-acute the
                 # model wrote is in the quote and stays. The stored text keeps the source's character.
                 $Marks = [System.Collections.Generic.List[object]]::new()
-                foreach ($M in [regex]::Matches($PieceWork, $RefPattern)) { $Marks.Add(@{ M = $M; Ref = $true }) }
+                foreach ($M in [regex]::Matches($PieceWork, $RefPattern)) { $Marks.Add(@{ M = $M; Ref = $true; Edge = $false }) }
                 if ($script:VerbatimNbspBetweenLetters) {
-                    foreach ($M in [regex]::Matches($PieceWork, '(?<=\p{L})á(?=\p{L})')) { $Marks.Add(@{ M = $M; Ref = $false }) }
+                    foreach ($M in [regex]::Matches($PieceWork, '(?<=\p{L})á(?=\p{L})')) { $Marks.Add(@{ M = $M; Ref = $false; Edge = $false }) }
+                }
+                # The same character at a word's start or end (CL t/389#67 (1)): after a space or a line
+                # break, or at a line end. The quote has a space there. Not at the quote's own start or end,
+                # where it has none: there the character still fails the quote.
+                if ($script:VerbatimNbspWordEdge) {
+                    foreach ($M in [regex]::Matches($PieceWork, '(?<!\p{L})á(?=\p{L})|(?<=\p{L})á(?!\p{L})')) { $Marks.Add(@{ M = $M; Ref = $false; Edge = $true }) }
                 }
                 $At = 0
                 foreach ($Mark in ($Marks | Sort-Object { $_.M.Index })) {
@@ -843,7 +947,9 @@ function Resolve-VerbatimSegment {
                     [void]$Have.Append((& $Letters $PieceWork.Substring($At, $M.Index - $At)))
                     $Token = if ($Mark.Ref) { [regex]::Replace($M.Value, '[^\p{Nd}]', '') } else { & $Letters $M.Value }
                     $Wrote = $null -ne $Want -and $Have.Length + $Token.Length -le $Want.Length -and $Want.Substring($Have.Length, $Token.Length) -ceq $Token
-                    if ($Wrote -or $null -eq $Want) { [void]$Have.Append($Token) } elseif ($Mark.Ref) { $Remove.Add($M) } else { $Ignore.Add($M) }
+                    $AtQuoteEdge = $Mark.Edge -and $null -ne $Want -and (($Have.Length -eq 0 -and $P.QStart -eq 0) -or
+                        ($Have.Length -ge $Want.Length -and $P.QEnd -eq $QLetters.Length))
+                    if ($Wrote -or $null -eq $Want -or $AtQuoteEdge) { [void]$Have.Append($Token) } elseif ($Mark.Ref) { $Remove.Add($M) } else { $Ignore.Add($M) }
                     $At = $M.Index + $M.Length
                 }
                 [void]$Have.Append((& $Letters $PieceWork.Substring($At)))
@@ -908,6 +1014,32 @@ function Resolve-VerbatimSegment {
                     }
                     if ($OnlyLigatures -and $GI -eq $Got.Length -and $Lost -gt 0) { $Why = 'word differs: lost ligature' }
                 }
+                # The letters agree. Now the spaces (CL t/389#64 (2)): white-space runs count as one space, and
+                # a space is never deleted. A source space inside a word of the quote ("arti ficial" for
+                # "artificial") fails. Source words printed with no space between them, where the quote has
+                # one, are counted, and fail only when the switch says 'both'.
+                $Glued = 0
+                if (-not $Why -and $null -ne $Want -and $script:VerbatimNoSpaceDeletion -ne 'none') {
+                    $Shown = [System.Text.StringBuilder]::new($PieceWork)
+                    foreach ($M in (@($Remove) + @($Ignore) | Sort-Object Index -Descending)) {
+                        [void]$Shown.Remove($M.Index, $M.Length)
+                        if ($Ignore.Contains($M)) { [void]$Shown.Insert($M.Index, ' ') }
+                    }
+                    $SGap = Get-VerbatimWordGap -Text $Shown.ToString()
+                    if ($null -eq $QGap) { $QGap = Get-VerbatimWordGap -Text $Clean }
+                    if ($SGap.Letters -cne $Want -or $QGap.Letters -cne $QLetters) {
+                        $script:VerbatimDiag.Add('space check not run: letters differ between the two readings')
+                    } else {
+                        $Split = 0
+                        for ($K = 1; $K -lt $Want.Length; $K++) {
+                            if ($SGap.Space[$K] -and -not $QGap.Any[$P.QStart + $K]) { $Split++ }
+                            elseif ($QGap.Space[$P.QStart + $K] -and -not $SGap.Any[$K]) { $Glued++ }
+                        }
+                        if ($Split -gt 0) { $Why = 'source splits a word' }
+                        elseif ($Glued -gt 0 -and $script:VerbatimNoSpaceDeletion -eq 'both') { $Why = 'source glues words' }
+                    }
+                }
+                if ($Glued -gt 0 -and -not $Why) { $script:VerbatimDiag.Add('source glues words, stored') }
                 if ($Ignore.Count -gt 0 -and -not $Why) { $script:VerbatimDiag.Add('no-break space matched as a space') }
                 if ($Why) {
                     $script:VerbatimDiag.Add("$Why ($(if ($Snap.Contiguous) { 'one piece' } else { 'interleaved' }))")
@@ -933,6 +1065,16 @@ function Resolve-VerbatimSegment {
             # Markdown table cells are source text but not prose; a piece that runs across them is not
             # stored (CL, t/389#24).
             if ($T -match '\|\s[^|\r\n]*\|' -or $T -match '(?m)^\s*\|') { continue }
+            # Where the match holds, what is stored is the model's own words for the piece (CL t/389#64 (3)).
+            if ($script:VerbatimStoreModelWords -and $CheckPieces) {
+                $Mine = Get-VerbatimQuoteCut -Quote $Clean -QuoteLetters $QLetters -From $P.QStart -To $P.QEnd
+                if ($null -ne $Mine) {
+                    if ($Mine -cne $T) { $ModelTextDiffers = $true }
+                    $T = $Mine
+                } else {
+                    $script:VerbatimDiag.Add('model words not cut for a piece: source text stored')
+                }
+            }
             $Texts.Add($T)
             $StoredPieces.Add($P)
             $StoredLetters += $P.QuoteLetters
@@ -961,6 +1103,7 @@ function Resolve-VerbatimSegment {
         }
         if ($Texts.Count -gt 0 -and $Coverage -ge $script:VerbatimSnapThreshold) {
             $Decision = if ($IsContiguous) { 'snapped' } else { 'interleaved' }
+            if ($ModelTextDiffers) { $script:VerbatimDiag.Add('model words stored, text differs from the source') }
             return (& $Result $Decision $Texts.ToArray() $Coverage $Snap)
         }
     }

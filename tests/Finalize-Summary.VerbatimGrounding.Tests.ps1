@@ -68,7 +68,8 @@ Describe 'Repair-SummaryKeyPointVerbatim (t/389)' -Tag 'summarization' {
         }
         $R.Dropped | Should -Be 0
         $Stored = $Sum.pov_summaries.accelerationist.key_points[0].verbatim
-        $Src.Contains($Stored) | Should -BeTrue -Because 'a snap stores the source''s own text'
+        $Stored | Should -Be $Quote -Because 'where the match holds, the model''s own words are stored (CL t/389#64 (3))'
+        $R.Snapped | Should -Be 0 -Because 'the stored text is the quote as written'
     }
 
     It 'drops a paraphrase quote and keeps the key point' {
@@ -111,10 +112,9 @@ Describe 'Repair-SummaryKeyPointVerbatim (t/389)' -Tag 'summarization' {
             param($S, $Sum)
             Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-corrupt'
         }
-        $R.Snapped | Should -Be 1
+        $R.Dropped | Should -Be 0
         $Stored = $Sum.pov_summaries.accelerationist.key_points[0].verbatim
-        $Stored | Should -Match 'signi'
-        $Src.Contains($Stored) | Should -BeTrue
+        $Stored | Should -Be $Quote -Because 'the model''s own words are stored (CL t/389#64 (3))'
     }
 
     It 'snaps a quote across PDF-glued words (t/389#5 row 54): the source keeps its glued text' {
@@ -125,10 +125,9 @@ Describe 'Repair-SummaryKeyPointVerbatim (t/389)' -Tag 'summarization' {
             param($S, $Sum)
             Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-glue'
         }
-        $R.Snapped | Should -Be 1
+        $R.Dropped | Should -Be 0
         $Stored = $Sum.pov_summaries.accelerationist.key_points[0].verbatim
-        $Stored | Should -Match 'morecomputeisavailable'
-        $Src.Contains($Stored) | Should -BeTrue
+        $Stored | Should -Be $Quote -Because 'the model''s own words are stored (CL t/389#64 (3))'
     }
 
     It 'a page footer repeated on every page is not matched as quote text' {
@@ -245,12 +244,11 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.R.Interleaved | Should -Be 1
         $Out.R.Snapped | Should -Be 0
         $Out.R.Dropped | Should -Be 0
-        # Stored as the source's own pieces, in order: column A's three lines, none of column B's.
+        # Stored as the model's words for each source piece, in order: column A's three lines, none of column B's.
         $Out.Stored | Should -Be @(
             'Developers answer that the evaluations they run',
             'today were never designed to support a licensing',
-            'decision, and they ask for a transition period')
-        foreach ($S in $Out.Stored) { $Src.Contains($S) | Should -BeTrue }
+            'decision, and they ask for a transition period.')
     }
 
     It 'stores a quote that skips sentences without an elision mark as its source pieces (CL ruling p/70#77)' {
@@ -259,8 +257,8 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.R.Interleaved | Should -Be 1
         $Out.R.Snapped | Should -Be 0
         @($Out.Stored).Count | Should -Be 2
-        $Out.Stored[0] | Should -Be 'Regulators in several countries have begun to ask for evaluation results before a model is released'
-        $Out.Stored[1] | Should -Be 'Independent auditors, for their part, say that access to the model weights is the only way to check such claims'
+        $Out.Stored[0] | Should -Be 'Regulators in several countries have begun to ask for evaluation results before a model is released.'
+        $Out.Stored[1] | Should -Be 'Independent auditors, for their part, say that access to the model weights is the only way to check such claims.'
     }
 
     It 'drops a quote whose lines are in the source out of order (CL ruling t/389#11: in order only)' {
@@ -360,7 +358,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.R.Snapped | Should -Be 0
         $Out.Stored | Should -Be @(
             'Developers answer that the evaluations they run today',
-            'were never designed to support a licensing decision and say so in every filing they make to the regulator')
+            'were never designed to support a licensing decision and say so in every filing they make to the regulator!')
     }
 
     It 'an elided quote with one interleaved segment is counted as interleaved, not snapped' {
@@ -372,7 +370,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.Stored | Should -Be @(
             'Regulators in several countries have begun to ask for evaluation results',
             'Developers answer that the evaluations they run',
-            'today were never designed to support a licensing decision')
+            'today were never designed to support a licensing decision.')
     }
 
     It 'a piece gives up a word split by a hyphenated line break with other text after it (t/389#20, I13)' {
@@ -380,7 +378,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Quote = 'Why has predicting downstream capabilities of frontier ai models with scale remained elusive?, 2024a.'
         $Out = & $script:Run $Src $Quote 'doc-hyphen'
         $Out.R.Interleaved | Should -Be 1
-        $Out.Stored | Should -Be @('Why has predicting downstream capabilities of', 'ai models with scale remained elusive?, 2024a')
+        $Out.Stored | Should -Be @('Why has predicting downstream capabilities of', 'ai models with scale remained elusive?, 2024a.')
     }
 
     It 'drops a quote when the pieces that can be stored cover less than 0.9 of it (t/389#20)' {
@@ -564,7 +562,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Src = "Developers warn of serious harms.12 Regulators have begun to ask for the evaluation results,7 and auditors`r`nwant access to the weights by 2027.`r`n"
         $Refs = & $script:Run $Src 'Developers warn of serious harms. Regulators have begun to ask for the evaluation results, and auditors want access to the weights by 2027' 'doc-snap-glued-refs'
         $Refs.R.Dropped | Should -Be 0
-        $Refs.Stored | Should -Be "Developers warn of serious harms. Regulators have begun to ask for the evaluation results, and auditors`r`nwant access to the weights by 2027"
+        $Refs.Stored | Should -Be 'Developers warn of serious harms. Regulators have begun to ask for the evaluation results, and auditors want access to the weights by 2027'
         # The model copied the reference "12" into its quote: that one stays, the other still comes out.
         $Kept = & $script:Run $Src 'Developers warn of serious harms.12 Regulators have begun to ask for the evaluation results, and auditors want access to the weights by 2027' 'doc-snap-kept-ref'
         $Kept.R.Dropped | Should -Be 0
@@ -590,7 +588,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out = & $script:Run $Src "$A $B" 'doc-extra-line'
         $Out.R.Dropped | Should -Be 0
         $Out.R.Interleaved | Should -Be 1
-        $Out.Stored | Should -Be @($A, $B.TrimEnd('.'))
+        $Out.Stored | Should -Be @($A, $B)
         # Chart cells on lines of their own inside the passage.
         $Src2 = "Earlier text. $A`r`n51`r`n33`r`n15`r`n$B More text.`r`n"
         $Cells = & $script:Run $Src2 "$A $B" 'doc-extra-cells'
@@ -610,12 +608,12 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.R.Dropped | Should -Be 0
     }
 
-    It 'the a-acute that is a no-break space, between two letters, matches as a space; the stored text keeps it (t/389#63 (1))' {
+    It 'the a-acute that is a no-break space, between two letters, matches as a space; the model''s words are stored (t/389#63 (1), #64 (3))' {
         $Nb = [string][char]0x00E1
         $Src = "Evaluators describe a${Nb}pattern termed sandbagging that has been observed in several of the recent model evaluations.`r`n"
         $Out = & $script:Run $Src 'Evaluators describe a pattern termed sandbagging that has been observed in several of the recent model evaluations.' 'doc-nbsp-between'
         $Out.R.Dropped | Should -Be 0
-        "$($Out.Stored)" | Should -Match "a${Nb}pattern" -Because 'the stored text is the source''s own text'
+        $Out.Stored | Should -Be 'Evaluators describe a pattern termed sandbagging that has been observed in several of the recent model evaluations.'
         # A real a-acute that the model also wrote is a letter of the word and must match as one.
         $Src2 = "The report from Panam${Nb}city describes how regulators have begun to ask for the evaluation results of each lab.`r`n"
         (& $script:Run $Src2 "The report from Panam${Nb}city describes how regulators have begun to ask for the evaluation results of each lab." 'doc-real-a-acute').R.Dropped | Should -Be 0
@@ -638,7 +636,96 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Src = "D. Causation`r`n`r`nCausation 344 poses a significant challenge in applying tort law to harm caused by AI agents. 345 This difficulty is pronounced.`r`n"
         $Out = & $script:Run $Src 'Causation poses a significant challenge in applying tort law to harm caused by AI agents.' 'doc-head-across-ref'
         $Out.R.Dropped | Should -Be 0
-        $Out.Stored | Should -Be 'Causation  poses a significant challenge in applying tort law to harm caused by AI agents'
+        $Out.Stored | Should -Be 'Causation poses a significant challenge in applying tort law to harm caused by AI agents.'
+    }
+
+    It 'a ligature character the converter kept matches the quote''s letters (NFKC on the source, t/389#64 (1))' {
+        $Fi = [string][char]0xFB01; $Ff = [string][char]0xFB00
+        $Src = "The o${Ff}icial report found that arti${Fi}cial systems were classi${Fi}ed by e${Ff}ect, and that the ${Fi}rst ${Fi}ndings were con${Fi}rmed.`r`n"
+        $Quote = 'The official report found that artificial systems were classified by effect, and that the first findings were confirmed.'
+        $Out = & $script:Run $Src $Quote 'doc-nfkc'
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+        # The map from the folded letters back to the text: a piece that starts on a folded word starts at that word.
+        $At = InModuleScope AITriad -Parameters @{ S = $Src } {
+            param($S)
+            $Source = Get-VerbatimSource -Text $S
+            $P = $Source.Chars.IndexOf('firstfindings', [System.StringComparison]::Ordinal)
+            @{ Start = (Get-VerbatimTextOffset -Source $Source -Position $P); Next = (Get-VerbatimTextOffset -Source $Source -Position ($P + 5)) }
+        }
+        $Src.Substring($At.Start, 4) | Should -Be "${Fi}rst"
+        $Src.Substring($At.Next, 7) | Should -Be "${Fi}ndings"
+    }
+
+    It 'a space is never deleted: a source space inside a word of the quote fails it (t/389#64 (2))' {
+        $Fi = [string][char]0xFB01
+        $Src = "Evaluators say that arti ${Fi} cial systems were tested by the lab before the release of the model to the public.`r`n"
+        $Quote = 'Evaluators say that artificial systems were tested by the lab before the release of the model to the public.'
+        $Diag = InModuleScope AITriad -Parameters @{ S = $Src; Q = $Quote } {
+            param($S, $Q)
+            $script:VerbatimDiag.Clear()
+            $R = Resolve-VerbatimQuote -Source (Get-VerbatimSource -Text $S) -Quote $Q
+            [pscustomobject]@{ Decision = $R.Decision; Diag = @($script:VerbatimDiag.ToArray()) }
+        }
+        $Diag.Decision | Should -Be 'dropped'
+        $Diag.Diag | Should -Contain 'source splits a word (one piece)'
+        # White-space runs count as one space, and a word broken over a line end with a hyphen is one word.
+        $Src2 = "Evaluators say that   artificial systems were`r`ntested by the lab before the re-`r`nlease of the model to the public.`r`n"
+        $Out = & $script:Run $Src2 $Quote 'doc-space-runs'
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+        # A hyphen where the source has a space is not a deleted space.
+        $Src3 = "Evaluators say that the long term effects were tested by the lab before the release of the model.`r`n"
+        (& $script:Run $Src3 'Evaluators say that the long-term effects were tested by the lab before the release of the model.' 'doc-hyphen-for-space').R.Dropped | Should -Be 0
+    }
+
+    It 'source words printed with no space between them: stored as the model wrote them, and counted (t/389#64 (2))' {
+        $Src = 'costs should rise only when inputs are difficult to assess, or when morecomputeisavailable. Toachievethis, weintroduce a method.'
+        $Quote = 'or when more compute is available. To achieve this, we introduce a method.'
+        $Got = InModuleScope AITriad -Parameters @{ S = $Src; Q = $Quote } {
+            param($S, $Q)
+            $script:VerbatimDiag.Clear()
+            $R = Resolve-VerbatimQuote -Source (Get-VerbatimSource -Text $S) -Quote $Q
+            $Kept = [pscustomobject]@{ Decision = $R.Decision; Texts = @($R.Texts); Diag = @($script:VerbatimDiag.ToArray()) }
+            $script:VerbatimNoSpaceDeletion = 'both'
+            try { $Strict = (Resolve-VerbatimQuote -Source (Get-VerbatimSource -Text $S) -Quote $Q).Decision } finally { $script:VerbatimNoSpaceDeletion = 'source' }
+            [pscustomobject]@{ Kept = $Kept; Strict = $Strict }
+        }
+        $Got.Kept.Decision | Should -Be 'snapped'
+        $Got.Kept.Texts | Should -Be @($Quote)
+        $Got.Kept.Diag | Should -Contain 'source glues words, stored'
+        $Got.Strict | Should -Be 'dropped' -Because 'the switch set to both fails glued source words too'
+    }
+
+    It 'the a-acute no-break space at a word''s start or end matches as a space, but not at the quote''s own start or end (t/389#67 (1))' {
+        $Nb = [string][char]0x00E1
+        $Rest = 'termed sandbagging that has been observed in several of the recent model evaluations'
+        $Quote = "Evaluators describe a pattern $Rest."
+        # word start (after a space), and word end (before a line end)
+        (& $script:Run "Evaluators describe a ${Nb}pattern $Rest.`r`n" $Quote 'doc-nbsp-word-start').Stored | Should -Be $Quote
+        (& $script:Run "Evaluators describe a${Nb}`r`npattern $Rest.`r`n" $Quote 'doc-nbsp-word-end').Stored | Should -Be $Quote
+        # the quote's own start and end: the quote has no space there, so the character still fails it
+        # (before a capital the character has been blanked as a space since t/389#20, so the case is a lowercase word)
+        (& $script:Run "They say that ${Nb}evaluators describe a pattern $Rest.`r`n" "evaluators describe a pattern $Rest." 'doc-nbsp-quote-start').R.Dropped | Should -Be 1
+        (& $script:Run "Evaluators describe a pattern $Rest${Nb} and more.`r`n" "Evaluators describe a pattern $Rest" 'doc-nbsp-quote-end').R.Dropped | Should -Be 1
+        # a real a-acute the model wrote stays a letter
+        $Src = "The report from Panam${Nb} describes how regulators have begun to ask for the evaluation results of each lab.`r`n"
+        (& $script:Run $Src "The report from Panam${Nb} describes how regulators have begun to ask for the evaluation results of each lab." 'doc-real-a-acute-end').R.Dropped | Should -Be 0
+        (& $script:Run $Src 'The report from Panam describes how regulators have begun to ask for the evaluation results of each lab.' 'doc-a-acute-not-written').Stored |
+            Should -Be 'The report from Panam describes how regulators have begun to ask for the evaluation results of each lab.' -Because 'at a word end the character reads as the converter''s space'
+    }
+
+    It 'pieces of an interleaved quote are stored as the model''s words, cut at the pieces (t/389#64 (3))' {
+        InModuleScope AITriad {
+            $Q = 'The lab said: "we tested it (twice)," and then released the $5 model. Nobody objected.'
+            $L = (ConvertTo-EvidenceKey -Quote $Q) -replace ' ', ''
+            $A = $L.IndexOf('andthen'); $B = $L.IndexOf('nobody')
+            Get-VerbatimQuoteCut -Quote $Q -QuoteLetters $L -From 0 -To $A | Should -Be 'The lab said: "we tested it (twice),"'
+            Get-VerbatimQuoteCut -Quote $Q -QuoteLetters $L -From $A -To $B | Should -Be 'and then released the $5 model.'
+            Get-VerbatimQuoteCut -Quote $Q -QuoteLetters $L -From $L.IndexOf('5model') -To $B | Should -Be '$5 model.'
+            Get-VerbatimQuoteCut -Quote $Q -QuoteLetters $L -From $B -To $L.Length | Should -Be 'Nobody objected.'
+            Get-VerbatimQuoteCut -Quote $Q -QuoteLetters $L -From -1 -To 5 | Should -BeNullOrEmpty
+        }
     }
 
     It 'an interleaved piece with a word the model left out, with no elision mark, fails the quote (t/389#52 (4), i37)' {
@@ -660,7 +747,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Src = "Earlier text ends here.125Large-scale AI training is highly resource`r`nintensive and needs caps and subsidized insurance for SMEs3 (Figure 2).`r`n"
         $Out = & $script:Run $Src 'Large-scale AI training is highly resource intensive and needs caps and subsidized insurance for SMEs.' 'doc-glued-footnote'
         $Out.R.Dropped | Should -Be 0
-        $Out.Stored | Should -Be "Large-scale AI training is highly resource`r`nintensive and needs caps and subsidized insurance for SMEs"
+        $Out.Stored | Should -Be 'Large-scale AI training is highly resource intensive and needs caps and subsidized insurance for SMEs.'
     }
 
     It 'a snapped quote whose first or last word is not the source''s is dropped, not stored with the source''s word (t/389#47 (3), H07)' {
@@ -771,7 +858,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Quote = 'Lawmakers should enforce existing laws to prohibit harms and punish bad actors in every case.'
         $Out = & $script:Run $Src $Quote 'doc-short-header'
         $Out.R.Interleaved | Should -Be 1
-        $Out.Stored | Should -Be @('Lawmakers should enforce existing laws to prohibit', 'harms and punish bad actors in every case')
+        $Out.Stored | Should -Be @('Lawmakers should enforce existing laws to prohibit', 'harms and punish bad actors in every case.')
     }
 
     It 'leaves code in angle brackets alone: only HTML tags are blanked' {
