@@ -341,14 +341,28 @@ var oauthSecrets = concat(sharedOauthSecrets,
   freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : [],
   paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : []
 )
-// t/269: the staging app gets its own free-tier key and no longer holds the shared one. Only when
-// the staging key is empty does staging fall back to the shared key, because its FREE_TIER_GEMINI_KEY
-// then still references it. Prod's `secrets:` stays oauthSecrets, so prod can never reference
-// free-tier-gemini-key-staging (tests/BicepStagingFreeTierKey.Tests.ps1 asserts this).
-var stagingFallbackFreeTier = freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : []
-var stagingSecrets = concat(sharedOauthSecrets,
-  paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : [],
-  freeTierStagingKeyProvided ? [ { name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging } ] : stagingFallbackFreeTier)
+// t/654 (t/92 B2; PI 2026-11-25, TL p/12#265/#267): staging holds NO prod secret except the three
+// sign-in OAuth client secrets, which the PI accepted as a risk (t/92#73, review 2027-02-25).
+//   - no gemini-paid-key: staging uses the free tier only (env reference gone now; the secret entry
+//     goes in step 2, see stagingPaidKeyRetained);
+//   - no github-sync-token or github-webhook-secret, ever;
+//   - no fallback to prod's free-tier-gemini-key: staging's FREE_TIER_GEMINI_KEY comes only from its own
+//     key (t/269). With the staging key empty, staging has no free-tier key and deploy-azure WARNs.
+// Prod's `secrets:` stays oauthSecrets, so prod can never reference free-tier-gemini-key-staging.
+// tests/BicepStagingNoProdSecrets.Tests.ps1 pins the allow-list.
+var stagingOauthSecrets = concat(
+  googleEnabled ? [ { name: googleClientSecretName, value: googleClientSecret } ] : [],
+  githubEnabled ? [ { name: githubClientSecretName, value: githubClientSecret } ] : [],
+  aadEnabled ? [ { name: aadClientSecretName, value: aadClientSecret } ] : []
+)
+// STEP 1 of 2: staging's env stops referencing gemini-paid-key (stagingContainerEnv below), but the secret
+// itself stays for now. ACA rejects an apply that drops a secret an ACTIVE revision still references, and
+// that one apply also deploys prod (deploy-azure.yml, t/4732 SO condition 3). Step 2 removes this entry
+// once no active staging revision references it (t/654).
+var stagingPaidKeyRetained = paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : []
+var stagingSecrets = concat(stagingOauthSecrets,
+  stagingPaidKeyRetained,
+  freeTierStagingKeyProvided ? [ { name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging } ] : [])
 
 // ── Log Analytics ──
 
@@ -925,11 +939,11 @@ var stagingBaseEnv = concat(
   filter(baseEnv, e => !contains(stagingOverriddenKeys, e.name)),
   stagingEnvOverrides
 )
-// Same secret entries as prod, so staging stays a faithful pre-prod proxy (same oauth/ai
-// secrets, different write path). The one exception (t/4732) is FREE_TIER_GEMINI_KEY, which points
-// at staging's own key when one is provided. Empty keeps the shared prod pool key.
-var stagingExtraFreeTier = freeTierStagingKeyProvided ? [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierStagingSecretName } ] : extraFreeTier
-var stagingContainerEnv = concat(stagingBaseEnv, extraGithubToken, extraGithubWebhook, stagingExtraFreeTier, extraPaidTier)
+// t/654 (t/92 B2): staging's env references no prod secret. FREE_TIER_GEMINI_KEY points at staging's own
+// key (t/4732) and nothing else: no fallback to prod's pool key. No GEMINI_PAID_KEY (PI: staging is
+// free tier only), and no GITHUB_TOKEN or GITHUB_WEBHOOK_SECRET.
+var stagingExtraFreeTier = freeTierStagingKeyProvided ? [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierStagingSecretName } ] : []
+var stagingContainerEnv = concat(stagingBaseEnv, stagingExtraFreeTier)
 
 // API 2025-01-01 (was 2024-03-01): first GA version whose Scale type has cooldownPeriod (t/4249).
 resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
