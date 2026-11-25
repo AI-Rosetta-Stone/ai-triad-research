@@ -17,10 +17,30 @@
 import { SO_CLEARED_RE } from './fleet-delivery-metrics.mjs';
 import { extractTier } from './tier-check-predicate.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
+import { isUserFacing } from './design-review-scope.mjs';
 
 // t/535 (Lead p/233#56, t/537#27, t/531#5): the ONE remedy for a PR that is ready but not queued.
 // `gh pr merge` in any form, or a direct merge, skips enqueue-pr.mjs and #5439's gate-file check, so
 // no remedy may suggest it. stuck-pr-ping.mjs also rewrites an older alert comment's remedy that does.
+// t/535 (Lead p/233#82): a green, approved user-facing PR still needs the Design gate.
+export const AWAITING_DESIGN_REMEDY =
+  'Every required context is green, but this PR changes user-facing files and has no `Approved (Design):` ' +
+  'or `Design-exempt` verdict at its head (docs/review-routing.md, Design Gate). Ask the Design role for a ' +
+  'review; do not enqueue it until the Design gate passes.';
+
+/**
+ * PURE. True when the PR changes user-facing files and the Design gate has not passed, read exactly
+ * as t0-enqueue-sweep.mjs reads it (role-tagged bodies via latestRoleVerdicts; approved or exempt
+ * passes). `pr.files` absent: false (not known, so this never fires). Files present but no review
+ * facts: true (the gate cannot be shown to pass).
+ */
+export function designGatePending(pr) {
+  if (!Array.isArray(pr?.files) || !isUserFacing(pr.files)) return false;
+  if (!pr.roleReview) return true;
+  const v = latestRoleVerdicts(pr.roleReview).get('Design');
+  return !(v?.kind === 'approved' || v?.kind === 'exempt');
+}
+
 export const ENQUEUE_REMEDY =
   'enqueue it with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>` from a checkout at origin/main ' +
   '(add --gate-change-review=<review id> --by=<id> if it changes a gate file); never gh pr merge or a direct merge.';
@@ -395,6 +415,13 @@ export function classifyBlocker(pr, nowMs) {
       return run && run.status === 'completed' && run.conclusion === 'success';
     });
     const tier = extractTier(pr.body);
+    // t/535 (Lead p/233#82): a user-facing PR without `Approved (Design):` / `Design-exempt` is not
+    // ready to enqueue (docs/review-routing.md § Design Gate), so it is 'awaiting-design', never
+    // approved-not-armed. pr-triage supplies `files` only when it needs them (the PR would otherwise
+    // be approved-not-armed); without `files` this check cannot run and the old classes stand.
+    if (allGreen && (pr.hasApproval || tier === 'T0') && designGatePending(pr)) {
+      return { class: 'awaiting-design', detail: { remedy: AWAITING_DESIGN_REMEDY } };
+    }
     if (allGreen && pr.hasApproval) {
       // A real APPROVED review already happened -- that review IS the named-review question
       // settled, so no caveat is needed here.
@@ -493,7 +520,7 @@ export function escalationLevel(blockerClass, episodeAgeHours) {
   if (episodeAgeHours >= TL_SLA_HOURS) return 'tl';
   // t/308: changes-requested-stale already waited CHANGES_REQUESTED_STALE_HOURS before it can
   // fire at all, so it pings the owner on first sight, like the two classes it sits beside.
-  if (blockerClass === 'consult-hold-aged' || blockerClass === 'approved-not-armed' || blockerClass === 'changes-requested-stale') return 'owner';
+  if (blockerClass === 'consult-hold-aged' || blockerClass === 'approved-not-armed' || blockerClass === 'changes-requested-stale' || blockerClass === 'awaiting-design') return 'owner';
   if (episodeAgeHours >= OWNER_SLA_HOURS) return 'owner';
   return 'none';
 }

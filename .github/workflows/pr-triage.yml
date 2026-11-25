@@ -746,7 +746,18 @@ jobs:
                 isDependabotAuthor: /dependabot/i.test(full.user?.login ?? ''),
               };
 
-              const blocker = classifyBlocker(prFacts, nowMs);
+              let blocker = classifyBlocker(prFacts, nowMs);
+              // t/535 (Lead p/233#82): before calling a PR approved-not-armed ("enqueue it"), read its
+              // changed files once and re-classify, so a user-facing PR without the Design gate is
+              // reported as awaiting-design instead. Only for that class, to keep API spend low (t/563).
+              if (blocker?.class === 'approved-not-armed') {
+                try {
+                  const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: pr.number, per_page: 100 });
+                  blocker = classifyBlocker({ ...prFacts, files: files.map((f) => f.filename) }, nowMs);
+                } catch (e) {
+                  core.warning(`WARN #${pr.number}: could not list changed files (${e.message}); the Design-gate check was skipped, so this stays approved-not-armed (t/535).`);
+                }
+              }
               if (blocker) blockerFindings.push({ pr: full, ticketHint: ticketHintFromBranch(full.head.ref), ...blocker });
               const healFinding = classifyHealLiveness(prFacts);
               if (healFinding) blockerFindings.push({ pr: full, ticketHint: ticketHintFromBranch(full.head.ref), ...healFinding });

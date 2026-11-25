@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  classifyBlocker, escalationLevel, detectSweepSignature, classifySweepHits, ARM_EVENT_RE,
+  classifyBlocker, escalationLevel, detectSweepSignature, classifySweepHits, ARM_EVENT_RE, designGatePending,
   REQUIRED_CONTEXTS, REQUIRED_CONTEXT_PATHS, QUEUED_STUCK_MINUTES, IN_PROGRESS_STUCK_MINUTES,
   OWNER_SLA_HOURS, TL_SLA_HOURS, SWEEP_WINDOW_SECONDS, SWEEP_BURST_SECONDS,
   MERGE_EQUIVALENT_WINDOW_SECONDS, SO_TIMEBOX_HOURS, MERGE_QUEUE_STUCK_MINUTES,
@@ -960,4 +960,47 @@ test('t/535 (Quality on #5461): the stuck-required-run remedy names no merge rou
   assert.equal(stuck.length, 1);
   assert.doesNotMatch(stuck[0], /gh pr merge|auto-merge|re-arm/i);
   assert.match(stuck[0], /cancel and re-run run \$\{run\.id\}/);
+});
+
+// ── t/535 (Lead p/233#82): a user-facing PR without the Design gate is awaiting-design, not approved-not-armed ──
+const UI_FILES = ['taxonomy-editor/src/renderer/components/OpEdPanel.tsx'];
+const designReview = (kind) => ({
+  reviews: [{ body: kind === 'exempt' ? 'Design-exempt (Design): copy-only, no visual change.' : 'Approved (Design): layout checked.', login: 'ai-triad-reviewer-jpsnover[bot]', commitId: 'head1', submittedAt: '2026-11-24T10:00:00Z', state: 'APPROVED' }],
+  comments: [], reviewerAppLogin: 'ai-triad-reviewer-jpsnover[bot]', headSha: 'head1', lastPushAt: '2026-11-24T09:00:00Z',
+});
+
+test('t/535: green + approved + user-facing files + no Design verdict -> awaiting-design (the #5201 shape), escalates to owner', () => {
+  const v = classifyBlocker(basePr({ hasApproval: true, autoMergeEnabled: false, lastActivityAt: hoursAgo(5), files: UI_FILES }), NOW);
+  assert.equal(v.class, 'awaiting-design');
+  assert.match(v.detail.remedy, /Approved \(Design\):.*Design-exempt.*do not enqueue/s);
+  assert.doesNotMatch(v.detail.remedy, /enqueue it with/);
+  assert.equal(escalationLevel(v.class, 0), 'owner');
+});
+
+test('t/535: a T0 user-facing PR without Design is awaiting-design too', () => {
+  assert.equal(classifyBlocker(basePr({ hasApproval: false, autoMergeEnabled: false, body: 'Tier: T0\n...', files: UI_FILES }), NOW)?.class, 'awaiting-design');
+});
+
+test('t/535: Approved (Design) or Design-exempt at the head -> approved-not-armed as before', () => {
+  for (const kind of ['approved', 'exempt']) {
+    const v = classifyBlocker(basePr({ hasApproval: true, autoMergeEnabled: false, lastActivityAt: hoursAgo(5), files: UI_FILES, roleReview: designReview(kind) }), NOW);
+    assert.equal(v.class, 'approved-not-armed', kind);
+  }
+});
+
+test('t/535: no user-facing files, or files not supplied -> approved-not-armed as before (pr-triage supplies files lazily)', () => {
+  assert.equal(classifyBlocker(basePr({ hasApproval: true, autoMergeEnabled: false, lastActivityAt: hoursAgo(5), files: ['operations/devops/x.mjs'] }), NOW).class, 'approved-not-armed');
+  assert.equal(classifyBlocker(basePr({ hasApproval: true, autoMergeEnabled: false, lastActivityAt: hoursAgo(5) }), NOW).class, 'approved-not-armed');
+});
+
+test('t/535: designGatePending reads the gate like the T0 sweep (files and role verdicts)', () => {
+  assert.equal(designGatePending({ files: UI_FILES }), true, 'user-facing, no review facts: cannot pass');
+  assert.equal(designGatePending({ files: UI_FILES, roleReview: designReview('approved') }), false);
+  assert.equal(designGatePending({ files: ['README.md'] }), false);
+  assert.equal(designGatePending({}), false);
+});
+
+test('t/535: pr-triage reads files only when the first pass says approved-not-armed, and re-classifies', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/pr-triage.yml', import.meta.url), 'utf8');
+  assert.match(yml, /if \(blocker\?\.class === 'approved-not-armed'\) \{[\s\S]{0,200}pulls\.listFiles[\s\S]{0,200}classifyBlocker\(\{ \.\.\.prFacts, files:/);
 });
