@@ -463,6 +463,17 @@ test('t/116(b) PI ruling: an App comment still BLOCKS (comments stay in the bloc
   assert.equal(checkR6(true, [], comments, [TL_AT_HEAD], HEAD, APP_LOGIN, PUSH_AT), true);
 });
 
+test('t/116(b) SO p/44#90: an approval-shaped COMMENT (shared login or App) does NOT clear a sticky changes-request', () => {
+  for (const login of [undefined, APP_LOGIN]) {
+    const comments = [
+      SO_MARK,
+      { login: APP_LOGIN, body: 'Changes requested (Quality): fix the test.', createdAt: '2026-10-19T12:07:00Z' },
+      { login, body: 'Approved (Quality): fine', createdAt: '2026-10-19T12:09:00Z' },
+    ];
+    assert.equal(checkR6(true, [], comments, [TL_AT_HEAD], HEAD, APP_LOGIN, PUSH_AT), true, `comment by ${login ?? 'shared login'} must not clear Quality's block`);
+  }
+});
+
 test('t/116(b) arm 2: changes-requested by Quality, then Quality re-approves at the head -> UNBLOCKED (with TL approval and SO marker)', () => {
   const comments = [
     SO_MARK,

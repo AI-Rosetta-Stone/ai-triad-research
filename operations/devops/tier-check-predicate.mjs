@@ -303,7 +303,11 @@ export function checkR6(tierOrR1, labels, comments, reviews, headSha, reviewerAp
   // other approvals exist. Only reviewer-App reviews clear a role verdict, so no comment (shared login
   // or App) can lift a block or approve (Quality t/116#12, t/116#14; PI ruling t/116#31).
   // Any outstanding changes-request blocks, from any reviewer and through any comment path.
-  const blocks = latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSha, lastPushAt, mode: 'gate' });
+  // Comments can ADD a block but never clear one (SO p/44#90, t/116#12): an approval-shaped comment
+  // ('Approved (Quality): fine'), from the shared login or the App, is dropped before the blocks call,
+  // so only a reviewer-App REVIEW by the same role (or a dismissal) lifts that role's changes-request.
+  const blockComments = (comments ?? []).filter((c) => !APPROVAL_COMMENT_RE.test(c.body ?? ''));
+  const blocks = latestRoleVerdicts({ reviews, comments: blockComments, reviewerAppLogin, headSha, lastPushAt, mode: 'gate' });
   if ([...blocks.values()].some((v) => v.kind === 'changes_requested')) return true;
   // Approvals count only from reviewer-App REVIEWS bound to the head. No comment approves, not even
   // one posted by the App: PI ruling t/116#31 ('only a reviewer-App review counts ... never an
@@ -322,6 +326,8 @@ export function checkR6(tierOrR1, labels, comments, reviews, headSha, reviewerAp
 
 // The role slots that can clear R6's approval (canonical names, with or without the space).
 const TL_OR_PI_ROLE_RE = /^(tech ?lead|pi)$/i;
+// An approval-shaped comment body (t/116, SO p/44#90). Comments never approve or clear in R6.
+const APPROVAL_COMMENT_RE = /^\s*Approved \(/;
 
 // 'SO did not review' has no head SHA of its own, so it must postdate the last push (t/4266#15).
 function isFreshAfterPush(c, lastPushAt) {
