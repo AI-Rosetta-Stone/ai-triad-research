@@ -119,10 +119,20 @@ export class BlobLease {
       try {
         await renewClient.renewLease();
         return true;
-      } catch {
-        /* telemetry — silent by design: renewal loss is the routine "another
-         * replica took over" outcome, not an error. Clear and try a fresh
-         * acquire below, same as if we'd never held it. */
+      } catch (err) {
+        if (!isLeaseConflict(err)) {
+          // t/503 N1 (TL t/503#22): a renewal that failed for any other reason (network, 5xx, auth) says nothing
+          // about who holds the lease. Keep the id, so the next renewal can still succeed. Clearing it made the
+          // fresh acquire below conflict with our own live lease, and every replica then read 'busy' until it lapsed.
+          getGlobalRecorder()?.record({
+            type: 'system.error', component: 'blob-lease', level: 'error',
+            message: `renewLease failed (lease id kept): ${this.blobName}`,
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+          });
+          throw wrapLeaseError(err, 'renewLease', this.blobName);
+        }
+        // 409: the lease moved on (another replica took it after ours lapsed), the routine "not me any more".
+        // Clear it and try a fresh acquire below, as if we had never held it.
         this.leaseId = undefined;
       }
     }
@@ -178,8 +188,11 @@ export class BlobLease {
         // Empty seed blob — only its existence matters for leasing.
         await this.blobClient.upload('', 0, { conditions: { ifNoneMatch: '*' } });
       } catch (createErr) {
-        // Lost the create race to another replica — fine, the blob exists either way.
-        if (!(createErr instanceof RestError && createErr.statusCode === 409)) {
+        // Lost the create race to another replica — fine, the blob exists either way. 409 is BlobAlreadyExists; 412 is
+        // the same race one step later: the winner created the blob and already leased it, so our conditional upload is
+        // refused for the lease (LeaseIdMissing). t/503: found by the racing-commits test; the acquire below then
+        // returns false ('busy') as it should.
+        if (!(createErr instanceof RestError && (createErr.statusCode === 409 || createErr.statusCode === 412))) {
           getGlobalRecorder()?.record({
             type: 'system.error', component: 'blob-lease', level: 'error',
             message: `ensureBlobExists (seed upload) failed: ${this.blobName}`,

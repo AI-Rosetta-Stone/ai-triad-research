@@ -14,7 +14,7 @@ Batch your work into a vehicle: every change lands in one of three. We measure t
 
 **The vehicles.** Every ticket names its vehicle in a `Lands in:` line when it's created. Use the first that applies:
 
-1. **Incident PR:** only for an active incident with an open INCIDENT ticket, anchored to that ticket. Needs the TL's recorded go (or the hotfix path above).
+1. **Incident PR** (`incident/t<N>-<slug>`): only for an open ticket titled INCIDENT, anchored to that ticket. The open INCIDENT ticket is the go; there is no separate TL go. Declaring an incident (Security or the TL, `docs/incident-response.md`) is already the gate, and `enqueue-pr` checks the ticket, not a review. The hotfix path above still applies to prod deploys.
 2. **Feature PR:** branch `feat/t<N>-<slug>` (t/N is the feature's parent ticket). Only for a change spanning **2+ owners or 3+ tickets**. Child tickets commit to that branch, each owner in its own commits. One review pass (Quality; SO and TL for T2).
 3. **Area train:** everything else, including security fixes. Each area has one rolling train, and its owner merges finished tickets onto it continuously. **Trains close at 06:00Z and 18:00Z.** At close the owner opens one PR, or updates the open one, with a per-ticket table. A ticket not ready at close waits for the next train, about 12 hours.
   - Security fixes, whatever area they touch, ride `train/security-YYYYMMDD` (t/658, owner Security). They don't get their own PR.
@@ -32,7 +32,7 @@ Batch your work into a vehicle: every change lands in one of three. We measure t
 **Monitor, not gate (t/655, PI correction 2026-11-25):**
 
 - **The budget report** measures tickets per PR and alerts the TL when it falls below 3. The alert is a prompt to look at why, not a refusal.
-- **`enqueue-pr.mjs` stops refusing on the count when t/656 lands.** Until then the t/564 daily refusal still applies.
+- **`enqueue-pr.mjs` no longer refuses on the count (t/656, #5533).** It checks the landing vehicle instead: an area train, a feature PR with 3+ tickets or 2+ owners, an incident PR for an open INCIDENT ticket, Dependabot, or docker/base-repin-*. Anything else is refused, and the refusal names the trains.
 - **Add to an open PR before opening a new one.** If you already have an open PR in the same area that isn't queued, the change goes there.
 - **Minimum size:** a non-urgent change under ~50 lines waits to be combined with your next change in the same area, or goes into the feature PR or the area train. Exempt as above.
 - **No separate PRs for review nits or small follow-ups.** Fix review findings in the same PR; the reviewer re-stamps the delta only (`docs/review-routing.md` § Delta re-stamp). A follow-up that really needs its own change goes into your next substantive PR or the area train, never a standalone PR.
@@ -42,6 +42,10 @@ Batch your work into a vehicle: every change lands in one of three. We measure t
 ## Data repo PRs (ai-triad-data, TL p/7#221)
 
 The data repo has no merge queue or branch protection, so `enqueue-pr.mjs` does not apply to it. The author merges after the required approvals (Quality's recount, plus the PI's go for a corpus write) and green checks, pinned to the approved head with `gh pr merge <N> -R AI-Rosetta-Stone/ai-triad-data --squash --match-head-commit <sha>`. The never-`gh pr merge` rule applies to ai-triad-research only.
+
+## Sources repo PRs (ai-triad-sources, TL t/652)
+
+The sources repo has no merge queue, and the reviewer App isn't installed there, so neither `enqueue-pr.mjs` nor a reviewer-App approval applies. Quality's verdict on the ticket, naming the exact head SHA, stands in for the App approval. The author merges after that verdict and green checks, pinned to that head with `gh pr merge <N> -R AI-Rosetta-Stone/ai-triad-sources --squash --match-head-commit <sha>`. Any push after the verdict voids it: get a new verdict at the new head. The never-`gh pr merge` rule applies to ai-triad-research only.
 
 ## PR-Flow Practice Rules
 

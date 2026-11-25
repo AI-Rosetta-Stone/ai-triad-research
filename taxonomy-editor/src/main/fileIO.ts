@@ -23,7 +23,10 @@ import {
   type SourceReference as SharedSourceReference, type SourceCardMeta as SharedSourceCardMeta,
   type SourceIdentityDoc, type SourceIdentityMeta,
 } from '../../../lib/sourceIndex/types.js';
-import { mergeGroupEvidence, type EvidenceUnionMember } from '../../../lib/sourceIndex/evidenceUnion.js';
+import {
+  mergeGroupEvidence, type EvidenceUnionMember, type GroupMemberKind, type LegacyChunkManifest,
+} from '../../../lib/sourceIndex/evidenceUnion.js';
+import { readLegacyChunkManifest } from './legacyChunkManifest.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1131,6 +1134,46 @@ function loadSourceMetaAndIdentity(): {
  *  key_point (`verbatim`, else `point`) — this index only ever carries key_points. */
 type SourceEvidenceLink = SourceReference & { node: string; quote: string };
 
+/** t/585: a manifest chunk's place in its group (spec 7.1): `chunk_D` is a chunk of the
+ *  canonical, `chunk_copy` a chunk of the marked copy `viaCopy`. */
+interface ChunkMemberKind { kind: Exclude<GroupMemberKind, 'copy'>; viaCopy?: string }
+
+const byOrdinal = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+const chunkNumber = (id: string): number => Number(/(\d+)$/.exec(id)?.[1] ?? 0);
+
+/** Spec 7.1's chunk order, as lib `groupMembers` builds it: the canonical's own chunks, then
+ *  each copy's chunks by copy id, each set by N ascending. */
+function sortChunkMembers<T extends { id: string; kind?: GroupMemberKind; viaCopy?: string }>(chunks: T[]): T[] {
+  const rank = (m: T) => (m.kind === 'chunk_D' ? 0 : 1);
+  return [...chunks].sort((a, b) =>
+    rank(a) - rank(b) || byOrdinal(a.viaCopy ?? '', b.viaCopy ?? '')
+    || chunkNumber(a.id) - chunkNumber(b.id) || byOrdinal(a.id, b.id));
+}
+
+/** t/585 (t/572, spec 6.2): fold each manifest-listed chunk into its base's resolved id. Only a
+ *  listed id is a chunk, whether or not it has a source dir. An unlisted `<X>-N` stays its own
+ *  source. A chunk of a marked copy lands on the copy's canonical as `chunk_copy`.
+ *
+ *  A listed chunk whose base is absent is reported in `missingBase` and left unfolded; the caller
+ *  logs it at error level, naming the id. Spec 6.2 says refuse, which the PowerShell pipeline does;
+ *  the TL ruled the two live builders log and leave it unfolded instead (option (b), p/50#178),
+ *  identically in src/server/storage/nodeSourceIndex.ts (t/586). */
+function foldManifestChunks(
+  resolved: Record<string, string>, docIds: ReadonlySet<string>, manifest: LegacyChunkManifest,
+): { resolved: Record<string, string>; chunkKinds: Map<string, ChunkMemberKind>; missingBase: string[] } {
+  const out = { ...resolved };
+  const chunkKinds = new Map<string, ChunkMemberKind>();
+  const missingBase: string[] = [];
+  for (const [chunk, base] of Object.entries(manifest)) {
+    if (!docIds.has(chunk)) continue;
+    if (!docIds.has(base)) { missingBase.push(chunk); continue; }
+    const canonical = resolved[base] ?? base;
+    out[chunk] = canonical;
+    chunkKinds.set(chunk, canonical === base ? { kind: 'chunk_D' } : { kind: 'chunk_copy', viaCopy: base });
+  }
+  return { resolved: out, chunkKinds, missingBase: missingBase.sort(byOrdinal) };
+}
+
 /** One resolved-id group within one node (spec 7.1's group — duplicate_of marks only, never
  *  the section-4 hash/suffix grouping that already set `canonicalDocId`). An "own" ref
  *  (resolvedId === docId) is never touched — pushed exactly as it already is, repeats
@@ -1143,6 +1186,7 @@ type SourceEvidenceLink = SourceReference & { node: string; quote: string };
  *  (src/server/storage/nodeSourceIndex.ts), t/4421/t/4400. */
 function resolveGroupRefs(
   nodeId: string, resolvedId: string, groupRefs: SourceReference[], metaCache: Record<string, NodeSourceMeta>,
+  chunkKinds: ReadonlyMap<string, ChunkMemberKind> = new Map(),
 ): SourceReference[] {
   const ownRefs = groupRefs.filter(r => r.docId === resolvedId);
   const markedRefs = groupRefs.filter(r => r.docId !== resolvedId);
@@ -1154,15 +1198,24 @@ function resolveGroupRefs(
     if (bucket) bucket.push(r); else byDocId.set(r.docId, [r]);
   }
   const toLink = (r: SourceReference) => ({ ...r, node: nodeId, quote: r.verbatim || r.point });
+  // t/585: a manifest chunk is a `chunk_D` / `chunk_copy` member; anything else is a marked copy.
+  // mergeGroupEvidence orders copies itself but takes chunks in the order given, so chunks
+  // go in spec 7.1's groupMembers order (sortChunkMembers).
+  const others = [...byDocId.entries()].map(([docId, docRefs]): EvidenceUnionMember<SourceEvidenceLink> => ({
+    id: docId, links: docRefs.map(toLink), ...chunkKinds.get(docId),
+  }));
   const members: EvidenceUnionMember<SourceEvidenceLink>[] = [
     ...(ownRefs.length > 0 ? [{ id: resolvedId, links: ownRefs.map(toLink) }] : []),
-    ...[...byDocId.entries()].map(([docId, docRefs]) => ({ id: docId, links: docRefs.map(toLink) })),
+    ...others.filter(m => !m.kind),
+    ...sortChunkMembers(others.filter(m => m.kind)),
   ];
 
   const target = metaCache[resolvedId];
   const kept = [...ownRefs];
-  for (const { quote: _quote, doc: _doc, via, ...r } of mergeGroupEvidence(resolvedId, members)[nodeId] ?? []) {
-    if (!via) continue; // an own ref's entry — already pushed above, unchanged
+  for (const entry of mergeGroupEvidence(resolvedId, members)[nodeId] ?? []) {
+    // Provenance only (spec 7.6/7.6a, FORENSICS ONLY in lib): stripped, so SourceReference is unchanged.
+    const { quote: _quote, doc: _doc, via, chunk_of, chunk_generated_at: _cga, chunk_model: _cm, ...r } = entry;
+    if (!via && !chunk_of) continue; // an own ref's entry — already pushed above, unchanged
     kept.push({
       ...r, docId: resolvedId, canonicalDocId: resolvedId,
       title: target?.title ?? r.title, url: target?.url ?? r.url,
@@ -1179,6 +1232,7 @@ function resolveGroupRefs(
  *  Mirrors the server's identically-named helper (src/server/storage/nodeSourceIndex.ts). */
 function dedupeByResolvedId(
   index: NodeSourceIndex, resolved: Record<string, string>, metaCache: Record<string, NodeSourceMeta>,
+  chunkKinds: ReadonlyMap<string, ChunkMemberKind> = new Map(),
 ): void {
   for (const [nodeId, refs] of Object.entries(index)) {
     const byResolvedId = new Map<string, SourceReference[]>();
@@ -1190,7 +1244,7 @@ function dedupeByResolvedId(
 
     const kept: SourceReference[] = [];
     for (const [resolvedId, groupRefs] of byResolvedId) {
-      kept.push(...resolveGroupRefs(nodeId, resolvedId, groupRefs, metaCache));
+      kept.push(...resolveGroupRefs(nodeId, resolvedId, groupRefs, metaCache, chunkKinds));
     }
     index[nodeId] = kept;
   }
@@ -1223,7 +1277,16 @@ function applyCanonicalDocIds(
   for (const refs of Object.values(index)) {
     for (const r of refs) r.canonicalDocId = canonical[r.docId] ?? r.docId;
   }
-  dedupeByResolvedId(index, resolved, metaCache);
+  const folded = foldManifestChunks(resolved, allDocIds, readLegacyChunkManifest(PROJECT_ROOT));
+  dedupeByResolvedId(index, folded.resolved, metaCache, folded.chunkKinds);
+  if (folded.missingBase.length > 0) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'file-io', level: 'error',
+      message: `buildNodeSourceIndex: ${folded.missingBase.length} legacy-chunk manifest entr(y/ies) name a base that does not exist (left unfolded): ${folded.missingBase.join(', ')}`,
+      data: { missingBase: folded.missingBase },
+    });
+    console.error(`[fileIO] missing_base: legacy-chunk manifest chunk(s) with no base, left unfolded: ${folded.missingBase.join(', ')}`);
+  }
   if (duplicateOfErrors.length > 0) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'file-io', level: 'warn',

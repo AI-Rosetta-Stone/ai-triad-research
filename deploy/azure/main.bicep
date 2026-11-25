@@ -840,6 +840,8 @@ var baseEnv = [
   // t/4794: same reasoning as the three above — explicit, not relying on server.ts's
   // `|| 'analytics'` default. Staging overrides to its own staging-analytics container below.
   { name: 'AZURE_ANALYTICS_CONTAINER', value: 'analytics' }
+  // t/554 / t/503: overlay-state container name. The server builds the store when the URL and container are set, but uses it only when OVERLAY_SHARED_STATE_ENABLED is set (not set here).
+  { name: 'AZURE_OVERLAY_STATE_CONTAINER', value: 'overlay-state' }
   // t/3165 DURABLE close: the worker-offload flag lives HERE (baseEnv), not a CLI --set-env-vars —
   // a CLI value is wiped by the next full template deploy (the ephemeral-drift trap). It routes the
   // ONNX embedding compute to the off-thread worker (t/3183) so a large novel-text batch can't starve
@@ -951,6 +953,7 @@ var stagingEnvOverrides = [
   // t/4794: a fourth container nobody wired — same incident class as the three above.
   // staging-analytics and its RBAC grant (t/2701) already existed; only this line was missing.
   { name: 'AZURE_ANALYTICS_CONTAINER', value: azureAnalyticsContainerStaging }
+  { name: 'AZURE_OVERLAY_STATE_CONTAINER', value: 'staging-overlay-state' }
   // t/4406: staging's OWN origin. Inheriting baseEnv's (prod's) value made staging send prod's host
   // as its CORS access-control-allow-origin and treat prod's origin as allowed. Hygiene only: it did
   // NOT block same-origin staging requests (the guard passes Origin host == Host before reading this

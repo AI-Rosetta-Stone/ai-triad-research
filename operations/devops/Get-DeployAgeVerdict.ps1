@@ -7,22 +7,34 @@
     older-commit case.
 
 .DESCRIPTION
-    `Get-DeployAgeVerdict` takes the already-gathered facts (the prod revision's name, and the
-    `git merge-base --is-ancestor` exit code, or $null if it was never run) and returns one of:
-      - 'proceed'      — safe to deploy (no active prod revision, or confirmed ancestor).
-      - 'refuse'       — the requested SHA is confirmed NOT an ancestor: a real older/diverged deploy.
-      - 'warn-proceed' — could not determine (unparseable revision name, unresolvable SHA, or a git
-                          ERROR exit code) — fail OPEN, never silently refuse on an inconclusive read.
+    `Get-DeployAgeVerdict` takes the already-gathered facts (the prod revision's name, the
+    `git merge-base --is-ancestor` exit code or $null if it was never run, and, when that exit code
+    is 1, the containment result from Test-DeployChangesContained) and returns one of:
+      - 'proceed'      — safe to deploy (no active prod revision, confirmed ancestor, or every change
+                          the running commit made since the merge-base is present in the requested one).
+      - 'refuse'       — the requested SHA is NOT a descendant and the running commit's changes are
+                          not all present (or that could not be verified): a real older/diverged deploy.
+      - 'warn-proceed' — could not determine ancestry (unparseable revision name, unresolvable SHA, or
+                          a git ERROR exit code) — fail OPEN, never silently refuse on an inconclusive read.
 
-    The workflow step (CLI wrapper, not duplicated here) does the actual `git rev-parse` /
-    `git merge-base` calls and feeds their results into this function — kept out of this file so the
-    decision logic is testable without a real git repo or Azure state.
+    t/670 (t/579, TL p/9#660, DeployAzure p/227#27): prod can run a hotfix built off a side branch
+    whose changes reached main as separately squashed PRs, so it never becomes an ancestor of main.
+    When the requested SHA is not a descendant, the deploy still proceeds if
+    `git diff <merge-base> <running>` reverse-applies cleanly onto the requested tree, i.e. every
+    change the running commit made is already present. Anything else (a missing change, a later change
+    to the same lines, an empty merge-base, or any git error in the containment check) REFUSES, naming
+    the files, so a human decides. Fail closed: the old exit-1 refusal now only relaxes on proof.
+
+    The workflow step does the `git rev-parse` / `git merge-base` calls and runs
+    Test-DeployChangesContained; Get-DeployAgeVerdict stays pure.
 #>
 
 function Get-DeployAgeVerdict {
     param(
         [string]$ProdRevisionName,
-        [Nullable[int]]$MergeBaseExitCode
+        [Nullable[int]]$MergeBaseExitCode,
+        # t/670: Test-DeployChangesContained's result, consulted only when $MergeBaseExitCode is 1.
+        $Containment = $null
     )
     if ([string]::IsNullOrWhiteSpace($ProdRevisionName)) {
         return [PSCustomObject]@{ Action = 'proceed'; Reason = 'no-active-prod-revision' }
@@ -38,8 +50,63 @@ function Get-DeployAgeVerdict {
         return [PSCustomObject]@{ Action = 'proceed'; Reason = 'is-ancestor'; RunningShort = $runningShort }
     }
     if ($MergeBaseExitCode -eq 1) {
-        return [PSCustomObject]@{ Action = 'refuse'; Reason = 'not-ancestor-older-deploy'; RunningShort = $runningShort }
+        if ($null -ne $Containment -and $Containment.Contained -eq $true) {
+            return [PSCustomObject]@{ Action = 'proceed'; Reason = 'not-ancestor-but-changes-contained'; RunningShort = $runningShort; Containment = $Containment }
+        }
+        $why = if ($null -eq $Containment) { 'containment not checked' } elseif ($Containment.Error) { "containment unverifiable: $($Containment.Error)" } else { 'running changes missing from the requested commit' }
+        return [PSCustomObject]@{ Action = 'refuse'; Reason = 'not-ancestor-older-deploy'; Detail = $why; RunningShort = $runningShort; Containment = $Containment }
     }
     # SO C3: exit code >1 (e.g. 128) is a git ERROR, not a definitive "not an ancestor" verdict.
     return [PSCustomObject]@{ Action = 'warn-proceed'; Reason = "git-error-exit-$MergeBaseExitCode"; RunningShort = $runningShort }
+}
+
+function Test-DeployChangesContained {
+    <#
+    .SYNOPSIS
+        t/670: whether every change the running commit made since its merge-base with the requested
+        commit is already present in the requested commit. Never throws.
+    .OUTPUTS
+        [pscustomobject] { Contained [bool]; MergeBase; UniqueCommits [string[]]; Files [string[]];
+        Error [string] }. Contained is $true only when the reverse-apply check passed; any git error,
+        an empty merge-base or an unreadable diff gives Contained = $false with Error set.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Running,
+        [Parameter(Mandatory)][string]$Requested,
+        [string]$RepoPath = '.'
+    )
+    $result = [PSCustomObject]@{ Contained = $false; MergeBase = $null; UniqueCommits = @(); Files = @(); Error = $null }
+    $patch = $null
+    $index = $null
+    try {
+        $mb = (& git -C $RepoPath merge-base $Running $Requested 2>$null)
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($mb)) { $result.Error = "no merge-base of $Running and $Requested (exit code $LASTEXITCODE)"; return $result }
+        $result.MergeBase = $mb.Trim()
+        $result.UniqueCommits = @(& git -C $RepoPath log --no-merges --format='%h %s' "$Requested..$Running" 2>$null)
+        $result.Files = @(& git -C $RepoPath diff --name-only $result.MergeBase $Running 2>$null)
+        $patch = [System.IO.Path]::GetTempFileName()
+        # git writes the patch itself (--output): bytes stay exact, no PowerShell line handling.
+        & git -C $RepoPath diff --binary "--output=$patch" $result.MergeBase $Running 2>$null
+        if ($LASTEXITCODE -ne 0) { $result.Error = "git diff $($result.MergeBase) $Running failed (exit $LASTEXITCODE)"; return $result }
+        if ((Get-Item -LiteralPath $patch).Length -eq 0) { $result.Contained = $true; return $result }  # the running commit changed nothing since the merge-base
+        # Check against the requested TREE through a throwaway index: no worktree, no checkout.
+        $index = [System.IO.Path]::GetTempFileName()
+        Remove-Item -LiteralPath $index -Force
+        $env:GIT_INDEX_FILE = $index
+        & git -C $RepoPath read-tree $Requested 2>$null
+        if ($LASTEXITCODE -ne 0) { $result.Error = "git read-tree $Requested failed (exit $LASTEXITCODE)"; return $result }
+        $out = & git -C $RepoPath apply --cached --check -R $patch 2>&1
+        if ($LASTEXITCODE -eq 0) { $result.Contained = $true; return $result }
+        # Name the files whose changes are not (all) present.
+        $bad = @($out | ForEach-Object { if ("$_" -match '^error: (?:patch failed|while searching for):?\s*([^:]+)') { $Matches[1].Trim() } elseif ("$_" -match '^error: ([^:]+): patch does not apply') { $Matches[1].Trim() } } | Where-Object { $_ } | Select-Object -Unique)
+        if ($bad.Count) { $result.Files = $bad }
+        return $result
+    } catch {
+        $result.Contained = $false
+        $result.Error = "containment check threw: $($_.Exception.Message)"
+        return $result
+    } finally {
+        Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue
+        foreach ($f in @($patch, $index)) { if ($f -and (Test-Path -LiteralPath $f)) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue } }
+    }
 }

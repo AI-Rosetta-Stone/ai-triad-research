@@ -44,15 +44,19 @@ import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool, computeEmbeddingsOffThread } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { pollLeaseConfigFromEnv } from './pollLeaseConfig.js';
+import { sharedOverlayStateFromEnv, startSharedOverlayDrainFromEnv } from './sharedOverlayWiring.js';
 import { writeLifecycleDump, lifecycleDumpPruneSince, LIFECYCLE_DUMP_MAX_COUNT, LIFECYCLE_DUMP_MAX_AGE_MS } from './lifecycleDumps.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
 import { logRequestMetrics, REQUEST_METRICS_LOG_DELAY_MS } from './requestMetricsLog.js';
-import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, anonymousStorageUserId, type UserContext } from './security/userContext.js';
+import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, type UserContext } from './security/userContext.js';
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
 import { anonRouteDecision } from './anonAiRoutes.js';
+import { anonRequestIdentity, refuseUnkeyedHostedAnonymous } from './anonRequestIdentity.js';
+import { loadAnonSessionSecret } from './security/anonSessionSecret.js';
+import { startAnonOpedSweep } from './storage/opedStore.js';
 import { enforceAuthGate, enforceAnonRouteGuard, type AuthGateCtx, type AuthGateDeps } from './authGates.js';
 import { resolveAllowlist, type AuthorizedUsersFile } from './authorizedUsers.js';
 import { getRollbackStatus } from './rollbackStatus.js';
@@ -66,7 +70,7 @@ import { resolveAllowedOrigins, corsOriginFor, resolveBindHost, isNonLoopbackDev
 import { parseCookies } from './httpCookies.js';
 import { registerAllRoutes } from './routes/all.js';
 import { invalidateConflictsCache, warmConflictsCache } from './routes/conflicts.js';
-import { anonSessionCookiesWithCreated } from './routes/session.js';
+import { handleAnonAuthEndpoints } from './anonAuthEndpoints.js';
 import { setDataRootReady, setDataRootFailed } from './routes/dataRootReadiness.js'; // t/3309: data-root → /readyz readiness cache
 import { buildLoginPage, FORBIDDEN_PAGE, SW_HEAL_SCRIPT_CSP_HASH, loginPageHeaders } from './loginPage.js';
 import type { ServerCtx } from './routes/context.js';
@@ -254,6 +258,7 @@ if (process.env.AUTH_DISABLED === '1') {
 // ── Storage backend selection ──
 
 let githubBackend: GitHubAPIBackend | null = null;
+let stopSharedOverlayDrain: (() => void) | null = null; // t/552 DRAINING timer, stopped in shutdown()
 let sessionManager: SessionBranchManager | null = null;
 
 if (STORAGE_MODE === 'github-api') {
@@ -266,11 +271,16 @@ if (STORAGE_MODE === 'github-api') {
   // t/613: the shutdown/crash dump cap and its prune floor, so the live retention rule is visible in the boot log.
   { const since = lifecycleDumpPruneSince(); log.server.info({ maxCount: LIFECYCLE_DUMP_MAX_COUNT, maxAgeDays: LIFECYCLE_DUMP_MAX_AGE_MS / 86_400_000, pruneSince: since === null ? 'none' : new Date(since).toISOString() }, 'lifecycle dump retention at boot (t/613)'); }
   log.server.info({ pollLease: pollLease ? { maxReplicas: pollLease.maxReplicas, armed: pollLease.maxReplicas > 1 } : null }, 'GitHub poll lease config at boot (t/509)');
+  // t/553 (t/503 PR 4): shared overlay state + commit lock, only when the account URL and container are both set.
+  const sharedOverlayState = sharedOverlayStateFromEnv(process.env);
+  log.server.info({ sharedOverlayState: !!sharedOverlayState, draining: process.env.OVERLAY_SHARED_STATE_DRAINING === '1' }, 'shared overlay state config at boot (t/553)');
   githubBackend = new GitHubAPIBackend({
     cacheDir: CACHE_DIR,
     recorder: serverRecorder,
     ...(pollLease ? { pollLease } : {}),
+    ...(sharedOverlayState ? { sharedOverlayState } : {}),
   });
+  stopSharedOverlayDrain = startSharedOverlayDrainFromEnv(process.env);
   sessionManager = new SessionBranchManager(githubBackend, serverRecorder);
   fileIO.setBackend(githubBackend);
   serverRecorder.record({
@@ -567,6 +577,8 @@ async function handleRequestInner(
   // getCurrentUserId() inside getApiKey()/storeApiKey() sees the caller.
   // Unauthenticated paths (local dev, kill-switch, public endpoints) fall
   // back to '_local' — which keyStore ignores in local-file mode.
+  // t/500 (TL p/16#417): a hosted anonymous /api/ request with no verified session never reaches a per-visitor store.
+  if (refuseUnkeyedHostedAnonymous(req, res, { urlPath, isPublicPath, principalName, authOptional })) return;
   const userCtx = await resolveRequestUserContext(req, res, principalName, idp);
   if (!userCtx) return;
   await runWithUser(userCtx, async () => {
@@ -710,35 +722,7 @@ function resolvePrincipalIdentity(req: http.IncomingMessage, res: http.ServerRes
 
 /** The two anonymous-session establishment endpoints (t/1483). Returns true when handled
  *  (cookies set + responded). Must run before the auth gate — the caller has no session yet. */
-function handleAnonAuthEndpoints(req: http.IncomingMessage, res: http.ServerResponse, urlPath: string, authOptional: boolean): boolean {
-  // /.auth/anonymous — sets a session cookie and redirects to the app (browser
-  // link on the login page). POST /api/auth/anonymous below is the JSON sibling.
-  if (urlPath === '/.auth/anonymous' && authOptional) {
-    res.writeHead(302, {
-      'Location': '/',
-      'Set-Cookie': anonSessionCookiesWithCreated(req), // t/2464 (id) + t/2493 (created marker on fresh mint)
-    });
-    res.end();
-    return true;
-  }
-
-  // POST /api/auth/anonymous — JSON sibling of GET /.auth/anonymous (t/1483,
-  // follow-up from t/1476). Establishes an anonymous session for programmatic
-  // callers (the web-bridge session-recovery path) with the same two cookies but
-  // a JSON 200 instead of a 302 + ~2KB HTML round-trip. Must run before the auth
-  // gate below — the caller has no session yet. POST-only so a stray GET still
-  // falls through to the 302 link / login page. The session id stays in the
-  // HttpOnly cookie and is never echoed in the body.
-  if (urlPath === '/api/auth/anonymous' && req.method === 'POST' && authOptional) {
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Set-Cookie': anonSessionCookiesWithCreated(req), // t/2464 (id) + t/2493 (created marker on fresh mint)
-    });
-    res.end(JSON.stringify({ ok: true, anonymous: true }));
-    return true;
-  }
-  return false;
-}
+// t/666 (SO p/252#59): handleAnonAuthEndpoints moved to anonAuthEndpoints.ts, which also catches a signing failure.
 
 /** Clear anonymous cookies when a user signs in via EasyAuth. */
 function clearAnonCookiesOnSignin(req: http.IncomingMessage, res: http.ServerResponse, principalName: string): void {
@@ -766,8 +750,11 @@ async function resolveRequestUserContext(req: http.IncomingMessage, res: http.Se
   const effectiveIdp = idp || '_local';
   // t/467 (PI option a): an anonymous visitor's storage key comes from their own anon_session_id cookie,
   // not the shared '_local' store that the signed-in local user also uses.
-  const anonymousSessionId = isAnon ? parseCookies(req).get('anon_session_id') : undefined;
-  const storageUserId = isAnon ? anonymousStorageUserId(anonymousSessionId) : deriveStorageUserId(effectivePrincipal, effectiveIdp);
+  // t/664, t/666 (Security p/93#106, #110): the storage id comes from the RAW signed cookie (anonymousStorageUserId verifies
+  // it); the context keeps only the VERIFIED uuid. anonRequestIdentity.ts holds the rule and its HTTP-level test.
+  const anon = isAnon ? anonRequestIdentity(req) : undefined;
+  const anonymousSessionId = anon?.anonymousSessionId;
+  const storageUserId = anon ? anon.storageUserId : deriveStorageUserId(effectivePrincipal, effectiveIdp);
 
   // Cross-provider collision guard: verify the idp matches the one that first
   // claimed this storageUserId. Prevents a different provider from accessing
@@ -1095,10 +1082,14 @@ function handleTerminalConnection(ws: WebSocket) {
 
 let isShuttingDown = false;
 
+/** t/665: stops the anonymous op-ed expiry sweep; set at boot, called in shutdown. */
+let stopAnonOpedSweep: (() => void) | null = null;
+
 function shutdown(signal: string) {
   if (isShuttingDown) return; // Prevent double-shutdown
   isShuttingDown = true;
   log.server.info({ signal }, 'Shutting down gracefully');
+  try { stopAnonOpedSweep?.(); } catch { /* telemetry — silent by design; best effort on shutdown */ }
 
   // Dump server flight recorder on shutdown
   try {
@@ -1109,6 +1100,7 @@ function shutdown(signal: string) {
   } catch { /* telemetry — silent by design;  best effort */ }
 
   // 1a. Stop GitHubAPIBackend polling (also logs the immediate uncommitted-overlay snapshot, t/4258 Part 1)
+  stopSharedOverlayDrain?.(); // t/553: no drain round starts after shutdown begins
   if (githubBackend) {
     githubBackend.shutdown();
   }
@@ -1180,6 +1172,11 @@ initAnonymousSessionStore({
 });
 ensureFreePoolBudgetBooted(log);
 // ── Start ──
+// t/664: load the per-environment anon-session-hmac secret before serving. Hosted with no secret fails closed: anonymous
+// sessions can't be minted (503) and anonymous storage stays off, with a WARN from the loader (TL p/16#413).
+await loadAnonSessionSecret();
+// t/665: hourly sweep of anonymous op-eds past their retention (anon-oped/ only); stopped in shutdown().
+stopAnonOpedSweep = startAnonOpedSweep();
 assertStateRootIsolation(); // t/2643: refuse start if staging's state root wasn't isolated (env drift) — no-op prod/local
 // t/3296 (t/3290 prevention) → t/3309 Path B (step-3): assert taxonomy/ + dictionary/ are present AND
 // non-empty via the ACTIVE backend (validateDataRoot uses listDirectoryStrict — profile-agnostic: fs

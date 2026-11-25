@@ -2,9 +2,8 @@
 
 /**
  * t/4311 — SharedOverlayStore (the "(c2)" shared-overlay design, store module
- * only — not wired into githubAPIBackend.ts yet). Azurite-backed, own port
- * (10006) distinct from freePoolBudget.test.ts's 10003 and
- * freePoolBudgetKeyAdmission.test.ts's 10005.
+ * only — not wired into githubAPIBackend.ts yet). Azurite-backed, on a free
+ * port per run (azuriteFreePort.ts).
  *
  * Covers the SO's re-confirmation scope for this PR (e/332#8): the overlay
  * store module's stage/unstage/_gen primitives, D1 (unconditional _gen
@@ -14,6 +13,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { freeAzuritePort } from './azuriteFreePort.js';
 import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -25,7 +25,8 @@ import { SharedOverlayStore, encodePathKey, decodePathKey } from '../storage/sha
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AZURITE_MAIN = path.resolve(here, '../../../node_modules/azurite/dist/src/blob/main.js');
-const PORT = 10006;
+// t/503 (Quality p/58#75): its own emulator per run; the fixed port 10006 let overlapping runs share one.
+const PORT = await freeAzuritePort();
 const CONN = `DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:${PORT}/devstoreaccount1;`;
 const ACCOUNT_URL = `http://127.0.0.1:${PORT}/devstoreaccount1`;
 

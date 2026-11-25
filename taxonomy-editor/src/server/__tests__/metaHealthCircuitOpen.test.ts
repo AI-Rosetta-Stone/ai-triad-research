@@ -115,3 +115,39 @@ describe('GET /health (unauth): githubRateLimitObservedAt (t/4699)', () => {
     expect(res._body.githubRateLimitObservedAt).not.toBe(res._body.githubRateLimitResetsAt);
   });
 });
+
+// t/503#22 (TL #5566 review): with shared overlay state off, or on but not draining, /health carries no
+// sharedOverlayDrain key at all; while draining it carries the counts.
+describe('GET /health (unauth): sharedOverlayDrain', () => {
+  beforeEach(() => { mockIsAdmin.mockReturnValue(false); vi.unstubAllEnvs(); });
+
+  function healthWithDrain(status: unknown): Handler {
+    const r = makeRouter();
+    const githubBackend = {
+      getRateLimitRemaining: () => 1, getRateLimitResetsAt: () => null, getRateLimitObservedAt: () => null,
+      getCircuitState: () => 'closed', getSharedOverlayDrainStatus: vi.fn(async () => status),
+    };
+    registerMetaRoutes(r.router as never, { getGithubBackend: () => githubBackend } as unknown as ServerCtx);
+    return r.handlers['GET /health'];
+  }
+
+  it('is absent when shared state is off (the backend reports null), even with DRAINING=1', async () => {
+    vi.stubEnv('OVERLAY_SHARED_STATE_DRAINING', '1');
+    const res = fakeRes();
+    await healthWithDrain(null)({} as IncomingMessage, res);
+    expect(res._body).not.toHaveProperty('sharedOverlayDrain');
+  });
+
+  it('is absent when not draining', async () => {
+    const res = fakeRes();
+    await healthWithDrain({ draining: false, usersWithEntries: [], stagedEntries: 0 })({} as IncomingMessage, res);
+    expect(res._body).not.toHaveProperty('sharedOverlayDrain');
+  });
+
+  it('while draining: counts only', async () => {
+    vi.stubEnv('OVERLAY_SHARED_STATE_DRAINING', '1');
+    const res = fakeRes();
+    await healthWithDrain({ draining: true, usersWithEntries: ['u1'], stagedEntries: 3 })({} as IncomingMessage, res);
+    expect(res._body.sharedOverlayDrain).toEqual({ draining: true, stagedEntries: 3, usersWithEntries: 1 });
+  });
+});

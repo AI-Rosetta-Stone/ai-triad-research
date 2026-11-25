@@ -192,7 +192,7 @@ function Test-CitationLinkIntegrity {
         }
     }
 
-    # ── Leg (b): source_index source_id → metadata.json (strip -<digits> chunk) ─
+    # ── Leg (b): source_index source_id → metadata.json (a listed legacy chunk → its base) ─
     $bOff = [System.Collections.Generic.List[object]]::new()
     $bAccepted = [System.Collections.Generic.List[object]]::new()   # accepted-baseline hits (t/3743) — not offenders
     $bAllowlist = @{}
@@ -207,16 +207,18 @@ function Test-CitationLinkIntegrity {
         $ix = Get-Content -Raw -LiteralPath $SourceIndexPath | ConvertFrom-Json
         if (-not $bSkipped) {
             $seen = [System.Collections.Generic.HashSet[string]]::new()
+            $legacyChunks = ConvertTo-SourceChunkTable
             foreach ($nodeProp in $ix.index.PSObject.Properties) {
                 foreach ($e in @($nodeProp.Value)) {
                     if (-not ($e.PSObject.Properties['source_id']) -or -not $e.source_id) { continue }
                     $sid = [string]$e.source_id
                     if (-not $seen.Add($sid)) { continue }   # distinct only
-                    # Resolve as-is first (chunk dirs often exist on their own), else strip a chunk
-                    # '-N' suffix ONLY when it follows a '-YYYY' year — a naive '-\d+$' would eat the
-                    # year off every non-chunked id (t/3598#3 chunk→base convention, year-aware).
+                    # Resolve as-is first, else through the legacy-chunk manifest (spec 6.2, t/355): a
+                    # chunk is an id the manifest lists, never one inferred from a '-N' suffix. An index
+                    # built by Build-NodeSourceIndex 1.3.0 or later names the base as source_id and the
+                    # chunk in chunk_of, so the manifest step only matters for an older index.
                     $okAsIs = Test-Path -LiteralPath (Join-Path (Join-Path $SourcesRoot $sid) 'metadata.json')
-                    $base   = $sid -replace '^(.*-\d{4})-\d+$', '$1'
+                    $base   = if ($legacyChunks.Contains($sid)) { [string]$legacyChunks[$sid] } else { $sid }
                     $okBase = ($base -ne $sid) -and (Test-Path -LiteralPath (Join-Path (Join-Path $SourcesRoot $base) 'metadata.json'))
                     if (-not ($okAsIs -or $okBase)) {
                         if ($bAllowlist.ContainsKey($sid)) {
@@ -249,6 +251,16 @@ function Test-CitationLinkIntegrity {
             if ($marksStored -ne $marksNow) {
                 $cOff.Add([pscustomobject]@{ kind = 'stale-marks'; stored = $marksStored; recomputed = $marksNow })
             }
+        }
+        # Legacy-chunk manifest (t/355, TL p/37#207): the list of chunks is an input of the index that
+        # neither hash above covers. It lives in this repo, so it is checked with or without a sources
+        # checkout. An index built before chunksHash existed (no field) is current exactly when the
+        # manifest is empty; with the 16 legacy chunks listed, such an index is stale and must be rebuilt.
+        $chunksNow = Get-SourceChunksHash -Resolution (New-IdentitySourceResolution)
+        $emptyChunks = Get-SourceChunksHash -Resolution ([pscustomobject]@{ Chunks = [hashtable]::new([System.StringComparer]::Ordinal) })
+        $chunksStored = if ($ix.PSObject.Properties['chunksHash']) { [string]$ix.chunksHash } else { $emptyChunks }
+        if ($chunksStored -ne $chunksNow) {
+            $cOff.Add([pscustomobject]@{ kind = 'stale-chunks'; stored = $chunksStored; recomputed = $chunksNow })
         }
         # t/3896 (CL predicate correction): compare the index key SET to the live-node SET, not
         # just the count -- a swap (remove one POV node, add another) keeps counts equal while

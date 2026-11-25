@@ -24,6 +24,7 @@ taxonomy-editor/release/
 !CHANGELOG.md
 !taxonomy-editor/THIRD-PARTY-NOTICES.txt
 docs/
+!docs/specs/source-identity-legacy-chunks.json
 AgentGuideLines/
 
 # CI/CD and deployment (not needed in image)
