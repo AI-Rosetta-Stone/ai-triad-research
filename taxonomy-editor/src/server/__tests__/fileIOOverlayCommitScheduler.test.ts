@@ -206,3 +206,75 @@ describe('fileIO overlay commit scheduler (t/4258/t/4277 C3b)', () => {
     await expect(fileIO.flushPendingOverlayCommits()).resolves.toEqual([]);
   });
 });
+
+// t/551 (TaxonomyServer t/503#7, ruling 5): the commit status any replica can answer.
+describe('getOverlayCommitStatusShared (t/551)', () => {
+  class SharedStatusBackend extends FakeOverlayBackend {
+    published: Array<{ userId: string; status: unknown }> = [];
+    readCalls = 0;
+    readImpl: () => Promise<{ status: unknown; staged: boolean } | null> = async () => null;
+    async publishSharedCommitStatus(userId: string, status: unknown): Promise<void> { this.published.push({ userId, status }); }
+    async readSharedCommitStatus(): Promise<{ status: unknown; staged: boolean } | null> { this.readCalls++; return this.readImpl(); }
+  }
+  let backend: SharedStatusBackend;
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    backend = new SharedStatusBackend();
+    fileIO.setBackend(backend);
+    const scheduler = await import('../storage/overlayCommitScheduler.js');
+    scheduler.resetSharedCommitStatusCacheForTests();
+  });
+  afterEach(async () => {
+    for (let i = 0; i <= 3; i++) await fileIO.flushPendingOverlayCommits();
+    vi.useRealTimers();
+  });
+
+  it('every status change is published to the shared store', async () => {
+    fileIO.scheduleOverlayCommit('pat');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(backend.published.map(p => (p.status as { state: string }).state)).toEqual(['pending', 'committed']);
+  });
+
+  it('reads the published status; entries still staged mean pending (written on another replica)', async () => {
+    const { getOverlayCommitStatusShared } = await import('../storage/overlayCommitScheduler.js');
+    backend.readImpl = async () => ({ status: { state: 'committed', at: 100 }, staged: true });
+    await expect(getOverlayCommitStatusShared('quinn')).resolves.toEqual({ state: 'pending', at: 100 });
+    backend.readImpl = async () => ({ status: { state: 'committed', at: 200 }, staged: false });
+    vi.advanceTimersByTime(2_001);
+    await expect(getOverlayCommitStatusShared('quinn')).resolves.toEqual({ state: 'committed', at: 200 });
+  });
+
+  it('a conflict stays a conflict even with entries staged', async () => {
+    const { getOverlayCommitStatusShared } = await import('../storage/overlayCommitScheduler.js');
+    backend.readImpl = async () => ({ status: { state: 'conflict', at: 5, conflictedPaths: ['a.json'] }, staged: true });
+    await expect(getOverlayCommitStatusShared('rae')).resolves.toMatchObject({ state: 'conflict' });
+  });
+
+  it('a read that hangs returns the local value after 1.5 s, without throwing', async () => {
+    const { getOverlayCommitStatusShared } = await import('../storage/overlayCommitScheduler.js');
+    fileIO.scheduleOverlayCommit('sam'); // local: pending
+    backend.readImpl = () => new Promise(() => { /* never settles */ });
+    const p = getOverlayCommitStatusShared('sam');
+    await vi.advanceTimersByTimeAsync(1_500);
+    await expect(p).resolves.toMatchObject({ state: 'pending' });
+  });
+
+  it('a read that fails returns the local value, without throwing', async () => {
+    const { getOverlayCommitStatusShared } = await import('../storage/overlayCommitScheduler.js');
+    fileIO.scheduleOverlayCommit('tess');
+    backend.readImpl = async () => { throw new Error('store down'); };
+    await expect(getOverlayCommitStatusShared('tess')).resolves.toMatchObject({ state: 'pending' });
+  });
+
+  it('is cached for 2 s per process: a second call inside the TTL does not read again', async () => {
+    const { getOverlayCommitStatusShared } = await import('../storage/overlayCommitScheduler.js');
+    backend.readImpl = async () => ({ status: { state: 'committed', at: 1 }, staged: false });
+    await getOverlayCommitStatusShared('uma');
+    await getOverlayCommitStatusShared('uma');
+    expect(backend.readCalls).toBe(1);
+    vi.advanceTimersByTime(2_001);
+    await getOverlayCommitStatusShared('uma');
+    expect(backend.readCalls).toBe(2);
+  });
+});

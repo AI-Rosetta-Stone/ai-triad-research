@@ -4490,6 +4490,79 @@ export class GitHubAPIBackend implements StorageBackend {
     return Math.min(1, cachedCount / Math.max(1, this.repoTree.size));
   }
 
+  // ── t/551: the shared commit status, and conflict resolution on the shared entries ──────────────────
+
+  /** t/551: publish the user's overlay commit status to the shared store, so the sync-status route agrees on every
+   *  replica. A no-op when shared state is off. Never throws: a failed write is a WARN, and readers fall back to their
+   *  local value. */
+  async publishSharedCommitStatus(userId: string, status: unknown): Promise<void> {
+    if (!this.sharedSavesActive(userId)) return;
+    try {
+      await this.sharedOverlayStore!.writeCommitStatus(userId, status);
+    } catch (err) {
+      log.storage.warn({ userId, err: String(err) }, 'shared commit status could not be published; other replicas show their own value (t/551)');
+    }
+  }
+
+  /** t/551: the user's shared commit status and whether the store still holds staged entries for them, or null when
+   *  shared state is off. Throws on a store failure; the caller (getOverlayCommitStatusShared) bounds and absorbs it. */
+  async readSharedCommitStatus(userId: string): Promise<{ status: unknown; staged: boolean } | null> {
+    if (!this.sharedSavesActive(userId)) return null;
+    const store = this.sharedOverlayStore!;
+    const [status, entries] = await Promise.all([store.readCommitStatus(userId), store.listEntries(userId)]);
+    return { status, staged: entries.length > 0 };
+  }
+
+  /** t/551 ("Use theirs" with shared state active): discard every staged entry for the user, under the commit lease so
+   *  a commit on another replica can't be running over the same batch (whole batch, t/4312 SO F1 and p/641#10). Busy
+   *  throws OVERLAY_COMMIT_BUSY. With shared state off, this is discardConflictedOverlayEntries. Returns the paths
+   *  discarded. */
+  async discardConflictedOverlayEntriesAsync(userId: string): Promise<string[]> {
+    if (!this.sharedSavesActive(userId)) return this.discardConflictedOverlayEntries(userId);
+    const store = this.sharedOverlayStore!;
+    const cfg = this.commitLockConfig();
+    const lease = new BlobLease({
+      accountUrl: cfg.accountUrl, container: cfg.container, blobName: `commit-locks/${userId}`,
+      durationSeconds: cfg.leaseSeconds, serviceClient: cfg.serviceClient,
+    });
+    if (!(await lease.acquireOrRenew())) throw this.commitBusyError(userId);
+    try {
+      const listed = await store.listEntries(userId);
+      const discarded: string[] = [];
+      for (const e of listed) {
+        const outcome = await store.unstage(userId, e.repoPath, { ifMatch: e.etag });
+        if (outcome === 'deleted') discarded.push(e.repoPath);
+        else log.storage.warn({ userId, path: e.repoPath, outcome }, 'use-theirs: a staged entry was not discarded (changed during the discard, or a store error) (t/551)');
+      }
+      this.discardConflictedOverlayEntries(userId); // the local read cache follows
+      this.sharedOverlayReadCache.delete(userId);
+      return discarded;
+    } finally {
+      await lease.release();
+    }
+  }
+
+  /** t/551 ("Keep mine" with shared state active): re-base every staged shared entry onto the branch's current blob,
+   *  then commit once. The commit takes the lease itself. Each re-base is a compare-and-set, so an entry rewritten in the
+   *  meantime keeps its own base and may still conflict (reported in stillConflicted, never auto-retried). */
+  private async rebaseSharedEntriesForRecommit(userId: string, branchName: string): Promise<boolean> {
+    const store = this.sharedOverlayStore!;
+    const listed = await store.listEntries(userId);
+    if (listed.length === 0) return false;
+    for (const e of listed) {
+      const live = await this.resolveLiveBaseSha(e.repoPath, branchName);
+      if (live === 'unknown') {
+        // The branch couldn't be read: leave the old base, so the commit fails closed on this path (t/4312).
+        log.storage.warn({ userId, path: e.repoPath }, 'keep-mine: live base unavailable; entry left on its old base (t/551)');
+        continue;
+      }
+      const outcome = await store.rebaseEntry(userId, e.repoPath, { ifMatch: e.etag, baseSha: live });
+      if (outcome !== 'rebased') log.storage.warn({ userId, path: e.repoPath, outcome }, 'keep-mine: a staged entry was not re-based (t/551)');
+    }
+    this.sharedOverlayReadCache.delete(userId);
+    return true;
+  }
+
   // ── t/550 commit 2: the cross-replica commit lease, and committing from the shared store ──────────────
 
   /** The commit when shared state is active (t/503#3 §2, rulings t/503#5, SO t/503#8 conditions 3 and 4):
@@ -5029,11 +5102,16 @@ export class GitHubAPIBackend implements StorageBackend {
   async rebaseAndRecommitConflictedOverlayEntries(
     userId: string, branchName: string,
   ): Promise<{ committed: boolean; commitSha?: string; filesCommitted?: number; stillConflicted: string[] }> {
-    const overlay = this.sessionOverlays.get(userId);
-    if (!overlay || overlay.size === 0) return { committed: false, stillConflicted: [] };
-    let bases = this.sessionOverlayBaseShas.get(userId);
-    if (!bases) { bases = new Map(); this.sessionOverlayBaseShas.set(userId, bases); }
-    for (const path of overlay.keys()) bases.set(path, await this.resolveLiveBaseSha(path, branchName));
+    if (this.sharedSavesActive(userId)) {
+      // t/551: the staged entries are the shared store's; re-base those, not the local read cache.
+      if (!(await this.rebaseSharedEntriesForRecommit(userId, branchName))) return { committed: false, stillConflicted: [] };
+    } else {
+      const overlay = this.sessionOverlays.get(userId);
+      if (!overlay || overlay.size === 0) return { committed: false, stillConflicted: [] };
+      let bases = this.sessionOverlayBaseShas.get(userId);
+      if (!bases) { bases = new Map(); this.sessionOverlayBaseShas.set(userId, bases); }
+      for (const path of overlay.keys()) bases.set(path, await this.resolveLiveBaseSha(path, branchName));
+    }
     this.sessionOverlayConflicts.delete(userId);
 
     const result = await this.commitOverlay(userId, undefined, { branchName });

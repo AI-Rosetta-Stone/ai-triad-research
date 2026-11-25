@@ -35,6 +35,15 @@ interface OverlayCommittable {
     userId: string, message?: string, opts?: { branchName?: string },
   ): Promise<OverlayCommitResult | null>;
 }
+/** t/551: a backend that can share the commit status across replicas (GitHubAPIBackend with shared state). */
+interface SharedCommitStatusBackend {
+  publishSharedCommitStatus(userId: string, status: unknown): Promise<void>;
+  readSharedCommitStatus(userId: string): Promise<{ status: unknown; staged: boolean } | null>;
+}
+function supportsSharedCommitStatus(b: StorageBackend): b is StorageBackend & SharedCommitStatusBackend {
+  const c = b as unknown as Partial<SharedCommitStatusBackend>;
+  return typeof c.publishSharedCommitStatus === 'function' && typeof c.readSharedCommitStatus === 'function';
+}
 function supportsOverlayCommit(b: StorageBackend): b is StorageBackend & OverlayCommittable {
   return typeof (b as unknown as { commitOverlay?: unknown }).commitOverlay === 'function';
 }
@@ -90,17 +99,81 @@ function recordCommitRate(userId: string): number {
   return recent.length;
 }
 
+/** t/551: record a status locally and publish it to the shared store (a no-op when shared state is off). The publish
+ *  is fire-and-forget and never throws; readers on other replicas fall back to their own value if it fails. */
+function setStatus(userId: string, status: OverlayCommitStatus): void {
+  overlayCommitStatus.set(userId, status);
+  const backend = getBackend();
+  if (supportsSharedCommitStatus(backend)) void backend.publishSharedCommitStatus(userId, status);
+}
+
+/** t/551 (TaxonomyServer t/503#7, ruling 5): the shared read is cached per process for this long. The renderer polls
+ *  /api/sync/status every 45 s, and only while the tab is visible (useSyncStatus SYNC_POLL_MS, gatedInterval), so the
+ *  cache mostly absorbs bursts (several tabs, a route that reads twice), not the steady poll. */
+export const SHARED_STATUS_TTL_MS = 2_000;
+/** t/551: the shared read never holds the polled route longer than this; on a timeout the local value is returned. */
+export const SHARED_STATUS_READ_TIMEOUT_MS = 1_500;
+const sharedStatusCache = new Map<string, { at: number; value: OverlayCommitStatus | undefined }>();
+
+function isOverlayCommitStatus(v: unknown): v is OverlayCommitStatus {
+  const s = v as { state?: unknown; at?: unknown } | null;
+  return !!s && typeof s.at === 'number' && (s.state === 'pending' || s.state === 'committed' || s.state === 'failed' || s.state === 'conflict');
+}
+
+/** The shared answer: the published status, except that entries still in the store mean 'pending' unless the last
+ *  status is a conflict or a failure (which need the user, or a retry, not a wait). */
+function sharedAnswer(shared: { status: unknown; staged: boolean }, local: OverlayCommitStatus | undefined): OverlayCommitStatus | undefined {
+  const published = isOverlayCommitStatus(shared.status) ? shared.status : local;
+  if (shared.staged && published?.state !== 'conflict' && published?.state !== 'failed') {
+    return { state: 'pending', at: published?.at ?? Date.now() };
+  }
+  return published;
+}
+
+async function readSharedStatusBounded(backend: SharedCommitStatusBackend, userId: string): Promise<{ status: unknown; staged: boolean } | null | 'timeout'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<'timeout'>(resolve => { timer = setTimeout(() => resolve('timeout'), SHARED_STATUS_READ_TIMEOUT_MS); });
+  try {
+    return await Promise.race([backend.readSharedCommitStatus(userId), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Surfaced by the sync-status route so the UI can show "not yet saved to GitHub". */
 export function getOverlayCommitStatus(userId: string): OverlayCommitStatus | undefined {
   return overlayCommitStatus.get(userId);
 }
 
-/** t/549 (t/503 PR 1): the commit status any replica can answer. In this PR it returns the local value,
- *  exactly as getOverlayCommitStatus does. t/551 (PR 3) reads the per-user status blob, with a ~2 s
- *  per-process TTL and a 1.5 s read timeout; on a timeout or a storage error it returns the local value
- *  with a WARN and never throws (TaxonomyServer t/503#7). routes/sync.ts moves to it in t/553. */
+/** t/549, t/551: the commit status any replica can answer. With shared state on, it reads the per-user status blob
+ *  and whether entries are still staged, cached for SHARED_STATUS_TTL_MS and bounded by SHARED_STATUS_READ_TIMEOUT_MS.
+ *  On a timeout or a storage error it returns the local value with a WARN, and never throws (TaxonomyServer t/503#7).
+ *  With shared state off it is the local value, as getOverlayCommitStatus. routes/sync.ts moves to it in t/553. */
 export async function getOverlayCommitStatusShared(userId: string): Promise<OverlayCommitStatus | undefined> {
-  return overlayCommitStatus.get(userId);
+  const local = overlayCommitStatus.get(userId);
+  const backend = getBackend();
+  if (!supportsSharedCommitStatus(backend)) return local;
+  const cached = sharedStatusCache.get(userId);
+  if (cached && Date.now() - cached.at < SHARED_STATUS_TTL_MS) return cached.value;
+  try {
+    const shared = await readSharedStatusBounded(backend, userId);
+    if (shared === null) return local; // shared state is off for this backend
+    if (shared === 'timeout') {
+      log.storage.warn({ userId, timeoutMs: SHARED_STATUS_READ_TIMEOUT_MS }, 'shared overlay commit status read timed out; returning the local value (t/551)');
+      return local;
+    }
+    const value = sharedAnswer(shared, local);
+    sharedStatusCache.set(userId, { at: Date.now(), value });
+    return value;
+  } catch (err) {
+    log.storage.warn({ userId, err: String(err) }, 'shared overlay commit status read failed; returning the local value (t/551)');
+    return local;
+  }
+}
+
+/** Test-only: forget the shared-status cache. */
+export function resetSharedCommitStatusCacheForTests(): void {
+  sharedStatusCache.clear();
 }
 
 function clearPendingOverlayCommit(userId: string): void {
@@ -118,7 +191,7 @@ function stopOnConflict(userId: string, result: OverlayCommitResult | null): boo
   const conflictedPaths = result?.conflictedPaths ?? [];
   if (conflictedPaths.length === 0) return false;
   if (CONFLICT_STATE_ENABLED) {
-    overlayCommitStatus.set(userId, { state: 'conflict', at: Date.now(), conflictedPaths });
+    setStatus(userId, { state: 'conflict', at: Date.now(), conflictedPaths });
     return true;
   }
   throw new ActionableError({
@@ -141,7 +214,7 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
     // baseBranch and commitOverlayImpl would throw on every scheduled commit.
     const result = await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
     if (stopOnConflict(userId, result)) return;
-    overlayCommitStatus.set(userId, { state: 'committed', at: Date.now() });
+    setStatus(userId, { state: 'committed', at: Date.now() });
     const commitsInLastHour = recordCommitRate(userId);
     getGlobalRecorder()?.record({
       type: 'overlay.commit.rate',
@@ -169,7 +242,7 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
       message: warnMsg,
       error: { name: (err as Error).name ?? 'Error', message, stack: (err as Error).stack },
     });
-    overlayCommitStatus.set(userId, { state: 'failed', at: Date.now(), error: message });
+    setStatus(userId, { state: 'failed', at: Date.now(), error: message });
     if (attempt < OVERLAY_COMMIT_MAX_RETRIES) {
       const backoffMs = 1_000 * 2 ** attempt;
       const nextAttempt = attempt + 1;
@@ -189,7 +262,7 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
  */
 export function scheduleOverlayCommit(userId: string): void {
   if (!supportsOverlayCommit(getBackend())) return;
-  overlayCommitStatus.set(userId, { state: 'pending', at: Date.now() });
+  setStatus(userId, { state: 'pending', at: Date.now() });
 
   const existing = pendingOverlayCommits.get(userId);
   if (existing) {

@@ -527,6 +527,49 @@ export class SharedOverlayStore {
     }
   }
 
+  private statusBlobClient(userId: string): BlockBlobClient {
+    // No `.json` suffix, so listEntries never lists it as a staged path.
+    return this.containerClient.getBlockBlobClient(`${this.blobPrefix}/${userId}/_status`);
+  }
+
+  /** t/551: write the user's overlay commit status, so any replica can answer the sync-status route. Unconditional
+   *  (last writer wins): each write is a whole, current status. Throws a wrapped error on a store failure. */
+  async writeCommitStatus(userId: string, status: unknown): Promise<void> {
+    const client = this.statusBlobClient(userId);
+    const body = JSON.stringify(status);
+    try {
+      await client.upload(body, Buffer.byteLength(body));
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'warn',
+        message: `writeCommitStatus failed: ${client.name}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw wrapOverlayError(err, 'writeCommitStatus', client.name);
+    }
+  }
+
+  /** t/551: the user's last written commit status, or null if none was written. Throws a wrapped error on a store failure. */
+  async readCommitStatus(userId: string): Promise<unknown> {
+    const client = this.statusBlobClient(userId);
+    try {
+      const resp = await client.download();
+      const chunks: Buffer[] = [];
+      for await (const chunk of resp.readableStreamBody ?? []) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array | string));
+      }
+      return JSON.parse(Buffer.concat(chunks).toString('utf-8')) as unknown;
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'warn',
+        message: `readCommitStatus failed: ${client.name}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw err instanceof ActionableError ? err : wrapOverlayError(err, 'readCommitStatus', client.name);
+    }
+  }
+
   /** The user's current generation token, or `null` if they've never staged
    *  anything (the `_gen` blob doesn't exist yet). */
   async getGeneration(userId: string): Promise<string | null> {
