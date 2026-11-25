@@ -27,10 +27,16 @@ Design A gives prod its own state share, which staging never mounts. Staging alr
 | `taxonomy/Origin/policy_actions.lock` | `routes/policyRegistry.ts:136` | A lock file; do not copy it. It is recreated. |
 | Analytics NDJSON fallback | `server.ts:1443` | Prod uses Blob analytics, so this is expected to be empty. Confirm at the inventory step. |
 
+**Other paths that default onto the data root** (Security addition 2). Prod sets no `ANON_SESSION_DIR`, so anonymous sessions default to `/mnt/shared/anon-sessions` (`storage/anonymousSessionStore.ts:63-66`; 0 files on 2026-11-25). Phase 3 sets `ANON_SESSION_DIR=/mnt/prod-state/anon-sessions`. Prod's `TAXONOMY_CACHE_DIR` is local disk (`/home/aitriad/.cache/taxonomy-github-api`), and `AI_TRIAD_SOURCES_ROOT` is unset, so sources resolve outside the data root (`config.ts:195`). Neither needs to change.
+
 **Does not move, and gets deleted:** `.aitriad-key-gemini.enc` (share root, written 2026-04-14). It is a legacy file-mode key store; prod uses Key Vault. It is deleted from `taxonomy-data` after the PI decides on rotation (t/617#11). It is never copied to the new share.
 
 **Stays on `taxonomy-data`** (read from the **data** root by code, so it moves only with TaxonomyServer and Debate Engine's code change in t/625):
 `admin/quotas.json`, `proxy-tiers.json`, `authorized-users.json`, `admin/flight-recorder-dumps/`, `node-delete-log.jsonl`, `calibration/` crux registry, `greatest-hits.json` and the situation-statements sidecar, plus all taxonomy and grounding data.
+
+**Legacy per-user content, classified in step 0** (Security addition 1): `preferences/` (12 files), `chats/` (3), `debates/` (340), `harvests/` (8), `calibration/users/` (6) and the 3 id-like directories under `sources/`. In github-api mode prod reads preferences, chats, debates and calibration users through GitHub or Blob, not the share, so these copies look unused. Step 0 records, per directory, the file count, whether any file carries ids or emails (counts only), and whether any code path reads it from the mount. Anything that carries ids and that nothing reads is **deleted in step 7 with the PI's go**, not left on the share. Anything that something does read is decided like the "stays" files below.
+
+**Decision rule for the "stays" files and legacy directories** (Security addition 3): decide per file from step 0's counts. A file that carries ids or emails **moves now**, unless moving it breaks prod (a data-root read in code, before t/625). In that case it waits, and the TL sets a review date for it on t/624. A file without ids may stay.
 
 > **Open item for Security (condition 4).** Security asked that nothing left readable to staging carries ids or emails, and that `admin/` and `calibration/users` move in A. The files above are read through the **data** root, so moving them without t/625's code change would make prod fall back to defaults (for example, losing quota overrides). Step 0 checks each of them for ids and emails (counts only). If any carries them, there are two choices: (a) A waits for t/625 for that file, or (b) the TL sets a review date and accepts it in the interim (TL p/45#245: "the interim is acceptable"). `calibration/users/` (6 files) is read through the storage backend (GitHub), not the share. Step 0 also confirms whether the share copy is used at all; if not, it is deleted with the PI's go rather than moved.
 
@@ -46,7 +52,7 @@ Two deploys, so that the copy happens between them.
 - **Security condition 1:** a Pester test that parses `main.bicep` and fails if any app other than `containerApp` (prod) references `taxonomy-state-prod`. Bicep has no cross-resource assertion, so the test is the guard.
 
 **Phase 3: switch.**
-- Prod gets `AI_TRIAD_STATE_ROOT=/mnt/prod-state` (prod only; staging already overrides it to `/mnt/staging-state`).
+- Prod gets `AI_TRIAD_STATE_ROOT=/mnt/prod-state` and `ANON_SESSION_DIR=/mnt/prod-state/anon-sessions` (prod only; staging already overrides both to `/mnt/staging-state` paths).
 - `deploy-azure.yml`'s `ExpectedEnvVars` must list it in the same PR (the `BicepEnvDrift` test enforces that). That is Azure's file, so a T2 change, and DeployAzure is the required reviewer.
 
 **What-if, expected:**
@@ -58,7 +64,7 @@ Two deploys, so that the copy happens between them.
 
 The copy runs **inside the prod container**. After phase 1, prod mounts both `/mnt/shared` (old) and `/mnt/prod-state` (new). The data never leaves prod's own container, and no storage role grant is needed. It uses one exec at a time (the exec API takes no shell and limits command length; t/579#86), with a one-line `node -e` that prints counts and hashes only.
 
-0. **Inventory** (read-only, before phase 1): file counts and total bytes for every path in the "moves" table, and the id or email check for the "stays" list (counts only). Posted on t/624.
+0. **Inventory** (read-only, before phase 1): file counts and total bytes for every path in the "moves" table. Then the id or email check (counts only) for every "stays" file and every legacy directory, with the per-file decision from the rule above. Posted on t/624 before the PI's go, so the go covers a named list.
 1. **Write freeze:** no admin changes to flags, runtime config or the allowlist during the window. The PI is the only admin. Append-only files (`ai-call-log.jsonl`, `feature-flags-audit.ndjson`, `admin/telemetry/`, `flight-recorder/`) may lose the lines written between the copy and the switch, typically under a minute. That is accepted, and the count is reported.
 2. **Copy:** `fs.cpSync` of each listed path from `/mnt/shared` to `/mnt/prod-state`, preserving timestamps. It prints one JSON line: files copied and bytes per path.
 3. **Verify:** sha256 of every copied file on both sides, plus counts. It prints `{path: {files, bytesOld, bytesNew, hashMismatches}}`. **Stop on any mismatch.**
@@ -69,8 +75,8 @@ The copy runs **inside the prod container**. After phase 1, prod mounts both `/m
    - The admin allowlist is non-empty, with the same count.
    - New writes land in `/mnt/prod-state`: one telemetry or flight-recorder file has a fresh mtime under `/mnt/prod-state`, and none under `/mnt/shared`.
 6. **Delta:** re-hash the old side. Any append-only file that grew after the copy has its extra lines appended to the new side once, and the count is reported. Any config file that changed is a stop condition, because the write freeze was broken.
-7. **Delete originals** (**the PI's go**, Security condition 2): delete exactly the copied paths and the key file from `/mnt/shared`, by name, from inside the prod container (prod mounts it read-write). Report counts.
-8. **Staging listing** (Security condition 3): the names-and-counts walker from staging's read-only mount (t/617#4) shows none of the moved paths and no key file.
+7. **Delete** (**the PI's go**, Security condition 2), by name, from inside the prod container (prod mounts `/mnt/shared` read-write): the copied originals, the key file, and every legacy directory or file step 0 marked for deletion. Report counts per path.
+8. **Staging listing** (Security conditions 3 and 4): the names-and-counts walker from staging's read-only mount (t/617#4) shows none of the moved paths, none of the deleted legacy directories, and no `.aitriad-key*` file at any depth.
 
 ## Rollback
 
