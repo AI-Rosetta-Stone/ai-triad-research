@@ -12,9 +12,16 @@
 
 export const SCANNED_PDF_LINE = "Couldn't read text from this file. If it's a scanned PDF it has no text layer: try a text-based PDF or another format.";
 
+const APP_FAULT_MARK = 'because of a problem in the app, not the file.';
+
 export function appFaultLine(name?: string): string {
   const what = name ? `“${name}”` : 'this file';
-  return `Couldn't read ${what} because of a problem in the app, not the file. Try again later, or start from a topic or web page.`;
+  return `Couldn't read ${what} ${APP_FAULT_MARK} Try again later, or start from a topic or web page.`;
+}
+
+/** True when the shown line is the app-fault line, so the Start reason can point away from the file (Design t/632#4). */
+export function isAppFaultLine(line: string | null | undefined): boolean {
+  return !!line && line.includes(APP_FAULT_MARK);
 }
 
 /** True when the text is not a plain user-facing line: Electron's IPC wrapper, or an ActionableError dump. */

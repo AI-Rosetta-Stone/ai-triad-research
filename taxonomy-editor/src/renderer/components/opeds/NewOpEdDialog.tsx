@@ -785,7 +785,7 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
   const hasSource = hasSourceFor(sourceMode, topic, url, docState, docFile);
   // t/3992: a tag below its minimum refuses at setup (TL t/3957#7 B(a)), never mid-generation.
   const canStart = hasSource && orderedVoices.length >= 1 && modelHasKey && !opEdTagBlocksStart(tagChoice, orderedVoices, nodesFor);
-  const startReason = sourceStartReason(sourceMode, docState, hasSource, orderedVoices.length, modelHasKey);
+  const startReason = sourceStartReason(sourceMode, docState, hasSource, orderedVoices.length, modelHasKey, docError);
 
   // A URL pasted into the topic box → FromTopic → no source brief → no claims, silently (t/2899).
   // Detect it so we can steer the user to the web-page path (desktop only; web has no URL path).

@@ -297,6 +297,16 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
     expect(screen.getByText('Choose a readable document')).toBeTruthy();
   });
 
+  it('t/632#4: an app fault points Start at a topic or web page, not at the file', async () => {
+    pickDocumentFile.mockRejectedValue(new Error("Error invoking remote method 'pick-document-file': ActionableError: Goal: read Inner error: Cannot find module 'pdfjs-dist' Resolve: reinstall"));
+    open();
+    await selectDocument();
+    chooseFile();
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/problem in the app, not the file/));
+    expect(screen.getByText('Start from a topic or web page')).toBeTruthy();
+    expect(screen.queryByText('Choose a readable document')).toBeNull();
+  });
+
   it('shows a picker or extraction error and keeps the zone for another pick', async () => {
     pickDocumentFile.mockRejectedValue(new Error('“big.pdf” is 14.8 MB. The limit is 10 MB.'));
     open();
