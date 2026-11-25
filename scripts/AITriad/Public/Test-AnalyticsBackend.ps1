@@ -49,7 +49,13 @@ function Test-AnalyticsBackend {
 
         [Parameter()]
         [ValidateRange(0, 30)]
-        [int]$WaitSec = 2
+        [int]$WaitSec = 2,
+
+        # Request headers of an administrator's session. With them the read probe confirms the event was
+        # persisted. Without them the read probe is not run: the query route is administrator-only since
+        # incident t/579, and this cmdlet does not read it anonymously.
+        [Parameter()]
+        [hashtable]$AuthHeaders = @{}
     )
 
     Set-StrictMode -Version Latest
@@ -104,11 +110,24 @@ function Test-AnalyticsBackend {
         Start-Sleep -Seconds $WaitSec
     }
 
-    # ── Read probe ───────────────────────────────────────────────────────────
+    # ── Read probe (administrator only: t/579, t/592) ────────────────────────
+    # GET /api/analytics/query exposed user identifiers to anonymous callers and now refuses them. Without
+    # an administrator's headers the probe is not run, and the result says so: the write probe alone
+    # cannot confirm that the event was persisted.
+    $HasAuth = $AuthHeaders -and $AuthHeaders.Count -gt 0
+    if (-not $HasAuth) {
+        Write-Warning 'Test-AnalyticsBackend: read probe needs admin (t/579), skipped: only the event write was checked, so persistence is not confirmed. Pass -AuthHeaders with an administrator''s session headers to run it.'
+        return [PSCustomObject]@{
+            Backend   = $BaseUrl
+            Healthy   = @($Checks | Where-Object { -not $_.Pass }).Count -eq 0
+            Checks    = @($Checks)
+            Timestamp = (Get-Date).ToString('o')
+        }
+    }
     $Today      = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')
     $ReadResult = Invoke-RemoteCheck -BaseUrl $BaseUrl `
         -Path "/api/analytics/query?from=$Today&to=$Today" `
-        -TimeoutSec $TimeoutSec -ExpectJson
+        -TimeoutSec $TimeoutSec -ExpectJson -ExtraHeaders $AuthHeaders
 
     $ReadPass   = $false
     $ReadDetail = ''
@@ -137,7 +156,7 @@ function Test-AnalyticsBackend {
     else {
         $ReadDetail = if ($ReadResult.Error) { $ReadResult.Error }
                       elseif ($ReadResult.StatusCode -in @(302, 401, 403)) {
-                          "Auth required (HTTP $($ReadResult.StatusCode)) — run as authenticated user or use -SkipRead"
+                          "Auth required (HTTP $($ReadResult.StatusCode)): the -AuthHeaders given are not a signed-in administrator's session"
                       }
                       else { "HTTP $($ReadResult.StatusCode)" }
     }
