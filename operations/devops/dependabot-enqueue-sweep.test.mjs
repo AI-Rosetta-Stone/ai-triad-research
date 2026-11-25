@@ -206,23 +206,106 @@ test('t/600: a TRANSIENT failure retries once through enqueue-pr; a second failu
   assert.equal(refusedOnRetry.calls.enqueue, 2);
 });
 
+// ---- t/600 pin, narrowed by t/601 (Security p/131#68) ----
+const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', '..');
+const AUTO_MERGE_YML = '.github/workflows/dependabot-auto-merge.yml';
+const ARM_STEP_NAME = 'Arm auto-merge for minor/patch bumps';
+const DEFAULT_TOKEN = /^\$\{\{\s*(secrets\.GITHUB_TOKEN|github\.token)\s*\}\}$/;
+// The exempt line, exactly: anything chained onto it, or any other form, is not exempt.
+const ARM_RUN = 'run: gh pr merge --auto --squash "$PR_URL"';
+
+/** PURE. Every `gh pr merge` invocation in `text` (file `f`), as 'f:line', except the lines in `allowedLines`. */
+function ghPrMergeOffenders(f, text, allowedLines = new Set()) {
+  const offenders = [];
+  text.split('\n').forEach((line, i) => {
+    const code = line.replace(/^\s*(#|\/\/|\*).*$/, '');
+    const at = `${f}:${i + 1}`;
+    if (allowedLines.has(at)) return;
+    if (/['"]pr['"]\s*,\s*['"]merge['"]/.test(code)) offenders.push(at); // execFile-style argv
+    if (/^\s*(run:\s*)?gh\s+pr\s+merge\b/.test(code) || /[;&|]\s*gh\s+pr\s+merge\b/.test(code)) offenders.push(at); // shell invocation
+  });
+  return offenders;
+}
+
+/**
+ * PURE. The arm step's block in dependabot-auto-merge.yml: from its `- name:` line to the next line at
+ * the same or a shallower indent. `runLine` is the 1-based line that is exactly ARM_RUN, the only line
+ * the pin exempts. Null when the step or that line is missing.
+ */
+function autoMergeArmStep(text) {
+  const lines = text.split('\n');
+  const start = lines.findIndex((l) => /^\s*-\s+name:\s*/.test(l) && l.replace(/^\s*-\s+name:\s*/, '').trim().replace(/^['"]|['"]$/g, '') === ARM_STEP_NAME);
+  if (start < 0) return null;
+  const indent = lines[start].search(/\S/);
+  let end = start + 1;
+  while (end < lines.length && (lines[end].trim() === '' || lines[end].search(/\S/) > indent)) end++;
+  const block = lines.slice(start, end);
+  const runIdx = block.findIndex((l) => l.trim() === ARM_RUN);
+  return runIdx < 0 ? null : { runLine: start + 1 + runIdx, block };
+}
+
+/**
+ * PURE (t/601). What would let the exempt arm run as anything but the workflow's own token:
+ * (a) a GH_TOKEN or GITHUB_TOKEN anywhere in the file (step, job or workflow env) that is not
+ * secrets.GITHUB_TOKEN / github.token; (b) any create-github-app-token use. [] when clean.
+ */
+function autoMergeTokenViolations(text) {
+  const out = [];
+  if (!autoMergeArmStep(text)) out.push(`no '${ARM_STEP_NAME}' step whose run line is exactly \`${ARM_RUN}\` (renamed or changed? update this pin)`);
+  for (const l of text.split('\n').filter((x) => /^\s*(GH_TOKEN|GITHUB_TOKEN)\s*:/.test(x))) {
+    if (!DEFAULT_TOKEN.test(l.replace(/^\s*(GH_TOKEN|GITHUB_TOKEN)\s*:\s*/, '').trim())) out.push(`non-default token: ${l.trim()}`);
+  }
+  if (/create-github-app-token/.test(text)) out.push('uses create-github-app-token');
+  return out;
+}
+
+function allowedArmLines(text) {
+  const step = autoMergeArmStep(text);
+  return new Set(step ? [`${AUTO_MERGE_YML}:${step.runLine}`] : []);
+}
+
 test('t/600 pin (Security p/131#66): no `gh pr merge` is INVOKED outside enqueue-pr.mjs in operations/devops or .github', () => {
-  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', '..');
-  const files = execFileSync('git', ['ls-files', 'operations/devops', '.github'], { cwd: root, encoding: 'utf8' }).split('\n')
+  const files = execFileSync('git', ['ls-files', 'operations/devops', '.github'], { cwd: REPO_ROOT, encoding: 'utf8' }).split('\n')
     .filter((f) => /\.(mjs|js|cjs|sh|ps1|ya?ml)$/.test(f) && !/\.test\.mjs$|\.Tests\.ps1$|test-[^/]*\.sh$/.test(f));
-  // Allowed: the wrapper itself, and dependabot-auto-merge.yml's GITHUB_TOKEN policy-marker arm, which
-  // never enters the queue (t/600: GitHub doesn't start queue entry for a GITHUB_TOKEN arm; the sweep
-  // removes it with GraphQL before enqueue-pr.mjs arms as the App).
-  const allowed = new Set(['operations/devops/enqueue-pr.mjs', '.github/workflows/dependabot-auto-merge.yml']);
+  // Allowed: the wrapper itself, and ONE line elsewhere (t/601, Security p/131#68): the `run:` line of
+  // dependabot-auto-merge.yml's 'Arm auto-merge for minor/patch bumps' step, the GITHUB_TOKEN
+  // policy-marker arm, which never enters the queue (t/600: GitHub doesn't start queue entry for a
+  // GITHUB_TOKEN arm; the sweep removes it with GraphQL before enqueue-pr.mjs arms as the App). Any
+  // other `gh pr merge` in that file is an offender.
   const offenders = [];
   for (const f of files) {
-    if (allowed.has(f)) continue;
-    const lines = fs.readFileSync(path.join(root, f), 'utf8').split('\n');
-    lines.forEach((line, i) => {
-      const code = line.replace(/^\s*(#|\/\/|\*).*$/, '');
-      if (/['"]pr['"]\s*,\s*['"]merge['"]/.test(code)) offenders.push(`${f}:${i + 1}`); // execFile-style argv
-      if (/^\s*(run:\s*)?gh\s+pr\s+merge\b/.test(code) || /[;&|]\s*gh\s+pr\s+merge\b/.test(code)) offenders.push(`${f}:${i + 1}`); // shell invocation
-    });
+    if (f === 'operations/devops/enqueue-pr.mjs') continue;
+    const text = fs.readFileSync(path.join(REPO_ROOT, f), 'utf8');
+    offenders.push(...ghPrMergeOffenders(f, text, f === AUTO_MERGE_YML ? allowedArmLines(text) : undefined));
   }
   assert.deepEqual(offenders, []);
+});
+
+test('t/601: the exempt arm step runs on GITHUB_TOKEN; the file sets no other token and mints no App token', () => {
+  assert.deepEqual(autoMergeTokenViolations(fs.readFileSync(path.join(REPO_ROOT, AUTO_MERGE_YML), 'utf8')), []);
+});
+
+test('t/601: mutations of dependabot-auto-merge.yml that the narrowed pin must catch', () => {
+  const real = fs.readFileSync(path.join(REPO_ROOT, AUTO_MERGE_YML), 'utf8');
+  const offenders = (text) => ghPrMergeOffenders(AUTO_MERGE_YML, text, allowedArmLines(text));
+  assert.deepEqual(offenders(real), [], 'the real file is clean');
+  const mutate = (re, to) => { const t = real.replace(re, to); assert.notEqual(t, real, `mutation applied: ${re}`); return t; };
+
+  // A second step that also arms: outside the one exempt line -> an offender.
+  const extra = `${real.replace(/\n*$/, '\n')}      - name: Sneaky\n        run: gh pr merge --auto --squash "$PR_URL"\n`;
+  assert.equal(offenders(extra).length, 1, 'an added arming step is caught');
+  // Anything chained onto the exempt line, or a multi-line run block, is not the exempt line.
+  const chained = mutate(ARM_RUN, `${ARM_RUN} && gh pr merge --admin 5509`);
+  assert.equal(offenders(chained).length, 1, 'a command chained onto the arm line is caught');
+  const multi = mutate(/run: gh pr merge --auto --squash "\$PR_URL"/, 'run: |\n          gh pr merge --auto --squash "$PR_URL"');
+  assert.equal(offenders(multi).length, 1, 'a multi-line run block is not the exempt single line');
+  // (a) An App token in the arm step's env, or at job level.
+  assert.ok(autoMergeTokenViolations(mutate(/(GH_TOKEN:\s*)\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}/, '$1${{ steps.app.outputs.token }}')).some((v) => v.startsWith('non-default token')));
+  assert.ok(autoMergeTokenViolations(mutate(/(GH_TOKEN:\s*)\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}/, '$1${{ secrets.AGENT_APP_KEY }}')).length > 0);
+  // (b) Minting an App token anywhere in the file.
+  assert.ok(autoMergeTokenViolations(`${real}\n      - uses: actions/create-github-app-token@v1\n`).includes('uses create-github-app-token'));
+  // The step renamed: the exemption disappears (its run line becomes an offender) and the token test says why.
+  const renamed = mutate(`name: ${ARM_STEP_NAME}`, 'name: Arm it');
+  assert.equal(offenders(renamed).length, 1);
+  assert.ok(autoMergeTokenViolations(renamed)[0].startsWith(`no '${ARM_STEP_NAME}' step`));
 });
