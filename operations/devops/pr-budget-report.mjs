@@ -21,7 +21,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { addDays, budgetFor, buildUnits, fetchPrsCreated, nextDayStart, poolOf, POOL_DAYS, rankOf, SOFT_POINT, unitCount, utcDay } from './pr-budget.mjs';
+import { addDays, budgetFor, buildUnits, fetchPrsCreated, isAccidentalClose, nextDayStart, poolOf, POOL_DAYS, rankOf, SOFT_POINT, unitCount, utcDay } from './pr-budget.mjs';
 import { assertLoopback, DEFAULT_DAEMON, makeAppRun, resolvePrOwner } from './pr-budget-notify.mjs';
 
 export function parseArgs(argv) {
@@ -54,9 +54,10 @@ export function analyze(prs, nowIso) {
   for (const p of poolOf(byDay, today, addDays(today, -POOL_DAYS))) {
     for (const pr of p.unit.prs.filter((x) => x.state === 'OPEN')) pool.push({ pr, day: p.unit.day, rank: p.rank, dayBudget: p.budget, position: p.position, hasSlot: p.position <= slots, unit: p.unit.key });
   }
+  const notCounted = prs.filter((pr) => utcDay(pr.createdAt) === today && isAccidentalClose(pr));
   const nearlyUsed = units >= SOFT_POINT;
   const todays = nearlyUsed ? (byDay.get(today) ?? []).flatMap((u) => u.prs.map((pr) => ({ pr, unit: u.key }))) : [];
-  return { today, nextDayStart: nextDayStart(today), units, budget: b.budget, mean: b.mean, counts: b.counts, slots, overToday, pool, nearlyUsed, softPoint: SOFT_POINT, todays };
+  return { today, nextDayStart: nextDayStart(today), units, budget: b.budget, mean: b.mean, counts: b.counts, slots, overToday, pool, nearlyUsed, softPoint: SOFT_POINT, todays, notCounted };
 }
 
 export function formatText(r) {
@@ -66,6 +67,7 @@ export function formatText(r) {
     `PR budget ${r.today} (UTC): ${r.units} unit(s) today, budget ${r.budget}, 3-day mean ${r.mean.toFixed(2)} (${r.counts.join(', ')}); ${r.slots} free slot(s) for the pool; next day starts ${r.nextDayStart}.`,
     `Over budget today (${r.overToday.length}):`, ...(r.overToday.length ? r.overToday.map((x) => row(x, `rank ${x.rank}`)) : ['  none']),
     `Carryover pool (${r.pool.length} open PR(s)):`, ...(r.pool.length ? r.pool.map((x) => row(x, `from ${x.day}, rank ${x.rank}/${x.dayBudget}, position ${x.position}${x.hasSlot ? ' (may enqueue today)' : ''}`)) : ['  empty']),
+    ...((r.notCounted ?? []).length ? [`Not counted: closed within 1 h (${r.notCounted.length}): ${r.notCounted.map((pr) => `#${pr.number}`).join(', ')}`] : []),
   ].join('\n');
 }
 
@@ -119,7 +121,8 @@ export async function run(o, deps = {}) {
   const report = { ...r, githubCalls: { search: calls } };
   if (o.json) log(JSON.stringify({ ...report, overToday: r.overToday.map(slim), pool: r.pool.map(slim) }, null, 2));
   else log(formatText(r));
-  const messages = o.tl ? planMessages(r, { tl: o.tl }).filter((m) => m.to && m.to !== 'human') : [];
+  // Never ping yourself: chat refuses a send to the sender (the first live run, 2026-11-25).
+  const messages = o.tl ? planMessages(r, { tl: o.tl }).filter((m) => m.to && m.to !== 'human' && m.to !== o.sender) : [];
   const sent = [];
   const failed = [];
   if (!o.send) {

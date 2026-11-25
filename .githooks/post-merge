@@ -4,6 +4,9 @@
 # The sweep only removes worktrees whose PR is MERGED, that are clean, and whose HEAD is
 # the merged head or already on origin/main (see operations/devops/sweep-landed-worktrees.sh).
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-LOG="$ROOT/.git/sweep-landed-worktrees.log"
+# In a linked worktree .git is a file, not a directory, so the log goes to the common git dir
+# (the shared checkout's .git), which exists in every worktree of the repo.
+COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd) || exit 0
+LOG="$COMMON/sweep-landed-worktrees.log"
 ( sh "$ROOT/operations/devops/sweep-landed-worktrees.sh" >>"$LOG" 2>&1 & )
 exit 0

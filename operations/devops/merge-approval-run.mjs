@@ -6,10 +6,12 @@
 // ai-triad-merge-approval App's token. .github/workflows/merge-approval.yml imports this file from
 // a checkout of the default branch; no PR code is ever loaded.
 //
-// TWO CLIENTS:
-//   github     the job's GITHUB_TOKEN (contents: read, pull-requests: read). Every READ goes here.
-//   appGithub  the App's installation token (checks: write). Used for exactly two calls:
-//              GET /installation/repositories (the scope check) and POST check-runs.
+// ONE CLIENT (t/566, Security p/131#63): appGithub, the App's installation token (checks: write,
+// metadata: read). It does EVERY call: the reads (pulls, files, reviews, comments, the merge-queue
+// GraphQL read; the App's diagnostic proved all return 200, t/537#55), GET /installation/repositories
+// (the scope check) and POST check-runs. Reads moved off the shared GITHUB_TOKEN pool that ran dry
+// on 2026-11-24. runMergeApproval takes no GITHUB_TOKEN client at all, so a failed App read can only
+// fail closed (a failure check run and a thrown error), never fall back to GITHUB_TOKEN.
 //
 // FAIL CLOSED: an API error after the retries (github-retry.mjs) throws. runMergeApproval catches
 // it, posts a `failure` check run on the SHA if one is known, and rethrows so the job fails.
@@ -274,7 +276,9 @@ const sameVerdict = (a, b) => a.conclusion === b.conclusion && a.title === b.tit
  * best-effort `failure` post when anything goes wrong once a SHA is known.
  *   deps: { retry, log } -- retry is withGitHubRetry bound to a logger; log(msg) for info lines.
  */
-export async function runMergeApproval({ github, appGithub, context, tierConfig, retry = noRetry, log = () => {} }) {
+export async function runMergeApproval({ appGithub, context, tierConfig, retry = noRetry, log = () => {} }) {
+  // t/566: every read uses the App token. There is deliberately no GITHUB_TOKEN client here.
+  const github = appGithub;
   const deps = { retry };
   const posted = [];
   let knownSha = null;

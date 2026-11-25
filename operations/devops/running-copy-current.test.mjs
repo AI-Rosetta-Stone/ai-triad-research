@@ -146,3 +146,31 @@ test('the REAL closure of the entry points reads cleanly and matches what the mo
   assert.equal(closure.error, undefined, String(closure.error));
   assert.ok(closure.paths.every((p) => p.startsWith('operations/devops/') && p.endsWith('.mjs')), closure.paths.join(', '));
 });
+
+// Security follow-up on #5466 (t/556#7): the closure scan follows static, re-export, bare and literal
+// dynamic imports only. If a closure file starts loading code another way, the currency check would
+// silently stop covering it, so this test fails until the scan is taught that form.
+test('no closure file loads code in a way the scan does not follow (require, new URL(x, import.meta.url), computed import())', () => {
+  const real = (p) => readFileSync(path.join(REPO_ROOT, p), 'utf8');
+  const closure = importClosure(CURRENCY_ENTRY_POINTS, real);
+  assert.equal(closure.error, undefined, String(closure.error));
+  const UNFOLLOWED = [
+    ['require()', /\brequire\s*\(/],
+    ['new URL(x, import.meta.url)', /\bnew\s+URL\s*\([^)]*import\.meta\.url/],
+    ['computed import()', /\bimport\s*\(\s*(?!['"])/],
+  ];
+  for (const p of closure.paths) {
+    // Comment lines, as the scan itself treats them, so a form that is only described is not code.
+    const code = real(p).replace(/^[ \t]*(?:\/\/|\/\*|\*).*$/gm, '');
+    for (const [name, re] of UNFOLLOWED) {
+      assert.doesNotMatch(code, re, `${p} uses ${name}, which running-copy-current.mjs does not follow; teach localImports that form first`);
+    }
+  }
+});
+
+test('the unfollowed-form check itself catches each form (control)', () => {
+  const forms = ["const x = require('./a.mjs');", "const u = new URL('./b.mjs', import.meta.url);", 'const m = await import(path);'];
+  const res = [/\brequire\s*\(/, /\bnew\s+URL\s*\([^)]*import\.meta\.url/, /\bimport\s*\(\s*(?!['"])/];
+  forms.forEach((f, i) => assert.match(f, res[i]));
+  assert.doesNotMatch("const m = await import('./c.mjs');", res[2], 'a literal dynamic import is followed, so it is not flagged');
+});

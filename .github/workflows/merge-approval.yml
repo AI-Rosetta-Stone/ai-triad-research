@@ -27,13 +27,16 @@ name: merge-approval
 #   - Fail closed. Any API error posts `failure` on the SHA being judged (if known) and fails the
 #     job. The verdict is never `neutral` or skipped once a SHA is being judged.
 #
-# TOKENS.
-#   - GITHUB_TOKEN: contents: read (the checkout, the merge-queue GraphQL read) and
-#     pull-requests: read (the PR, its files, reviews and comments). Every read uses it.
+# TOKENS (t/566, Security p/131#63).
+#   - GITHUB_TOKEN: contents: read, for the checkout only. No API read uses it.
 #   - The App token: minted for the whole installation (owner set, no repositories filter) with
-#     checks: write only. It is used for exactly two calls: GET /installation/repositories (the
-#     App must be installed on this repository alone; checked every run, reported in the summary)
-#     and creating the check run. Minting it scoped to this repo would make that check vacuous.
+#     checks: write. It does EVERY call: the reads (the PR, its files, reviews and comments, the
+#     merge-queue GraphQL read; its diagnostic proved all of them return 200, t/537#55), GET
+#     /installation/repositories (the App must be installed on this repository alone; checked every
+#     run, reported in the summary) and creating the check run. Reads moved off the shared
+#     GITHUB_TOKEN pool that ran dry on 2026-11-24. A failed App read fails closed (a failure check
+#     run and a red job); it never falls back to GITHUB_TOKEN. The token lives only in the
+#     "Evaluate and post" step's env. Minting it scoped to this repo would make the scope check vacuous.
 #
 # CONCURRENCY: none shared. The group is unique per run (github.run_id), never per PR or SHA.
 # GitHub keeps at most ONE pending run per concurrency group and cancels the older pending run
@@ -73,11 +76,10 @@ jobs:
     # and must not look like the App's context.
     name: merge-approval (compute)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25  # t/562: the retry below may wait up to 15 min for one rate-limit reset; was 10
     environment: merge-approval
     permissions:
-      contents: read
-      pull-requests: read
+      contents: read  # the checkout only; every API call uses the App token (t/566)
     concurrency:
       group: merge-approval-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.head_sha || 'x' }}-${{ github.run_id }}
       cancel-in-progress: false
@@ -117,28 +119,6 @@ jobs:
           owner: ${{ github.repository_owner }}
           permission-checks: write
 
-      # t/537 (TL p/9#533): DIAGNOSTIC, read-only, never fails the job. Can the App's own token (checks:write
-      # and metadata:read only) read what the check needs on this public repo? If it can, reads move to
-      # the App's own quota, away from the GITHUB_TOKEN pool that ran dry on 2026-11-24. Logs HTTP
-      # statuses only, never a token or a body. Remove once decided.
-      - name: Probe App-token read access (diagnostic)
-        continue-on-error: true
-        timeout-minutes: 2
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          R: ${{ github.repository }}
-        run: |
-          code() { gh api -i "$@" 2>/dev/null | head -1 | awk '{print $2}'; }
-          n=$(gh api "repos/$R/pulls?state=all&per_page=1" --jq '.[0].number' 2>/dev/null || echo '')
-          echo "app-token read: pulls.list=$(code "repos/$R/pulls?per_page=1")"
-          echo "app-token read: issues.comments=$(code "repos/$R/issues/comments?per_page=1")"
-          if [ -n "$n" ]; then
-            echo "app-token read: pulls.get=$(code "repos/$R/pulls/$n") pulls.files=$(code "repos/$R/pulls/$n/files?per_page=1") pulls.reviews=$(code "repos/$R/pulls/$n/reviews?per_page=1")"
-          else
-            echo "app-token read: could not list a PR with the App token (pulls.list refused or empty)"
-          fi
-          echo "app-token read: graphql.mergeQueue=$(gh api graphql -f query='{repository(owner:"AI-Rosetta-Stone",name:"ai-triad-research"){mergeQueue(branch:"main"){entries(first:1){totalCount}}}}' --jq 'if .errors then "errors" else "ok" end' 2>/dev/null || echo refused)"
-
       - name: Evaluate and post merge-approval
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         env:
@@ -156,7 +136,12 @@ jobs:
             const dir = path.join(root, 'operations', 'devops');
             const { runMergeApproval } = await import(pathToFileURL(path.join(dir, 'merge-approval-run.mjs')).href);
             const { withGitHubRetry } = await import(pathToFileURL(path.join(dir, 'github-retry.mjs')).href);
-            const retry = (label, fn) => withGitHubRetry(label, fn, { warn: (m) => core.warning(m), prefix: 'merge-approval' });
+            // t/562 (Lead p/233#71, a t/566 precondition): a required merge-approval that fails on a rate
+            // limit stalls the queue, so wait up to 15 min for ONE reset (the job's 25-min timeout covers
+            // it); a second limit fails closed. github-retry's 30 s default (t/236) stays for other callers.
+            const retry = (label, fn) => withGitHubRetry(label, fn, {
+              warn: (m) => core.warning(m), prefix: 'merge-approval', maxRateWaitMs: 15 * 60 * 1000, maxRateWaits: 1,
+            });
             // An unreadable tier config is not a crash: rule C fails with that reason, on the SHA.
             let tierConfig = null;
             try {
@@ -166,7 +151,8 @@ jobs:
             }
             try {
               const appGithub = getOctokit(process.env.APP_TOKEN);
-              const result = await runMergeApproval({ github, appGithub, context, tierConfig, retry, log: (m) => core.info(m) });
+              // t/566: every read and the post use the App token; github-script's GITHUB_TOKEN client is not passed.
+              const result = await runMergeApproval({ appGithub, context, tierConfig, retry, log: (m) => core.info(m) });
               if (result.skipped) core.notice(`merge-approval: no check posted (${result.skipped})`);
               for (const p of result.posted) core.info(`merge-approval: ${p.conclusion} on ${p.headSha}`);
             } catch (err) {

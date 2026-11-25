@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ONE_UNIT_BRANCH_PATTERNS, SEARCH_CAP, budgetFor, budgetRefusalMessage, budgetVerdict, buildUnits, checkPrBudget,
-  exemptionVerdict, fetchPrsCreated, isOneUnitBranch, rankOf, unitKey, windowStartDay,
+  exemptionVerdict, fetchPrsCreated, isAccidentalClose, isOneUnitBranch, rankOf, unitKey, windowStartDay,
 } from './pr-budget.mjs';
 import { pingBudgetRefusal, resolvePrOwner } from './pr-budget-notify.mjs';
 import { analyze, planMessages, run as runReport } from './pr-budget-report.mjs';
@@ -323,7 +323,7 @@ test('enqueuePR: an allowed budget passes on to the gate-file read; a throwing o
   const order = [];
   const g = (args) => {
     const j = args.join(' ');
-    if (j.includes('headRefOid,body,isDraft')) { order.push('pr-view'); return JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0', isDraft: false }); }
+    if (j.includes('headRefOid,body,isDraft')) { order.push('pr-view'); return JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0', isDraft: false, labels: [] }); }
     if (j.includes('{changed_files}')) { order.push('gate-files'); throw new Error('gh: HTTP 502'); }
     order.push(`unexpected ${j}`);
     throw new Error('unexpected');
@@ -479,7 +479,7 @@ test('SO B: an over-budget PR older than the pool window is refused (pool_expire
 test('SO C: enqueuePR refuses when the head moved between the budget check and the enqueue read', async () => {
   const g = (args) => {
     const j = args.join(' ');
-    if (j.includes('headRefOid,body,isDraft')) return JSON.stringify({ headRefOid: 'newhead00', body: 'Tier: T0', isDraft: false });
+    if (j.includes('headRefOid,body,isDraft')) return JSON.stringify({ headRefOid: 'newhead00', body: 'Tier: T0', isDraft: false, labels: [] });
     throw new Error(`unexpected ${j}`);
   };
   const ok = () => ({ allow: true, reason: 'within_budget_today', units: 1, budget: 20, mean: 0, rank: 1, today: TODAY, pr: { number: 42, headRefOid: 'oldhead00' } });
@@ -488,4 +488,43 @@ test('SO C: enqueuePR refuses when the head moved between the budget check and t
   // Same head: passes on (to the gate-file read, which this fake refuses as unexpected).
   const same = () => ({ ...ok(), pr: { number: 42, headRefOid: 'newhead00' } });
   await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, gh: g, currency: CURRENT, budget: same }), (err) => err.reason !== 'budget_read_failed');
+});
+
+// ── TL p/9#565: an accidental open, closed unmerged within 1 h with no later commit, is not counted ──
+
+test('isAccidentalClose: closed unmerged within 1 h with no commit after opening -> true; every other case -> false', () => {
+  const base = mk(at(TODAY, 0));
+  const close = (min, over = {}) => ({ ...base, state: 'CLOSED', closedAt: at(TODAY, min), ...over });
+  assert.equal(isAccidentalClose(close(5)), true);
+  assert.equal(isAccidentalClose(close(60)), true); // exactly 1 h
+  assert.equal(isAccidentalClose(close(61)), false); // closed after the window still counts
+  assert.equal(isAccidentalClose(close(5, { lastCommitAt: at(TODAY, 2) })), false); // a commit after opening
+  assert.equal(isAccidentalClose(close(5, { lastCommitAt: at(TODAY, -30) })), true); // the commit predates opening
+  assert.equal(isAccidentalClose(close(5, { state: 'MERGED', mergedAt: at(TODAY, 5) })), false);
+  assert.equal(isAccidentalClose({ ...base, state: 'OPEN' }), false);
+  assert.equal(isAccidentalClose(close(5, { closedAt: null })), false);
+});
+
+test('an accidental open does not take a budget slot; a PR closed after the window still does', () => {
+  const t = day(TODAY, 21);
+  for (const p of t.slice(0, 3)) { p.state = 'CLOSED'; p.closedAt = at(TODAY, 30); } // 3 clicks closed in 30 min
+  const v = budgetVerdict({ prs: t, pr: t[20], nowIso: NOW });
+  assert.equal(v.rank, 18); assert.equal(v.units, 18); assert.equal(v.allow, true);
+  t[0].closedAt = at(TODAY, 200); // closed after 3 h: counts again
+  assert.equal(budgetVerdict({ prs: t, pr: t[20], nowIso: NOW }).rank, 19);
+});
+
+test('report: accidental opens are listed as not counted; it never pings its own sender', async () => {
+  const t = day(TODAY, 16);
+  t[0].state = 'CLOSED'; t[0].closedAt = at(TODAY, 10);
+  const r = analyze(t, NOW);
+  assert.equal(r.units, 15); assert.deepEqual(r.notCounted.map((p) => p.number), [t[0].number]);
+  const sent = [];
+  const logs = [];
+  await runReport({ repo: 'o/r', json: false, send: true, sender: 'me', tl: 'tl-id' }, {
+    now: NOW_MS, fetch: () => ({ prs: t, calls: 1 }), resolveOwner: async () => ({ id: 'me' }),
+    appRun: async (app, cmd, args) => { sent.push(args.to); return {}; }, log: (l) => logs.push(l), warn: () => {},
+  });
+  assert.match(logs.join('\n'), /Not counted: closed within 1 h \(1\): #/);
+  assert.deepEqual(sent, ['tl-id']); // the only owner is the sender itself: skipped, not a failed send
 });
