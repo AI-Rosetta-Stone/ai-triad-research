@@ -9,6 +9,9 @@
 // DRY-RUN BY DEFAULT: nothing is sent. With `--send --sender <id> --tl <id>` it pings the TL once with
 // the report and each owner of an over-budget or pooled PR once (one message listing their PRs).
 // `human` is never pinged. A failed send is a WARN; the rest still go.
+// SOFT POINT (TL p/9#541): once today's units reach SOFT_POINT (15), nothing is refused, but the report
+// is marked 'budget nearly used': the TL's message leads with it, and every owner of a PR opened today
+// gets one heads-up (merged into their over-budget/pool message if they have one).
 //
 // GitHub cost: 1 GraphQL search per 100 PRs created in the last POOL_DAYS + 3 days (split if over the
 // search cap), plus one REST file list per listed PR that cites no ticket (owner lookup).
@@ -18,7 +21,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { addDays, budgetFor, buildUnits, fetchPrsCreated, nextDayStart, poolOf, POOL_DAYS, rankOf, unitCount, utcDay } from './pr-budget.mjs';
+import { addDays, budgetFor, buildUnits, fetchPrsCreated, nextDayStart, poolOf, POOL_DAYS, rankOf, SOFT_POINT, unitCount, utcDay } from './pr-budget.mjs';
 import { assertLoopback, DEFAULT_DAEMON, resolvePrOwner } from './pr-budget-notify.mjs';
 import { makeAppRun } from './stuck-pr-ping.mjs';
 
@@ -52,12 +55,15 @@ export function analyze(prs, nowIso) {
   for (const p of poolOf(byDay, today, addDays(today, -POOL_DAYS))) {
     for (const pr of p.unit.prs.filter((x) => x.state === 'OPEN')) pool.push({ pr, day: p.unit.day, rank: p.rank, dayBudget: p.budget, position: p.position, hasSlot: p.position <= slots, unit: p.unit.key });
   }
-  return { today, nextDayStart: nextDayStart(today), units, budget: b.budget, mean: b.mean, counts: b.counts, slots, overToday, pool };
+  const nearlyUsed = units >= SOFT_POINT;
+  const todays = nearlyUsed ? (byDay.get(today) ?? []).flatMap((u) => u.prs.map((pr) => ({ pr, unit: u.key }))) : [];
+  return { today, nextDayStart: nextDayStart(today), units, budget: b.budget, mean: b.mean, counts: b.counts, slots, overToday, pool, nearlyUsed, softPoint: SOFT_POINT, todays };
 }
 
 export function formatText(r) {
   const row = (x, extra) => `  #${x.pr.number} ${x.pr.title} [owner ${x.owner ?? 'unresolved'}] ${extra}`;
   return [
+    ...(r.nearlyUsed ? [`**Budget nearly used:** ${r.units} of ${r.budget} units today (soft point ${r.softPoint}); PRs past ${r.budget} are refused until ${r.nextDayStart}.`] : []),
     `PR budget ${r.today} (UTC): ${r.units} unit(s) today, budget ${r.budget}, 3-day mean ${r.mean.toFixed(2)} (${r.counts.join(', ')}); ${r.slots} free slot(s) for the pool; next day starts ${r.nextDayStart}.`,
     `Over budget today (${r.overToday.length}):`, ...(r.overToday.length ? r.overToday.map((x) => row(x, `rank ${x.rank}`)) : ['  none']),
     `Carryover pool (${r.pool.length} open PR(s)):`, ...(r.pool.length ? r.pool.map((x) => row(x, `from ${x.day}, rank ${x.rank}/${x.dayBudget}, position ${x.position}${x.hasSlot ? ' (may enqueue today)' : ''}`)) : ['  empty']),
@@ -74,11 +80,18 @@ export function planMessages(r, { tl }) {
     if (!byOwner.has(x.owner)) byOwner.set(x.owner, []);
     byOwner.get(x.owner).push(x);
   }
+  const softOwners = new Set(r.nearlyUsed ? (r.todays ?? []).map((x) => x.owner).filter((o) => o && o !== 'human') : []);
+  const softLine = `Heads-up: the team PR budget is nearly used today (${r.units} of ${r.budget} units, soft point ${r.softPoint}). ` +
+    `New PRs past ${r.budget} are refused until ${r.nextDayStart}; batch into your feature or train branch instead of opening another PR.`;
   for (const [to, list] of byOwner) {
     if (to === tl) continue; // the TL already has the whole report
-    messages.push({ to, kind: 'owner', body: [header, '', `Your PR(s) over the team PR budget (${r.today}, budget ${r.budget}):`,
+    const soft = softOwners.delete(to) ? [softLine, ''] : [];
+    messages.push({ to, kind: 'owner', body: [header, '', ...soft, `Your PR(s) over the team PR budget (${r.today}, budget ${r.budget}):`,
       ...list.map((x) => `- #${x.pr.number} ${x.pr.title}: ${x.kind === 'over' ? `rank ${x.rank} today` : `pooled from ${x.day}, position ${x.position}${x.hasSlot ? ', may enqueue today' : ''}`}`),
       '', `Keep committing to the branch; enqueue after ${r.nextDayStart}, or ask the Tech Lead/Security for a \`budget-exempt:\` review.`].join('\n') });
+  }
+  for (const to of softOwners) {
+    if (to !== tl) messages.push({ to, kind: 'soft', body: [header, '', softLine].join('\n') });
   }
   return messages;
 }
@@ -96,7 +109,7 @@ export async function run(o, deps = {}) {
   const appRun = deps.appRun ?? makeAppRun(o.daemon);
   const ticketCache = new Map();
   const ownerOf = new Map();
-  for (const x of [...r.overToday, ...r.pool]) {
+  for (const x of [...r.overToday, ...r.pool, ...(r.todays ?? [])]) {
     if (!ownerOf.has(x.pr.number)) {
       const res = await (deps.resolveOwner ?? resolvePrOwner)(x.pr, { appRun, repo: o.repo, warn, ticketCache, ...(deps.gh ? { gh: deps.gh } : {}) });
       if (!res?.id) warn(`WARN: pr-budget-report: no owner for #${x.pr.number} (${res?.why ?? 'unknown'}).`);

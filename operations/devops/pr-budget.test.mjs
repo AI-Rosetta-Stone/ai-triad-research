@@ -65,11 +65,11 @@ test('Dependabot PRs are not counted', () => {
 
 // ── budget and rank ──────────────────────────────────────────────────────────────────────────
 
-test('budgetFor: 3-day mean exactly 25 -> 20; above 25 -> 15; only the three days before D count', () => {
+test('budgetFor: a hard 20 every day whatever the 3-day mean (TL p/9#541); the mean uses only the three days before D', () => {
   const at25 = buildUnits([...day('2026-11-21', 25), ...day('2026-11-22', 25), ...day('2026-11-23', 25), ...day('2026-11-20', 90)]).byDay;
   assert.deepEqual(budgetFor(at25, TODAY), { budget: 20, mean: 25, counts: [25, 25, 25] });
-  const over = buildUnits([...day('2026-11-21', 25), ...day('2026-11-22', 25), ...day('2026-11-23', 26)]).byDay;
-  assert.equal(budgetFor(over, TODAY).budget, 15);
+  const over = buildUnits([...day('2026-11-21', 90), ...day('2026-11-22', 90), ...day('2026-11-23', 90)]).byDay;
+  assert.equal(budgetFor(over, TODAY).budget, 20); assert.equal(budgetFor(over, TODAY).mean, 90);
   assert.equal(budgetFor(buildUnits([]).byDay, TODAY).budget, 20);
 });
 
@@ -81,12 +81,13 @@ test('rank boundary: rank 20 is allowed and rank 21 refused at budget 20', () =>
   assert.equal(v21.rank, 21); assert.equal(v21.allow, false); assert.equal(v21.reason, 'over_budget_today');
 });
 
-test('rank boundary at budget 15 (hard mean): rank 15 allowed, 16 refused', () => {
-  const prs = [...day('2026-11-21', 26), ...day('2026-11-22', 26), ...day('2026-11-23', 26), ...day(TODAY, 16)];
-  const todays = prs.slice(-16);
-  assert.equal(budgetVerdict({ prs, pr: todays[14], nowIso: NOW }).allow, true);
-  const v = budgetVerdict({ prs, pr: todays[15], nowIso: NOW });
-  assert.equal(v.allow, false); assert.equal(v.budget, 15); assert.ok(v.mean > 25);
+test('a high 3-day mean no longer lowers the cap: ranks 16 to 20 are allowed, 21 refused', () => {
+  const prs = [...day('2026-11-21', 90), ...day('2026-11-22', 90), ...day('2026-11-23', 90), ...day(TODAY, 21)];
+  const todays = prs.slice(-21);
+  assert.equal(budgetVerdict({ prs, pr: todays[15], nowIso: NOW }).allow, true);
+  assert.equal(budgetVerdict({ prs, pr: todays[19], nowIso: NOW }).allow, true);
+  const v = budgetVerdict({ prs, pr: todays[20], nowIso: NOW });
+  assert.equal(v.allow, false); assert.equal(v.budget, 20); assert.ok(v.mean > 25);
 });
 
 test('a later PR on a train branch already within budget is allowed even when the day is past budget', () => {
@@ -230,7 +231,7 @@ test('checkPrBudget: counts over a paginated search and refuses rank 21 (2 searc
   const many = [...day('2026-11-21', 150), ...day(TODAY, 5)];
   const g2 = fakeGh(many, { subject: many.at(-1) });
   const v2 = checkPrBudget('o/r', many.at(-1).number, { gh: g2, now: NOW_MS, ...quiet });
-  assert.equal(v2.allow, true); assert.equal(v2.calls, 3); assert.equal(v2.budget, 15); // mean 150/3 > 25
+  assert.equal(v2.allow, true); assert.equal(v2.calls, 3); assert.equal(v2.budget, 20); // hard 20 whatever the mean (150/3)
 });
 
 test('checkPrBudget: Dependabot costs one PR read and always passes', () => {
@@ -421,4 +422,29 @@ test('report: today\'s numbers, over-budget PRs and pool; --send pings the TL on
   const dry = [];
   await runReport({ repo: 'o/r', json: true, send: false, tl: 'tl-id' }, { now: NOW_MS, fetch: () => ({ prs, calls: 1 }), resolveOwner: async () => ({ id: 'x' }), appRun: async (...a) => { dry.push(a); }, log: () => {}, warn: () => {} });
   assert.equal(dry.length, 0);
+});
+
+test('soft point (TL p/9#541): at 15 units nothing is refused, but the TL and each of today\'s PR owners get one "nearly used" ping; at 14, none', async () => {
+  const t15 = day(TODAY, 15);
+  const r15 = analyze(t15, NOW);
+  assert.equal(r15.nearlyUsed, true); assert.equal(r15.budget, 20); assert.equal(r15.overToday.length, 0);
+  assert.equal(budgetVerdict({ prs: t15, pr: t15[14], nowIso: NOW }).allow, true);
+  const owners = Object.fromEntries(t15.map((pr, i) => [pr.number, i % 3 === 0 ? 'agent-a' : i % 3 === 1 ? 'agent-b' : 'human']));
+  const sent = [];
+  await runReport({ repo: 'o/r', json: false, send: true, sender: 's', tl: 'tl-id' }, {
+    now: NOW_MS, fetch: () => ({ prs: t15, calls: 1 }), resolveOwner: async (pr) => ({ id: owners[pr.number] }),
+    appRun: async (app, cmd, args) => { sent.push(args); return {}; }, log: () => {}, warn: () => {},
+  });
+  assert.deepEqual(sent.map((s) => s.to).sort(), ['agent-a', 'agent-b', 'tl-id']); // once each, never human
+  assert.match(sent.find((s) => s.to === 'tl-id').body, /Budget nearly used:\*\* 15 of 20/);
+  assert.match(sent.find((s) => s.to === 'agent-a').body, /nearly used today \(15 of 20 units/);
+  const t14 = day(TODAY, 14);
+  assert.equal(analyze(t14, NOW).nearlyUsed, false);
+  const sent14 = [];
+  await runReport({ repo: 'o/r', json: false, send: true, sender: 's', tl: 'tl-id' }, {
+    now: NOW_MS, fetch: () => ({ prs: t14, calls: 1 }), resolveOwner: async () => ({ id: 'agent-a' }),
+    appRun: async (app, cmd, args) => { sent14.push(args); return {}; }, log: () => {}, warn: () => {},
+  });
+  assert.deepEqual(sent14.map((s) => s.to), ['tl-id']);
+  assert.doesNotMatch(sent14[0].body, /nearly used/);
 });

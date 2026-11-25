@@ -6,8 +6,10 @@
 // RULE (TL-agreed spec, t/564). Times are UTC days. Repo-wide, base any.
 //   UNIT     Every non-Dependabot PR is one unit, except that all PRs from one branch matching
 //            ONE_UNIT_BRANCH_PATTERNS created on the same UTC day are ONE unit (key = branch).
-//   BUDGET   budget(D) = 15 if the mean unit count of the three complete UTC days before D is > 25,
-//            else 20.
+//   BUDGET   budget(D) = 20 every UTC day: a HARD cap (TL p/9#541, the PI-approved docs/pr-landing.md
+//            text; supersedes the earlier 15-when-the-3-day-mean-is-over-25 reading). At SOFT_POINT (15)
+//            nothing is refused: pr-budget-report.mjs pings the TL and that day's PR authors that the
+//            budget is nearly used. The 3-day mean is still computed and reported, for information only.
 //   RANK     rank on day D = 1 + the number of distinct units created on D strictly before this PR's
 //            unit was (a one-unit branch: its first PR that day). Allowed on D iff rank <= budget(D).
 //   POOL     A PR from an earlier day that was over its day's budget waits in a FIFO pool (open,
@@ -41,9 +43,8 @@ export const ONE_UNIT_BRANCH_PATTERNS = Object.freeze([
   /^docs\/weekly-\d{4}-\d{2}$/, // the weekly docs train: docs/weekly-YYYY-WW
 ]);
 
-export const BUDGET_NORMAL = 20;
-export const BUDGET_HARD = 15;
-export const HARD_MEAN_THRESHOLD = 25; // mean strictly above this -> BUDGET_HARD
+export const BUDGET_HARD_CAP = 20; // every UTC day (TL p/9#541)
+export const SOFT_POINT = 15; // 'budget nearly used' ping, never a refusal
 export const POOL_DAYS = 14;
 export const SEARCH_CAP = 1000;
 export const BUDGET_APPROVER_ROLES = ['Tech Lead', 'Security'];
@@ -110,7 +111,7 @@ export const rankOf = (byDay, unit) => 1 + (byDay.get(unit.day) ?? []).filter((u
 export function budgetFor(byDay, day) {
   const counts = [1, 2, 3].map((i) => unitCount(byDay, addDays(day, -i)));
   const mean = (counts[0] + counts[1] + counts[2]) / 3;
-  return { budget: mean > HARD_MEAN_THRESHOLD ? BUDGET_HARD : BUDGET_NORMAL, mean, counts };
+  return { budget: BUDGET_HARD_CAP, mean, counts };
 }
 
 /**
