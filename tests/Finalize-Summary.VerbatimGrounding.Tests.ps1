@@ -942,6 +942,30 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             (& $script:Decide74 $Plain 'Five states have passed regulations that apply only to minors. Wyoming and Ohio are the only states yet to implement any form of intimate deepfake regulation.').Decision | Should -Not -Be 'dropped'
         }
 
+        It 'a misread ligature the model copied is stored as the model wrote it; a damaged mark is stored repaired (CL t/389#90)' {
+            $Fi = [string][char]0x2229 + [char]0xBC + [char]0xFC      # the bytes of the fi ligature read in code page 437
+            $Src = "We found that the model's stated con${Fi}dence was shaped by a bias to continue down a path once it is chosen.`n`nPage 4`n`nIt also tends to disregard evidence that it has already committed harmful actions.`n"
+            # The model copied the damaged ligature. The quote matches, and the damaged letters are what is stored.
+            $Copied = & $script:Decide74 $Src "We found that the model's stated con${Fi}dence was shaped by a bias to continue down a path once it is chosen."
+            $Copied.Decision | Should -Not -Be 'dropped'
+            ($Copied.Texts -join ' ') | Should -Match ([regex]::Escape("con${Fi}dence")) -Because 'letters are stored as the model wrote them'
+            ($Copied.Texts -join ' ') | Should -Not -Match 'confidence'
+            # The same across a page-number line, stored as the model's words.
+            $Two = & $script:Decide74 $Src "We found that the model's stated con${Fi}dence was shaped by a bias to continue down a path once it is chosen. It also tends to disregard evidence that it has already committed harmful actions."
+            $Two.Decision | Should -Not -Be 'dropped'
+            ($Two.Texts -join ' ') | Should -Match ([regex]::Escape("con${Fi}dence"))
+            # The model wrote the word correctly: stored as written, with no damage.
+            $Right = & $script:Decide74 $Src "We found that the model's stated confidence was shaped by a bias to continue down a path once it is chosen."
+            $Right.Decision | Should -Not -Be 'dropped'
+            ($Right.Texts -join ' ') | Should -Match 'confidence'
+            # A doubly damaged closing quote mark is a mark: stored repaired, and counted.
+            $Src2 = "I am excited about the mundane tasks being automated`r`n`r`nby AI.$([char]0x00F6)`r`n`r`nMore text follows here.`r`n"
+            $Mark = & $script:Decide74 $Src2 "I am excited about the mundane tasks being automated by AI.$([char]0x00C3)$([char]0x00B6)"
+            $Mark.Decision | Should -Not -Be 'dropped'
+            ($Mark.Texts -join ' ') | Should -Not -Match ([string][char]0x00C3)
+            $Mark.Diag | Should -Contain 'damaged marks in the quote stored repaired'
+        }
+
         It 'a letter the source has in brackets is a marked change; a case drop at a later segment''s start is counted apart' {
             $Src = "The court held that `"[i]ndividual citizens may have a hard time finding out who they should turn to`" in such cases. Later text follows here for the second part.`n"
             $R = & $script:Decide74 $Src 'The court held that Individual citizens may have a hard time finding out who they should turn to'

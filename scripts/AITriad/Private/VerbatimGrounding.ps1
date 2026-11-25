@@ -102,6 +102,10 @@ $script:VerbatimPlaceHeaderParts = $true
 # is no longer taken out before matching: the quote is stored with it, where the source has it there, or it
 # drops. Text only the source has around a passage (a blanked header, a reference) is still stepped over.
 $script:VerbatimKeepQuoteWords = $true
+# CL t/389#90: what is stored keeps the model's letters as written. A misread ligature the model copied from the
+# snapshot is folded to match the source, and stays damaged in the stored text. Damaged marks and the damaged
+# no-break space are stored repaired; both are counted.
+$script:VerbatimStoreLettersAsWritten = $true
 $script:VerbatimRejectUncutPiece = $true
 $script:VerbatimSpaceMojibakePattern = ([string][char]0x393 + [char]0xC7) + '[' + (-join [char[]](0xC7, 0xFC, 0xE9, 0xE2, 0xE4, 0xE0, 0xE5, 0xE7, 0xEA, 0xEB, 0xE8, 0xEF, 0xBB)) + ']'
 $script:VerbatimSymbolRef = $true            # a footnote symbol read as a letter, glued to a word's end ("Mishra" + the section sign's mojibake)
@@ -522,6 +526,25 @@ function Get-VerbatimExactCaseVerdict {
         $None.Unchecked = $true; return $None
     }
     $Best
+}
+
+function ConvertTo-VerbatimStoreLetterIndex {
+    # A place in the letters of the folded quote, as a place in the letters of the same quote with its damaged
+    # ligatures kept ($Store). A damaged ligature has other letters, and another number of them, than the
+    # ligature it stands for. -End: the place closes a stretch (a place inside a ligature goes to its end).
+    param([string]$Store, [int]$Index, [switch]$End)
+    $Shift = 0
+    $Pattern = ($script:VerbatimLigatureMojibake | ForEach-Object { [regex]::Escape($_[0]) }) -join '|'
+    foreach ($M in [regex]::Matches($Store, $Pattern)) {
+        $StorePos = ((ConvertTo-EvidenceKey -Quote $Store.Substring(0, $M.Index)) -replace ' ', '').Length
+        $StoreLen = ((ConvertTo-EvidenceKey -Quote $M.Value) -replace ' ', '').Length
+        $CleanLen = @($script:VerbatimLigatureMojibake | Where-Object { $_[0] -ceq $M.Value })[0][1].Length
+        $CleanPos = $StorePos + $Shift
+        if ($Index -le $CleanPos) { break }
+        if ($Index -ge $CleanPos + $CleanLen) { $Shift += $CleanLen - $StoreLen; continue }
+        return $(if ($End) { $StorePos + $StoreLen } else { $StorePos })
+    }
+    $Index - $Shift
 }
 
 function Get-VerbatimQuoteCut {
@@ -962,7 +985,8 @@ function Find-VerbatimSnap {
 function Remove-VerbatimQuoteNoise {
     # The quote without a URL, without a copy of a blanked page footer or header line (t/389#8 c), and
     # without the brackets of a one-letter alteration (t/389#20).
-    param([object]$Source, [string]$Quote)
+    # -KeepLigatureDamage: the same repairs except the misread ligatures, which are letters (for what is stored).
+    param([object]$Source, [string]$Quote, [switch]$KeepLigatureDamage)
     $Q = if ($script:VerbatimKeepQuoteWords) { $Quote } else { [regex]::Replace($Quote, $script:VerbatimUrlPattern, ' ') }
     # A quote mark the model copied from a damaged snapshot and that was damaged once more on the way: the
     # snapshot's "o-diaeresis" for a closing quote arrives as "A-tilde, pilcrow" (t/389#50, i406). They are
@@ -972,7 +996,7 @@ function Remove-VerbatimQuoteNoise {
         # The quote is folded like the source (CL t/389#61 (3)): the further forms of the same marks, the
         # ligatures, and the no-break space that reads as a-acute.
         foreach ($P in $script:VerbatimQuoteMojibakeMore) { $Q = $Q.Replace($P[0], $P[1]) }
-        foreach ($P in $script:VerbatimLigatureMojibake) { $Q = $Q.Replace($P[0], $P[1]) }
+        if (-not $KeepLigatureDamage) { foreach ($P in $script:VerbatimLigatureMojibake) { $Q = $Q.Replace($P[0], $P[1]) } }
         if ($script:VerbatimFoldSpaceMojibake) { $Q = [regex]::Replace($Q, $script:VerbatimSpaceMojibakePattern, ' ') }
         $Q = [regex]::Replace($Q, '(?<!\p{Ll})á(?!\p{Ll})', ' ')
         $Q = [regex]::Replace($Q, 'á(?=[^\p{L}\p{Nd}\s])', ' ')
@@ -1145,6 +1169,16 @@ function Resolve-VerbatimSegment {
         return (& $Result 'exact' @($Segment) 1.0 $Snap)
     }
     $Clean = Remove-VerbatimQuoteNoise -Source $Source -Quote $Segment
+    # What is stored (CL t/389#90): the model's quote with its damaged marks repaired and its letters as
+    # written. It differs from the matching copy only where the model copied a misread ligature.
+    $Store = if ($script:VerbatimStoreLettersAsWritten) { Remove-VerbatimQuoteNoise -Source $Source -Quote $Segment -KeepLigatureDamage } else { $Clean }
+    $StoreLetters = $null
+    if ($Store -cne $Clean) { $StoreLetters = (ConvertTo-EvidenceKey -Quote $Store) -replace ' ', '' }
+    $NoteStore = {
+        # For audits, once a segment is stored from the repaired copy.
+        if ($Store -cne $Segment) { $script:VerbatimDiag.Add('damaged marks in the quote stored repaired') }
+        if ($null -ne $StoreLetters) { $script:VerbatimDiag.Add('damaged ligature in the quote stored as the model wrote it') }
+    }
     if ($Clean -cne $Segment -and (Test-VerbatimExact -Source $Source -Quote $Clean)) {
         if ($HasFigure) {
             $Snap = Find-VerbatimSnap -Source $Source -Quote $Clean
@@ -1156,7 +1190,8 @@ function Resolve-VerbatimSegment {
         if ($script:VerbatimRejectListJoin -and (Test-VerbatimListJoin -Source $Source -Quote $Clean)) {
             $script:VerbatimDiag.Add('list join (as written)'); return (& $CaseDrop)
         }
-        return (& $Result 'snapped' @($Clean) 1.0 $Snap)
+        & $NoteStore
+        return (& $Result 'snapped' @($Store) 1.0 $Snap)
     }
     # The quote exactly as the model wrote it, URL and all, with only marker lines between its lines (F01: a
     # citation with its URL, a page number in the middle). The noise-free copy below would not match a
@@ -1521,7 +1556,13 @@ function Resolve-VerbatimSegment {
             if ($T -match '\|\s[^|\r\n]*\|' -or $T -match '(?m)^\s*\|') { continue }
             # Where the match holds, what is stored is the model's own words for the piece (CL t/389#64 (3)).
             if ($script:VerbatimStoreModelWords -and $CheckPieces) {
-                $Mine = Get-VerbatimQuoteCut -Quote $Clean -QuoteLetters $QLetters -From $P.QStart -To $P.QEnd
+                $Mine = if ($null -eq $StoreLetters) {
+                    Get-VerbatimQuoteCut -Quote $Clean -QuoteLetters $QLetters -From $P.QStart -To $P.QEnd
+                } else {
+                    Get-VerbatimQuoteCut -Quote $Store -QuoteLetters $StoreLetters `
+                        -From (ConvertTo-VerbatimStoreLetterIndex -Store $Store -Index $P.QStart) `
+                        -To (ConvertTo-VerbatimStoreLetterIndex -Store $Store -Index $P.QEnd -End)
+                }
                 if ($null -ne $Mine) {
                     if ($Mine -cne $T) { $ModelTextDiffers = $true }
                     $T = $Mine
@@ -1572,6 +1613,7 @@ function Resolve-VerbatimSegment {
         if ($Texts.Count -gt 0 -and $Coverage -ge $script:VerbatimSnapThreshold) {
             $Decision = if ($IsContiguous) { 'snapped' } else { 'interleaved' }
             if ($ModelTextDiffers) { $script:VerbatimDiag.Add('model words stored, text differs from the source') }
+            & $NoteStore
             return (& $Result $Decision $Texts.ToArray() $Coverage $Snap)
         }
     }
