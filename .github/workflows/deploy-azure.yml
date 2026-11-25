@@ -40,14 +40,8 @@ on:
           - optional
           - required
           - disabled
-      staging_shared_read_only:
-        description: 'Mount staging shared volume read-only (false = documented override back to RW; RO is now the default, t/2643/t/4298)'
-        required: false
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
+      # staging_shared_read_only removed (t/622): staging always mounts /mnt/shared
+      # read-only (t/617, main.bicep @allowed([true])), so there is no RW override.
       staging_load_test_size:
         description: 'Prod-size staging (2 vCPU/4Gi, maxReplicas 3, HTTP scale rule) for the t/4180 load test (t/4203). Forces the RO shared-volume mount. Set back to false to revert — see t/4203 runbook note.'
         required: false
@@ -557,7 +551,7 @@ jobs:
               freeTierGeminiKeyStaging=${{ secrets.FREE_TIER_GEMINI_KEY_STAGING }} \
               geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }} \
               budgetAlertEmail=${{ vars.ALERT_EMAIL }} \
-              stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'true' && 'true' || 'false' }} \
+              stagingSharedReadOnly=true \
               stagingLoadTestSize=${{ inputs.staging_load_test_size == 'true' && 'true' || 'false' }} \
             --no-pretty-print 2>&1) || true
           echo "$RESULT"
@@ -629,7 +623,7 @@ jobs:
             budgetAlertEmail=${{ vars.ALERT_EMAIL }}
             trafficPinRevisionName=${{ steps.current_revision.outputs.revision }}
             trafficPinRevisionNameStaging=${{ steps.current_revision.outputs.staging_revision }}
-            stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'true' && 'true' || 'false' }}
+            stagingSharedReadOnly=true
             stagingLoadTestSize=${{ inputs.staging_load_test_size == 'true' && 'true' || 'false' }}
 
       # NOTE: the current active revision is now captured BEFORE the Bicep apply
