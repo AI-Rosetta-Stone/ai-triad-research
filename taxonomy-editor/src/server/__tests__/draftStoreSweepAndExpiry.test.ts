@@ -162,14 +162,14 @@ describe('DraftStore expiry, sweep and logging (t/185 TL t/185#44)', () => {
     (mockBackend.deleteFile as any).mockImplementationOnce(async () => { throw new Error('delete boom'); });
     const { deleted } = await store.sweepExpiredDrafts();
     expect(deleted).toBe(0);
-    expect(vi.mocked(log.server.warn).mock.calls.some(c => String(c[0]).includes('could not delete expired draft'))).toBe(true);
+    expect(vi.mocked(log.server.warn).mock.calls.some(c => String(c[0]).includes('could not delete dead draft'))).toBe(true);
   });
 
-  it('an unreadable record is logged with its path and skipped', async () => {
+  it('an unparseable record is swept as dead, not left in place', async () => {
     const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
     files.set(normalize('community/_drafts/drf_bad.json'), '{not json');
     await store.sweepExpiredDrafts();
-    expect(vi.mocked(log.server.warn).mock.calls.some(c => String(c[0]).includes('could not read community/_drafts/drf_bad.json'))).toBe(true);
+    expect(files.has(normalize('community/_drafts/drf_bad.json'))).toBe(false);
   });
   it('finalizeDraft refuses an anonymous cookie holder (anon-<uuid>) when isAnonymous is set, and writes nothing (Second-Opinion, t/185)', async () => {
     const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });

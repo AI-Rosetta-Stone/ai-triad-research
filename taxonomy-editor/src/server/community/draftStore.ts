@@ -642,15 +642,12 @@ class DraftStoreImpl implements DraftStore {
         const draftPath = `community/_drafts/${file}`;
         try {
           const data = await this.backend.readFile(draftPath);
-          if (data !== null) {
-            const rec = JSON.parse(data);
-            if (new Date(rec.expiresAt).getTime() < this.now()) {
-              try {
-                await this.backend.deleteFile(draftPath);
-                deleted++;
-              } catch (err) {
-                log.server.warn(`sweepExpiredDrafts: could not delete expired draft ${draftPath}: ${(err as any)?.message} (skipped; retried on next sweep)`);
-              }
+          if (data !== null && this.isDeadRecord(data)) {
+            try {
+              await this.backend.deleteFile(draftPath);
+              deleted++;
+            } catch (err) {
+              log.server.warn(`sweepExpiredDrafts: could not delete dead draft ${draftPath}: ${(err as any)?.message} (skipped; retried on next sweep)`);
             }
           }
         } catch (err) {
@@ -671,6 +668,21 @@ class DraftStoreImpl implements DraftStore {
     return { deleted };
   }
 
+  // A record is dead when it cannot be parsed or its expiresAt is not a date, or when it is past its expiry.
+  // Dead records are swept. Corrupt records have no age on the StorageBackend interface, so they are not
+  // quarantined by age; they cannot be finalized or honoured, so they are removed on sight (t/507, SO follow-up).
+  private isDeadRecord(data: string): boolean {
+    let rec: { expiresAt?: unknown };
+    try {
+      rec = JSON.parse(data);
+    } catch {
+      /* telemetry — silent by design (a corrupt record is swept as dead; the sweep logs its delete) */
+      return true;
+    }
+    const expiry = new Date(rec.expiresAt as string).getTime();
+    return Number.isNaN(expiry) || expiry < this.now();
+  }
+
   private async sweepExpiredClaimMarkers(addDeleted: (n: number) => void): Promise<void> {
     let files: string[];
     try {
@@ -685,8 +697,7 @@ class DraftStoreImpl implements DraftStore {
       try {
         const data = await this.backend.readFile(claimPath);
         if (data === null) continue;
-        const rec = JSON.parse(data);
-        if (new Date(rec.expiresAt).getTime() < this.now()) {
+        if (this.isDeadRecord(data)) {
           await this.backend.deleteFile(claimPath);
           addDeleted(1);
         }

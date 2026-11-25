@@ -98,18 +98,31 @@ describe('DraftStore follow-ups (t/507)', () => {
     files.set(normalize('community/_drafts/drf_corrupt.json'), '{not json');
     const result = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-corrupt' });
     expect(result.ok).toBe(true);
-    expect(warnedWith('unparseable draft record community/_drafts/drf_corrupt.json')).toBe(true);
+    expect([...files.keys()].some(k => k.includes('drf_corrupt'))).toBe(false);
   });
 
-  it('item 3: corrupt records count conservatively toward the global cap (49 admits, 50 refuses)', async () => {
-    const store49 = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
-    for (let i = 0; i < 49; i++) files.set(normalize(`community/_drafts/drf_bad${i}.json`), '{bad');
-    expect((await store49.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'c-a' })).ok).toBe(true);
-
-    files.clear();
-    const store50 = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+  it('item 3: corrupt draft records are swept before counting, so they do not hold cap slots', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
     for (let i = 0; i < 50; i++) files.set(normalize(`community/_drafts/drf_bad${i}.json`), '{bad');
-    expect(await store50.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'c-b' })).toEqual({ ok: false, reason: 'cap_reached' });
+    // The pre-count sweep removes the 50 corrupt records, so the cap is not exhausted by them.
+    expect((await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'c-b' })).ok).toBe(true);
+    expect([...files.keys()].some(k => k.includes('drf_bad'))).toBe(false);
+  });
+
+  it('SO follow-up: a corrupt draft record is deleted by the sweep and logged', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    files.set(normalize('community/_drafts/drf_corrupt.json'), '{bad');
+    const { deleted } = await store.sweepExpiredDrafts();
+    expect(deleted).toBe(1);
+    expect(files.has(normalize('community/_drafts/drf_corrupt.json'))).toBe(false);
+  });
+
+  it('SO follow-up: a claim marker with a bad expiresAt is deleted by the sweep', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    files.set(normalize('community/_drafts/claims/drf_badexp.json'), JSON.stringify({ draftId: 'drf_badexp', expiresAt: 'not-a-date' }));
+    const { deleted } = await store.sweepExpiredDrafts();
+    expect(deleted).toBe(1);
+    expect(files.has(normalize('community/_drafts/claims/drf_badexp.json'))).toBe(false);
   });
 
   it('item 4: a failed draft read carries the original error as innerError', async () => {
