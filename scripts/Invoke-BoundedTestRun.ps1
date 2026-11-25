@@ -55,8 +55,33 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $stdout = [System.IO.Path]::GetTempFileName()
 $stderr = [System.IO.Path]::GetTempFileName()
 
+# The Pester version CI pins (t/594). A local run on another version can pass where CI fails: on #5502,
+# Pester 6.2.0 ran two BeforeEach blocks of one Describe and CI's 5.7.1 ran only the last, so 8 failing
+# tests looked green locally. The pin is read from ci.yml (PESTER_VERSION), so the two cannot drift. If it
+# cannot be read, or that version is not installed, the run refuses instead of using whatever is there.
+$ciYml = Join-Path $repoRoot '.github' 'workflows' 'ci.yml'
+$pesterPin = $null
+if (Test-Path -LiteralPath $ciYml) {
+    $pinLine = Select-String -LiteralPath $ciYml -Pattern "^\s*PESTER_VERSION:\s*['""]?(\d+\.\d+\.\d+)['""]?\s*$" | Select-Object -First 1
+    if ($pinLine) { $pesterPin = $pinLine.Matches[0].Groups[1].Value }
+}
+if (-not $pesterPin) {
+    throw (New-ActionableError -AsErrorRecord `
+        -Goal 'Run Pester on the version CI uses' `
+        -Problem "No PESTER_VERSION pin was found in $ciYml." `
+        -Location 'scripts/Invoke-BoundedTestRun.ps1' `
+        -NextSteps @("Check that ci.yml still has a line like PESTER_VERSION: '5.7.1'", 'Run from a full checkout of the repo'))
+}
+if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [version]$pesterPin })) {
+    throw (New-ActionableError -AsErrorRecord `
+        -Goal 'Run Pester on the version CI uses' `
+        -Problem "Pester $pesterPin (the version ci.yml pins) is not installed; installed: $((Get-Module -ListAvailable -Name Pester | ForEach-Object { $_.Version.ToString() }) -join ', ')." `
+        -Location 'scripts/Invoke-BoundedTestRun.ps1' `
+        -NextSteps @("Install-Module Pester -RequiredVersion $pesterPin -Force -Scope CurrentUser -SkipPublisherCheck"))
+}
+
 $quotedPaths = ($Path | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ','
-$pesterCommand = "Invoke-Pester -Path @($quotedPaths) -Output $Output"
+$pesterCommand = "Import-Module Pester -RequiredVersion $pesterPin -ErrorAction Stop; Write-Host 'Pester $pesterPin (ci.yml pin)'; Invoke-Pester -Path @($quotedPaths) -Output $Output"
 # Timed with a Stopwatch, not $proc.StartTime: StartTime is unreliable for a just-launched
 # process on some platforms (observed: Linux CI throws "Cannot find an overload for
 # op_Subtraction" when it's read back for the elapsed-time calculation below).
