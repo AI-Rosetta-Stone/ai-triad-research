@@ -143,7 +143,7 @@ function Get-SmokeTotalEventCount {
 $script:SmokeAnalyticsQueryPath = '/api/analytics/query?includeSystem=true'
 
 # t/579: the smoke does not read /api/analytics/query (see Invoke-SmokeAnalyticsPhase). Logged on every run.
-$script:SmokeAnalyticsReadBackSkipped = 'Analytics read-back needs admin (t/579), skipped: the smoke checked the event write only, so it does not confirm that events are persisted. The read-back returns as an admin under t/592.'
+$script:SmokeAnalyticsReadBackSkipped = 'Analytics read-back needs admin (t/579), skipped: the smoke checked the event write only, so it does not confirm that events are persisted. The smoke has no admin credential; giving it one for a read-back needs the PI''s approval.'
 
 function Invoke-SmokeAnalyticsQuery {
     # One Invoke-RemoteCheck for the analytics phase, threading the anon session when there is one.
@@ -263,10 +263,12 @@ function Invoke-SmokeAnalyticsPhase {
     #
     # WHAT THIS LOSES: the write alone cannot confirm persistence. The POST's `count` reflects
     # the sanitized REQUEST and the blob append is fire-and-forget, so a misconfigured blob
-    # backend that silently drops events passes this phase. The read-back returns under t/592,
-    # as an admin. Get-SmokeAnalyticsDeltaResult and Get-SmokeAnalyticsDwellResult are kept for
-    # that. Do NOT restore an anonymous read of /api/analytics/query, and do not add another
-    # anonymous read-back route.
+    # backend that silently drops events passes this phase. The route is admin-only (t/592), and
+    # t/592 gives the smoke NO credential. A read-back here would need an admin credential in CI,
+    # and no credential may be added without the PI's approval (Security p/293#4): do not wire in
+    # a stored admin cookie or token on the strength of this comment. Get-SmokeAnalyticsDeltaResult
+    # and Get-SmokeAnalyticsDwellResult are kept for the day that is approved. Do NOT restore an
+    # anonymous read of /api/analytics/query, and do not add another anonymous read-back route.
     param([string]$BaseUrl, [int]$TimeoutSec)
     Write-Host '=== Analytics Write ===' -ForegroundColor Cyan
 
