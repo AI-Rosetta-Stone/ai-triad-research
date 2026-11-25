@@ -123,6 +123,29 @@ export async function reserveFreePoolCall(res: http.ServerResponse, key: string)
   return { ok: true, reservationId: result.reservationId };
 }
 
+/** t/616: the same per-call reserve as `reserveFreePoolCall`, for a caller that can no longer write an HTTP
+ *  refusal (an op-ed run whose SSE stream is already open). Returns the refusal reason instead of writing it.
+ *  Fails closed exactly like `reserveFreePoolCall`: no store, or a throw, is `storage_unavailable`. */
+export async function reserveFreePoolCallInBand(key: string): Promise<
+  { ok: true; reservationId: string | null } | { ok: false; reason: 'daily_cap' | 'storage_unavailable' }
+> {
+  if (!isFreePoolBudgetEnforced()) return { ok: true, reservationId: null };
+  const store = resolveStore();
+  if (!store) return { ok: false, reason: 'storage_unavailable' };
+  try {
+    const result = await store.reserve({ calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE, key });
+    return result.ok ? { ok: true, reservationId: result.reservationId } : { ok: false, reason: result.reason };
+  } catch (err) {
+    log.api.warn({ component: 'free-pool-budget', err }, 'FreePoolBudget.reserve() threw unexpectedly (in-band) — refusing (fail closed)');
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'free-pool-budget', level: 'warn',
+      message: 'FreePoolBudget.reserve() threw unexpectedly (in-band)',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return { ok: false, reason: 'storage_unavailable' };
+  }
+}
+
 /** Reconcile a reservation to its actual usage. No-op when `reservationId` is null (enforcement
  *  was off at reserve time, or the store isn't wired) or the underlying call throws — a failure
  *  to commit must never surface as a user-facing error for a call that already succeeded. */

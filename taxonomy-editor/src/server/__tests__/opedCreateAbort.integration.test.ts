@@ -55,6 +55,7 @@ vi.mock('../security/userContext.js', () => ({
 vi.mock('../ai/proxyTiers.js', () => ({
   resolveTier: () => ({ level: 'platform', allowedBackends: ['gemini'], pinnedModel: undefined }),
   isBackendAllowed: () => true,
+  byokGeminiFallbackApplies: () => false, // t/616: platform tier, so never the free pool
 }));
 vi.mock('../ai/aiBackends.js', () => ({ resolveBackend: () => 'gemini', isRegisteredModel: () => true }));
 vi.mock('../../../../lib/ai-client/index.js', () => ({ DEFAULT_MODEL: 'gemini-flash' }));
