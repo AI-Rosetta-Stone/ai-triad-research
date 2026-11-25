@@ -138,7 +138,7 @@ Describe 'Evidence producers count a duplicate pair once (C2)' -Tag 'source-iden
         @($ix.index.'saf-beliefs-001' | Where-Object { $_.quote -eq 'Same quote' }).Count | Should -Be 1
         @($ix.index.'saf-beliefs-001' | Where-Object { $_.PSObject.Properties['via'] }).Count | Should -Be 0 -Because 'every copy link is near-equal to a canonical one'
         $ix.marksHash | Should -Match '^[0-9a-f]{64}$'
-        $ix.builderVersion | Should -Be '1.2.0'
+        $ix.builderVersion | Should -Be '1.3.0'
     }
 
     It 'Build-NodeSourceIndex: the union adds a copy''s distinct links to the canonical with via (spec 7.4)' {

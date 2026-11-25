@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { ActionableError } from '../debate/errors.js';
+import { getGlobalRecorder } from '../flight-recorder/index.js';
 
 /**
  * Evidence union across a duplicate group: `docs/specs/source-identity.md`
@@ -228,12 +229,35 @@ export type UnionedEvidenceLink<T extends EvidenceLinkLike> = T & {
   chunk_model?: string;
 };
 
-// ── 6.2 resolver and 7.1 group (t/355, R1/R2) ──
+// ── 6.2 resolver and 7.1 group (t/355, R1/R2; t/572: legacy chunks are named by the manifest) ──
 
 /** A document's record in the group index: whether it has a source dir, and its mark. */
 export interface EvidenceDoc {
   has_source: boolean;
   mark?: string | null;
+}
+
+/** The legacy-chunk manifest (spec 6.2): chunk id to base id. Loaded from docs/specs/source-identity-legacy-chunks.json. */
+export type LegacyChunkManifest = Readonly<Record<string, string>>;
+
+/**
+ * t/572: load the legacy-chunk manifest from its one shared file (plain JSON, `{ version, spec, chunks }`, where
+ * `chunks` maps chunk id to base id). Throws an ActionableError if the file is not that shape. The PowerShell and
+ * Python readers load the same file; a test asserts the TypeScript load matches the file.
+ */
+export function loadLegacyChunkManifest(json: unknown): LegacyChunkManifest {
+  const chunks = (json as { chunks?: unknown } | null)?.chunks;
+  const ok = chunks !== null && typeof chunks === 'object' && !Array.isArray(chunks)
+    && Object.values(chunks as Record<string, unknown>).every(v => typeof v === 'string' && v.length > 0);
+  if (!ok) {
+    throw new ActionableError({
+      goal: 'Load the legacy-chunk manifest',
+      problem: 'The manifest must be an object with a `chunks` map of chunk id to base id (non-empty strings).',
+      location: 'lib/sourceIndex/evidenceUnion.ts: loadLegacyChunkManifest',
+      nextSteps: ['Check docs/specs/source-identity-legacy-chunks.json against spec 6.2'],
+    });
+  }
+  return { ...(chunks as Record<string, string>) };
 }
 
 export type GroupMemberKind = 'copy' | 'chunk_D' | 'chunk_copy';
@@ -242,13 +266,18 @@ function docOf(docs: Readonly<Record<string, EvidenceDoc>>, id: string): Evidenc
   return Object.prototype.hasOwnProperty.call(docs, id) ? docs[id] : undefined;
 }
 
-/** Spec 6.2 (t/355, R1): the base X when `id` is a summary-only chunk `<X>-N` of X, else null. */
-export function chunkBase(id: string, docs: Readonly<Record<string, EvidenceDoc>>): string | null {
-  const m = /^(.+)-(\d+)$/.exec(id);
-  if (!m) return null;
-  if (docOf(docs, id)?.has_source) return null;
-  const base = m[1];
-  return docOf(docs, base)?.has_source ? base : null;
+function manifestBase(manifest: LegacyChunkManifest, id: string): string | null {
+  return Object.prototype.hasOwnProperty.call(manifest, id) ? manifest[id] : null;
+}
+
+/** Spec 6.2 (t/572): the base X when the manifest lists `id` as a chunk of X, else null. A listed chunk is a chunk
+ *  whether or not it has a source dir. The base must exist in `docs`, else the id is refused (see resolveDocId). */
+export function chunkBase(
+  id: string, docs: Readonly<Record<string, EvidenceDoc>>, manifest: LegacyChunkManifest,
+): string | null {
+  const base = manifestBase(manifest, id);
+  if (base === null || docOf(docs, base) === undefined) return null;
+  return base;
 }
 
 /** Spec 6.1: the target of `id`'s mark when it names another document in `docs`, else null. */
@@ -258,23 +287,48 @@ function validMark(id: string, docs: Readonly<Record<string, EvidenceDoc>>): str
   return null;
 }
 
-/** Spec 6.2 (t/355, R1, transitive): the document `id` resolves to. A valid mark, or a chunk's
- *  base, is followed to the end. A cycle is an error. */
+/** An unlisted `<X>-N` with a source dir-less shape of a document that has a source: the old chunk shape (spec 6.2). */
+function looksLikeUnlistedChunk(id: string, docs: Readonly<Record<string, EvidenceDoc>>): boolean {
+  const m = /^(.+)-(\d+)$/.exec(id);
+  if (!m || docOf(docs, id)?.has_source) return false;
+  return docOf(docs, m[1])?.has_source === true;
+}
+
+/** Spec 6.2 (t/355 R1, transitive; t/572): the document `id` resolves to. A valid mark, or a listed chunk's base,
+ *  is followed to the end. A listed chunk whose base is absent is refused with code `missing_base`. A cycle is an error.
+ *  An unlisted old-shape chunk resolves to itself and logs a WARN. */
 export function resolveDocId(
-  id: string, docs: Readonly<Record<string, EvidenceDoc>>, seen: readonly string[] = [],
+  id: string, docs: Readonly<Record<string, EvidenceDoc>>, manifest: LegacyChunkManifest = {}, seen: readonly string[] = [],
 ): string {
   if (seen.includes(id)) {
     throw new ActionableError({
       goal: 'Resolve the evidence document for a summary id',
       problem: `The mark or chunk chain loops back to '${id}'.`,
       location: 'lib/sourceIndex/evidenceUnion.ts: resolveDocId',
-      nextSteps: ['Remove or correct one mark in the loop (spec 6.1)', 'Check that no chunk names its own copy as its base'],
+      nextSteps: ['Remove or correct one mark in the loop (spec 6.1)', 'Check that no chunk is listed as its own base in the manifest'],
     });
   }
   const target = validMark(id, docs);
-  if (target) return resolveDocId(target, docs, [...seen, id]);
-  const base = chunkBase(id, docs);
-  if (base) return resolveDocId(base, docs, [...seen, id]);
+  if (target) return resolveDocId(target, docs, manifest, [...seen, id]);
+  const listed = manifestBase(manifest, id);
+  if (listed !== null) {
+    if (docOf(docs, listed) === undefined) {
+      throw new ActionableError({
+        goal: 'Resolve the evidence document for a legacy chunk',
+        problem: `Legacy chunk '${id}' is listed in the manifest against base '${listed}', which is not in the documents.`,
+        location: 'lib/sourceIndex/evidenceUnion.ts: resolveDocId',
+        nextSteps: ['Restore the base summary, or remove the chunk from docs/specs/source-identity-legacy-chunks.json (a reviewed change)'],
+        code: 'missing_base',
+      });
+    }
+    return resolveDocId(listed, docs, manifest, [...seen, id]);
+  }
+  if (looksLikeUnlistedChunk(id, docs)) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'evidenceUnion', level: 'warn',
+      message: `'${id}' has the old chunk shape but is not listed in the legacy-chunk manifest; it stays its own source (spec 6.2).`,
+    });
+  }
   return id;
 }
 
@@ -289,33 +343,29 @@ function chunkNumber(id: string): number {
 }
 
 /**
- * Spec 7.1 (t/355, R2): the members of a canonical's group, excluding the canonical itself.
+ * Spec 7.1 (t/355, R2; t/572): the members of a canonical's group, excluding the canonical itself.
  * Order: marked copies by ordinal id, then the canonical's own chunks, then each copy's chunks,
  * each set by N ascending. `kind` is `copy`, `chunk_D` (a chunk of the canonical) or `chunk_copy`
- * (a chunk of a marked copy; `viaCopy` is that copy).
+ * (a chunk of a marked copy; `viaCopy` is that copy). Chunks are the manifest's; unlisted ids are not folded.
  */
 export function groupMembers(
-  canonical: string, docs: Readonly<Record<string, EvidenceDoc>>,
+  canonical: string, docs: Readonly<Record<string, EvidenceDoc>>, manifest: LegacyChunkManifest = {},
 ): Array<{ id: string; kind: GroupMemberKind; viaCopy?: string }> {
   const ids = Object.keys(docs).filter(id => id !== canonical).sort(byOrdinal);
   const byN = (list: string[]) => [...list].sort((a, b) => chunkNumber(a) - chunkNumber(b) || byOrdinal(a, b));
   const copies = ids.filter(id =>
-    chunkBase(id, docs) === null && validMark(id, docs) !== null && resolveDocId(id, docs) === canonical);
+    chunkBase(id, docs, manifest) === null && validMark(id, docs) !== null
+    && resolveDocId(id, docs, manifest) === canonical);
   const out: Array<{ id: string; kind: GroupMemberKind; viaCopy?: string }> = [];
   for (const c of copies) out.push({ id: c, kind: 'copy' });
-  for (const k of byN(ids.filter(id => chunkBase(id, docs) === canonical))) out.push({ id: k, kind: 'chunk_D' });
+  for (const k of byN(ids.filter(id => chunkBase(id, docs, manifest) === canonical))) out.push({ id: k, kind: 'chunk_D' });
   for (const c of copies) {
-    for (const k of byN(ids.filter(id => chunkBase(id, docs) === c))) out.push({ id: k, kind: 'chunk_copy', viaCopy: c });
+    for (const k of byN(ids.filter(id => chunkBase(id, docs, manifest) === c))) out.push({ id: k, kind: 'chunk_copy', viaCopy: c });
   }
   return out;
 }
 
 // ── 7.4 union ──
-
-export interface EvidenceLinkLike {
-  node: string;
-  quote: string;
-}
 
 /**
  * Spec 7.4: the de-duplicated union of a duplicate group's links, attributed

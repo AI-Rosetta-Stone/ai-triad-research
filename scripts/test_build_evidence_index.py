@@ -84,15 +84,15 @@ def test_union_cases_match_the_shared_fixture():
 # ── Shared fixture v3: summary-only chunks (t/355) ────────────────────────────
 
 def _v3(docs):
-    """Fixture docs -> (marks, has_source). A mark is valid when it names another doc (6.1)."""
+    """Fixture docs -> (marks, known ids). A mark is valid when it names another doc (6.1)."""
     marks = {d: v["mark"] for d, v in docs.items() if v.get("mark") and v["mark"] != d and v["mark"] in docs}
-    return marks, {d for d, v in docs.items() if v.get("has_source")}
+    return marks, set(docs)
 
 
 def _v3_union(case):
     docs, canonical = case["docs"], case["canonical"]
-    marks, has_source = _v3(docs)
-    order = bei.group_members(canonical, list(docs), marks, has_source)
+    marks, known = _v3(docs)
+    order = bei.group_members(canonical, list(docs), marks, case["manifest"], known)
     for m in order:
         for f in bei.N2_FIELDS:
             if docs[m["id"]].get(f):
@@ -103,10 +103,17 @@ def _v3_union(case):
 
 
 def test_resolve_cases_match_the_shared_fixture():
-    assert _FIXTURE["resolve_cases"]
+    assert len(_FIXTURE["resolve_cases"]) > 5
     for c in _FIXTURE["resolve_cases"]:
-        marks, has_source = _v3(c["docs"])
-        assert bei.resolve_doc(c["id"], marks, has_source) == c["expected"], c["name"]
+        marks, known = _v3(c["docs"])
+        if "expected_error" in c:
+            try:
+                bei.resolve_doc(c["id"], marks, c["manifest"], known)
+            except SystemExit as exc:
+                assert c["id"] in str(exc) and "does not exist" in str(exc), c["name"]
+                continue
+            raise AssertionError(f"expected a refusal: {c['name']}")
+        assert bei.resolve_doc(c["id"], marks, c["manifest"], known) == c["expected"], c["name"]
 
 
 def test_chunk_union_cases_match_the_shared_fixture():
@@ -119,15 +126,16 @@ def test_chunk_union_cases_match_the_shared_fixture():
 
 def test_each_chunk_case_is_one_document():
     for c in _FIXTURE["chunk_union_cases"]:
-        marks, has_source = _v3(c["docs"])
-        assert len({bei.resolve_doc(d, marks, has_source) for d in c["docs"]}) == c["expected_documents"], c["name"]
+        marks, known = _v3(c["docs"])
+        group = [c["canonical"]] + [m["id"] for m in bei.group_members(c["canonical"], list(c["docs"]), marks, c["manifest"], known)]
+        assert len({bei.resolve_doc(d, marks, c["manifest"], known) for d in group}) == c["expected_documents"], c["name"]
 
 
 def test_group_order_is_copies_then_own_chunks_then_copy_chunks_by_n():
-    has_source = {"d-2026", "b-2026", "a-2026"}
+    manifest = {"b-2026-1": "b-2026", "d-2026-10": "d-2026", "a-2026-2": "a-2026", "d-2026-2": "d-2026", "a-2026-1": "a-2026"}
     marks = {"b-2026": "d-2026", "a-2026": "d-2026"}
     docs = ["b-2026-1", "d-2026-10", "a-2026-2", "d-2026-2", "b-2026", "a-2026", "d-2026", "a-2026-1", "other-2026"]
-    got = [(m["id"], m["kind"], m["via"]) for m in bei.group_members("d-2026", docs, marks, has_source)]
+    got = [(m["id"], m["kind"], m["via"]) for m in bei.group_members("d-2026", docs, marks, manifest)]
     assert got == [("a-2026", "copy", None), ("b-2026", "copy", None),
                    ("d-2026-2", "chunk_D", None), ("d-2026-10", "chunk_D", None),
                    ("a-2026-1", "chunk_copy", "a-2026"), ("a-2026-2", "chunk_copy", "a-2026"),
@@ -136,14 +144,20 @@ def test_group_order_is_copies_then_own_chunks_then_copy_chunks_by_n():
 
 def test_a_mark_loop_is_refused():
     try:
-        bei.resolve_doc("a", {"a": "b", "b": "a"}, set())
+        bei.resolve_doc("a", {"a": "b", "b": "a"}, {})
     except SystemExit as exc:
         assert "loops back" in str(exc) and "Next Steps:" in str(exc)
         return
     raise AssertionError("expected SystemExit for a mark loop")
 
 
-def test_cli_folds_a_summary_only_chunk_into_its_base_as_one_document():
+def _manifest_file(tmp, chunks):
+    path = Path(tmp) / "legacy-chunks.json"
+    path.write_text(json.dumps({"version": 1, "chunks": chunks}), encoding="utf-8")
+    return path
+
+
+def test_cli_folds_a_listed_chunk_into_its_base_as_one_document():
     """t/355: before the fold, d-2026-1 was indexed as its own doc_id."""
     canon = _summary(kps=[_kp("n1", "The model refused the request.")])
     chunk = dict(_summary(kps=[_kp("n1", "The model refused the request!"), _kp("n1", "A passage only the chunk cited.")],
@@ -153,7 +167,8 @@ def test_cli_folds_a_summary_only_chunk_into_its_base_as_one_document():
     with tempfile.TemporaryDirectory() as tmp:
         data, src = _corpus(tmp, {"d-2026": canon, "d-2026-1": chunk, "x-2026-1": orphan}, {"d-2026": {}})
         out = Path(tmp) / "out" / "sei.json"
-        rc, err = _run("--data-root", str(data), "--sources-root", str(src), "--out", str(out))
+        rc, err = _run("--data-root", str(data), "--sources-root", str(src), "--out", str(out),
+                       "--legacy-chunks", str(_manifest_file(tmp, {"d-2026-1": "d-2026"})))
         idx = json.loads(out.read_text(encoding="utf-8"))
     assert rc == 0
     kps = idx["n1"]["keyPoints"]
@@ -163,10 +178,56 @@ def test_cli_folds_a_summary_only_chunk_into_its_base_as_one_document():
     assert kps[1]["chunk_generated_at"] == "2026-03-26T10:00:00Z" and kps[1]["chunk_model"] == "gemini-3.5-flash-lite"
     fact = idx["n2"]["facts"][0]
     assert fact["doc_id"] == "d-2026" and fact["chunk_of"] == "d-2026-1"
-    # No base with a source dir: the orphan stays its own document and is reported (t/355#9).
+    # Not a listed chunk and no source dir: the orphan stays its own document and is reported (t/355#9).
     assert idx["n3"]["keyPoints"][0]["doc_id"] == "x-2026-1"
     assert "WARN: source_missing: 1 summaries" in err and "x-2026-1" in err
-    assert "1 summary-only chunks folded, 2 chunk_of-tagged entries" in err
+    assert "1 listed chunks folded, 2 chunk_of-tagged entries" in err
+
+
+def test_cli_does_not_fold_an_unlisted_document_whose_source_dir_is_missing():
+    """t/355#31: a real document r-2026-1 whose source dir is absent from the checkout. The old
+    folder-only rule folded it into r-2026. Not in the manifest, it stays its own document."""
+    base = _summary(kps=[_kp("n1", "The report sets out four options.")])
+    other = _summary(kps=[_kp("n1", "A different document that shares the stem.")])
+    with tempfile.TemporaryDirectory() as tmp:
+        data, src = _corpus(tmp, {"r-2026": base, "r-2026-1": other}, {"r-2026": {}})
+        out = Path(tmp) / "out" / "sei.json"
+        rc, err = _run("--data-root", str(data), "--sources-root", str(src), "--out", str(out),
+                       "--legacy-chunks", str(_manifest_file(tmp, {})))
+        idx = json.loads(out.read_text(encoding="utf-8"))
+    assert rc == 0
+    assert [k["doc_id"] for k in idx["n1"]["keyPoints"]] == ["r-2026", "r-2026-1"]
+    assert all("chunk_of" not in k for k in idx["n1"]["keyPoints"])
+    assert "WARN: not_in_manifest: 1 summaries" in err and "r-2026-1" in err
+    assert "0 listed chunks folded" in err
+
+
+def test_cli_refuses_a_listed_chunk_whose_base_does_not_exist():
+    with tempfile.TemporaryDirectory() as tmp:
+        data, src = _corpus(tmp, {"d-2026-1": _summary(kps=[_kp("n1", "Q")])}, {"z-2026": {}})
+        out = Path(tmp) / "out" / "sei.json"
+        try:
+            _run("--data-root", str(data), "--sources-root", str(src), "--out", str(out),
+                 "--legacy-chunks", str(_manifest_file(tmp, {"d-2026-1": "d-2026"})))
+        except SystemExit as exc:
+            assert "d-2026-1" in str(exc) and "does not exist" in str(exc) and "Next Steps:" in str(exc)
+            assert not out.exists()
+            return
+    raise AssertionError("expected a refusal")
+
+
+def test_a_missing_manifest_file_folds_nothing_and_warns():
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        got = bei.load_manifest(Path(tempfile.gettempdir()) / "no-such-legacy-chunks.json")
+    assert got == {} and "no summary is treated as a chunk" in err.getvalue()
+
+
+def test_the_default_manifest_is_the_file_beside_the_spec():
+    """The same file the PowerShell and TypeScript readers load: 16 chunks, each named <base>-N."""
+    got = bei.load_manifest()
+    assert len(got) == 16
+    assert all(k.startswith(v + "-") and k[len(v) + 1:].isdigit() for k, v in got.items())
 
 
 # ── Index records ─────────────────────────────────────────────────────────────
