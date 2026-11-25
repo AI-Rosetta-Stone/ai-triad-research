@@ -147,6 +147,10 @@ jobs:
               echo "record-base-ref: posted base-ref-record/ci.yml=${BASE_REF} on ${HEAD_SHA} (attempt ${attempt})"
               exit 0
             fi
+            # SO t/238: gh's text is echoed inside ::error::/::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             if [ "$attempt" -ge 3 ]; then
               echo "::error::record-base-ref: could not post the status after ${attempt} attempts. Last error: ${out}"
               exit 1

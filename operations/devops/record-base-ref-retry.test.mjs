@@ -56,7 +56,8 @@ function runStep(outcomes, { resetIn = 10 } = {}) {
     `n=$(cat "${d}/count" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "${d}/count"`,
     `line=$(sed -n "\${n}p" "${d}/outcomes"); [ -z "$line" ] && line=$(tail -n 1 "${d}/outcomes")`,
     'if [ "$line" = ok ]; then echo "{}"; exit 0; fi',
-    'echo "gh: ${line#*|} (HTTP ${line%%|*})" >&2; exit 1',
+    "msg=${line#*|}; msg=${msg//~NL~/$'\\n'}",
+    'echo "gh: ${msg} (HTTP ${line%%|*})" >&2; exit 1',
   ].join('\n'));
   writeFileSync(path.join(dir, 'sleep'), `#!/bin/bash\necho "$1" >> "${d}/sleeps"\n`);
   chmodSync(path.join(dir, 'gh'), 0o755);
@@ -122,4 +123,14 @@ test('t/238 record-base-ref: a permission 403 is not retried', { skip: !haveBash
   assert.equal(r.posts, 1);
   assert.deepEqual(r.sleeps, []);
   assert.match(r.out, /::error::record-base-ref: not retryable/);
+});
+
+test('t/238 record-base-ref (SO condition): multi-line gh text cannot start a workflow-command line', { skip: !haveBash && 'bash not available' }, () => {
+  // The fake gh turns each ~NL~ in the message into a real newline.
+  const r = runStep([{ status: 403, message: 'denied~NL~::add-mask::secret~NL~::set-env name=X::y' }]);
+  assert.equal(r.code, 1);
+  const lines = r.out.split(/\r?\n/);
+  assert.ok(lines.some((l) => l.startsWith('::error::record-base-ref: not retryable')), r.out);
+  assert.ok(lines.every((l) => !/^::(add-mask|set-env)/.test(l)), `a gh line became a workflow command:\n${r.out}`);
+  assert.match(r.out, /denied ::add-mask::secret ::set-env/, 'the text survives, on one line');
 });
