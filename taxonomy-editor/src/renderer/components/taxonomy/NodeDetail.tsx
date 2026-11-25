@@ -26,6 +26,7 @@ import { PhrasesPanel } from '../policy/PhrasesPanel';
 import { FactsPanel, getFactCount, preloadFactsIndex } from '../analysis/FactsPanel';
 import type { SourceFact } from '../analysis/FactsPanel';
 import type { SourceDocumentResolution } from '../../bridge/types';
+import { SourceSignInPrompt } from '../shared/SourceSignInPrompt';
 import { ConflictsPanel, conflictsForNode } from '../conflict';
 import { NodeEditHistory } from './NodeEditHistory';
 import { PovTagEditor } from './PovTagEditor';
@@ -1266,7 +1267,7 @@ function highlightClaim(markdown: string, claim: string | undefined): string {
   }
 }
 
-function SourceDocumentViewer({ doc, claimText }: { doc: SourceDocumentResolution; claimText?: string }) {
+export function SourceDocumentViewer({ doc, claimText }: { doc: SourceDocumentResolution; claimText?: string }) {
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1275,6 +1276,8 @@ function SourceDocumentViewer({ doc, claimText }: { doc: SourceDocumentResolutio
       mark?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [doc, claimText]);
+
+  if (doc.signInRequired) return <SourceSignInPrompt />; // t/678: full text is sign-in only
 
   if (doc.type === 'pdf' && doc.path) {
     return (

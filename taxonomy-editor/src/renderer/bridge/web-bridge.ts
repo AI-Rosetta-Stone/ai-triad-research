@@ -22,7 +22,7 @@ import { runChatStream, chatStreamBus } from './chatStream';
 import { checkAnonymousSessionForModelSelection } from './anonymousSessionCheck';
 import { runOpEdCreate, cancelActiveOpEdRun, opedProgressBus } from './opedStream';
 import { readByokKeys, maskByokKey } from './byokKeys';
-import { pickBrowserDocument, extractDocumentText } from './webDocumentUpload'; // t/276
+import { pickBrowserDocument, extractDocumentText } from './webDocumentUpload'; import { snapshotOrSignIn } from './sourceAccess'; // t/276, t/678
 import { onQuotaMilestone } from '../hooks/useQuotaWarning'; import { shareChatRest, unshareChatRest } from './chatShare'; // t/4922
 export { getResilienceState, subscribeResilience, resetResilience } from './resilience';
 export type { ResilienceStatus, CircuitState, ThrottleState, EndpointCategory } from './resilience';
@@ -807,7 +807,7 @@ const rawApi: AppAPI = {
   // Summaries & Sources
   discoverSources: () => get('/api/sources'),
   loadSummary: (docId) => get(`/api/summaries/${encodeURIComponent(docId)}`).catch(bridgeWarn('loadSummary failed', null)),
-  loadSnapshot: (sourceId) => get(`/api/snapshots/${encodeURIComponent(sourceId)}`).then(r => r as { content: string } | null).catch(bridgeWarn('loadSnapshot failed', null)),
+  loadSnapshot: (sourceId) => snapshotOrSignIn(get(`/api/snapshots/${encodeURIComponent(sourceId)}`), bridgeWarn('loadSnapshot failed', null)), // t/678: sign-in refusal → prompt
   resolveSourceDocument: (docId) => get(`/api/source-documents/${encodeURIComponent(docId)}`).then(r => r as SourceDocumentResolution).catch(bridgeWarn('resolveSourceDocument failed', { available: false, type: null })),
 
   // Data management

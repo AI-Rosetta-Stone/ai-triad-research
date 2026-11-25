@@ -1,0 +1,24 @@
+/* t/678: sign-in prompt in place of a source's full text (PI decision 5e). */
+.source-signin-prompt {
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.source-signin-prompt-line {
+  margin: 0 0 0.75rem;
+  line-height: 1.5;
+}
+
+.source-signin-prompt-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.source-signin-prompt-link {
+  color: var(--link-color);
+  font-weight: 600;
+}
