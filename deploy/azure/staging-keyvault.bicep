@@ -17,16 +17,18 @@ targetScope = 'resourceGroup'
 
 @description('Staging Key Vault name (globally unique, 3-24 chars).')
 param vaultName string = 'kv-ait-stg-kvwl3nywge4iw'
-@description('The staging container app whose system-assigned identity gets Secrets Officer on this vault.')
-param stagingAppName string = 'taxonomy-editor-staging'
+// t/92: the principal is a PARAMETER, not reference(existing app).identity.principalId. What-if does not
+// evaluate that reference (run 45648410756 showed it unresolved), so the guard could not confirm the role
+// goes to staging and stopped. staging-keyvault.yml reads taxonomy-editor-staging's identity.principalId
+// live and passes it here AND to the guard, so the what-if shows the actual id and the guard compares it.
+@description('Object id of the staging container app\'s system-assigned identity (taxonomy-editor-staging). Passed by staging-keyvault.yml from a live read.')
+@minLength(36)
+@maxLength(36)
+param stagingPrincipalId string
 @description('Log Analytics workspace that receives the vault audit events (the same one the shared vault uses).')
 param logAnalyticsName string = 'log-aitriad-kvwl3nywge4iw'
 param location string = resourceGroup().location
 param tags object = {}
-
-resource stagingApp 'Microsoft.App/containerApps@2025-01-01' existing = {
-  name: stagingAppName
-}
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' existing = {
   name: logAnalyticsName
@@ -74,9 +76,9 @@ var kvSecretsOfficerRoleId = 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'
 
 resource stagingKvOfficer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: stagingKeyVault
-  name: guid(stagingKeyVault.id, stagingApp.id, kvSecretsOfficerRoleId)
+  name: guid(stagingKeyVault.id, stagingPrincipalId, kvSecretsOfficerRoleId)
   properties: {
-    principalId: stagingApp.identity.principalId
+    principalId: stagingPrincipalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', kvSecretsOfficerRoleId)
   }
