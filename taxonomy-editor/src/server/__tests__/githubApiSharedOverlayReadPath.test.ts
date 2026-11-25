@@ -14,8 +14,8 @@
  *
  * Own Azurite on a free port per run (azuriteFreePort.ts).
  *
- * LOCAL-ONLY FAILURE MODE (t/2281/t/3444): gated on
- * isUndiciMajorAlignedWithRuntime, same as the other githubApi* test files.
+ * LOCAL-ONLY FAILURE MODE (t/2281/t/3444): gated on skipForUndiciSkewOutsideCi, so it skips on a dev
+ * machine with undici skew and never in CI (t/687).
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
@@ -26,10 +26,11 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { BlobServiceClient } from '@azure/storage-blob';
-import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
+import { skipForUndiciSkewOutsideCi } from '../storage/undiciInvariant.js';
 import { SharedOverlayStore } from '../storage/sharedOverlayStore.js';
 
-const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
+// t/687 (SO p/269#24, TL t/503#26): skips on a dev machine with undici skew only; in CI it always runs.
+const SKIP_LOCAL_SKEW = skipForUndiciSkewOutsideCi();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AZURITE_MAIN = path.resolve(here, '../../../node_modules/azurite/dist/src/blob/main.js');
@@ -139,7 +140,7 @@ async function waitUntil<T>(fn: () => Promise<T>, predicate: (v: T) => boolean, 
   }
 }
 
-describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared overlay read-path + write-through', () => {
+describe.skipIf(SKIP_LOCAL_SKEW)('GitHubAPIBackend — t/4311 follow-up shared overlay read-path + write-through', () => {
   let prefix: string;
 
   beforeAll(async () => {
