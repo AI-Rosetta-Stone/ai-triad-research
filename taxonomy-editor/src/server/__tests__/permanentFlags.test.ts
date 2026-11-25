@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { getFlag, setFlag, getStaleFlags, _resetFlagCache, PERMANENT_FLAGS } from '../featureFlags.js';
+import { getFlag, setFlag, deleteFlag, getStaleFlags, _resetFlagCache, PERMANENT_FLAGS } from '../featureFlags.js';
 
 const FLAG = 'free-pool-budget-enforced';
 const PAST = '2026-01-01T00:00:00.000Z';
@@ -53,6 +53,12 @@ describe('t/494: free-pool-budget-enforced is permanent', () => {
     expect(() => setFlag(FLAG, { enabled: true, expires_at: '2027-01-02T00:00:00.000Z' })).toThrow(/permanent control/);
     const cleared = setFlag(FLAG, { enabled: true, expires_at: null });
     expect(cleared.expires_at).toBeNull();
+    expect(getFlag(FLAG)).toBe(true);
+  });
+
+  it('cannot be deleted (it would fall back to the seed, enabled: false), so it stays on', () => {
+    writeFlags({ [FLAG]: def(FLAG, {}) });
+    expect(() => deleteFlag(FLAG)).toThrow(/cannot be deleted/);
     expect(getFlag(FLAG)).toBe(true);
   });
 

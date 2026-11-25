@@ -440,6 +440,18 @@ export function setFlag(name: string, patch: Partial<FlagDef>, by = '_local'): F
 
 /** Delete a flag (admin). No-op if absent. Persists + appends audit. */
 export function deleteFlag(name: string, by = '_local'): boolean {
+  // t/494 (Security, #5413 review): deleting a permanent control would fall back to its seed (enabled: false) and turn
+  // it off as silently as an expiry. Refused; turn it off explicitly with enabled: false if that is ever wanted.
+  if (PERMANENT_FLAGS.has(name)) {
+    throw new ActionableError({
+      goal: `Delete flag ${name}`,
+      problem: `${name} is a permanent control and cannot be deleted (t/494)`,
+      location: 'featureFlags.deleteFlag',
+      nextSteps: ['Set enabled explicitly with PUT /api/admin/flags/<name> instead'],
+      httpStatus: 400,
+      code: 'FLAG_PERMANENT',
+    });
+  }
   // t/2644: existence is checked against FRESH state; absent → no-op (no write, no clobber).
   return rmwFlags<boolean>((fresh) => {
     const before = fresh.flags[name];

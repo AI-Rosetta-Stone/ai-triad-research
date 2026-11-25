@@ -206,6 +206,8 @@ export function registerAdminRoutes(r: Router, ctx: ServerCtx): void {
     if (!requireAdmin(res)) return;
     try {
       const name = param(req, 'name', '/api/admin/flags/:name');
+      // t/494: a permanent control cannot be deleted (it would fall back to its seed, enabled: false).
+      if (PERMANENT_FLAGS.has(name)) { error(res, `${name} is a permanent control and cannot be deleted`, 400); return; }
       json(res, { deleted: deleteFlag(name, getStorageUserId()) });
     } catch (err) {
       getGlobalRecorder()?.record({
