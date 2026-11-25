@@ -145,7 +145,9 @@ function neverGatingProblems(ci) {
   const m = text.match(/NOT in the needs above, so their result cannot hold a merge-queue batch back: ([a-z0-9, -]+)\. /);
   if (!m) return { listed: [], problems: ['ci-gate: the never-gating comment no longer carries its job list ("…batch back: a, b, c.")'] };
   const listed = m[1].split(',').map((x) => x.trim()).filter(Boolean);
-  const gateNeeds = ci.match(/ {2}ci-gate:\n {4}name: ci-gate\n {4}needs: \[([^\]]+)\]/)[1].split(',').map((x) => x.trim());
+  const g = ci.match(/ {2}ci-gate:\n {4}name: ci-gate\n {4}needs: \[([^\]]+)\]/);
+  if (!g) return { listed, problems: ['ci-gate: its header (name, then a one-line needs list) was not found, so the never-gating jobs cannot be checked against its needs'] };
+  const gateNeeds = g[1].split(',').map((x) => x.trim());
   for (const j of listed) {
     const cond = jobIf(ci, j);
     if (cond === null) { problems.push(`${j}: listed as never-gating but there is no such job in ci.yml`); continue; }
@@ -172,7 +174,18 @@ test('t/702: every never-gating job ci-gate lists skips on merge_group by the ex
 
 test('t/702 arms: a missing term, a missing job, a job in needs, an unlisted excluder and a lost list are each reported', () => {
   const term = "github.event_name != 'merge_group' && ";
-  // Arm 1: the pre-t/702 shape (the term removed from one folded if and from one single-line if).
+  // Arm 1b: the term removed from a single-line if.
+  const oneLine = "    if: always() && !cancelled() && github.event_name != 'merge_group' && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'";
+  const apr = CI.indexOf('\n  action-pin-resolution:\n');
+  const at = CI.indexOf(oneLine, apr);
+  assert.ok(apr >= 0 && at > apr, 'fixture: action-pin-resolution\'s single-line if was not found');
+  const noTermOneLine = CI.slice(0, at) + oneLine.replace(term, '') + CI.slice(at + oneLine.length);
+  assert.deepEqual(neverGatingProblems(noTermOneLine).problems.map((p) => p.split(':')[0]), ['action-pin-resolution']);
+  // Arm 6: ci-gate's header reshaped (a multi-line needs list): one problem line, no TypeError.
+  const reshaped = CI.replace('  ci-gate:\n    name: ci-gate\n    needs: [', '  ci-gate:\n    name: ci-gate\n    needs:\n      [');
+  assert.notEqual(reshaped, CI);
+  assert.deepEqual(neverGatingProblems(reshaped).problems.map((p) => p.split(':')[0]), ['ci-gate']);
+  // Arm 1: the pre-t/702 shape (the term removed from a folded if).
   const noTerm = CI.replace(`always() && !cancelled() &&\n      ${term}(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')`,
     "always() && !cancelled() &&\n      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')");
   assert.notEqual(noTerm, CI, 'fixture: dependency-audit\'s if was not found');
