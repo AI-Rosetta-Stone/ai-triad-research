@@ -45,6 +45,7 @@ export function blobBackendHealth(): { wired: boolean } {
   return { wired: areBlobBackendsWired() };
 }
 import { log } from '../logger.js';
+import { getChatReplyParseCounts } from './chatReplyParseCheck.js';
 import { LLMS_TXT } from '../llmsTxt.js';
 import { getLastEventLoopSample } from '../eventLoopMonitor.js';
 import { findUnreachableAllowlistEntries } from '../identityAllowlistCheck.js';
@@ -250,6 +251,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
         githubRateLimitRemaining, githubRateLimitResetsAt, githubRateLimitObservedAt, githubCircuitOpen, entityRegistryDegraded, organizationsRegistryDegraded,
         freePoolBudget: freePoolBudgetHealth(),
         blobBackend: blobBackendHealth(),
+        chatReplyParse: getChatReplyParseCounts(), // t/618: finished chat replies that failed to parse (counts only)
       });
       return;
     }
@@ -271,6 +273,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
       storage: {
         mode: STORAGE_MODE,
       },
+      chatReplyParse: getChatReplyParseCounts(), // t/618
     };
 
     base.ai = {
