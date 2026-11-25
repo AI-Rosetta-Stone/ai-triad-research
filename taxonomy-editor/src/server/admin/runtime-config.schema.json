@@ -58,7 +58,7 @@
           "description": "Free tier defaults (server-provided key).",
           "properties": {
             "requestsPerMinute": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Requests per minute. Default 6." },
-            "tokensPerDay": { "type": "integer", "minimum": 0, "maximum": 100000000, "description": "Tokens per day. Default 500000." },
+            "tokensPerDay": { "type": "integer", "minimum": 0, "maximum": 100000000, "description": "Tokens per day. Default 1500000 (t/494, PI 2026-11-25)." },
             "allowedBackends": { "$ref": "#/$defs/backends", "description": "Permitted AI backends. Default ['gemini']." },
             "pinnedModel": { "type": "string", "minLength": 1, "description": "Model the free tier is pinned to. Default 'gemini-flash-lite-latest'." }
           }
@@ -85,7 +85,12 @@
         "anonymousMaxSizeBytes": { "type": "integer", "minimum": 0, "maximum": 1073741824, "description": "Max bytes stored per anonymous session. Default 10485760 (10 MB)." },
         "tokenFreshnessThresholdMs": { "type": "integer", "minimum": 0, "maximum": 86400000, "description": "Age at which a cached token is refreshed (ms). Default 60000." },
         "lockAcquireTimeoutMs": { "type": "integer", "minimum": 0, "maximum": 86400000, "description": "Max wait to acquire a session-branch lock (ms). Default 10000." },
-        "lockHoldTtlMs": { "type": "integer", "minimum": 0, "maximum": 86400000, "description": "Auto-release TTL for a held session-branch lock (ms). Default 30000." }
+        "lockHoldTtlMs": { "type": "integer", "minimum": 0, "maximum": 86400000, "description": "Auto-release TTL for a held session-branch lock (ms). Default 30000." },
+        "anonOpEdRetentionMs": { "type": "integer", "minimum": 60000, "maximum": 86400000, "description": "t/500: an anonymous op-ed set is removed from the app this long after it was last opened (ms). Default 86400000 (24h)." },
+        "anonOpEdLiveSetLimit": { "type": "integer", "minimum": 0, "maximum": 100, "description": "t/500: live anonymous op-ed sets per visitor; the next create is refused 429 anon_oped_limit. Default 10." },
+        "anonOpEdByteCap": { "type": "integer", "minimum": 1024, "maximum": 10485760, "description": "t/500: per-set byte cap for a stored anonymous op-ed, checked at admission. Default 106496." },
+        "anonOpEdMaxVoices": { "type": "integer", "minimum": 1, "maximum": 3, "description": "t/500: anonymous admission bound, voices per run. Default 3." },
+        "anonOpEdMaxWords": { "type": "integer", "minimum": 100, "maximum": 1500, "description": "t/500: anonymous admission bound, words per voice. Default 1500." }
       }
     },
     "analytics": {

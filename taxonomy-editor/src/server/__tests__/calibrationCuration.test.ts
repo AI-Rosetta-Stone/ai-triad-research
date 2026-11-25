@@ -75,11 +75,12 @@ describe('admin calibration curation', () => {
     // Audit record written.
     const audit = await readCalibrationIntegrationLog();
     expect(audit).toHaveLength(1);
+    // t/638 (incident t/629): the public audit record keeps neither the admin (by) nor the user source.
+    expect(audit[0]).not.toHaveProperty('by');
     expect(audit[0]).toMatchObject({
       action: 'promote',
-      source: 'users/local',
+      source: 'users/*',
       entries: ['d-1', 'd-3'],
-      by: 'jpsnover',
       notes: 'looks good',
     });
     expect(audit[0].at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -135,7 +136,8 @@ describe('admin calibration curation', () => {
 
     const audit = await readCalibrationIntegrationLog();
     expect(audit).toHaveLength(1);
-    expect(audit[0]).toMatchObject({ action: 'reject', source: 'users/local', entries: ['d-2'], reason: 'noisy run' });
+    expect(audit[0]).toMatchObject({ action: 'reject', source: 'users/*', entries: ['d-2'], reason: 'noisy run' }); // t/638
+    expect(audit[0]).not.toHaveProperty('by');
 
     // No core log created, user log intact.
     expect(fs.existsSync(coreLogPath())).toBe(false);

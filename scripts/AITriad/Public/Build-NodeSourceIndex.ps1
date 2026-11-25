@@ -97,7 +97,7 @@ function Build-NodeSourceIndex {
     $ErrorActionPreference = 'Stop'
 
     $SchemaVersion = 1
-    $BuilderVersion = '1.2.0'   # bump on any output-shape/serialization change (NOT per run); 1.1.0: marksHash (t/4337); 1.2.0: duplicate-group evidence union, entries may carry via (t/4337, spec 7)
+    $BuilderVersion = '1.3.0'   # bump on any output-shape/serialization change (NOT per run); 1.1.0: marksHash (t/4337); 1.2.0: duplicate-group evidence union, entries may carry via (t/4337, spec 7); 1.3.0: listed legacy chunks fold into their base, entries may carry chunk_of, header carries chunksHash (t/355, spec 6.2)
 
     if (-not $SummariesDir) { $SummariesDir = Get-SummariesDir }
     if (-not $TaxonomyDir)  { $TaxonomyDir  = Get-TaxonomyDir }
@@ -141,8 +141,22 @@ function Build-NodeSourceIndex {
     # (source_id) with the copy's exact id in `via`. Stored source ids are never rewritten (6.4).
     $resolution = Get-SourceResolution -SourcesDir $SourcesDir
     $allFiles = @(Get-ChildItem -LiteralPath $SummariesDir -Filter '*.json' -File | Sort-Object Name)
-    $files = @(Select-SelectableSummaryFile -Files $allFiles -Resolution $resolution)
+    # Legacy chunks (spec 6.2, t/355): a summary the legacy-chunk manifest lists is part of its base. Its
+    # links join the base's group below and are written with `chunk_of` (or `via`, for a chunk of a copy).
+    # Get-EvidenceChunkBase refuses a listed chunk whose base exists neither as a summary nor as a source
+    # folder, and WARNs once for an unlisted id that only looks like a chunk; that one stays its own source.
+    $knownDocs = @{}
+    foreach ($f in $allFiles) { $knownDocs[$f.BaseName] = [pscustomobject]@{ HasSource = $false; Mark = $null } }
+    if ($SourcesDir -and (Test-Path -LiteralPath $SourcesDir -PathType Container)) {
+        foreach ($d in @(Get-ChildItem -LiteralPath $SourcesDir -Directory -Force | Where-Object { $_.Name -notmatch '^[._]' })) {
+            $knownDocs[$d.Name] = [pscustomobject]@{ HasSource = $true; Mark = $null }
+        }
+    }
+    $chunkManifest = Get-SourceResolutionChunk -Resolution $resolution
+    foreach ($f in $allFiles) { $null = Get-EvidenceChunkBase -Id $f.BaseName -Docs $knownDocs -Manifest $chunkManifest }
+    $files = @(Select-SelectableSummaryFile -Files $allFiles -Resolution $resolution -ExcludeChunks)
     $canonicals = [System.Collections.Generic.HashSet[string]]::new([string[]]@($resolution.Resolved.Values), [System.StringComparer]::Ordinal)
+    foreach ($chunkId in @($chunkManifest.Keys)) { [void]$canonicals.Add((Resolve-SourceId -Resolution $resolution -Id ([string]$chunkId))) }
     $canonicalLinks = @{}   # canonical id -> its own links, for the union
     $renamedCopies = [System.Collections.Generic.List[object]]::new()
     foreach ($file in $files) {
@@ -152,7 +166,8 @@ function Build-NodeSourceIndex {
         $sourceId = [string]$s.doc_id
         if (-not (Test-SourceSelectable -Resolution $resolution -Id $sourceId)) {
             # A copy whose summary file is named differently from its doc_id: union it like the rest.
-            $renamedCopies.Add([pscustomobject]@{ CopyId = $sourceId; CanonicalId = (Resolve-SourceId -Resolution $resolution -Id $sourceId); Summary = $s })
+            $role = Get-SourceGroupRole -Resolution $resolution -Id $sourceId
+            $renamedCopies.Add([pscustomobject]@{ CopyId = $sourceId; CanonicalId = $role.CanonicalId; Summary = $s; Kind = $role.Kind; Via = $role.Via })
             continue
         }
         $links = @(Get-NodeSourceIndexLink -Summary $s -SourceId $sourceId -Live $Live -ResolveMap $BeliefIds.ResolveMap)
@@ -161,38 +176,50 @@ function Build-NodeSourceIndex {
     }
 
     # ── Duplicate-group evidence union (spec 7.4) ─────────────────────────────────
-    $copies = @(Get-MarkedCopySummary -Files $allFiles -Resolution $resolution -Caller 'Build-NodeSourceIndex') + @($renamedCopies)
+    $copies = @(Get-MarkedCopySummary -Files $allFiles -Resolution $resolution -Caller 'Build-NodeSourceIndex' -IncludeChunks) + @($renamedCopies)
     $nUnion = 0
     foreach ($g in @($copies | Group-Object CanonicalId)) {
         $canonicalId = [string]$g.Name
         $members = [System.Collections.Generic.List[object]]::new()
         $own = if ($canonicalLinks.ContainsKey($canonicalId)) { $canonicalLinks[$canonicalId] } else { @() }
-        $members.Add(@{ Id = $canonicalId; Links = @($own) })
+        $members.Add([pscustomobject]@{ Id = $canonicalId; Links = @($own) })
+        # Group-Object keeps the input order, which Get-MarkedCopySummary put in spec 7.1 order: copies,
+        # then the canonical's chunks, then each copy's chunks. Merge-GroupEvidence keeps chunks in it.
         foreach ($c in $g.Group) {
-            $members.Add(@{ Id = $c.CopyId; Links = @(Get-NodeSourceIndexLink -Summary $c.Summary -SourceId $canonicalId -Live $Live -ResolveMap $BeliefIds.ResolveMap) })
+            $members.Add([pscustomobject]@{
+                    Id = $c.CopyId; Kind = $c.Kind; Via = $c.Via
+                    Links = @(Get-NodeSourceIndexLink -Summary $c.Summary -SourceId $canonicalId -Live $Live -ResolveMap $BeliefIds.ResolveMap)
+                })
         }
         $u = Merge-GroupEvidence -CanonicalId $canonicalId -Members $members.ToArray()
         foreach ($nid in $u.Keys) {
             foreach ($e in @($u[$nid])) {
-                if (-not $e.PSObject.Properties['via']) { continue }   # the canonical's own entries are already in
+                $hasVia = [bool]$e.PSObject.Properties['via']; $hasChunk = [bool]$e.PSObject.Properties['chunk_of']
+                if (-not $hasVia -and -not $hasChunk) { continue }   # the canonical's own entries are already in
                 $p = $e.payload
-                # `via` is provenance only: NO consumer branches on it. THE EXEMPTION LAPSES the moment
-                # a reader of source_index.json branches on it (spec 7.6).
-                $byNode[$nid].Add([pscustomobject]@{
+                # `via` and `chunk_of` are provenance only: NO consumer branches on them. THE EXEMPTION LAPSES
+                # the moment a reader of source_index.json branches on either (spec 7.6, 7.6a). An entry
+                # carries at most one of them.
+                $row = [ordered]@{
                     source_id = $p.source_id; link_source = $p.link_source; quote = $p.quote
                     doc_position = $p.doc_position; evidence_level = $p.evidence_level
-                    extraction_confidence = $p.extraction_confidence; via = [string]$e.via
-                })
+                    extraction_confidence = $p.extraction_confidence
+                }
+                if ($hasVia) { $row['via'] = [string]$e.via } else { $row['chunk_of'] = [string]$e.chunk_of }
+                $byNode[$nid].Add([pscustomobject]$row)
                 $nUnion++
             }
         }
     }
-    if ($nUnion -gt 0) { Write-Verbose "Build-NodeSourceIndex: $nUnion entr(ies) added from marked copies by the spec 7 evidence union." }
+    if ($nUnion -gt 0) { Write-Verbose "Build-NodeSourceIndex: $nUnion entr(ies) added from marked copies and legacy chunks by the spec 7 evidence union." }
 
     $inputHash = Get-SummariesInputHash -SummariesDir $SummariesDir
     # Separate from inputHash so the citation gate can still check summaries when no sources
     # checkout exists (-SkipSourceResolution); it compares marksHash only when sources resolve.
     $marksHash = Get-SourceMarksHash -Resolution $resolution
+    # The legacy-chunk manifest is a third input (t/355): a changed list changes the correct index without
+    # touching a summary or a mark, so the header carries its hash for the staleness check too.
+    $chunksHash = Get-SourceChunksHash -Resolution $resolution
 
     # ── Dedup + ordinal sort per node ───────────────────────────────────────────
     # Dedup key: source_id | quote | link_source | doc_position (SO cond 2 / CL #4).
@@ -225,7 +252,9 @@ function Build-NodeSourceIndex {
             } else {
                 $ix = $seen[$k]; $cur = $keep[$ix]
                 # Spec 7.4: the canonical wins ties. A union entry (via) never displaces one of its own.
-                if ($e.PSObject.Properties['via'] -and -not $cur.PSObject.Properties['via']) { continue }
+                $eUnion = $e.PSObject.Properties['via'] -or $e.PSObject.Properties['chunk_of']
+                $curUnion = $cur.PSObject.Properties['via'] -or $cur.PSObject.Properties['chunk_of']
+                if ($eUnion -and -not $curUnion) { continue }
                 $newC = if ($null -eq $e.extraction_confidence) { -1 } else { [double]$e.extraction_confidence }
                 $curC = if ($null -eq $cur.extraction_confidence) { -1 } else { [double]$cur.extraction_confidence }
                 if ($newC -gt $curC) { $keep[$ix] = $e }   # survivor = max extraction_confidence (carries its evidence_level)
@@ -246,6 +275,7 @@ function Build-NodeSourceIndex {
         builderVersion = $BuilderVersion
         inputHash     = $inputHash
         marksHash     = $marksHash
+        chunksHash    = $chunksHash
         totals        = [ordered]@{
             nodes   = $nodeIds.Count
             entries = $totalEntries

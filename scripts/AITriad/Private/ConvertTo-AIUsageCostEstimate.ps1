@@ -1,6 +1,105 @@
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
+function Get-AIUsageEntryProp {
+    # Behavior-preserving helper (t/refactor): read an optional note property
+    # off an entry, returning $Default when it is absent. Mirrors the inline
+    # `if ($E.PSObject.Properties['x']) { $E.x } else { $default }` idiom.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Entry,
+        [Parameter(Mandatory)][string]$Name,
+        $Default
+    )
+    Set-StrictMode -Version Latest
+    if ($Entry.PSObject.Properties[$Name]) { $Entry.$Name } else { $Default }
+}
+
+function Resolve-AIUsagePricingId {
+    # Behavior-preserving helper (t/refactor): resolve an entry's pricing key in
+    # the exact order the main function used -- modelId field first, then the
+    # nested (backend, apiModelId) map, honouring the ambiguity marker. Returns
+    # ResolvedId ($null when unresolved) and IsAmbiguous.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Entry,
+        [Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$ModelId,
+        [Parameter(Mandatory)][hashtable]$ApiModelIdMap
+    )
+    Set-StrictMode -Version Latest
+
+    $RecordModelId = Get-AIUsageEntryProp -Entry $Entry -Name 'modelId' -Default $null
+    if ($RecordModelId) {
+        return [PSCustomObject]@{ ResolvedId = $RecordModelId; IsAmbiguous = $false }
+    }
+
+    $EBackend = Get-AIUsageEntryProp -Entry $Entry -Name 'backend' -Default $null
+    if ($EBackend -and $ApiModelIdMap.ContainsKey($EBackend)) {
+        $BackendMap = $ApiModelIdMap[$EBackend]
+        if ($BackendMap.ContainsKey($ModelId)) {
+            $Candidate = $BackendMap[$ModelId]
+            if ($Candidate -eq $script:AmbiguousPricingKeyMarker) {
+                return [PSCustomObject]@{ ResolvedId = $null; IsAmbiguous = $true }
+            }
+            return [PSCustomObject]@{ ResolvedId = $Candidate; IsAmbiguous = $false }
+        }
+    }
+
+    return [PSCustomObject]@{ ResolvedId = $null; IsAmbiguous = $false }
+}
+
+function Write-AIUsageUnresolvedWarning {
+    # Behavior-preserving helper (t/refactor): emit the once-per-model
+    # unresolved WARN, choosing the ambiguous vs could-not-resolve wording
+    # exactly as the main function did (t/3951).
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Entry,
+        [Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$ModelId,
+        [Parameter(Mandatory)][bool]$IsAmbiguous
+    )
+    Set-StrictMode -Version Latest
+
+    if ($IsAmbiguous) {
+        Write-Warning "ConvertTo-AIUsageCostEstimate: '$ModelId' (backend: $($Entry.backend)) is ambiguous -- 2+ models share this (backend, apiModelId) pair at different prices; reporting as unresolved (estimatedCost=0, hasPricing=false), never a guessed match (t/3951)."
+    }
+    else {
+        $BackendLabel = Get-AIUsageEntryProp -Entry $Entry -Name 'backend' -Default '<none>'
+        Write-Warning "ConvertTo-AIUsageCostEstimate: '$ModelId' (backend: $BackendLabel) could not be resolved to a pricing key -- reporting as unresolved (estimatedCost=0, hasPricing=false), never a guessed match (t/3951)."
+    }
+}
+
+function Get-AIUsageEntryCost {
+    # Behavior-preserving helper (t/refactor): compute one entry's estimated
+    # cost from its resolved pricing, including the once-per-model full-input
+    # cache-rate fallback WARN (t/3947). Same arithmetic as the main loop.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$PriceInfo,
+        [Parameter(Mandatory)][AllowNull()][string]$ResolvedId,
+        [Parameter(Mandatory)][long]$InputTok,
+        [Parameter(Mandatory)][long]$OutputTok,
+        [Parameter(Mandatory)][long]$CachedTok,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]]$WarnedModels
+    )
+    Set-StrictMode -Version Latest
+
+    $InputRate  = if ($PriceInfo.PSObject.Properties['inputPer1M'])  { $PriceInfo.inputPer1M }  else { 0 }
+    $OutputRate = if ($PriceInfo.PSObject.Properties['outputPer1M']) { $PriceInfo.outputPer1M } else { 0 }
+    if ($PriceInfo.PSObject.Properties['cachedInputPer1M']) {
+        $CachedRate = $PriceInfo.cachedInputPer1M
+    }
+    else {
+        $CachedRate = $InputRate
+        if ($WarnedModels.Add($ResolvedId)) {
+            Write-Warning "ConvertTo-AIUsageCostEstimate: '$ResolvedId' has no cachedInputPer1M -- falling back to the full input rate ($InputRate/1M) for cached tokens, which may overstate cost (t/3947)."
+        }
+    }
+
+    $UncachedInput = [Math]::Max(0, $InputTok - $CachedTok)
+    ($UncachedInput * $InputRate / 1000000) + ($CachedTok * $CachedRate / 1000000) + ($OutputTok * $OutputRate / 1000000)
+}
+
 function ConvertTo-AIUsageCostEstimate {
     <#
     .SYNOPSIS
@@ -70,63 +169,27 @@ function ConvertTo-AIUsageCostEstimate {
     $UnresolvedWarned = [System.Collections.Generic.HashSet[string]]::new()
 
     foreach ($E in $Entries) {
-        $ModelId = if ($E.PSObject.Properties['model']) { $E.model } else { 'unknown' }
-        $InputTok  = if ($E.PSObject.Properties['promptTokens']) { [long]$E.promptTokens } else { 0 }
-        $OutputTok = if ($E.PSObject.Properties['completionTokens']) { [long]$E.completionTokens } else { 0 }
-        $CachedTok = if ($E.PSObject.Properties['cachedTokens']) { [long]$E.cachedTokens } else { 0 }
+        $ModelId = Get-AIUsageEntryProp -Entry $E -Name 'model' -Default 'unknown'
+        $InputTok  = [long](Get-AIUsageEntryProp -Entry $E -Name 'promptTokens' -Default 0)
+        $OutputTok = [long](Get-AIUsageEntryProp -Entry $E -Name 'completionTokens' -Default 0)
+        $CachedTok = [long](Get-AIUsageEntryProp -Entry $E -Name 'cachedTokens' -Default 0)
 
         $Cost = 0.0
         $PriceInfo = $null
-        $ResolvedId = $null
 
-        $RecordModelId = if ($E.PSObject.Properties['modelId']) { $E.modelId } else { $null }
-        $IsAmbiguous = $false
-        if ($RecordModelId) {
-            $ResolvedId = $RecordModelId
-        }
-        else {
-            $EBackend = if ($E.PSObject.Properties['backend']) { $E.backend } else { $null }
-            if ($EBackend -and $ApiModelIdMap.ContainsKey($EBackend)) {
-                $BackendMap = $ApiModelIdMap[$EBackend]
-                if ($BackendMap.ContainsKey($ModelId)) {
-                    $Candidate = $BackendMap[$ModelId]
-                    if ($Candidate -eq $script:AmbiguousPricingKeyMarker) {
-                        $IsAmbiguous = $true
-                    }
-                    else {
-                        $ResolvedId = $Candidate
-                    }
-                }
-            }
-        }
+        $Resolution = Resolve-AIUsagePricingId -Entry $E -ModelId $ModelId -ApiModelIdMap $ApiModelIdMap
+        $ResolvedId = $Resolution.ResolvedId
+        $IsAmbiguous = $Resolution.IsAmbiguous
 
         if ($ResolvedId -and $Pricing.ContainsKey($ResolvedId)) {
             $PriceInfo = $Pricing[$ResolvedId]
         }
         elseif ($UnresolvedWarned.Add($ModelId)) {
-            if ($IsAmbiguous) {
-                Write-Warning "ConvertTo-AIUsageCostEstimate: '$ModelId' (backend: $($E.backend)) is ambiguous -- 2+ models share this (backend, apiModelId) pair at different prices; reporting as unresolved (estimatedCost=0, hasPricing=false), never a guessed match (t/3951)."
-            }
-            else {
-                Write-Warning "ConvertTo-AIUsageCostEstimate: '$ModelId' (backend: $(if ($E.PSObject.Properties['backend']) { $E.backend } else { '<none>' })) could not be resolved to a pricing key -- reporting as unresolved (estimatedCost=0, hasPricing=false), never a guessed match (t/3951)."
-            }
+            Write-AIUsageUnresolvedWarning -Entry $E -ModelId $ModelId -IsAmbiguous $IsAmbiguous
         }
 
         if ($null -ne $PriceInfo) {
-            $InputRate  = if ($PriceInfo.PSObject.Properties['inputPer1M'])  { $PriceInfo.inputPer1M }  else { 0 }
-            $OutputRate = if ($PriceInfo.PSObject.Properties['outputPer1M']) { $PriceInfo.outputPer1M } else { 0 }
-            if ($PriceInfo.PSObject.Properties['cachedInputPer1M']) {
-                $CachedRate = $PriceInfo.cachedInputPer1M
-            }
-            else {
-                $CachedRate = $InputRate
-                if ($WarnedModels.Add($ResolvedId)) {
-                    Write-Warning "ConvertTo-AIUsageCostEstimate: '$ResolvedId' has no cachedInputPer1M -- falling back to the full input rate ($InputRate/1M) for cached tokens, which may overstate cost (t/3947)."
-                }
-            }
-
-            $UncachedInput = [Math]::Max(0, $InputTok - $CachedTok)
-            $Cost = ($UncachedInput * $InputRate / 1000000) + ($CachedTok * $CachedRate / 1000000) + ($OutputTok * $OutputRate / 1000000)
+            $Cost = Get-AIUsageEntryCost -PriceInfo $PriceInfo -ResolvedId $ResolvedId -InputTok $InputTok -OutputTok $OutputTok -CachedTok $CachedTok -WarnedModels $WarnedModels
         }
 
         $E | Add-Member -NotePropertyName 'estimatedCost' -NotePropertyValue $Cost -Force

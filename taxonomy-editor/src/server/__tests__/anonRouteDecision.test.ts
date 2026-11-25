@@ -12,8 +12,8 @@ const OFF = false;
 const decide = (method: string, path: string, freeTier: boolean) => anonRouteDecision(method, path, freeTier, isAnonAllowedRoute);
 
 describe('anonymous op-ed creation (t/475, condition 1 & acceptance)', () => {
-  it('anonymous POST /api/oped-sets is refused with the free tier on (t/501 incident containment: the op-ed gate is closed)', () => {
-    expect(decide('POST', '/api/oped-sets', ON)).toBe(false);
+  it('anonymous POST /api/oped-sets passes the gate with the free tier on (refused on main before this change)', () => {
+    expect(decide('POST', '/api/oped-sets', ON)).toBe(true);
   });
 
   it('with the free tier OFF the same request is still refused, so params.model can never be honoured on this route', () => {
@@ -44,10 +44,9 @@ describe('anonymous op-ed creation (t/475, condition 1 & acceptance)', () => {
   });
 
   it('the op-ed path is listed only on the free-tier POST allowlist', () => {
-    // t/501 incident containment: the op-ed path is removed from the free-tier list until the fix lands.
-    expect(FREE_TIER_AI_POST_PATHS).not.toContain('/api/oped-sets');
+    expect(FREE_TIER_AI_POST_PATHS).toContain('/api/oped-sets');
     expect(isFreeTierAiPath('GET', '/api/oped-sets')).toBe(false);
-    expect(isFreeTierAiPath('POST', '/api/oped-sets')).toBe(false);
+    expect(isFreeTierAiPath('POST', '/api/oped-sets')).toBe(true);
   });
 });
 
@@ -72,7 +71,7 @@ describe('other routes are unchanged (condition 2: table over the current lists)
     }
   });
 
-  it('with the free tier on, no route is newly allowed (op-ed create closed, t/501)', () => {
+  it('with the free tier on, the only new allowance is the op-ed create route', () => {
     const routes: Array<[string, string]> = [
       ['POST', '/api/ai/generate'], ['POST', '/api/ai/chat-stream'], ['POST', '/api/flight-recorder/dump'],
       ['GET', '/api/oped-runs/x'], ['PUT', '/api/oped-sets/x'], ['DELETE', '/api/oped-sets/x'],
@@ -81,9 +80,9 @@ describe('other routes are unchanged (condition 2: table over the current lists)
     for (const [m, p] of routes) {
       const after = decide(m, p, ON);
       if (p === '/api/oped-sets' && m === 'POST') {
-        // t/501 containment: the op-ed create is refused, free tier on or off.
+        // Before this change the free-tier list lacked the path, so only the anonymous allowlist could allow it.
         expect(isAnonAllowedRoute(m, p)).toBe(false);
-        expect(after).toBe(false);
+        expect(after).toBe(true); // the one change
       } else {
         const before = (isFreeTierAiPath(m, p) || isAnonAllowedRoute(m, p));
         expect(after).toBe(before);

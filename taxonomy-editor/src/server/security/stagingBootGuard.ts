@@ -30,16 +30,97 @@ const PROD_DATA_REPO = 'AI-Rosetta-Stone/ai-triad-data';
 /** The session branch prefix the prod container uses. Staging must not use it. */
 const DEFAULT_SESSION_BRANCH_PREFIX = 'api-session';
 
+/**
+ * t/540: Container Apps platform variables other than CONTAINER_APP_NAME. If any is set, this
+ * process is a hosted container, so its name must be set too: an empty name would otherwise read
+ * as "not staging" and skip every staging check. Local and dev runs set none of them.
+ */
+const HOSTED_PLATFORM_VARS = ['CONTAINER_APP_REVISION', 'CONTAINER_APP_HOSTNAME', 'CONTAINER_APP_ENV_DNS_SUFFIX'] as const;
+
 /** The branch whose writes reach prod data. Staging must never write to it. */
 const PROD_BRANCH = 'main';
+
+/** t/92, t/626: the shared Key Vault holds prod's secrets (the prod data App's private key, per-user API keys).
+ *  Staging must never read it. Staging's own vault is the only one it may use. Hosts, lower-cased. */
+const SHARED_KEYVAULT_HOST = 'kv-ait-kvwl3nywge4iw.vault.azure.net';
+const STAGING_KEYVAULT_HOST = 'kv-ait-stg-kvwl3nywge4iw.vault.azure.net';
+
+/** The host of a Key Vault URL, lower-cased, without scheme, port, path or trailing dot; '' when unparseable. */
+function keyVaultHost(url: string): string {
+  const raw = url.trim();
+  if (!raw) return '';
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase().replace(/\.$/, '');
+  } catch (err) {
+    // An unparseable value is refused by the caller (fail closed); log the parse failure, never the value.
+    log.security.warn({ err: (err as Error).name }, 'Staging boot guard: AZURE_KEYVAULT_URL is not a parseable URL');
+    return '';
+  }
+}
+
+/**
+ * t/92 (SO condition p/44#99), t/626: a staging container must use the staging-only Key Vault. Refuses boot when
+ * AZURE_KEYVAULT_URL is unset (staging would fall back to a file key store) or names any host but the staging vault,
+ * in particular the shared vault holding prod's secrets. Bicep pins the value too (@allowed); this is the runtime check.
+ */
+function assertStagingKeyVault(): void {
+  const url = process.env.AZURE_KEYVAULT_URL ?? '';
+  const host = keyVaultHost(url);
+  if (host === STAGING_KEYVAULT_HOST) return;
+  const details = { containerAppName: process.env.CONTAINER_APP_NAME, keyVaultHost: host || '(unset or unparseable)' };
+  guardError(
+    'Keep staging out of the shared Key Vault that holds prod secrets',
+    host === SHARED_KEYVAULT_HOST
+      ? `Staging container points AZURE_KEYVAULT_URL at the shared vault (${SHARED_KEYVAULT_HOST}), which holds prod's secrets.`
+      : `Staging container's AZURE_KEYVAULT_URL is ${host ? `"${host}"` : 'unset or unparseable'}, not the staging vault ${STAGING_KEYVAULT_HOST}.`,
+    [
+      `Set AZURE_KEYVAULT_URL to https://${STAGING_KEYVAULT_HOST}/ on the staging container (main.bicep pins it).`,
+      'Check that the staging vault exists and holds the staging App key before deploying (t/92).',
+    ],
+    'staging Key Vault is not the staging-only vault',
+    details
+  );
+}
+
+/** The container name, trimmed; '' when unset or blank. */
+function containerAppName(): string {
+  return (process.env.CONTAINER_APP_NAME ?? '').trim();
+}
 
 /**
  * True when the platform says this container is staging. The Container App
  * name ends in "-staging" (for example "taxonomy-editor-staging").
  */
 function isStagingContainer(): boolean {
-  const name = process.env.CONTAINER_APP_NAME;
-  return Boolean(name) && /-staging$/.test(name as string);
+  return /-staging$/.test(containerAppName());
+}
+
+/**
+ * t/540: session-branch prefixes are compared as sessionBranchManager uses them, with exactly one
+ * trailing slash ('api-session' and 'api-session/' are the same namespace).
+ */
+function normalizeBranchPrefix(prefix: string): string {
+  return `${prefix.trim().replace(/\/+$/, '')}/`;
+}
+
+/**
+ * t/540: fail closed when a hosted container has no CONTAINER_APP_NAME. Without the name the
+ * staging decision cannot be made, so boot is refused instead of read as "not staging".
+ */
+function assertHostedContainerHasName(): void {
+  if (containerAppName()) return;
+  const hostedBy = HOSTED_PLATFORM_VARS.filter((v) => (process.env[v] ?? '').trim() !== '');
+  if (hostedBy.length === 0) return; // local or dev: no platform variables, nothing to decide
+  guardError(
+    'Decide whether this hosted container is staging before it boots',
+    `CONTAINER_APP_NAME is unset or blank, but the Container Apps platform variables ${hostedBy.join(', ')} are set, so the staging checks cannot run.`,
+    [
+      'Check the container app: the platform sets CONTAINER_APP_NAME on every Container Apps revision.',
+      'Look for a template or override that blanks it (t/4794).',
+    ],
+    'hosted container without CONTAINER_APP_NAME',
+    { containerAppName: process.env.CONTAINER_APP_NAME, hostedBy: hostedBy.join(',') }
+  );
 }
 
 function recordGuardFailure(
@@ -82,6 +163,7 @@ function guardError(
  * the container is staging and anything is missing or wrong.
  */
 export function validateStagingBootGuard(): void {
+  assertHostedContainerHasName();
   const appId = process.env.GITHUB_APP_ID;
   const repo = process.env.GITHUB_REPO;
   const stagingAppId = process.env.STAGING_APP_ID;
@@ -171,6 +253,8 @@ export function validateStagingBootGuard(): void {
     );
   }
 
+  assertStagingKeyVault();
+
   log.auth.info(details, 'Staging boot guard: staging identity verified ✓');
 }
 
@@ -181,6 +265,7 @@ export function validateStagingBootGuard(): void {
  * unset or default. Does nothing on non-staging containers.
  */
 export function validateStagingBranchPrefix(): void {
+  assertHostedContainerHasName();
   if (!isStagingContainer()) return;
 
   const branchPrefix = process.env.SESSION_BRANCH_PREFIX;
@@ -190,10 +275,15 @@ export function validateStagingBranchPrefix(): void {
     defaultPrefix: DEFAULT_SESSION_BRANCH_PREFIX,
   };
 
-  if (!branchPrefix || branchPrefix === DEFAULT_SESSION_BRANCH_PREFIX) {
+  // t/540: compare with one trailing slash, as sessionBranchManager builds branch names, and refuse
+  // a prefix nested inside the prod namespace too ('api-session/staging/' is still under prod's
+  // 'api-session/', so prod would read those branches as its own sessions).
+  const prodNamespace = normalizeBranchPrefix(DEFAULT_SESSION_BRANCH_PREFIX);
+  const blank = !branchPrefix || branchPrefix.trim().replace(/\/+$/, '') === '';
+  if (blank || normalizeBranchPrefix(branchPrefix).startsWith(prodNamespace)) {
     guardError(
       'Prevent staging from defaulting to prod session branch prefix',
-      `Staging container has default SESSION_BRANCH_PREFIX "${branchPrefix || '(unset)'}", which would send staging sessions into the prod branch namespace.`,
+      `Staging container has default SESSION_BRANCH_PREFIX "${branchPrefix || '(unset)'}" (or one inside the prod "${prodNamespace}" namespace), which would send staging sessions into the prod branch namespace.`,
       [
         'Set SESSION_BRANCH_PREFIX to a non-default value (for example "staging-session").',
         `Default value: ${DEFAULT_SESSION_BRANCH_PREFIX}`,

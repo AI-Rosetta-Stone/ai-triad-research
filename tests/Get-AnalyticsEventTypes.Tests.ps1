@@ -45,7 +45,7 @@ Describe 'Get-AnalyticsEventTypes' -Tag 'health' {
                 })
             }
 
-            $rows = @(Get-AnalyticsEventTypes 6>$null)
+            $rows = @(Get-AnalyticsEventTypes -AuthHeaders @{ Cookie = 'admin' } 6>$null)
 
             $rows.Count | Should -Be 2
             $rows[0].EventType | Should -Be 'tab.switch'
@@ -54,7 +54,7 @@ Describe 'Get-AnalyticsEventTypes' -Tag 'health' {
         }
     }
 
-    It 'Threads an anon session and the from/to window into the query' {
+    It 'Sends the administrator headers and the from/to window, and opens no anonymous session (t/579)' {
         InModuleScope AITriad {
             Mock Invoke-RemoteCheck -MockWith {
                 New-RCResult $true 200 ([PSCustomObject]@{
@@ -63,12 +63,31 @@ Describe 'Get-AnalyticsEventTypes' -Tag 'health' {
                 })
             }
 
-            Get-AnalyticsEventTypes -Days 14 6>$null | Out-Null
+            Get-AnalyticsEventTypes -Days 14 -AuthHeaders @{ Cookie = 'admin' } 6>$null | Out-Null
 
-            Should -Invoke New-AnonymousWebSession -Times 1 -Exactly
+            Should -Invoke New-AnonymousWebSession -Times 0 -Exactly -Because 'the route is administrator-only since t/579; no anonymous session is opened'
             Should -Invoke Invoke-RemoteCheck -Times 1 -Exactly -ParameterFilter {
-                $Path -like '/api/analytics/query?from=*&to=*' -and $null -ne $Session
+                $Path -like '/api/analytics/query?from=*&to=*' -and $ExtraHeaders['Cookie'] -eq 'admin' -and $null -eq $Session
             }
+        }
+    }
+
+    It 'Refuses, with no request made, when no administrator headers are given (t/579)' {
+        InModuleScope AITriad {
+            Mock Invoke-RemoteCheck -MockWith { throw 'must not be called' }
+            { Get-AnalyticsEventTypes 6>$null } | Should -Throw -ExpectedMessage '*administrator-only*'
+            Should -Invoke Invoke-RemoteCheck -Times 0 -Exactly
+            Should -Invoke New-AnonymousWebSession -Times 0 -Exactly
+        }
+    }
+
+    It 'A 403 says the headers are not an administrator session, and nowhere says the route is anon-allowed' {
+        InModuleScope AITriad {
+            Mock Invoke-RemoteCheck -MockWith { New-RCResult $false 403 $null }
+            $Err = $null
+            try { Get-AnalyticsEventTypes -AuthHeaders @{ Cookie = 'not-admin' } 6>$null } catch { $Err = $_ }
+            "$Err" | Should -Match "not an administrator's session"
+            "$Err" | Should -Not -Match 'anon-allowed'
         }
     }
 
@@ -81,7 +100,7 @@ Describe 'Get-AnalyticsEventTypes' -Tag 'health' {
                 })
             }
 
-            $rows = @(Get-AnalyticsEventTypes 6>$null)
+            $rows = @(Get-AnalyticsEventTypes -AuthHeaders @{ Cookie = 'admin' } 6>$null)
             $rows.Count | Should -Be 0
         }
     }
@@ -89,14 +108,14 @@ Describe 'Get-AnalyticsEventTypes' -Tag 'health' {
     It 'Failed query → throws ActionableError' {
         InModuleScope AITriad {
             Mock Invoke-RemoteCheck -MockWith { New-RCResult $false 502 $null }
-            { Get-AnalyticsEventTypes 6>$null } | Should -Throw
+            { Get-AnalyticsEventTypes -AuthHeaders @{ Cookie = 'admin' } 6>$null } | Should -Throw
         }
     }
 
     It 'Auth interstitial (200, no eventTypes) → throws ActionableError' {
         InModuleScope AITriad {
             Mock Invoke-RemoteCheck -MockWith { New-RCResult $true 200 ([PSCustomObject]@{ note = 'sign-in' }) }
-            { Get-AnalyticsEventTypes 6>$null } | Should -Throw
+            { Get-AnalyticsEventTypes -AuthHeaders @{ Cookie = 'admin' } 6>$null } | Should -Throw
         }
     }
 

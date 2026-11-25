@@ -2,9 +2,8 @@
 
 /**
  * t/4311 — SharedOverlayStore (the "(c2)" shared-overlay design, store module
- * only — not wired into githubAPIBackend.ts yet). Azurite-backed, own port
- * (10006) distinct from freePoolBudget.test.ts's 10003 and
- * freePoolBudgetKeyAdmission.test.ts's 10005.
+ * only — not wired into githubAPIBackend.ts yet). Azurite-backed, on a free
+ * port per run (azuriteFreePort.ts).
  *
  * Covers the SO's re-confirmation scope for this PR (e/332#8): the overlay
  * store module's stage/unstage/_gen primitives, D1 (unconditional _gen
@@ -14,6 +13,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { freeAzuritePort } from './azuriteFreePort.js';
 import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -25,7 +25,8 @@ import { SharedOverlayStore, encodePathKey, decodePathKey } from '../storage/sha
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AZURITE_MAIN = path.resolve(here, '../../../node_modules/azurite/dist/src/blob/main.js');
-const PORT = 10006;
+// t/503 (Quality p/58#75): its own emulator per run; the fixed port 10006 let overlapping runs share one.
+const PORT = await freeAzuritePort();
 const CONN = `DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:${PORT}/devstoreaccount1;`;
 const ACCOUNT_URL = `http://127.0.0.1:${PORT}/devstoreaccount1`;
 
@@ -485,11 +486,16 @@ describe('SharedOverlayStore (Azurite, t/4311 store-module PR)', () => {
   // to exercise this path (same pattern as freePoolBudget.test.ts's AC5).
   // No test after this needs Azurite; afterAll's proc.kill() is a safe
   // no-op on an already-dead process.
+  // t/583: the store client under test gets one try with a short timeout. With the SDK's default retry
+  // policy (4 tries, exponential backoff from 4 s) the run time depended on that backoff and reached the
+  // old 20 s test timeout on a slow CI runner. The property under test is "fails closed", not "after how long".
   it('stage on an unreachable store fails closed (storage_unavailable), never throws', async () => {
     proc.kill();
-    const prefix = `_test-${++counter}`;
-    const store = makeStore(container, prefix);
+    const fastFail = BlobServiceClient.fromConnectionString(CONN, { retryOptions: { maxTries: 1, tryTimeoutInMs: 2_000 } });
+    const store = new SharedOverlayStore({ accountUrl: ACCOUNT_URL, container, blobPrefix: `_test-${++counter}`, serviceClient: fastFail });
+    const started = Date.now();
     const result = await store.stage('alice', 'taxonomy/foo.json', withId({ content: 'x', baseSha: 'unknown', stagedAt: new Date().toISOString() }), LW);
     expect(result).toEqual({ ok: false, reason: 'storage_unavailable' });
-  }, 20000);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  }, 10_000);
 });

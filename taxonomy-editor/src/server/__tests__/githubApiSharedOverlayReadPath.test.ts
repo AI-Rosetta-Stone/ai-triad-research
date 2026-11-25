@@ -12,14 +12,14 @@
  * ships) so this PR's wiring can be exercised before that flag ever flips
  * for real.
  *
- * Own Azurite port (10007), distinct from every other githubApi- or
- * sharedOverlayStore-prefixed test file's port.
+ * Own Azurite on a free port per run (azuriteFreePort.ts).
  *
  * LOCAL-ONLY FAILURE MODE (t/2281/t/3444): gated on
  * isUndiciMajorAlignedWithRuntime, same as the other githubApi* test files.
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { freeAzuritePort } from './azuriteFreePort.js';
 import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -33,7 +33,8 @@ const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AZURITE_MAIN = path.resolve(here, '../../../node_modules/azurite/dist/src/blob/main.js');
-const PORT = 10007;
+// t/503 (Quality p/58#75): its own emulator per run; the fixed port 10007 let overlapping runs share one.
+const PORT = await freeAzuritePort();
 const CONN = `DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:${PORT}/devstoreaccount1;`;
 const ACCOUNT_URL = `http://127.0.0.1:${PORT}/devstoreaccount1`;
 const CONTAINER = 'user-content';
@@ -168,11 +169,11 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     replicaA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     replicaB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    replicaA.writeToOverlay('/taxonomy/foo.json', 'from A');
+    await replicaA.writeFile('/conflicts/foo.json', 'from A');
 
-    await waitUntil(() => replicaB.readFile('/taxonomy/foo.json'), v => v === 'from A');
-    expect(await replicaB.fileExists('/taxonomy/foo.json')).toBe(true);
-    const listing = await waitUntil(() => replicaB.listDirectory('/taxonomy'), v => v.includes('foo.json'));
+    await waitUntil(() => replicaB.readFile('/conflicts/foo.json'), v => v === 'from A');
+    expect(await replicaB.fileExists('/conflicts/foo.json')).toBe(true);
+    const listing = await waitUntil(() => replicaB.listDirectory('/conflicts'), v => v.includes('foo.json'));
     expect(listing).toContain('foo.json');
   });
 
@@ -186,11 +187,11 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     replicaA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     replicaB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    replicaA.writeToOverlay('/taxonomy/shared.json', 'X (from A)');
-    await waitUntil(() => replicaB.readFile('/taxonomy/shared.json'), v => v === 'X (from A)');
+    await replicaA.writeFile('/conflicts/shared.json', 'X (from A)');
+    await waitUntil(() => replicaB.readFile('/conflicts/shared.json'), v => v === 'X (from A)');
 
-    replicaB.writeToOverlay('/taxonomy/shared.json', 'Y (from B)');
-    const seenOnA = await waitUntil(() => replicaA.readFile('/taxonomy/shared.json'), v => v !== 'X (from A)');
+    await replicaB.writeFile('/conflicts/shared.json', 'Y (from B)');
+    const seenOnA = await waitUntil(() => replicaA.readFile('/conflicts/shared.json'), v => v !== 'X (from A)');
     expect(seenOnA).toBe('Y (from B)');
   });
 
@@ -202,28 +203,23 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     replicaA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     replicaB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    replicaA.writeToOverlay('/taxonomy/gone.json', 'will be deleted');
-    await waitUntil(() => replicaB.fileExists('/taxonomy/gone.json'), v => v === true);
+    await replicaA.writeFile('/conflicts/gone.json', 'will be deleted');
+    await waitUntil(() => replicaB.fileExists('/conflicts/gone.json'), v => v === true);
 
-    await replicaA.deleteFromOverlay('/taxonomy/gone.json', 'api-session/alice');
-    await waitUntil(() => replicaB.fileExists('/taxonomy/gone.json'), v => v === false);
-    expect(await replicaB.readFile('/taxonomy/gone.json')).toBeNull();
+    await replicaA.deleteFromOverlay('/conflicts/gone.json', 'api-session/alice');
+    await waitUntil(() => replicaB.fileExists('/conflicts/gone.json'), v => v === false);
+    expect(await replicaB.readFile('/conflicts/gone.json')).toBeNull();
   });
 
-  // Caught during implementation (t/4311#29/#31's posted design didn't call
-  // this out): writeThroughSharedOverlay is fire-and-forget, so a replica's
-  // read-your-own-write must not depend on that round trip completing.
-  it('a replica reads back its own just-written content immediately, with no await on the write-through', async () => {
+  // t/503 option 2: the save is acknowledged once staged, so the read-back comes from the store, never a local fallback
+  // (the fire-and-forget write-through that needed one is gone).
+  it('a replica reads back its own just-acknowledged save', async () => {
     const store = makeStore(prefix);
     const replica = await createReplica(store);
     replica.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    replica.writeToOverlay('/taxonomy/own-write.json', 'written just now');
-    // No await between the write above and the read below beyond what
-    // readFile itself performs — if the shared store were trusted blindly
-    // (no per-path local fallback), this would race the _gen bump network
-    // call and could return null.
-    expect(await replica.readFile('/taxonomy/own-write.json')).toBe('written just now');
+    await replica.writeFile('/conflicts/own-write.json', 'written just now');
+    expect(await replica.readFile('/conflicts/own-write.json')).toBe('written just now');
   });
 
   // t/549 (SO t/503#10): a stage whose `_gen` bump failed is still acknowledged, so a reader must not trust an
@@ -234,28 +230,38 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     const replicaB = await createReplica(makeStore(prefix));
     replicaB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    await storeA.stage('alice', 'taxonomy/seed.json', { content: 'seed', baseSha: null, stagedAt: new Date().toISOString(), stageId: 'seed-1' }, { absent: true });
-    expect(await replicaB.readFile('/taxonomy/seed.json')).toBe('seed'); // B has listed at this generation
+    await storeA.stage('alice', 'conflicts/seed.json', { content: 'seed', baseSha: null, stagedAt: new Date().toISOString(), stageId: 'seed-1' }, { absent: true });
+    expect(await replicaB.readFile('/conflicts/seed.json')).toBe('seed'); // B has listed at this generation
 
     const ctor = Object.getPrototypeOf(service.getContainerClient(CONTAINER).getBlockBlobClient('x')).constructor;
     const realUpload = ctor.prototype.upload;
     const spy = vi.spyOn(ctor.prototype, 'upload').mockImplementation(function (this: { name: string }, ...args: unknown[]) {
       return this.name.endsWith('/_gen') ? Promise.reject(new Error('simulated _gen bump failure')) : realUpload.apply(this, args);
     });
-    const r = await storeA.stage('alice', 'taxonomy/late.json', { content: 'late', baseSha: null, stagedAt: new Date().toISOString(), stageId: 'late-1' }, { absent: true });
+    const r = await storeA.stage('alice', 'conflicts/late.json', { content: 'late', baseSha: null, stagedAt: new Date().toISOString(), stageId: 'late-1' }, { absent: true });
     spy.mockRestore();
     expect(r).toMatchObject({ ok: true, genBumped: false });
 
     // Same generation and a fresh listing: B still serves its cached listing.
-    expect(await replicaB.fileExists('/taxonomy/late.json')).toBe(false);
+    expect(await replicaB.fileExists('/conflicts/late.json')).toBe(false);
 
     const realNow = Date.now.bind(Date);
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + SHARED_OVERLAY_RELIST_MS + 1_000);
     try {
-      expect(await replicaB.readFile('/taxonomy/late.json')).toBe('late');
+      expect(await replicaB.readFile('/conflicts/late.json')).toBe('late');
     } finally {
       nowSpy.mockRestore();
     }
+  });
+
+  // SO t/503#21: with shared state active, a local-only overlay write would never be seen or committed, so it is refused.
+  it('writeToOverlay is refused while shared state is active; nothing is staged or served', async () => {
+    const store = makeStore(prefix);
+    const replica = await createReplica(store);
+    replica.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    expect(() => replica.writeToOverlay('/conflicts/local-only.json', 'never saved')).toThrow(expect.objectContaining({ code: 'OVERLAY_LOCAL_WRITE_REFUSED' }));
+    expect(await store.listEntries('alice')).toEqual([]);
+    expect(await replica.readFile('/conflicts/local-only.json')).toBeNull();
   });
 
   it('two different users\' overlays never leak into each other via the shared store', async () => {
@@ -265,9 +271,9 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     replicaA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     replicaB.setSessionContext({ userId: 'bob', branchName: 'api-session/bob' });
 
-    replicaA.writeToOverlay('/taxonomy/alice-only.json', 'alice content');
-    await waitUntil(() => replicaA.readFile('/taxonomy/alice-only.json'), v => v === 'alice content');
+    await replicaA.writeFile('/conflicts/alice-only.json', 'alice content');
+    await waitUntil(() => replicaA.readFile('/conflicts/alice-only.json'), v => v === 'alice content');
 
-    expect(await replicaB.fileExists('/taxonomy/alice-only.json')).toBe(false);
+    expect(await replicaB.fileExists('/conflicts/alice-only.json')).toBe(false);
   });
 });

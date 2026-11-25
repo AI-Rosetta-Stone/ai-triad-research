@@ -179,8 +179,8 @@ function handleDefaultGithubApi(url: string, method: string, body?: unknown): Re
       sha: TREE_SHA,
       truncated: false,
       tree: [
-        { path: 'taxonomy/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 },
-        { path: 'taxonomy/edges.json', mode: '100644', type: 'blob', sha: 'blob2', size: 50 },
+        { path: 'conflicts/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 },
+        { path: 'conflicts/edges.json', mode: '100644', type: 'blob', sha: 'blob2', size: 50 },
         { path: 'sources/index.json', mode: '100644', type: 'blob', sha: 'blob3', size: 200 },
       ],
     });
@@ -242,7 +242,7 @@ function handleDefaultGithubApi(url: string, method: string, body?: unknown): Re
       behind_by: 1,
       status: 'ahead',
       files: [
-        { filename: 'taxonomy/nodes.json', status: 'modified', patch: '@@ -1 +1 @@' },
+        { filename: 'conflicts/nodes.json', status: 'modified', patch: '@@ -1 +1 @@' },
       ],
       total_commits: 3,
     });
@@ -330,7 +330,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — integration', () => {
     const backend = await createBackend();
 
     // fetchFileFromGitHub is called internally; it uses Contents API
-    const content = await backend.readFile('/taxonomy/nodes.json');
+    const content = await backend.readFile('/conflicts/nodes.json');
     // Our mock returns base64-encoded '{"test": true}'
     expect(content).toBe('{"test": true}');
 
@@ -353,11 +353,11 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — integration', () => {
     );
 
     readSpy.mockResolvedValueOnce(null); // miss
-    await backend.readFile('/taxonomy/nodes.json');
+    await backend.readFile('/conflicts/nodes.json');
     expect(backend.getColdCacheMissCount()).toBe(1);
 
     readSpy.mockResolvedValueOnce('{"cached": true}'); // hit
-    await backend.readFile('/taxonomy/nodes.json');
+    await backend.readFile('/conflicts/nodes.json');
     expect(backend.getColdCacheMissCount()).toBe(1);
 
     readSpy.mockResolvedValueOnce(null); // another miss
@@ -371,11 +371,11 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — integration', () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    await backend.writeFile('/taxonomy/nodes.json', '{"updated": true}');
+    await backend.writeFile('/conflicts/nodes.json', '{"updated": true}');
 
     // Session overlay should contain the written content
     const overlay = backend.getSessionOverlay('alice');
-    expect(overlay?.get('taxonomy/nodes.json')).toBe('{"updated": true}');
+    expect(overlay?.get('conflicts/nodes.json')).toBe('{"updated": true}');
 
     // No PUT call to Contents API — overlay-only write
     const putCall = fetchCalls.find(c => c.method === 'PUT' && c.url.includes('/contents/'));
@@ -389,7 +389,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — integration', () => {
     // Session context with no branch name → reads from main, writes blocked
     backend.setSessionContext({ userId: 'alice' });
 
-    await expect(backend.writeFile('/taxonomy/nodes.json', '{}')).rejects.toThrow(
+    await expect(backend.writeFile('/conflicts/nodes.json', '{}')).rejects.toThrow(
       /Cannot write directly to main/,
     );
 
@@ -432,7 +432,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — integration', () => {
 
     const sha = await backend.createCommitFromTree(
       'api-session/alice',
-      [{ path: 'taxonomy/nodes.json', content: '{"v":2}' }],
+      [{ path: 'conflicts/nodes.json', content: '{"v":2}' }],
       'Test commit',
     );
 
@@ -502,7 +502,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — integration', () => {
     expect(result.behind_by).toBe(1);
     expect(result.status).toBe('ahead');
     expect(result.files).toHaveLength(1);
-    expect(result.files[0].filename).toBe('taxonomy/nodes.json');
+    expect(result.files[0].filename).toBe('conflicts/nodes.json');
 
     backend.shutdown();
   });
@@ -557,7 +557,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — integration', () => {
   it('lists directories from the in-memory tree', async () => {
     const backend = await createBackend();
 
-    const entries = await backend.listDirectory('/taxonomy');
+    const entries = await backend.listDirectory('/conflicts');
     expect(entries).toContain('nodes.json');
     expect(entries).toContain('edges.json');
 
@@ -623,8 +623,8 @@ describe.skipIf(!UNDICI_ALIGNED)('SessionBranchManager — integration', () => {
     await manager.ensureBranch('alice');
 
     const sha = await manager.commitBatch('alice', [
-      { path: 'taxonomy/nodes.json', content: '{"v":2}' },
-      { path: 'taxonomy/edges.json', content: '{"v":2}' },
+      { path: 'conflicts/nodes.json', content: '{"v":2}' },
+      { path: 'conflicts/edges.json', content: '{"v":2}' },
     ]);
 
     expect(sha).toBe(COMMIT_SHA);
@@ -652,7 +652,7 @@ describe.skipIf(!UNDICI_ALIGNED)('SessionBranchManager — integration', () => {
     // ensureBranch + commit first
     await manager.ensureBranch('alice');
     await manager.commitBatch('alice', [
-      { path: 'taxonomy/nodes.json', content: '{"v":2}' },
+      { path: 'conflicts/nodes.json', content: '{"v":2}' },
     ]);
 
     const pr = await manager.createPR('alice', 'My changes', 'Description');
@@ -798,18 +798,18 @@ describe.skipIf(!UNDICI_ALIGNED)('SessionBranchManager — multi-user isolation'
 
     // Alice writes
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
-    await backend.writeFile('/taxonomy/nodes.json', '{"alice": true}');
+    await backend.writeFile('/conflicts/nodes.json', '{"alice": true}');
 
     // Bob writes
     backend.setSessionContext({ userId: 'bob', branchName: 'api-session/bob' });
-    await backend.writeFile('/taxonomy/nodes.json', '{"bob": true}');
+    await backend.writeFile('/conflicts/nodes.json', '{"bob": true}');
 
     // Verify separate overlays
     const aliceOverlay = backend.getSessionOverlay('alice');
     const bobOverlay = backend.getSessionOverlay('bob');
 
-    expect(aliceOverlay?.get('taxonomy/nodes.json')).toBe('{"alice": true}');
-    expect(bobOverlay?.get('taxonomy/nodes.json')).toBe('{"bob": true}');
+    expect(aliceOverlay?.get('conflicts/nodes.json')).toBe('{"alice": true}');
+    expect(bobOverlay?.get('conflicts/nodes.json')).toBe('{"bob": true}');
 
     backend.shutdown();
   });
@@ -819,9 +819,9 @@ describe.skipIf(!UNDICI_ALIGNED)('SessionBranchManager — multi-user isolation'
 
     // Alice writes, then reads — should see her edit
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
-    await backend.writeFile('/taxonomy/nodes.json', '{"alice": true}');
+    await backend.writeFile('/conflicts/nodes.json', '{"alice": true}');
 
-    const content = await backend.readFile('/taxonomy/nodes.json');
+    const content = await backend.readFile('/conflicts/nodes.json');
     expect(content).toBe('{"alice": true}');
 
     backend.shutdown();
@@ -905,7 +905,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: rate limit exhaust
 
     const recorder = createTestRecorder();
     const backend = await createBackend(recorder);
-    const content = await backend.readFile('/taxonomy/nodes.json');
+    const content = await backend.readFile('/conflicts/nodes.json');
 
     expect(content).toBe('recovered');
     expect(callCount).toBe(3);
@@ -952,7 +952,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: rate limit exhaust
 
     const recorder = createTestRecorder();
     const backend = await createBackend(recorder);
-    const content = await backend.readFile('/taxonomy/nodes.json');
+    const content = await backend.readFile('/conflicts/nodes.json');
 
     expect(content).toBe('recovered');
     expect(callCount).toBe(2);
@@ -1026,7 +1026,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: circuit breaker', 
 
     expect(backend.getCircuitState()).toBe('open');
 
-    await expect(backend.writeFile('/taxonomy/nodes.json', '{}')).rejects.toThrow(
+    await expect(backend.writeFile('/conflicts/nodes.json', '{}')).rejects.toThrow(
       /circuit breaker open/i,
     );
 
@@ -1052,7 +1052,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: GitHub outage (5xx
     });
 
     const backend = await createBackend();
-    const content = await backend.readFile('/taxonomy/nodes.json');
+    const content = await backend.readFile('/conflicts/nodes.json');
 
     expect(content).toBe('recovered');
     expect(callCount).toBe(3);
@@ -1069,7 +1069,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: GitHub outage (5xx
     });
 
     const backend = await createBackend();
-    const content = await backend.readFile('/taxonomy/nodes.json');
+    const content = await backend.readFile('/conflicts/nodes.json');
 
     // readFile returns null on failure (does not throw)
     expect(content).toBeNull();
@@ -1097,7 +1097,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: token expiry mid-b
     });
 
     const backend = await createBackend();
-    const content = await backend.readFile('/taxonomy/nodes.json');
+    const content = await backend.readFile('/conflicts/nodes.json');
 
     expect(content).toBe('ok');
     expect(attempt).toBe(2); // first 401, then success
@@ -1124,7 +1124,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: token expiry mid-b
 
     const sha = await backend.createCommitFromTree(
       'api-session/alice',
-      [{ path: 'taxonomy/nodes.json', content: '{"v":2}' }],
+      [{ path: 'conflicts/nodes.json', content: '{"v":2}' }],
       'Test commit',
     );
 
@@ -1164,23 +1164,24 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — circuit-open short-circui
   it('readFileAtRef returns null when the circuit is open', async () => {
     const backend = await createBackend();
     await openCircuit(backend);
-    expect(await backend.readFileAtRef('taxonomy/nodes.json', 'feature-branch')).toBeNull();
+    expect(await backend.readFileAtRef('conflicts/nodes.json', 'feature-branch')).toBeNull();
     backend.shutdown();
   });
 
-  it('writeBinaryFile throws when the circuit is open (direct write mode)', async () => {
+  // t/638: no binary file is on the data-repo write allowlist, so the allowlist refuses before the circuit check.
+  it('writeBinaryFile is refused by the data-repo allowlist, before the circuit check (t/638)', async () => {
     const backend = await createBackend();
     await openCircuit(backend);
-    await expect(backend.writeBinaryFile('/taxonomy/blob.bin', Buffer.from('x'))).rejects.toThrow(
-      /circuit breaker open/i,
-    );
+    await expect(backend.writeBinaryFile('/taxonomy/blob.bin', Buffer.from('x'))).rejects.toMatchObject({
+      code: 'DATA_REPO_PATH_REFUSED',
+    });
     backend.shutdown();
   });
 
   it('deleteFile throws when the circuit is open (direct write mode)', async () => {
     const backend = await createBackend();
     await openCircuit(backend);
-    await expect(backend.deleteFile('/taxonomy/nodes.json')).rejects.toThrow(/circuit breaker open/i);
+    await expect(backend.deleteFile('/conflicts/nodes.json')).rejects.toThrow(/circuit breaker open/i);
     backend.shutdown();
   });
 
@@ -1253,7 +1254,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: network errors', (
     });
 
     const backend = await createBackend();
-    const content = await backend.readFile('/taxonomy/nodes.json');
+    const content = await backend.readFile('/conflicts/nodes.json');
 
     expect(content).toBe('recovered');
     expect(callCount).toBe(3);
@@ -1273,10 +1274,10 @@ describe.skipIf(!UNDICI_ALIGNED)('SessionBranchManager — chaos: multi-tab race
     // Fire two concurrent commits
     const results = await Promise.all([
       manager.commitBatch('alice', [
-        { path: 'taxonomy/nodes.json', content: '{"tab1": true}' },
+        { path: 'conflicts/nodes.json', content: '{"tab1": true}' },
       ]),
       manager.commitBatch('alice', [
-        { path: 'taxonomy/edges.json', content: '{"tab2": true}' },
+        { path: 'conflicts/edges.json', content: '{"tab2": true}' },
       ]),
     ]);
 
@@ -1298,13 +1299,13 @@ describe.skipIf(!UNDICI_ALIGNED)('SessionBranchManager — chaos: multi-tab race
       (async () => {
         backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
         return manager.commitBatch('alice', [
-          { path: 'taxonomy/nodes.json', content: '{"alice": true}' },
+          { path: 'conflicts/nodes.json', content: '{"alice": true}' },
         ]);
       })(),
       (async () => {
         backend.setSessionContext({ userId: 'bob', branchName: 'api-session/bob' });
         return manager.commitBatch('bob', [
-          { path: 'taxonomy/nodes.json', content: '{"bob": true}' },
+          { path: 'conflicts/nodes.json', content: '{"bob": true}' },
         ]);
       })(),
     ]);
@@ -1344,7 +1345,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: missing credential
     await backend.initialize();
     // No session context → writeFile uses Contents API directly (overlay skipped)
 
-    await expect(backend.writeFile('/taxonomy/nodes.json', '{}')).rejects.toThrow(
+    await expect(backend.writeFile('/conflicts/nodes.json', '{}')).rejects.toThrow(
       /No GitHub credentials configured/,
     );
 
@@ -1370,17 +1371,17 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — cache behavior', () => {
 
     // Populate overlay
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
-    await backend.writeFile('/taxonomy/nodes.json', '{"cached": true}');
+    await backend.writeFile('/conflicts/nodes.json', '{"cached": true}');
 
     // Reset fetch tracking
     fetchCalls.length = 0;
 
     // Read should come from overlay, not GitHub
-    const content = await backend.readFile('/taxonomy/nodes.json');
+    const content = await backend.readFile('/conflicts/nodes.json');
     expect(content).toBe('{"cached": true}');
 
     // No additional fetch calls for the read (overlay hit)
-    const contentsFetches = fetchCalls.filter(c => c.url.includes('/contents/taxonomy/nodes.json'));
+    const contentsFetches = fetchCalls.filter(c => c.url.includes('/contents/conflicts/nodes.json'));
     expect(contentsFetches).toHaveLength(0);
 
     backend.shutdown();
@@ -1398,7 +1399,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — cache behavior', () => {
   it('clears session overlay on clearSessionOverlay', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
-    await backend.writeFile('/taxonomy/nodes.json', '{"alice": true}');
+    await backend.writeFile('/conflicts/nodes.json', '{"alice": true}');
 
     expect(backend.getSessionOverlay('alice')?.size).toBeGreaterThan(0);
 
@@ -1420,12 +1421,12 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — listDirectory overlay mer
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    await backend.writeFile('/community/_submissions/sub-1.json', '{"id":"1"}');
-    await backend.writeFile('/community/_submissions/sub-2.json', '{"id":"2"}');
+    await backend.writeFile('/taxonomy/Origin/accelerationist.json', '{"id":"1"}');
+    await backend.writeFile('/taxonomy/Origin/safetyist.json', '{"id":"2"}');
 
-    const entries = await backend.listDirectory('/community/_submissions');
-    expect(entries).toContain('sub-1.json');
-    expect(entries).toContain('sub-2.json');
+    const entries = await backend.listDirectory('/taxonomy/Origin');
+    expect(entries).toContain('accelerationist.json');
+    expect(entries).toContain('safetyist.json');
 
     backend.shutdown();
   });
@@ -1435,9 +1436,9 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — listDirectory overlay mer
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
     // taxonomy/ already holds nodes.json + edges.json from the repo tree.
-    await backend.writeFile('/taxonomy/new-file.json', '{"new":true}');
+    await backend.writeFile('/conflicts/new-file.json', '{"new":true}');
 
-    const entries = await backend.listDirectory('/taxonomy');
+    const entries = await backend.listDirectory('/conflicts');
     expect(entries).toContain('nodes.json');    // from tree
     expect(entries).toContain('edges.json');     // from tree
     expect(entries).toContain('new-file.json');  // from overlay
@@ -1451,9 +1452,9 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — listDirectory overlay mer
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
     // edges.json exists in the tree; delete it in this session (overlay tombstone).
-    await backend.deleteFile('/taxonomy/edges.json');
+    await backend.deleteFile('/conflicts/edges.json');
 
-    const entries = await backend.listDirectory('/taxonomy');
+    const entries = await backend.listDirectory('/conflicts');
     expect(entries).toContain('nodes.json');
     expect(entries).not.toContain('edges.json');
 
@@ -1464,13 +1465,13 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — listDirectory overlay mer
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    await backend.writeFile('/community/chats/chat-1.json', '{}');
+    await backend.writeFile('/taxonomy/Draft/edges.json', '{}');
 
-    const top = await backend.listDirectory('/community');
-    expect(top).toContain('chats');
+    const top = await backend.listDirectory('/taxonomy');
+    expect(top).toContain('Draft');
 
-    const sub = await backend.listDirectory('/community/chats');
-    expect(sub).toContain('chat-1.json');
+    const sub = await backend.listDirectory('/taxonomy/Draft');
+    expect(sub).toContain('edges.json');
 
     backend.shutdown();
   });
@@ -1479,11 +1480,11 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — listDirectory overlay mer
     const backend = await createBackend();
     // Write under an active session branch...
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
-    await backend.writeFile('/taxonomy/session-only.json', '{}');
+    await backend.writeFile('/conflicts/session-only.json', '{}');
 
     // ...then drop to a main-ref context (no branch name).
     backend.setSessionContext({ userId: 'alice' });
-    const entries = await backend.listDirectory('/taxonomy');
+    const entries = await backend.listDirectory('/conflicts');
     expect(entries).not.toContain('session-only.json');
 
     backend.shutdown();
@@ -1493,14 +1494,14 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — listDirectory overlay mer
     const backend = await createBackend();
 
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
-    await backend.writeFile('/community/_submissions/alice.json', '{}');
+    await backend.writeFile('/taxonomy/Origin/accelerationist.json', '{}');
 
     backend.setSessionContext({ userId: 'bob', branchName: 'api-session/bob' });
-    await backend.writeFile('/community/_submissions/bob.json', '{}');
+    await backend.writeFile('/taxonomy/Origin/skeptic.json', '{}');
 
-    const bobEntries = await backend.listDirectory('/community/_submissions');
-    expect(bobEntries).toContain('bob.json');
-    expect(bobEntries).not.toContain('alice.json');
+    const bobEntries = await backend.listDirectory('/taxonomy/Origin');
+    expect(bobEntries).toContain('skeptic.json');
+    expect(bobEntries).not.toContain('accelerationist.json');
 
     backend.shutdown();
   });
@@ -1551,7 +1552,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — diagnostic accessors', ()
     });
 
     const backend = await createBackend();
-    const result = await backend.readFile('/taxonomy/nodes.json');
+    const result = await backend.readFile('/conflicts/nodes.json');
     expect(result).toBeNull(); // read fails (returns null) after retries exhausted
 
     const buffered = backend.getErrorBuffer();
@@ -1567,7 +1568,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — diagnostic accessors', ()
     expect(backend.getActiveBranchCount()).toBe(0);
 
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
-    await backend.writeFile('/taxonomy/nodes.json', '{}');
+    await backend.writeFile('/conflicts/nodes.json', '{}');
 
     expect(backend.getActiveBranchCount()).toBe(1);
 
@@ -1597,9 +1598,9 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — manifest mutex', () => {
     // that all miss cache, each fetching from GitHub and writing to manifest.
     // Before the mutex fix, the shared .tmp file would corrupt concurrent saves.
     const fileContents: Record<string, string> = {
-      'taxonomy/safetyist.json': '{"pov": "safetyist"}',
-      'taxonomy/skeptic.json': '{"pov": "skeptic"}',
-      'taxonomy/situations.json': '{"situations": []}',
+      'conflicts/safetyist.json': '{"pov": "safetyist"}',
+      'conflicts/skeptic.json': '{"pov": "skeptic"}',
+      'conflicts/situations.json': '{"situations": []}',
     };
 
     // Return distinct content per file path
@@ -1715,7 +1716,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session overlay memory ca
 
   it('allows writes under the cap and reports overlay bytes in stats', async () => {
     const b = await cappedBackend(2000);
-    await b.writeFile('/taxonomy/a.json', 'x'.repeat(1000));
+    await b.writeFile('/conflicts/a.json', 'x'.repeat(1000));
     const stats = b.getOverlayStats();
     expect(stats.totalBytes).toBe(1000);
     expect(stats.users).toBe(1);
@@ -1726,23 +1727,23 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session overlay memory ca
 
   it('rejects a write that would exceed the per-user cap with statusCode 413', async () => {
     const b = await cappedBackend(2000);
-    await b.writeFile('/taxonomy/a.json', 'x'.repeat(1000));
-    await expect(b.writeFile('/taxonomy/b.json', 'y'.repeat(1500))).rejects.toMatchObject({ statusCode: 413 });
+    await b.writeFile('/conflicts/a.json', 'x'.repeat(1000));
+    await expect(b.writeFile('/conflicts/b.json', 'y'.repeat(1500))).rejects.toMatchObject({ statusCode: 413 });
     expect(b.getOverlayStats().totalBytes).toBe(1000); // rejected write not stored
     b.shutdown();
   });
 
   it('uses replace semantics — overwriting the same path does not double-count', async () => {
     const b = await cappedBackend(2000);
-    await b.writeFile('/taxonomy/a.json', 'x'.repeat(1500));
-    await b.writeFile('/taxonomy/a.json', 'y'.repeat(1500)); // replaces; projected 1500 ≤ 2000
+    await b.writeFile('/conflicts/a.json', 'x'.repeat(1500));
+    await b.writeFile('/conflicts/a.json', 'y'.repeat(1500)); // replaces; projected 1500 ≤ 2000
     expect(b.getOverlayStats().totalBytes).toBe(1500);
     b.shutdown();
   });
 
   it('rejects a single write larger than the entire cap', async () => {
     const b = await cappedBackend(2000);
-    await expect(b.writeFile('/taxonomy/big.json', 'z'.repeat(3000))).rejects.toMatchObject({ statusCode: 413 });
+    await expect(b.writeFile('/conflicts/big.json', 'z'.repeat(3000))).rejects.toMatchObject({ statusCode: 413 });
     expect(b.getOverlayStats().totalBytes).toBe(0);
     b.shutdown();
   });
@@ -1883,14 +1884,14 @@ describe.skipIf(!UNDICI_ALIGNED)('toRepoPath strips getDataRoot() not cacheDir (
     const backend = await createBackend(); // cacheDir = /var/cache/taxonomy-test
 
     // File path as fileIO.ts constructs it: absolute, rooted at getDataRoot().
-    await backend.readFile(`${FAKE_DATA_ROOT}/taxonomy/nodes.json`);
+    await backend.readFile(`${FAKE_DATA_ROOT}/conflicts/nodes.json`);
 
     // The GitHub Contents API call must use the repo-relative path.
     // With the bug (strip cacheDir): prefix not stripped → URL gets 'mnt/shared-data/taxonomy/...'
-    // With the fix (strip dataRoot): prefix stripped → URL gets 'taxonomy/nodes.json'
+    // With the fix (strip dataRoot): prefix stripped → URL gets 'conflicts/nodes.json'
     const contentCall = fetchCalls.find(c => c.method === 'GET' && c.url.includes('/contents/'));
     expect(contentCall).toBeDefined();
-    expect(contentCall!.url).toContain('/contents/taxonomy/nodes.json');
+    expect(contentCall!.url).toContain('/contents/conflicts/nodes.json');
     expect(contentCall!.url).not.toContain('mnt/shared-data');
 
     backend.shutdown();
@@ -1933,8 +1934,8 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — cache-hit start loads the
   const manifest = {
     version: 1, generation: 1, lastCommitSha: MAIN_SHA, lastUpdated: '2026-10-15T00:00:00Z',
     files: {
-      'taxonomy/accelerationist.json': { sha: 'm-blob-acc', etag: '', cachedAt: '2026-10-15T00:00:00Z' },
-      'taxonomy/skeptic.json': { sha: 'm-blob-skp', etag: '', cachedAt: '2026-10-15T00:00:00Z' },
+      'conflicts/accelerationist.json': { sha: 'm-blob-acc', etag: '', cachedAt: '2026-10-15T00:00:00Z' },
+      'conflicts/skeptic.json': { sha: 'm-blob-skp', etag: '', cachedAt: '2026-10-15T00:00:00Z' },
     },
   };
 
@@ -1956,7 +1957,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — cache-hit start loads the
       const backend = await createBackend();
       const before = contentsCalls().length;
       for (let i = 0; i < 10; i++) {
-        const entries = await backend.listDirectory('/taxonomy');
+        const entries = await backend.listDirectory('/conflicts');
         expect(entries).toEqual(expect.arrayContaining(['nodes.json', 'edges.json']));
       }
       expect(contentsCalls().length - before).toBe(0);
@@ -1972,7 +1973,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — cache-hit start loads the
       const recorder = createTestRecorder();
       const backend = await createBackend(recorder);
       const before = contentsCalls().length;
-      const entries = await backend.listDirectory('/taxonomy');
+      const entries = await backend.listDirectory('/conflicts');
       expect(entries).toEqual(expect.arrayContaining(['accelerationist.json', 'skeptic.json']));
       expect(contentsCalls().length - before).toBe(0);
       expect(recorder.events.some(e => e.level === 'warn' && String(e.message).includes('seeded repoTree from the manifest'))).toBe(true);

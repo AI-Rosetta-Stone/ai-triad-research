@@ -861,6 +861,8 @@ export interface AppAPI {
   // --- File operations ---
   fetchUrlContent: (url: string) => Promise<{ content: string; error?: string }>;
   pickDocumentFile: () => Promise<{ cancelled: boolean; filePath?: string; content?: string }>;
+  /** t/634: whether document extraction can run here. Web: always true. Desktop: main probes the real extractor once. */
+  documentExtractionAvailable: () => Promise<boolean>;
   clipboardWriteText: (text: string) => Promise<void>;
 
   // --- Window control ---

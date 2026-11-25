@@ -38,6 +38,7 @@ Smoke testing: https://stub
 ::error::Oped-files health check failed: MISSING: soul.json, p.prompt (status=500)
 
 === Embedding Latency ===
+  (anonymous session not established — the embedding probe may be refused or return no vectors)
   [DEGRADED] embeddings.compute — unreachable: embed server unreachable
 ::warning::Embedding latency unreachable — 0ms vs 2s ceiling (perf-regression probe t/3088; monitoring signal, does not block the gate). A sustained breach is the t/3085 cache-miss class.
 

@@ -32,6 +32,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { IMAGE } from './repin-tier.mjs';
+import { dropLineBreakLines } from './base-pin-drift.mjs';
 
 export const STRIP_PATHS = Object.freeze([
   '/etc/apt',
@@ -43,6 +44,11 @@ export const STRIP_PATHS = Object.freeze([
   '/var/lib/apt',
 ]);
 export const STRIP_PACKAGES = Object.freeze(['apt', 'libapt-pkg7.0']);
+
+// t/605#10 (Docker): a Trivy VulnerabilityID goes into $GITHUB_OUTPUT, so it must be one token. Anything
+// else (a CR/LF that could inject a second `route=` line, a space, a comma) makes the vuln undecidable,
+// which routes to the PR. Covers CVE-*, GHSA-*, DLA-*, DSA-*, GO-*, PYSEC-*, RUSTSEC-*, ALAS2:*.
+export const VULN_ID = /^[A-Za-z0-9][A-Za-z0-9._:+-]{0,99}$/;
 
 export const SCAN_TIMEOUT_MS = 6 * 60 * 1000; // trivy's own --timeout is 5m; this catches a hang
 export const DB_TIMEOUT_MS = 5 * 60 * 1000;
@@ -97,6 +103,9 @@ const underStrip = (pkgPath) => {
 
 /** PURE. 'runtime' | 'build-only' | { undecidable: why } for one fixed vuln. */
 export function classifyVuln(v) {
+  if (typeof v.id !== 'string' || !VULN_ID.test(v.id)) {
+    return { undecidable: `vulnerability id ${JSON.stringify(v.id ?? null).slice(0, 120)} in ${JSON.stringify(v.pkg ?? null).slice(0, 80)} is not a plain id token` };
+  }
   if (v.cls === 'os-pkgs') return STRIP_PACKAGES.includes(v.pkg) ? 'build-only' : 'runtime';
   if (v.cls === 'lang-pkgs') {
     if (!v.pkgPath) return { undecidable: `${v.id} in ${v.pkg} has no PkgPath, so where it lives is unknown` };
@@ -168,10 +177,13 @@ export function scanBoth({ pinnedDigest, latestDigest, trivy, pause = () => {}, 
   return { failures, reports };
 }
 
-/** PURE. The $GITHUB_OUTPUT lines (one line each; ';' and ',' joined, CR/LF stripped). */
+/**
+ * PURE. The $GITHUB_OUTPUT lines (one line each; ';' and ',' joined, CR/LF folded in `undecidable`), then
+ * base-pin-drift.mjs's one filter, which drops any line still holding a CR/LF whole (t/377, t/605#10).
+ */
 export function outputLines(c) {
   const one = (s) => String(s).replace(/[\r\n]+/g, ' ');
-  return [`route=${c.route}`, `undecidable=${one(c.undecidable.join('; '))}`, `runtime_cves=${c.runtime.join(',')}`, `buildonly_cves=${c.buildOnly.join(',')}`];
+  return dropLineBreakLines([`route=${c.route}`, `undecidable=${one(c.undecidable.join('; '))}`, `runtime_cves=${c.runtime.join(',')}`, `buildonly_cves=${c.buildOnly.join(',')}`]);
 }
 
 /**
@@ -190,12 +202,17 @@ export function cveSection({ kind, route, undecidable, runtime, buildOnly, jobRe
     `- Build-only (the runtime stage removes it): ${bo.length ? bo.join(', ') : 'none'}`);
   if (kind === 'pr') {
     out.push('', why || rt.length
-      ? 'This drift opens its own PR as a security fix (t/605); it can take a Tech Lead or Security `budget-exempt:` review.'
+      ? 'This drift opens its own PR as a security fix (t/605); docker/base-repin-* is an automated landing vehicle (t/656), so it needs no exemption.'
       : 'Note: the CVE check routed this drift to an issue, so this PR comes from the fallback path.');
   } else {
     out.push('', `Route: ${route === 'issue' ? 'issue (no CVE reaches the shipped image): batch the re-pin into a train' : 'pr'}.`);
   }
   return `${out.join('\n')}\n`;
+}
+
+/** PURE. The output keys missing from `lines` (t/605#10: the scan fails rather than emit a partial set). */
+export function missingOutputKeys(lines) {
+  return ['route', 'undecidable', 'runtime_cves', 'buildonly_cves'].filter((k) => !lines.some((l) => l.startsWith(`${k}=`)));
 }
 
 function appendOutput(text) {
@@ -215,7 +232,15 @@ if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
     const c = classify(scanBoth({ pinnedDigest, latestDigest, trivy, pause }));
     for (const u of c.undecidable) console.log(`::warning::WARN: base-pin-cves: undecidable, routing to a PR: ${u}`);
     console.log(`route=${c.route} runtime=${c.runtime.join(',') || 'none'} build-only=${c.buildOnly.join(',') || 'none'}`);
-    appendOutput(`${outputLines(c).join('\n')}\n`);
+    const lines = outputLines(c);
+    // t/605#10: every key must survive the filter. A dropped line fails the job, and a failed cves job
+    // routes to the PR (the repin job's always() condition), never to the issue.
+    const missing = missingOutputKeys(lines);
+    if (missing.length) {
+      console.log(`::error::Goal: route the base-pin drift by CVE reach (t/605). Error: output line(s) ${missing.join(', ')} held a line break and were dropped. Location: base-pin-cves.mjs scan. Resolve: inspect the Trivy report; this job fails, so the drift opens the re-pin PR.`);
+      process.exit(1);
+    }
+    appendOutput(`${lines.join('\n')}\n`);
   } else if (cmd === 'section') {
     const e = process.env;
     process.stdout.write(cveSection({ kind: rest[0], route: e.ROUTE, undecidable: e.UNDECIDABLE, runtime: e.RUNTIME_CVES, buildOnly: e.BUILDONLY_CVES, jobResult: e.CVES_RESULT }));

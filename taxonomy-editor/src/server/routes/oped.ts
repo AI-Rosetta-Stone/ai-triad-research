@@ -38,7 +38,10 @@ import { resolveGenerationContext, enforceBackendAllowed } from './generationCon
 import { resolveBackend } from '../ai/aiBackends.js';
 import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
 import { getProjectRoot } from '../config.js';
-import { createWebOpEdAdapter } from '../ai/opedAdapter.js';
+import { createWebOpEdAdapter, type WebOpEdAdapterOptions } from '../ai/opedAdapter.js';
+import { resolveOpEdFunding } from './opedFunding.js';
+import { refuseAnonOpEdCreate, opedQuotaStatus, warnIfNearAnonByteCap } from './opedAnonLimits.js';
+import * as ai from '../ai/aiBackends.js';
 import { OUTLET_BANDS } from '../../../../lib/oped/outletBands.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
@@ -195,6 +198,7 @@ async function driveOpEdRun(
   writeFrame: (event: Record<string, unknown>) => void,
   heartbeat: ReturnType<typeof setInterval>,
   isClientGone: () => boolean,
+  adapterOptions: WebOpEdAdapterOptions = {},
 ): Promise<void> {
   const completed: OpEdMember[] = [];
   // t/2893: persist the run-control record to the shared store on each transition so the per-user
@@ -212,7 +216,9 @@ async function driveOpEdRun(
     // resolves in dist, tsc, AND vitest (a 3-ups path exists in none — it would 500 at runtime).
     const { generateOpEdSet } = await import('../../../../lib/oped/generate.js');
     const deps: OpEdGeneratorDeps = {
-      adapter: createWebOpEdAdapter(),
+      adapter: createWebOpEdAdapter(adapterOptions), // t/616: free-pool funding, when the run uses the pool
+      // t/541: grounding's query embedding goes through the server's worker ONNX session (one session per process).
+      embedQuery: (text: string) => ai.computeQueryEmbedding(text),
       // t/2609 relocated the op-ed .prompt files from scripts/AITriad/Prompts to
       // lib/oped/prompts; New-OpEd (PS), the parity gate, and Electron main (#1015) already
       // read the new location. The container ships them at /app/lib/oped/prompts via the
@@ -228,6 +234,7 @@ async function driveOpEdRun(
       writeFrame(event as unknown as Record<string, unknown>);
       logVoiceFailure(event, request.params.model);
       if (event.type === 'complete') {
+        warnIfNearAnonByteCap(event.set); // t/500#61: anonymous only; size only, never discards the run
         await finalizeOpedSet(event.set);
         run.status = Object.values(run.perVoice).some(s => s === 'cancelled') ? 'cancelled' : 'complete';
       }
@@ -258,6 +265,20 @@ async function driveOpEdRun(
     // status is terminal → never counted toward the concurrency cap). Terminal state was persisted above.
     if (!isClientGone()) { try { res.end(); } catch { /* telemetry — silent by design (already closed) */ } }
   }
+}
+
+/** The count and size limits on a create, before any spend: t/500's anonymous shape, byte cap and live-set limit
+ *  (opedAnonLimits.ts, a no-op for signed-in callers), then the stored-set quota and the one-running-run cap. True when a
+ *  429 or 400 was written. Extracted to keep the POST handler under the complexity budget. */
+async function refuseOverCreateLimits(res: import('http').ServerResponse, userId: string, voices: number, params: OpEdParams): Promise<boolean> {
+  if (await refuseAnonOpEdCreate(res, voices, params.wordCount, params.outlet)) return true;
+  const quota = await getOpedSetsQuotaStatus();
+  if (!quota.allowed) { json(res, { error: 'quota_exceeded', resource: quota.resource, current: quota.current, limit: quota.limit }, 429); return true; }
+  // Shared-store count (self-healing: lazy-expires stale 'running' blobs). No local sweep.
+  if (await countRunningOpedRuns(userId) >= MAX_CONCURRENT_OPED_RUNS) {
+    json(res, { error: 'concurrency_limit', message: 'You already have an op-ed generating; wait for it to finish.', limit: MAX_CONCURRENT_OPED_RUNS }, 429); return true;
+  }
+  return false;
 }
 
 /** t/3993: validate tagSelection before SSE commits. Logs and returns the client-safe
@@ -303,11 +324,12 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     const parsed = parseOpEdCreateRequest(body);
     if (!parsed.ok) { error(res, parsed.message, parsed.status); return; }
     const { topic, povs, params, url, documentText, sourceName } = parsed.value;
+    // t/500 (t/666): a stored anonymous op-ed has a bounded shape, size and count, all checked before any spend.
     // Tier-backend entitlement via the shared helper (t/2635 — folds op-ed onto the ONE
     // entitlement path in routes/generationContext.ts, replacing the local resolveOpEdModel
     // mirror). Free tier's model is pinned; a free/restricted caller can't reach a premium
     // backend via params.model. Must precede any generation (JSON errors before the SSE headers).
-    const { tier, effectiveModel, backend } = resolveGenerationContext(req, params.model);
+    const { tier, effectiveModel, backend, limitKey } = resolveGenerationContext(req, params.model);
     const model = effectiveModel || DEFAULT_MODEL;
     // t/2687: reject an UNREGISTERED model before committing the SSE stream — the shared helper
     // doesn't (resolveBackend only prefix-guesses unknown → 'gemini', so an unregistered id would
@@ -322,12 +344,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     if (tagErr) { error(res, tagErr, 400); return; }
 
     const userId = getStorageUserId();
-    const quota = await getOpedSetsQuotaStatus();
-    if (!quota.allowed) { json(res, { error: 'quota_exceeded', resource: quota.resource, current: quota.current, limit: quota.limit }, 429); return; }
-    // Shared-store count (self-healing: lazy-expires stale 'running' blobs). No local sweep.
-    if (await countRunningOpedRuns(userId) >= MAX_CONCURRENT_OPED_RUNS) {
-      json(res, { error: 'concurrency_limit', message: 'You already have an op-ed generating; wait for it to finish.', limit: MAX_CONCURRENT_OPED_RUNS }, 429); return;
-    }
+    if (await refuseOverCreateLimits(res, userId, povs.length, params)) return;
 
     // ── URL source fetch (t/2807) ──
     // Reuse the SSRF-hardened fileIO.fetchUrlContent — the SAME path debates use
@@ -348,8 +365,14 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
       sourceMaterial = fetched.content;
     }
 
-    // ── Commit SSE — no JSON error responses after this point ──
+    // ── Funding (t/616): free-pool keys, geo gate and run admission, all refused as JSON before the stream ──
     const runId = randomUUID();
+    const funding = await resolveOpEdFunding(req, res, {
+      tier, backend, limitKey, model, runId, voices: povs.length, sourceMaterial, outlet: params.outlet, wordCount: params.wordCount,
+    });
+    if (!funding.ok) return;
+
+    // ── Commit SSE — no JSON error responses after this point ──
     const setId = randomUUID();
     const ac = new AbortController();
     const run: RunControlRecord = { runId, userId, setId, status: 'running', perVoice: Object.fromEntries(povs.map(p => [p, 'pending' as VoiceState])), startedAt: Date.now() };
@@ -372,7 +395,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     writeFrame({ type: 'run_started', runId });
     // Generate with the entitlement-resolved (free-tier-pinned) model, not the raw request.
     const request: GenerateOpEdRequest = { set_id: setId, topic, params: { ...params, model }, povs: povs as PovKey[], sourceMaterial, ...documentSourceFields(documentText, sourceName), signal: ac.signal };
-    await driveOpEdRun(res, run, request, writeFrame, heartbeat, () => clientGone);
+    await driveOpEdRun(res, run, request, writeFrame, heartbeat, () => clientGone, funding.adapter);
   };
 
   post('/api/oped-sets', async (req, res, body) => {
@@ -398,6 +421,10 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // Shared store (was opedRuns.get). getOpedRun scopes to the caller's user dir, so another user's
     // run resolves to null → 404; the explicit userId check is defence-in-depth. A cross-replica
     // reconnect that finds no run falls back to GET /api/oped-sets/:setId (client contract, t/2610#3).
+    // t/616 (Security p/93#69): an anonymous caller never reads the run store. Anonymous run records are never written
+    // (opedRunStore.upsertOpedRun returns early), so there is nothing of theirs to read, and an anonymous caller with no
+    // anon_session_id has the storage id '_local', which would otherwise read the local owner's run directory.
+    if (isAnonymousUser()) { error(res, 'Run not found', 404); return; }
     const run = await getOpedRun(runId);
     if (!run || run.userId !== getStorageUserId()) { error(res, 'Run not found', 404); return; }
     json(res, { runId: run.runId, setId: run.setId, status: run.status, perVoice: run.perVoice });
@@ -419,7 +446,8 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
   // Delegates to getOpedSetsQuotaStatus() so the pre-check never diverges from the
   // cap the finalizeOpedSet path enforces (Shared Utility Rule).
   get('/api/oped-sets/quota-status', async (_req, res) => {
-    try { json(res, await getOpedSetsQuotaStatus()); }
+    // t/500 (t/666): a keyed anonymous visitor also gets { limit, used, remaining } for the live-set limit.
+    try { json(res, await opedQuotaStatus()); }
     catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'oped', level: 'error', message: 'Failed to check oped quota', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       error(res, String(err), 500, err);

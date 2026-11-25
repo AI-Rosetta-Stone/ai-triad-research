@@ -238,7 +238,7 @@ export const createDebateLoopSlice: StateCreator<DebateStore, [], [], DebateLoop
         addTranscriptEntry({
           type: 'system',
           speaker: 'system',
-          content: `${info.label} failed to respond: ${mapErrorToUserMessage(err)}`,
+          content: `${info.label} failed to respond: ${mapErrorToUserMessage(err, { kind: 'ai' })}`,
           taxonomy_refs: [],
         });
       }

@@ -1,14 +1,14 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/564 phase A: who owns a PR, and the Interweave chat ping for a PR-budget refusal.
+// t/564 phase A, t/656: who owns a PR, and the Interweave chat ping for a landing-vehicle refusal.
 //
 // Owner, by my-prs.mjs's precedence (claim()): the agent assignee of a ticket the title/branch cites;
 // else of one the body cites; else, only when the PR cites no ticket at all, the majority owner of
 // its changed files (org-chart resolve-owner). `human` is never an owner here: it is never pinged.
 // Unresolved -> { id: null } and the caller WARNs.
 //
-// Used by enqueue-pr.mjs's CLI (one ping to the owner when it refuses for budget; never from a library
+// Used by enqueue-pr.mjs's CLI (one ping to the owner when it refuses for the landing vehicle; never from a library
 // caller such as the sweeps) and by pr-budget-report.mjs. Every dependency is injectable; the tests
 // never reach the network. In GATE_SCRIPTS (it is in enqueue-pr.mjs's import closure).
 
@@ -17,7 +17,9 @@ import path from 'node:path';
 import { ticketRefs, majorityOwner } from './my-prs.mjs';
 
 export const DEFAULT_DAEMON = 'http://127.0.0.1:7420';
-export const PING_REASONS = Object.freeze(['over_budget_today', 'pooled_no_slot', 'pool_expired']);
+// t/656: the wrong-vehicle refusals (landing-vehicle.mjs ROUTE_REASONS; a test keeps the two equal).
+// A literal, so this module does not import landing-vehicle.mjs, which imports it.
+export const PING_REASONS = Object.freeze(['not_a_vehicle', 'feature_too_small', 'incident_not_open']);
 
 /** Refuses anything that is not a loopback daemon URL (no ticket data off-host), as my-prs.mjs does. */
 export function assertLoopback(daemon) {
@@ -80,30 +82,30 @@ export async function resolvePrOwner(pr, { appRun, gh: ghFn = gh, repo, checkout
   return { id: null, why: 'no ticket ref and no majority owner of the changed files' };
 }
 
-/** PURE. The chat body for one budget refusal. */
+/** PURE. The chat body for one wrong-vehicle refusal (t/656). */
 export function refusalPingBody({ repo, pr, message }) {
   return [
-    `**PR budget** (automated, t/564): \`enqueue-pr.mjs\` refused to enqueue #${pr.number} ${pr.title ?? ''} on ${repo}.`,
+    `**Landing vehicle** (automated, t/656): \`enqueue-pr.mjs\` refused to enqueue #${pr.number} ${pr.title ?? ''} on ${repo}.`,
     '',
     '```',
     message,
     '```',
     '',
-    'Keep committing to the branch; rerun the enqueue after the next UTC day starts, or ask the Tech Lead/Security for a `budget-exempt:` review.',
+    'Move the change onto your area train (it closes at 06:00Z and 18:00Z), or widen the feature PR\'s ticket table if it really spans 3+ tickets or 2+ owners. There is no daily count to wait out any more.',
   ].join('\n');
 }
 
 /**
- * Sends ONE ping to the owner of a PR refused for budget. Never throws; the refusal stands either way.
+ * Sends ONE ping to the owner of a PR refused for its landing vehicle (t/656). Never throws; the refusal stands either way.
  * Returns { sent, to?, skipped? }. deps: { daemon, appRun, resolveOwner, warn, log }.
  */
-export async function pingBudgetRefusal({ repo, pr, reason, message, by }, deps = {}) {
+export async function pingVehicleRefusal({ repo, pr, reason, message, by }, deps = {}) {
   const warn = deps.warn ?? console.warn;
   const log = deps.log ?? console.log;
-  if (!PING_REASONS.includes(reason) || !pr) return { sent: false, skipped: 'not_an_over_budget_refusal' };
+  if (!PING_REASONS.includes(reason) || !pr) return { sent: false, skipped: 'not_a_vehicle_refusal' };
   const sender = typeof by === 'string' && by.trim() ? by.trim() : null;
   if (!sender) {
-    warn(`WARN: enqueue-pr: no --by given, so the owner of #${pr.number} is not pinged about the budget refusal (the refusal stands).`);
+    warn(`WARN: enqueue-pr: no --by given, so the owner of #${pr.number} is not pinged about the landing-vehicle refusal (the refusal stands).`);
     return { sent: false, skipped: 'no_sender' };
   }
   try {
@@ -114,10 +116,10 @@ export async function pingBudgetRefusal({ repo, pr, reason, message, by }, deps 
       return { sent: false, skipped: 'owner_unresolved' };
     }
     await appRun('chat', 'send', { sender, to: owner.id, body: refusalPingBody({ repo, pr, message }) });
-    log(`enqueue-pr: pinged ${owner.id} (owner of #${pr.number}: ${owner.why}) about the budget refusal.`);
+    log(`enqueue-pr: pinged ${owner.id} (owner of #${pr.number}: ${owner.why}) about the landing-vehicle refusal.`);
     return { sent: true, to: owner.id };
   } catch (e) {
-    warn(`WARN: enqueue-pr could not ping the owner of #${pr.number} about the budget refusal (${e.message}); the refusal stands.`);
+    warn(`WARN: enqueue-pr could not ping the owner of #${pr.number} about the landing-vehicle refusal (${e.message}); the refusal stands.`);
     return { sent: false, skipped: 'send_failed' };
   }
 }
@@ -139,3 +141,6 @@ export function makeAppRun(daemon) {
     return parsed;
   };
 }
+
+/** @deprecated t/656 renamed it to pingVehicleRefusal; kept so old imports still link. */
+export const pingBudgetRefusal = pingVehicleRefusal;

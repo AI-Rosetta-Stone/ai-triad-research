@@ -7,6 +7,7 @@
 // thrown error, and never double-settles a reservation.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as rateLimiter from '../security/rateLimiter.js';
 import type { IncomingMessage, ServerResponse } from 'http';
 
 const getFreePoolKeys = vi.fn();
@@ -258,8 +259,24 @@ describe('free-pool budget gate wiring across generate and chat-stream (t/4485)'
     const handlers = registerAll();
     const res = fakeRes();
     await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }] });
-    expect(commitFreePoolCall).toHaveBeenCalledWith('res-3', { calls: 1, tokens: 2000 });
+    // t/494: the stream mock reports no usage, so the turn books the prompt-size estimate
+    // (ceil('hi'.length / 4) + 8192 output allowance = 8193), not the flat 2000.
+    expect(commitFreePoolCall).toHaveBeenCalledWith('res-3', { calls: 1, tokens: 8193 });
     expect(releaseFreePoolCall).not.toHaveBeenCalled();
+  });
+
+  it('chat-stream: the stream reports usage → both books get the real turn tokens (t/494, SO p/252#15)', async () => {
+    reserveFreePoolCall.mockResolvedValue({ ok: true, reservationId: 'res-usage' });
+    generateViaGeminiStream.mockResolvedValueOnce({
+      text: '', urlContextMetadata: undefined, stopReason: 'stop', rawStopReason: 'STOP',
+      usage: { promptTokens: 150_000, completionTokens: 42, totalTokens: 150_900 },
+    });
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }] });
+    // Output is the larger of completion (42) and total minus prompt (900): thinking tokens are booked.
+    expect(commitFreePoolCall).toHaveBeenCalledWith('res-usage', { calls: 1, tokens: 150_000 + 900 });
+    expect(rateLimiter.recordTokenUsage).toHaveBeenCalledWith(expect.any(String), 150_000, 900, expect.any(Number));
   });
 
   // t/4485 phase 2 — a request carrying a debateId routes through admitOrDrawDownDebateCall,
@@ -335,7 +352,8 @@ describe('free-pool budget gate wiring across generate and chat-stream (t/4485)'
     const res = fakeRes();
     await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }], linkedDebateId: 'deb-1' });
     expect(res._statusCode).not.toBe(429);
-    expect(reconcileDebateDrawDown).toHaveBeenCalledWith('db-res-1', 2000); // chat-stream's flat estimate — delta is 0, a no-op inside reconcileDebateDrawDown itself
+    // t/494: no usage from the stream mock, so the reconciled total is the prompt-size estimate (8193).
+    expect(reconcileDebateDrawDown).toHaveBeenCalledWith('db-res-1', 8193);
     expect(commitFreePoolCall).not.toHaveBeenCalled();
     expect(releaseFreePoolCall).not.toHaveBeenCalled();
   });

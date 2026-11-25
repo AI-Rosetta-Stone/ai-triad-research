@@ -1,6 +1,6 @@
 {
   "spec": "docs/specs/source-identity.md section 7",
-  "version": 3,
+  "version": 4,
   "generator": "scripts/new_evidence_union_fixture.py",
   "key_cases": [
     {
@@ -971,7 +971,7 @@
   ],
   "resolve_cases": [
     {
-      "name": "(d) a chunk whose base has no source dir resolves to itself",
+      "name": "(d) an id shaped like a chunk but not in the manifest resolves to itself",
       "docs": {
         "x-2026": {
           "has_source": false
@@ -980,11 +980,12 @@
           "has_source": false
         }
       },
+      "manifest": {},
       "id": "x-2026-1",
       "expected": "x-2026-1"
     },
     {
-      "name": "a chunk of a base with a source resolves to the base",
+      "name": "a listed chunk resolves to its base",
       "docs": {
         "d-2026": {
           "has_source": true,
@@ -1022,6 +1023,9 @@
             }
           }
         }
+      },
+      "manifest": {
+        "d-2026-1": "d-2026"
       },
       "id": "d-2026-1",
       "expected": "d-2026"
@@ -1076,8 +1080,118 @@
           }
         }
       },
+      "manifest": {
+        "c-2026-1": "c-2026"
+      },
       "id": "c-2026-1",
       "expected": "d-2026"
+    },
+    {
+      "name": "not listed, no source dir, base has one: stays its own source (TL t/355#43)",
+      "docs": {
+        "r-2026": {
+          "has_source": true,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "The report sets out four options."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "r-2026-1": {
+          "has_source": false,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "A different document that happens to share the stem."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "manifest": {},
+      "id": "r-2026-1",
+      "expected": "r-2026-1"
+    },
+    {
+      "name": "the same documents, listed: folds",
+      "docs": {
+        "r-2026": {
+          "has_source": true,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "The report sets out four options."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "r-2026-1": {
+          "has_source": false,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "A different document that happens to share the stem."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "manifest": {
+        "r-2026-1": "r-2026"
+      },
+      "id": "r-2026-1",
+      "expected": "r-2026"
+    },
+    {
+      "name": "a listed chunk that has a source dir of its own still folds: the list decides",
+      "docs": {
+        "d-2026": {
+          "has_source": true
+        },
+        "d-2026-1": {
+          "has_source": true
+        }
+      },
+      "manifest": {
+        "d-2026-1": "d-2026"
+      },
+      "id": "d-2026-1",
+      "expected": "d-2026"
+    },
+    {
+      "name": "a listed chunk whose base does not exist is refused",
+      "docs": {
+        "d-2026-1": {
+          "has_source": false
+        }
+      },
+      "manifest": {
+        "d-2026-1": "d-2026"
+      },
+      "id": "d-2026-1",
+      "expected_error": "missing_base"
     }
   ],
   "chunk_union_cases": [
@@ -1121,6 +1235,9 @@
             }
           }
         }
+      },
+      "manifest": {
+        "d-2026-1": "d-2026"
       },
       "expected": {
         "n1": [
@@ -1213,6 +1330,9 @@
           }
         }
       },
+      "manifest": {
+        "c-2026-1": "c-2026"
+      },
       "expected": {
         "n1": [
           {
@@ -1249,6 +1369,64 @@
             "quote": "Only the chunk of the copy found this.",
             "doc": "d-2026",
             "via": "c-2026"
+          }
+        ]
+      }
+    },
+    {
+      "name": "not listed: the -N document is not in the group, and none of its links are folded",
+      "canonical": "r-2026",
+      "docs": {
+        "r-2026": {
+          "has_source": true,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "The report sets out four options."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "r-2026-1": {
+          "has_source": false,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "A different document that happens to share the stem."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "manifest": {},
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "The report sets out four options.",
+            "doc": "r-2026"
+          }
+        ]
+      },
+      "expected_documents": 1,
+      "expected_extracted": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "The report sets out four options.",
+            "doc": "r-2026"
           }
         ]
       }

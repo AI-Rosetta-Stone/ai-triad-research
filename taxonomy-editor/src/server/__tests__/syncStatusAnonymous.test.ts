@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'http';
 
-vi.mock('../storage/overlayCommitScheduler.js', () => ({ getOverlayCommitStatus: vi.fn(() => ({ state: 'pending', at: 1 })) }));
+vi.mock('../storage/overlayCommitScheduler.js', () => ({ getOverlayCommitStatusShared: vi.fn(async () => ({ state: 'pending', at: 1 })) })); // t/553
 vi.mock('../community/community.js', () => ({ isAdmin: () => false }));
 vi.mock('../community/admin/reviewRegistry.js', () => ({ requireAdmin: vi.fn(() => true) }));
 vi.mock('../community/nodeConflicts.js', () => ({ computeNodeConflicts: vi.fn() }));

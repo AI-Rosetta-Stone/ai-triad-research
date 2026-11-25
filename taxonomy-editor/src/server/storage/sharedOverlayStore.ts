@@ -527,6 +527,49 @@ export class SharedOverlayStore {
     }
   }
 
+  private statusBlobClient(userId: string): BlockBlobClient {
+    // No `.json` suffix, so listEntries never lists it as a staged path.
+    return this.containerClient.getBlockBlobClient(`${this.blobPrefix}/${userId}/_status`);
+  }
+
+  /** t/551: write the user's overlay commit status, so any replica can answer the sync-status route. Unconditional
+   *  (last writer wins): each write is a whole, current status. Throws a wrapped error on a store failure. */
+  async writeCommitStatus(userId: string, status: unknown): Promise<void> {
+    const client = this.statusBlobClient(userId);
+    const body = JSON.stringify(status);
+    try {
+      await client.upload(body, Buffer.byteLength(body));
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'warn',
+        message: `writeCommitStatus failed: ${client.name}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw wrapOverlayError(err, 'writeCommitStatus', client.name);
+    }
+  }
+
+  /** t/551: the user's last written commit status, or null if none was written. Throws a wrapped error on a store failure. */
+  async readCommitStatus(userId: string): Promise<unknown> {
+    const client = this.statusBlobClient(userId);
+    try {
+      const resp = await client.download();
+      const chunks: Buffer[] = [];
+      for await (const chunk of resp.readableStreamBody ?? []) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array | string));
+      }
+      return JSON.parse(Buffer.concat(chunks).toString('utf-8')) as unknown;
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'warn',
+        message: `readCommitStatus failed: ${client.name}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw err instanceof ActionableError ? err : wrapOverlayError(err, 'readCommitStatus', client.name);
+    }
+  }
+
   /** The user's current generation token, or `null` if they've never staged
    *  anything (the `_gen` blob doesn't exist yet). */
   async getGeneration(userId: string): Promise<string | null> {
@@ -554,6 +597,33 @@ export class SharedOverlayStore {
    *  calls this only after `getGeneration()` shows a change since the
    *  caller's last-seen value; the commit path calls it unconditionally to
    *  find everything to commit. */
+  /** t/552: every user with staged entries, and how many, across the whole store. One flat listing; the `_gen` and
+   *  `_status` blobs are not entries. For the DRAINING rollback: the store is empty when this returns no users. Throws a
+   *  wrapped error on a store failure. */
+  async countStagedEntriesByUser(): Promise<Map<string, number>> {
+    const prefix = `${this.blobPrefix}/`;
+    const counts = new Map<string, number>();
+    try {
+      for await (const blob of this.containerClient.listBlobsFlat({ prefix })) {
+        const rest = blob.name.slice(prefix.length);
+        const slash = rest.indexOf('/');
+        if (slash <= 0) continue;
+        const name = rest.slice(slash + 1);
+        if (name.includes('/') || !name.endsWith('.json')) continue;
+        const userId = rest.slice(0, slash);
+        counts.set(userId, (counts.get(userId) ?? 0) + 1);
+      }
+      return counts;
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'error',
+        message: `countStagedEntriesByUser failed: ${prefix}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw err instanceof ActionableError ? err : wrapOverlayError(err, 'countStagedEntriesByUser', prefix);
+    }
+  }
+
   async listEntries(userId: string): Promise<Array<{ repoPath: string; pathKey: string; entry: SharedOverlayEntry; etag: string }>> {
     const prefix = `${this.blobPrefix}/${userId}/`;
     const out: Array<{ repoPath: string; pathKey: string; entry: SharedOverlayEntry; etag: string }> = [];

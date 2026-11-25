@@ -60,6 +60,7 @@ export async function runFixedCrossRespond(engine: DebateEngineInternals): Promi
   const midpointRound = Math.min(MIDPOINT_NEUTRAL_EVAL_ROUND_CAP, Math.ceil(engine.config.rounds / 2));
   const w = loadProvisionalWeights();
   let gcRan = false;
+  let roundsCompleted = 0;
 
   for (let round = 1; round <= engine.config.rounds; round++) {
     engine.checkAborted();
@@ -110,7 +111,11 @@ export async function runFixedCrossRespond(engine: DebateEngineInternals): Promi
     if (shouldTriggerDiversityRound(engine, round, phase)) {
       await runDiversityRound(engine, round + 1);
     }
+    roundsCompleted = round;
   }
+
+  // t/580: the fixed loop writes no adaptive diagnostics, so record what it ran for deriveTerminationReason.
+  engine.session.fixed_rounds_diagnostics = { rounds_configured: engine.config.rounds, rounds_completed: roundsCompleted };
 }
 
 export async function runAdaptiveCrossRespond(engine: DebateEngineInternals): Promise<void> {

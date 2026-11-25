@@ -29,6 +29,7 @@ export const GATE_SCRIPTS = [
   // enqueue-pr.mjs's import closure, so they run inside the wrapper).
   'operations/devops/pr-budget.mjs',
   'operations/devops/pr-budget-notify.mjs',
+  'operations/devops/landing-vehicle.mjs', // t/656: the vehicle check enqueue-pr runs
   'operations/devops/my-prs.mjs',
   'operations/devops/t1-approval-at-head.mjs',
   'operations/devops/t1-approval-guard-predicate.mjs',
@@ -97,12 +98,23 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/run-merge-guard-tests.sh',
   'operations/devops/run-schema-drift.ts',
   'operations/devops/scheduled-workflows.json',
+  'operations/devops/staging-keyvault-whatif-guard.mjs', // t/92: run by staging-keyvault.yml
+  // t/92 (SO p/44#102): the template staging-keyvault.yml applies. It grants Key Vault Secrets Officer, so an
+  // edit (another principal, another scope) needs the same second reader as the workflow itself.
+  'deploy/azure/staging-keyvault.bicep',
+
+  // t/627 (SO p/44#104): staging-data-account.yml applies this template and decides with this guard. Like
+  // staging-keyvault.bicep (t/92), an unreviewed edit must not change what the staging deploy creates.
+  'deploy/azure/staging-data-account.bicep',
+  'operations/devops/staging-data-account-whatif-guard.mjs',
   'operations/devops/test-check-merge-queue-liveness-headgreen.sh',
   'operations/devops/test-check-merge-queue-liveness-lookup-failure.sh',
   'operations/devops/test-check-vitest-shard-blobs.sh',
   'operations/devops/test-get-merge-group-prs-ejected.sh',
   'operations/devops/test-get-merge-group-prs-f4.sh',
   'operations/devops/test-get-merge-group-prs-ratelimit.sh',
+  'operations/devops/test-verify-deploy-ci.sh', // t/591
+  'operations/devops/verify-deploy-ci.sh', // t/591: the prod deploy preflight's CI check (deploy-azure.yml runs it)
   'operations/devops/test-powershell-shard-durations.json',
 ];
 
@@ -292,6 +304,10 @@ export const CODE_UNDER_TEST = [
   'operations/devops/rate-limit-snapshot-step.test.mjs', // test of rate-limit-snapshot-step.yml
   'operations/devops/role-review-verdicts.test.mjs', // test of role-review-verdicts.mjs
   'operations/devops/scheduled-workflow-health.test.mjs', // test of scheduled-workflow-health.mjs
+  'operations/devops/staging-keyvault-whatif-guard.test.mjs', // test of staging-keyvault-whatif-guard (t/92)
+
+  'operations/devops/staging-data-account-whatif-guard.test.mjs', // test of staging-data-account-whatif-guard (t/627)
+  'operations/devops/sweep-landed-worktrees.test.mjs', // test of sweep-landed-worktrees.sh (t/9)
   'operations/devops/stuck-pr-classifier.test.mjs', // test of stuck-pr-classifier
   'operations/devops/t0-enqueue-sweep.test.mjs', // test of t0-enqueue-sweep.mjs
   'operations/devops/t0-rule-order.test.mjs', // rule-order test of t0-enqueue-sweep.mjs

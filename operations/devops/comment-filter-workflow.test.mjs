@@ -124,14 +124,19 @@ function guardReacts(body) {
   return slots.size > 0;
 }
 
-/** True when this comment body is R6 evidence: it supplies the approval half or the SO half. */
+/**
+ * True when this comment body is R6 evidence (t/116: no comment approves, PI ruling t/116#31):
+ * it supplies the SO half, or it adds a block (from the reviewer App or the shared login).
+ * The approval half is a reviewer-App REVIEW, never a comment.
+ */
 function tierReacts(body) {
-  const c = { body, createdAt: AFTER_PUSH };
+  const appApproval = [{ state: 'APPROVED', commitId: HEAD, login: APP, body: 'Approved (Tech Lead): ok.', submittedAt: AFTER_PUSH }];
   const soHalf = { body: 'SO did not review within the time-box.', createdAt: AFTER_PUSH };
-  const approvalHalf = { body: 'Approved (PI): go ahead.', createdAt: AFTER_PUSH };
-  const asApproval = !checkR6(true, [], [soHalf, c], [], HEAD, APP, PUSH_AT);
-  const asSo = !checkR6(true, [], [approvalHalf, c], [], HEAD, APP, PUSH_AT);
-  return asApproval || asSo;
+  // As the SO half: with an App approval review and no SO evidence, R6 fires; with this comment, it clears.
+  const asSo = !checkR6(true, [], [{ body, createdAt: AFTER_PUSH }], appApproval, HEAD, APP, PUSH_AT);
+  // As a block: with an App approval review and SO evidence, R6 is clear; adding this comment makes it fire.
+  const asBlock = [APP, undefined].some((login) => checkR6(true, [], [soHalf, { login, body, createdAt: AFTER_PUSH }], appApproval, HEAD, APP, PUSH_AT));
+  return asSo || asBlock;
 }
 
 function guardVariants() {
@@ -155,6 +160,8 @@ function guardVariants() {
 function tierVariants() {
   return [
     'Approved (PI): go ahead.', 'Some context first.\nApproved (PI): proceeding.', 'Approved (PI):',
+    'Changes requested (Quality): fix it.', '**Changes requested (Design), at abc123.**', 'CHANGES REQUESTED',
+    'Changes requested (Tech Lead): no.', 'Context.\nChanges requested (Security): see the note.',
     'SO did not review within the time-box.', 'so DID NOT review this one', 'Marked: SO did not review',
     `**SO clearing comment (T2, t/4266), head \`${HEAD}\`.**`, `so clearing comment ${HEAD}`, `Note.\nSO clearing comment, head ${HEAD}`,
   ];
@@ -205,7 +212,7 @@ for (const [name, f] of [['t1-approval-guard.yml', guard], ['tier-check.yml', ti
   });
 
   test(`${name}: an edit runs the job when EITHER the new or the previous body matches`, () => {
-    const verdict = f.tokens[0] === 'Approved' ? 'Approved (Quality): ok' : 'Approved (PI): ok';
+    const verdict = f.tokens[0] === 'Approved' ? 'Approved (Quality): ok' : 'Changes requested (Quality): no';
     assert.equal(jobRuns(f.tokens, prCommentEdit(verdict, 'Looking now.')), true, 'edited INTO a verdict');
     assert.equal(jobRuns(f.tokens, prCommentEdit('Withdrawn, see below.', verdict)), true, 'a verdict edited AWAY must re-evaluate');
     assert.equal(jobRuns(f.tokens, prCommentEdit('Head updated to abc124', 'Head updated to abc123')), false, 'chatter edited into chatter');
@@ -260,9 +267,11 @@ test('tier-check: every body R6 reads as evidence runs the job (its own test fix
 });
 
 test('tier-check: the oracle is live -- each kind of R6 comment evidence reacts, chatter does not', () => {
-  assert.equal(tierReacts('Approved (PI): go ahead.'), true);
   assert.equal(tierReacts('SO did not review within the time-box.'), true);
   assert.equal(tierReacts(`**SO clearing comment, head \`${HEAD}\`.**`), true);
+  assert.equal(tierReacts('Changes requested (Quality): fix it.'), true, 'a changes-request comment adds an R6 block (t/116)');
+  assert.equal(tierReacts('CHANGES REQUESTED'), true, 'the App latch blocks too');
+  assert.equal(tierReacts('Approved (PI): go ahead.'), false, 'no comment approves in R6 (PI ruling t/116#31)');
   assert.equal(tierReacts('Approved (Quality): fine'), false, 'a role approval comment is not R6 evidence');
   assert.equal(tierReacts('Head updated to abc123'), false);
 });
@@ -270,10 +279,14 @@ test('tier-check: the oracle is live -- each kind of R6 comment evidence reacts,
 test('tier-check: comment bodies are read ONLY by checkR6 -- a new reader must extend the filter', () => {
   const predicate = read('operations', 'devops', 'tier-check-predicate.mjs');
   const code = predicate.split('\n').filter((l) => !/^\s*(\/\/|\/?\*)/.test(l)).join('\n');
-  // The three patterns the header of tier-check.yml's filter names, each used in checkR6.
-  for (const re of ['PI_COMMENT_APPROVAL_RE', 'SO_DID_NOT_REVIEW_RE', 'SO_CLEARING_PREFIX_RE']) {
+  // What the header of tier-check.yml's filter names, each used in checkR6: the two SO patterns, and
+  // latestRoleVerdicts for the comment blocks (t/116). No comment-approval pattern exists any more.
+  for (const re of ['SO_DID_NOT_REVIEW_RE', 'SO_CLEARING_PREFIX_RE']) {
     assert.match(code, new RegExp(`const ${re} = `));
   }
+  assert.doesNotMatch(code, /PI_COMMENT_APPROVAL_RE/, 'the Approved (PI): comment path is gone (PI ruling t/116#31)');
+  assert.match(code, /comments: blockComments/, 'R6 blocks read the comments through latestRoleVerdicts');
+  assert.match(code, /latestRoleVerdicts\(\{ reviews, comments: \[\]/, 'R6 approvals read no comment');
   const usesOfComments = [...code.matchAll(/\bapprovalComments\b/g)].length;
   assert.equal(usesOfComments, 2, 'approvalComments must appear exactly twice in evaluateTierCheck: destructured, then passed to checkR6');
   assert.match(code, /checkR6\(tier === 'T2' \|\| Boolean\(r1\), labels, approvalComments \?\? \[\]/);
@@ -299,14 +312,14 @@ const deleted = (body) => onPr('deleted', body);
 const SHAPES = [
   // name, event, guard runs, tier-check runs
   ['verdict created (approval)', created('Approved (Quality): ok at abc123'), true, false],
-  ['verdict created (changes request)', created('Changes requested (Design): fix the error path'), true, false],
+  ['verdict created (changes request) -- an R6 block since t/116', created('Changes requested (Design): fix the error path'), true, true],
   ['verdict created (exemption)', created('Design-exempt (Design): store-only fix'), true, false],
   ['chatter created', created('Head updated to abc123'), false, false],
   ['chatter created (ready)', created('Ready for reviewer approval'), false, false],
   ['chatter created (CI)', created('CI has been green for 37 min'), false, false],
   ['chatter edited into a verdict (new body only)', edited('Looking now.', 'Approved (Quality): ok'), true, false],
   ['verdict edited into chatter (previous body only)', edited('Approved (Quality): ok', 'Withdrawn, see below.'), true, false],
-  ['changes request edited into chatter (previous body only)', edited('**Changes requested (Quality), at abc123**', 'Resolved.'), true, false],
+  ['changes request edited into chatter (previous body only)', edited('**Changes requested (Quality), at abc123**', 'Resolved.'), true, true],
   ['chatter edited into chatter', edited('Head updated to abc123', 'Head updated to abc124'), false, false],
   ['verdict deleted (unfiltered: runs both)', deleted('Approved (Quality): ok'), true, true],
   ['changes request deleted (unfiltered: runs both)', deleted('Changes requested (Design): no'), true, true],
@@ -317,10 +330,11 @@ const SHAPES = [
   ['/recheck-guards', created('/recheck-guards'), true, true],
   ['/recheck-guards inside a longer comment', created('Dismissed the stale review.\n\n/recheck-guards\n'), true, true],
   ['/RECHECK-GUARDS (mixed case)', created('/Recheck-Guards'), true, true],
-  ['PI approval created', created('Approved (PI): go ahead.'), true, true],
-  ['PI approval on a later line', created('Context first.\nApproved (PI): proceeding.'), true, true],
-  ['chatter edited into a PI approval (new body only)', edited('Reading.', 'Approved (PI): go ahead.'), true, true],
-  ['PI approval edited into chatter (previous body only)', edited('Approved (PI): go ahead.', 'Retracted.'), true, true],
+  // t/116 (PI ruling t/116#31): no comment approves in R6, so a PI approval comment is not tier-check evidence.
+  ['PI approval created -- not R6 evidence since t/116', created('Approved (PI): go ahead.'), true, false],
+  ['PI approval on a later line', created('Context first.\nApproved (PI): proceeding.'), true, false],
+  ['chatter edited into a PI approval (new body only)', edited('Reading.', 'Approved (PI): go ahead.'), true, false],
+  ['PI approval edited into chatter (previous body only)', edited('Approved (PI): go ahead.', 'Retracted.'), true, false],
   ['PI approval deleted (unfiltered: runs both)', deleted('Approved (PI): go ahead.'), true, true],
   ['SO clearing created', created(SO_CLEARING), false, true],
   ['chatter edited into an SO clearing (new body only)', edited('Reviewing.', SO_CLEARING), false, true],
@@ -329,19 +343,20 @@ const SHAPES = [
   ['"SO did not review" created', created('SO did not review within the time-box.'), false, true],
   ['"SO did not review" edited away (previous body only)', edited('SO did not review within the time-box.', 'The SO replied after all.'), false, true],
   ['"SO did not review" deleted (unfiltered: runs both)', deleted('SO did not review within the time-box.'), true, true],
-  ['markdown-emphasised verdict (bold, comma)', created('**Changes requested (Quality), at abc123, re: the error path.**'), true, false],
+  ['markdown-emphasised verdict (bold, comma)', created('**Changes requested (Quality), at abc123, re: the error path.**'), true, true],
   ['markdown-emphasised verdict (underscore)', created('_Approved (Tech Lead)._ fine'), true, false],
   ['odd whitespace: no space before the parenthesis', created('Approved(Quality): ok'), true, false],
   ['odd whitespace: newline before the parenthesis', created('Approved\n(Quality): ok'), true, false],
   ['odd whitespace: leading blank lines and tabs', created('\n\n\t**  Design-exempt\t(Design): docs only'), true, false],
-  ['mixed case: reviewer-App backstop', created('CHANGES REQUESTED (design) -- details to follow'), true, false],
+  ['mixed case: reviewer-App backstop', created('CHANGES REQUESTED (design) -- details to follow'), true, true],
   ['mixed case: SO did not review', created('so DID NOT review this one'), false, true],
   ['mixed case: so clearing comment', created(`so CLEARING comment ${HEAD}`), false, true],
   // Supersets: the lists ignore case, the predicates do not. An extra run is harmless.
-  ['mixed case: approved (pi): -- over-triggers both, by design', created('approved (pi): x'), true, true],
+  ['mixed case: approved (pi): -- over-triggers the guard only', created('approved (pi): x'), true, false],
+  ['mixed case: changes requested in prose -- over-triggers both, by design', created('changes requested, in prose'), true, true],
   ['prose that mentions "approved" -- over-triggers the guard, by design', created('Head updated; previously approved by Quality.'), true, false],
   // t/538 (t/437#9, observed live on #5436): a comment of only lower-case "approved" runs the guard
-  // (contains() ignores case) and skips tier-check (its list has only 'Approved (PI):'). By design:
+  // (contains() ignores case) and skips tier-check (no approval-shaped token is on its list). By design:
   // tier-check reads no T1 verdict. The guard's predicate does not count it (t1-approval-guard-pending.test.mjs).
   ['t/538: bare lower-case "approved" -- runs the guard, skips tier-check, by design', created('approved'), true, false],
   ['empty body', created(''), false, false],
@@ -535,15 +550,23 @@ test('guard script, pull_request_review.dismissed: one of two approvals dismisse
 
 test('tier-check R6: a dismissed reviewer-App approval stops counting, so a dismissal must re-evaluate', () => {
   const so = [{ body: SO_CLEARING, createdAt: AFTER_PUSH }];
-  const review = (state) => [{ state, commitId: HEAD, login: APP, body: 'Approved (Tech Lead): T2 approval at this head.' }];
+  const review = (state) => [{ state, commitId: HEAD, login: APP, body: 'Approved (Tech Lead): T2 approval at this head.', submittedAt: AFTER_PUSH }];
   assert.equal(checkR6(true, [], so, review('APPROVED'), HEAD, APP, PUSH_AT), false, 'approved + SO cleared: no advisory');
   assert.equal(checkR6(true, [], so, review('DISMISSED'), HEAD, APP, PUSH_AT), true, 'the advisory is back once the approval is dismissed');
 });
 
-test('tier-check R6: deleting the PI approval or the SO clearing comment brings the advisory back', () => {
-  const pi = { body: 'Approved (PI): go ahead.', createdAt: AFTER_PUSH };
+test('tier-check R6: deleting the SO clearing comment brings the advisory back, deleting a changes-request lifts the block', () => {
+  const tl = [{ state: 'APPROVED', commitId: HEAD, login: APP, body: 'Approved (Tech Lead): ok.', submittedAt: AFTER_PUSH }];
   const so = { body: SO_CLEARING, createdAt: AFTER_PUSH };
-  assert.equal(checkR6(true, [], [pi, so], [], HEAD, APP, PUSH_AT), false);
-  assert.equal(checkR6(true, [], [so], [], HEAD, APP, PUSH_AT), true, 'PI approval deleted');
-  assert.equal(checkR6(true, [], [pi], [], HEAD, APP, PUSH_AT), true, 'SO clearing deleted');
+  const cr = { login: APP, body: 'Changes requested (Quality): no.', createdAt: AFTER_PUSH };
+  assert.equal(checkR6(true, [], [so], tl, HEAD, APP, PUSH_AT), false, 'App approval + SO cleared: no advisory');
+  assert.equal(checkR6(true, [], [], tl, HEAD, APP, PUSH_AT), true, 'SO clearing deleted');
+  assert.equal(checkR6(true, [], [so, cr], tl, HEAD, APP, PUSH_AT), true, 'a changes-request comment blocks');
+  assert.equal(checkR6(true, [], [so], tl, HEAD, APP, PUSH_AT), false, 'the changes-request deleted: the block lifts');
+});
+
+test('tier-check R6: a PI approval COMMENT never clears the advisory (PI ruling t/116#31)', () => {
+  const so = { body: SO_CLEARING, createdAt: AFTER_PUSH };
+  assert.equal(checkR6(true, [], [{ body: 'Approved (PI): go ahead.', createdAt: AFTER_PUSH }, so], [], HEAD, APP, PUSH_AT), true);
+  assert.equal(checkR6(true, [], [{ login: APP, body: 'Approved (PI): go ahead.', createdAt: AFTER_PUSH }, so], [], HEAD, APP, PUSH_AT), true);
 });

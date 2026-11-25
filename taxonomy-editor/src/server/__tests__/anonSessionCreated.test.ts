@@ -4,6 +4,8 @@
 // /api/auth/me for the flight-recorder auth snapshot (t/2490 Gap 1).
 
 import { describe, it, expect, afterEach } from 'vitest';
+import crypto from 'crypto';
+import { setAnonSessionSecret, signAnonSessionId } from '../security/anonSessionSigning.js';
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { Handler, Router } from '../httpKit.js';
 import type { ServerCtx } from '../routes/context.js';
@@ -15,7 +17,9 @@ import {
   readValidCreatedMs,
 } from '../routes/anonSessionCreated.js';
 
-const VALID_UUID = '11111111-2222-4333-8444-555555555555'; // shape crypto.randomUUID() mints
+// t/664: the anon_session_id cookie is <uuid>.<hmac>; a valid one is signed under this environment's secret.
+setAnonSessionSecret(crypto.randomBytes(32));
+const VALID_UUID = signAnonSessionId('11111111-2222-4333-8444-555555555555');
 const FLOOR_MS = Date.parse('2025-01-01T00:00:00Z');
 
 const reqWith = (cookie?: string, headers: Record<string, string> = {}): IncomingMessage =>

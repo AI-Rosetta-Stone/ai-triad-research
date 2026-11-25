@@ -22,9 +22,9 @@ import { fileURLToPath } from 'url';
 import { computeIsPublicPath, PUBLIC_PATH_PREFIXES } from '../publicPaths.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const serverSrc = fs.readFileSync(path.join(here, '..', 'server.ts'), 'utf-8');
-// t/1910: isPublicPath moved to the import-safe publicPaths.ts (asserted behaviorally
-// below); serverSrc is still read for the anonymous-session mint-guard invariants.
+// t/666: the anonymous-session mint endpoints moved from server.ts to anonAuthEndpoints.ts; read it for the
+// mint-guard invariants. (t/1910: isPublicPath moved to the import-safe publicPaths.ts, asserted behaviorally below.)
+const anonAuthSrc = fs.readFileSync(path.join(here, '..', 'anonAuthEndpoints.ts'), 'utf-8');
 
 // t/3084: serveStatic was extracted to staticServe.ts — read it there.
 const staticServeSrc = fs.readFileSync(path.join(here, '..', 'staticServe.ts'), 'utf-8');
@@ -65,12 +65,12 @@ describe('/share/ public SPA-shell exemption (t/1789)', () => {
       // Both cookie-minting branches key on an EXACT urlPath, not a prefix, so a
       // /share/pov/... request cannot reach either. If a future edit loosened
       // these to a prefix that swallowed /share/, this fails.
-      expect(serverSrc).toContain("urlPath === '/.auth/anonymous'");
-      expect(serverSrc).toContain("urlPath === '/api/auth/anonymous'");
+      expect(anonAuthSrc).toContain("urlPath === '/.auth/anonymous'");
+      expect(anonAuthSrc).toContain("urlPath === '/api/auth/anonymous'");
       // Neither mint guard references /share.
-      const mintRegion = serverSrc.slice(
-        serverSrc.indexOf("urlPath === '/.auth/anonymous'"),
-        serverSrc.indexOf('anonymous: true'),
+      const mintRegion = anonAuthSrc.slice(
+        anonAuthSrc.indexOf("urlPath === '/.auth/anonymous'"),
+        anonAuthSrc.indexOf('anonymous: true'),
       );
       expect(mintRegion).not.toContain('/share');
     });

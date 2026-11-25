@@ -1,9 +1,10 @@
 {
   "schemaVersion": 1,
   "builder": "Build-NodeSourceIndex",
-  "builderVersion": "1.2.0",
+  "builderVersion": "1.3.0",
   "inputHash": "307340e0a9e1ff44d7d1ba882bfa6cda128651269da9987f43c0e7009226fed9",
   "marksHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "chunksHash": "789567ae24c5883293029ef8a55fac5efc5158aba5572c355694b53679eecfcb",
   "totals": {
     "nodes": 2,
     "entries": 2,

@@ -12,7 +12,7 @@ const { getOverlayCommitStatusMock, isAdminMock } = vi.hoisted(() => ({
   isAdminMock: vi.fn<[], boolean>(),
 }));
 
-vi.mock('../storage/overlayCommitScheduler.js', () => ({ getOverlayCommitStatus: getOverlayCommitStatusMock }));
+vi.mock('../storage/overlayCommitScheduler.js', () => ({ getOverlayCommitStatusShared: getOverlayCommitStatusMock })); // t/553: the route awaits the shared read
 vi.mock('../security/userContext.js', () => ({ getCurrentUserId: () => 'tester', isAnonymousUser: () => false, isHostedAnonymousRequest: () => false })); // t/548: a signed-in caller
 vi.mock('../community/community.js', () => ({ isAdmin: isAdminMock }));
 vi.mock('../community/admin/reviewRegistry.js', () => ({ requireAdmin: vi.fn(() => true) }));
@@ -71,7 +71,7 @@ describe('GET /api/sync/status — overlay_commit field (t/4276)', () => {
   });
 
   it('is null when the current user has no scheduled/past overlay commit', async () => {
-    getOverlayCommitStatusMock.mockReturnValue(undefined);
+    getOverlayCommitStatusMock.mockResolvedValue(undefined);
     const get = registerAndGetHandler(FAKE_BACKEND, FAKE_SESSION_MANAGER);
     const res = fakeRes();
     await get(fakeReq(), res);
@@ -80,7 +80,7 @@ describe('GET /api/sync/status — overlay_commit field (t/4276)', () => {
   });
 
   it('surfaces a pending overlay commit', async () => {
-    getOverlayCommitStatusMock.mockReturnValue({ state: 'pending', at: 1000 });
+    getOverlayCommitStatusMock.mockResolvedValue({ state: 'pending', at: 1000 });
     const get = registerAndGetHandler(FAKE_BACKEND, FAKE_SESSION_MANAGER);
     const res = fakeRes();
     await get(fakeReq(), res);
@@ -88,7 +88,7 @@ describe('GET /api/sync/status — overlay_commit field (t/4276)', () => {
   });
 
   it('surfaces a failed overlay commit with its error', async () => {
-    getOverlayCommitStatusMock.mockReturnValue({ state: 'failed', at: 2000, error: 'network error' });
+    getOverlayCommitStatusMock.mockResolvedValue({ state: 'failed', at: 2000, error: 'network error' });
     const get = registerAndGetHandler(FAKE_BACKEND, FAKE_SESSION_MANAGER);
     const res = fakeRes();
     await get(fakeReq(), res);

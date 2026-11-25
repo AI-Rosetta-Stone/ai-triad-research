@@ -49,12 +49,13 @@ vi.mock('../storage/opedStore.js', () => ({
 }));
 vi.mock('../ai/opedAdapter.js', () => ({ createWebOpEdAdapter: () => ({ generateText: vi.fn() }) }));
 vi.mock('../security/userContext.js', () => ({
-  isAnonymousUser: () => false, getStorageUserId: () => 'user-1',
+  isAnonymousUser: () => false, isHostedAnonymousRequest: () => false, getStorageUserId: () => 'user-1',
   getCurrentUser: () => ({ principalName: 'u', idp: 'aad', isAnonymous: false }),
 }));
 vi.mock('../ai/proxyTiers.js', () => ({
   resolveTier: () => ({ level: 'platform', allowedBackends: ['gemini'], pinnedModel: undefined }),
   isBackendAllowed: () => true,
+  byokGeminiFallbackApplies: () => false, // t/616: platform tier, so never the free pool
 }));
 vi.mock('../ai/aiBackends.js', () => ({ resolveBackend: () => 'gemini', isRegisteredModel: () => true }));
 vi.mock('../../../../lib/ai-client/index.js', () => ({ DEFAULT_MODEL: 'gemini-flash' }));

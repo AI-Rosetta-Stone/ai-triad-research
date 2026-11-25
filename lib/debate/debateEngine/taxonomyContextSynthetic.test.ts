@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveSyntheticPromptNodes,
   resolveGroundingOverrides,
+  syntheticSkipRecord,
 } from './taxonomyContext.js';
 import { formatTaxonomyContext, type TaxonomyContext } from '../taxonomyContext.js';
 import type { DebateEngineInternals } from './internals.js';
@@ -46,7 +47,7 @@ describe('resolveSyntheticPromptNodes: zero-node case (TL decision, p/8#142)', (
     const a = node('acc-data-001', 'data');
     const e = engine({ useSyntheticStatementGrounding: true }, { 'acc-data-001': { vectors: [[1, 0]] } }, {});
     const r = resolveSyntheticPromptNodes(e, [{ node: a, score: 0.9 }], [a], new Map([['acc-data-001', 0.9]]), QUERY);
-    expect(r).toEqual({ arm: 'control-fallback' });
+    expect(r).toEqual({ arm: 'control-fallback', skipped: ['acc-data-001'], backfilled: [] });
   });
 
   it('keeps the control path, so the prompt still has POV nodes (description path, debate_grounding if on)', () => {
@@ -90,5 +91,32 @@ describe('backfilled nodes in the prompt (t/412 CL item 2)', () => {
     const text = formatTaxonomyContext(ctx, 'accelerationist');
     expect(text.indexOf('[acc-data-002]')).toBeGreaterThan(-1);
     expect(text.indexOf('[acc-data-002]')).toBeLessThan(text.indexOf('[acc-data-003]'));
+  });
+});
+
+describe('synthetic skip record (t/580)', () => {
+  it('a skipped and backfilled node writes count, reason and IDs for the turn', () => {
+    const a = node('acc-data-001', 'data');
+    const b = node('acc-data-002', 'data');
+    const e = engine({ useSyntheticStatementGrounding: true },
+      { 'acc-data-001': { vectors: [[1, 0]] }, 'acc-data-002': { vectors: [[1, 0]] } },
+      { 'acc-data-002': ['b statement'] });
+    const r = resolveSyntheticPromptNodes(e, [{ node: a, score: 0.9 }], [a, b], new Map([['acc-data-001', 0.9], ['acc-data-002', 0.5]]), QUERY);
+    expect(r?.arm).toBe('synthetic');
+    expect(syntheticSkipRecord(r)).toEqual({ count: 1, reason: 'no usable synthetic statement', skipped: ['acc-data-001'], backfilled: ['acc-data-002'] });
+  });
+
+  it('a zero-node control-fallback turn still records its skips', () => {
+    const a = node('acc-data-001', 'data');
+    const e = engine({ useSyntheticStatementGrounding: true }, { 'acc-data-001': { vectors: [[1, 0]] } }, {});
+    const r = resolveSyntheticPromptNodes(e, [{ node: a, score: 0.9 }], [a], new Map([['acc-data-001', 0.9]]), QUERY);
+    expect(syntheticSkipRecord(r)).toMatchObject({ count: 1, skipped: ['acc-data-001'], backfilled: [] });
+  });
+
+  it('writes nothing when no node was skipped, or the flag is off', () => {
+    const a = node('acc-data-001', 'data');
+    const e = engine({ useSyntheticStatementGrounding: true }, { 'acc-data-001': { vectors: [[1, 0]] } }, { 'acc-data-001': ['a statement'] });
+    expect(syntheticSkipRecord(resolveSyntheticPromptNodes(e, [{ node: a, score: 0.9 }], [a], new Map(), QUERY))).toBeUndefined();
+    expect(syntheticSkipRecord(undefined)).toBeUndefined();
   });
 });

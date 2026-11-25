@@ -16,7 +16,10 @@
     ./operations/devops/Invoke-GatedRollback.ps1 -AppName taxonomy-editor-staging -RevisionName <rev> -MeasureOnly -DeactivateAfterMeasure
 
 .NOTES
-    Exits 0 only on 'shifted' + verified, or 'measured'. A refusal exits 1 and changes no traffic.
+    Exits 0 only on 'shifted' + verified, 'already-serving' + verified (t/513: the target already had
+    100% and passed every gate), or 'measured'. A refusal exits 1 and changes no traffic.
+    t/513: an already-active target (staging keeps its rollback target active at weight 0) skips the
+    activate step; every other gate is unchanged.
     The decision logic is GatedRollback.ps1 (unit-tested); this file only wires az/HTTP.
 #>
 param(
@@ -37,6 +40,13 @@ $appUrl = 'https://' + (az containerapp show -n $AppName -g $ResourceGroup --que
 
 $r = Invoke-GatedRollbackCore -RevisionName $RevisionName -MeasureOnly:$MeasureOnly `
     -ProvisionTimeoutSec $ProvisionTimeoutSec -WarmTimeoutSec $WarmTimeoutSec -PollIntervalSec $PollIntervalSec `
+    -GetActive {
+        # t/513: staging keeps the rollback target active at weight 0; activating it again is refused
+        # (RevisionAlreadyInRequestedState). A failed read returns $null, and the core then activates.
+        $s = az containerapp revision show -n $AppName -g $ResourceGroup --revision $RevisionName `
+            --query '{a:properties.active,w:properties.trafficWeight}' -o json 2>$null | ConvertFrom-Json
+        if ($LASTEXITCODE -eq 0 -and $s) { @{ Active = [bool]$s.a; Weight = $s.w } }
+    } `
     -Activate {
         az containerapp revision activate -n $AppName -g $ResourceGroup --revision $RevisionName -o none
         if ($LASTEXITCODE -ne 0) { throw "az containerapp revision activate exited $LASTEXITCODE" }
@@ -62,27 +72,35 @@ $r = Invoke-GatedRollbackCore -RevisionName $RevisionName -MeasureOnly:$MeasureO
     }
 
 Write-Host "Gated rollback: $($r.Action) - $($r.Reason)"
+if ($r.AlreadyActive) { Write-Host "  target was already active: the activate step was skipped (t/513); every gate still ran" }
 Write-Host ("  activate->provisioned: {0}s   activate->healthy+warm: {1}s   fqdn: {2}" -f $r.ActivateToProvisionedSec, $r.ActivateToWarmSec, $r.Fqdn)
 
 if ($r.Action -eq 'measured' -and $DeactivateAfterMeasure) {
-    # SO round 2: never deactivate a revision that carries traffic. Same double-sourced t/4242 guard
-    # as the deploy's cleanup (the revision's own weight AND the ingress traffic config, read fresh).
-    . (Join-Path $PSScriptRoot 'Get-RevisionDeactivationVerdict.ps1')
-    $raw = az containerapp revision show -n $AppName -g $ResourceGroup --revision $RevisionName -o json | ConvertFrom-Json
-    $app = az containerapp show -n $AppName -g $ResourceGroup -o json | ConvertFrom-Json
-    $entries = if ($app.properties.configuration.ingress.PSObject.Properties['traffic']) { @($app.properties.configuration.ingress.traffic) } else { $null }
-    $ingress = Get-IngressTrafficWeightForRevision -RevisionName $RevisionName -TrafficEntries $entries -LatestRevisionName $app.properties.latestRevisionName
-    $weight = if ($raw.properties.PSObject.Properties['trafficWeight']) { $raw.properties.trafficWeight } else { $null }
-    $guard = Get-RevisionDeactivationVerdict -RevisionName $RevisionName -TrafficWeight $weight -Active ([bool]$raw.properties.active) `
-        -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic
-    if ($guard.Action -eq 'deactivate') {
-        az containerapp revision deactivate -n $AppName -g $ResourceGroup --revision $RevisionName -o none
-        Write-Host "  drill: deactivated '$RevisionName' again (exit $LASTEXITCODE)"
+    # t/513 (Quality p/262#9): the drill deactivates only a revision it activated itself; an already-active
+    # standby (staging's weight-0 rollback target) is left alone.
+    $drill = Get-DrillDeactivateDecision -Result $r -DeactivateAfterMeasure:$DeactivateAfterMeasure
+    if ($drill.Skip) {
+        Write-Host "  drill: NOT deactivating '$RevisionName': $($drill.Reason)"
     } else {
-        Write-Host "  drill: NOT deactivating '$RevisionName': $($guard.Reason)"
+        # SO round 2: never deactivate a revision that carries traffic. Same double-sourced t/4242 guard
+        # as the deploy's cleanup (the revision's own weight AND the ingress traffic config, read fresh).
+        . (Join-Path $PSScriptRoot 'Get-RevisionDeactivationVerdict.ps1')
+        $raw = az containerapp revision show -n $AppName -g $ResourceGroup --revision $RevisionName -o json | ConvertFrom-Json
+        $app = az containerapp show -n $AppName -g $ResourceGroup -o json | ConvertFrom-Json
+        $entries = if ($app.properties.configuration.ingress.PSObject.Properties['traffic']) { @($app.properties.configuration.ingress.traffic) } else { $null }
+        $ingress = Get-IngressTrafficWeightForRevision -RevisionName $RevisionName -TrafficEntries $entries -LatestRevisionName $app.properties.latestRevisionName
+        $weight = if ($raw.properties.PSObject.Properties['trafficWeight']) { $raw.properties.trafficWeight } else { $null }
+        $guard = Get-RevisionDeactivationVerdict -RevisionName $RevisionName -TrafficWeight $weight -Active ([bool]$raw.properties.active) `
+            -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic
+        if ($guard.Action -eq 'deactivate') {
+            az containerapp revision deactivate -n $AppName -g $ResourceGroup --revision $RevisionName -o none
+            Write-Host "  drill: deactivated '$RevisionName' again (exit $LASTEXITCODE)"
+        } else {
+            Write-Host "  drill: NOT deactivating '$RevisionName': $($guard.Reason)"
+        }
     }
 }
 
 $r
-if ($r.Action -eq 'measured' -or ($r.Action -eq 'shifted' -and $r.Verified)) { exit 0 }
+if ($r.Action -eq 'measured' -or ($r.Action -in @('shifted', 'already-serving') -and $r.Verified)) { exit 0 }
 exit 1

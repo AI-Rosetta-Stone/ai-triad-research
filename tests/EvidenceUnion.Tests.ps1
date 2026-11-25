@@ -27,8 +27,8 @@ BeforeAll {
 
 Describe 'Evidence union fixture (spec section 7)' -Tag 'evidence-union' {
 
-    It 'is version 3 of the section 7 fixture (v3 adds summary-only chunks and chunk_of, t/355)' {
-        $script:Fixture.version | Should -Be 3
+    It 'is version 4 of the section 7 fixture (v3: summary-only chunks and chunk_of; v4: chunks named by a manifest, t/355)' {
+        $script:Fixture.version | Should -Be 4
         $script:Fixture.spec | Should -BeExactly 'docs/specs/source-identity.md section 7'
     }
 
@@ -108,6 +108,15 @@ Describe 'Summary-only chunks, chunk_of and N2 (fixture v3, t/355 R1 to R7)' -Ta
 
     BeforeAll {
         # The fixture's docs, as the functions take them: Docs (HasSource, Mark), the summaries, and the N2 fields.
+        # A case's manifest (chunk id -> base id) as the functions take it.
+        $script:V4Manifest = {
+            param($Case)
+            $m = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
+            if ($Case.PSObject.Properties['manifest'] -and $Case.manifest) {
+                foreach ($e in $Case.manifest.PSObject.Properties) { $m[[string]$e.Name] = [string]$e.Value }
+            }
+            , $m
+        }
         $script:V3Docs = {
             param($DocsObj)
             $h = @{}; $sum = @{}; $meta = @{}
@@ -115,7 +124,7 @@ Describe 'Summary-only chunks, chunk_of and N2 (fixture v3, t/355 R1 to R7)' -Ta
                 $d = $p.Value
                 $mark = if ($d.PSObject.Properties['mark']) { $d.mark } else { $null }
                 $h[$p.Name] = [pscustomobject]@{ HasSource = [bool]$d.has_source; Mark = $mark }
-                $sum[$p.Name] = $d.summary
+                $sum[$p.Name] = if ($d.PSObject.Properties['summary']) { $d.summary } else { [pscustomobject]@{} }
                 if ($d.PSObject.Properties['chunk_generated_at'] -or $d.PSObject.Properties['chunk_model']) {
                     $m = @{}
                     if ($d.PSObject.Properties['chunk_generated_at']) { $m['chunk_generated_at'] = (& $script:NormScalar $d.chunk_generated_at) }
@@ -159,20 +168,59 @@ Describe 'Summary-only chunks, chunk_of and N2 (fixture v3, t/355 R1 to R7)' -Ta
         }
     }
 
-    It 'R1: every resolve case resolves as the reference says (d, base with source, transitive)' {
+    It 'R1: every resolve case resolves as the reference says (listed, not listed, transitive, missing base)' {
+        @($script:FixtureObj.resolve_cases).Count | Should -BeGreaterThan 5
         foreach ($c in $script:FixtureObj.resolve_cases) {
             $d = & $script:V3Docs $c.docs
-            $got = InModuleScope AITriad -Parameters @{ H = $d.H; I = [string]$c.id } { param($H, $I) Resolve-EvidenceDocId -Id $I -Docs $H }
-            $got | Should -Be $c.expected -Because $c.name
+            $m = & $script:V4Manifest $c
+            $run = { InModuleScope AITriad -Parameters @{ H = $d.H; I = [string]$c.id; M = $m } { param($H, $I, $M) Resolve-EvidenceDocId -Id $I -Docs $H -Manifest $M 3>$null } }
+            if ($c.PSObject.Properties['expected_error']) {
+                $run | Should -Throw -ExpectedMessage "*$($c.id)*" -Because $c.name
+            } else {
+                (& $run) | Should -Be $c.expected -Because $c.name
+            }
         }
+    }
+
+    It 'an id that is not listed but has the old chunk shape gets a WARN and stays its own source' {
+        $c = @($script:FixtureObj.resolve_cases | Where-Object { $_.name -like 'not listed, no source dir*' })[0]
+        $d = & $script:V3Docs $c.docs
+        $m = & $script:V4Manifest $c
+        $warnings = InModuleScope AITriad -Parameters @{ H = $d.H; I = [string]$c.id; M = $m } {
+            param($H, $I, $M)
+            [void]$script:EvidenceUnlistedChunkWarned.Remove($I)
+            $null = Resolve-EvidenceDocId -Id $I -Docs $H -Manifest $M -WarningVariable w 3>$null
+            , @($w)
+        }
+        ($warnings -join ' ') | Should -Match 'not in the legacy-chunk manifest'
+    }
+
+    It 'a loop of marks is refused with an error, not followed for ever' {
+        $h = @{ 'a-2026' = [pscustomobject]@{ HasSource = $true; Mark = 'b-2026' }; 'b-2026' = [pscustomobject]@{ HasSource = $true; Mark = 'a-2026' } }
+        $m = [System.Collections.Generic.Dictionary[string, string]]::new()
+        { InModuleScope AITriad -Parameters @{ H = $h; M = $m } { param($H, $M) Resolve-EvidenceDocId -Id 'a-2026' -Docs $H -Manifest $M } } | Should -Throw -ExpectedMessage '*loops back*'
+    }
+
+    It 'the default manifest is the file beside the spec: 16 chunks, each with the base its id names' {
+        $m = InModuleScope AITriad { Get-EvidenceLegacyChunkManifest -Force }
+        $m.Count | Should -Be 16
+        foreach ($k in $m.Keys) { $k | Should -Match ('^' + [regex]::Escape($m[$k]) + '-\d+$') }
+        $file = Get-Content -Raw (Join-Path $PSScriptRoot '..' 'docs' 'specs' 'source-identity-legacy-chunks.json') | ConvertFrom-Json
+        @($file.chunks.PSObject.Properties).Count | Should -Be $m.Count
+    }
+
+    It 'a missing manifest file means no chunk is folded, with a WARN' {
+        $r = InModuleScope AITriad { $m = Get-EvidenceLegacyChunkManifest -Path (Join-Path ([System.IO.Path]::GetTempPath()) 'no-such-manifest.json') -WarningVariable w 3>$null; @{ Count = $m.Count; Warn = ($w -join ' ') } }
+        $r.Count | Should -Be 0
+        $r.Warn | Should -Match 'no summary is treated as a chunk'
     }
 
     It 'R2 to R4: each chunk case unions to the reference, with via, chunk_of and N2 attribution' {
         foreach ($c in $script:FixtureObj.chunk_union_cases) {
             $d = & $script:V3Docs $c.docs
-            $got = InModuleScope AITriad -Parameters @{ H = $d.H; S = $d.S; M = $d.M; C = [string]$c.canonical } {
-                param($H, $S, $M, $C)
-                $members = @(Get-EvidenceGroupMembers -Canonical $C -Docs $H | ForEach-Object {
+            $got = InModuleScope AITriad -Parameters @{ H = $d.H; S = $d.S; M = $d.M; C = [string]$c.canonical; L = (& $script:V4Manifest $c) } {
+                param($H, $S, $M, $C, $L)
+                $members = @(Get-EvidenceGroupMembers -Canonical $C -Docs $H -Manifest $L 3>$null | ForEach-Object {
                         $meta = if ($M.ContainsKey($_.Id)) { $M[$_.Id] } else { @{} }
                         [pscustomobject]@{ Id = $_.Id; Kind = $_.Kind; Via = $_.Via
                             ChunkGeneratedAt = $meta['chunk_generated_at']; ChunkModel = $meta['chunk_model']
@@ -189,10 +237,10 @@ Describe 'Summary-only chunks, chunk_of and N2 (fixture v3, t/355 R1 to R7)' -Ta
     It 'R5: the group of each chunk case is one document' {
         foreach ($c in $script:FixtureObj.chunk_union_cases) {
             $d = & $script:V3Docs $c.docs
-            $n = InModuleScope AITriad -Parameters @{ H = $d.H; C = [string]$c.canonical } {
-                param($H, $C)
-                $ids = @($C) + @(Get-EvidenceGroupMembers -Canonical $C -Docs $H | ForEach-Object { $_.Id })
-                @($ids | ForEach-Object { Resolve-EvidenceDocId -Id $_ -Docs $H } | Select-Object -Unique).Count
+            $n = InModuleScope AITriad -Parameters @{ H = $d.H; C = [string]$c.canonical; L = (& $script:V4Manifest $c) } {
+                param($H, $C, $L)
+                $ids = @($C) + @(Get-EvidenceGroupMembers -Canonical $C -Docs $H -Manifest $L 3>$null | ForEach-Object { $_.Id })
+                @($ids | ForEach-Object { Resolve-EvidenceDocId -Id $_ -Docs $H -Manifest $L 3>$null } | Select-Object -Unique).Count
             }
             $n | Should -Be $c.expected_documents -Because $c.name
         }
@@ -201,9 +249,9 @@ Describe 'Summary-only chunks, chunk_of and N2 (fixture v3, t/355 R1 to R7)' -Ta
     It 'R6: extraction keeps every kept fact, including via and chunk_of, for each chunk case' {
         foreach ($c in $script:FixtureObj.chunk_union_cases) {
             $d = & $script:V3Docs $c.docs
-            $got = InModuleScope AITriad -Parameters @{ H = $d.H; S = $d.S; M = $d.M; C = [string]$c.canonical } {
-                param($H, $S, $M, $C)
-                $members = @(Get-EvidenceGroupMembers -Canonical $C -Docs $H | ForEach-Object {
+            $got = InModuleScope AITriad -Parameters @{ H = $d.H; S = $d.S; M = $d.M; C = [string]$c.canonical; L = (& $script:V4Manifest $c) } {
+                param($H, $S, $M, $C, $L)
+                $members = @(Get-EvidenceGroupMembers -Canonical $C -Docs $H -Manifest $L 3>$null | ForEach-Object {
                         $meta = if ($M.ContainsKey($_.Id)) { $M[$_.Id] } else { @{} }
                         [pscustomobject]@{ Id = $_.Id; Kind = $_.Kind; Via = $_.Via
                             ChunkGeneratedAt = $meta['chunk_generated_at']; ChunkModel = $meta['chunk_model']
