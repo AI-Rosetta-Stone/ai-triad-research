@@ -472,6 +472,10 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
       // the $0-5/month cost target. Still protected by shared-key auth.
       defaultAction: 'Allow'
       bypass: 'Logging, Metrics, AzureServices'   // live's order, so the what-if shows no change (t/659)
+      // ipRules are intentionally NOT declared (TL decision, t/659): live carries two Allow rules,
+      // and one is a personal address that must never be published in this public repo. They have
+      // no effect under defaultAction Allow, and ARM keeps them on apply. If defaultAction ever
+      // becomes Deny, pass them in as a parameter from a GitHub environment variable instead.
     }
   }
 }
