@@ -63,6 +63,22 @@ export function withoutOpEdStages(type: string, data: unknown): unknown {
   return { ...set, opeds };
 }
 
+/** t/693 interim (Security p/238#31; not deployed until the PI's yes): an anonymous caller must not see
+ *  community_metadata.submitted_by_display, which for Google and Entra sign-ins is the submitter's storage id
+ *  (their email address). Signed-in callers are unchanged. Applied to the community list and item responses. */
+function anonymousPublicView<T>(value: T): T {
+  if (!isAnonymousUser()) return value;
+  const strip = (item: unknown): unknown => {
+    if (!item || typeof item !== 'object') return item;
+    const rec = item as Record<string, unknown>;
+    const meta = rec.community_metadata;
+    if (!meta || typeof meta !== 'object') return item;
+    const { submitted_by_display: _dropped, ...rest } = meta as Record<string, unknown>;
+    return { ...rec, community_metadata: rest };
+  };
+  return (Array.isArray(value) ? value.map(strip) : strip(value)) as T;
+}
+
 export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
   const { get, post, del, patch } = r;
   const { getGithubBackend } = ctx;
@@ -132,7 +148,7 @@ export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
   });
 
   get('/api/community/chats', async (_req, res) => {
-    try { json(res, await community.listCommunityChats()); }
+    try { json(res, anonymousPublicView(await community.listCommunityChats())); }
     catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -150,7 +166,7 @@ export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
       const id = param(req, 'id', '/api/community/chats/:id');
       const item = await community.loadCommunityItem('chats', id);
       if (!item) { json(res, { found: false }, 200); return; }
-      json(res, item);
+      json(res, anonymousPublicView(item));
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -166,7 +182,7 @@ export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
   get('/api/community/debates', async (_req, res) => {
     try {
       const entries = await community.listCommunityDebates() as Record<string, unknown>[];
-      json(res, entries.map(e => ({ ...e, source: 'community' })));
+      json(res, anonymousPublicView(entries.map(e => ({ ...e, source: 'community' }))));
     }
     catch (err) {
       getGlobalRecorder()?.record({
@@ -185,7 +201,7 @@ export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
       const id = param(req, 'id', '/api/community/debates/:id');
       const item = await community.loadCommunityItem('debates', id);
       if (!item) { json(res, { found: false }, 200); return; }
-      json(res, item);
+      json(res, anonymousPublicView(item));
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -204,7 +220,7 @@ export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
   get('/api/community/opeds', async (_req, res) => {
     try {
       const entries = await community.listCommunityOpEds() as Record<string, unknown>[];
-      json(res, entries.map(e => ({ ...e, source: 'community' })));
+      json(res, anonymousPublicView(entries.map(e => ({ ...e, source: 'community' }))));
     }
     catch (err) {
       getGlobalRecorder()?.record({
@@ -223,7 +239,7 @@ export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
       const id = param(req, 'id', '/api/community/opeds/:id');
       const item = await community.loadCommunityItem('opeds', id);
       if (!item) { json(res, { found: false }, 200); return; }
-      json(res, item);
+      json(res, anonymousPublicView(item));
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -242,7 +258,7 @@ export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
   get('/api/community/inquiries', async (_req, res) => {
     try {
       const entries = await community.listCommunityInquiries() as Record<string, unknown>[];
-      json(res, entries.map(e => ({ ...e, source: 'community' })));
+      json(res, anonymousPublicView(entries.map(e => ({ ...e, source: 'community' }))));
     }
     catch (err) {
       getGlobalRecorder()?.record({
@@ -261,7 +277,7 @@ export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
       const id = param(req, 'id', '/api/community/inquiries/:id');
       const item = await community.loadCommunityItem('inquiries', id);
       if (!item) { json(res, { found: false }, 200); return; }
-      json(res, item);
+      json(res, anonymousPublicView(item));
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
