@@ -29,7 +29,7 @@ import { registryOrNull } from '../debate/SeatTagPicker';
 import type { PovNode } from '@lib/debate/taxonomyTypes';
 import './NewOpEdDialog.css';
 import {
-  SOURCE_MODES, SourceSelector, DocumentField, hasSourceFor, sourceStartReason, useDocumentSource,
+  SOURCE_MODES, SourceSelector, DocumentField, hasSourceFor, sourceStartReason, useDocumentSource, useDocumentExtractionAvailable,
   type SourceMode, type DocumentState, type DocumentChoice,
 } from './NewOpEdSource';
 
@@ -681,6 +681,10 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
 }) {
   // Screen A
   const [sourceMode, setSourceMode] = useState<SourceMode>('topic');
+  // t/634: hide the Document segment until extraction is known to work here; never sit on a hidden segment.
+  const documentAvailable = useDocumentExtractionAvailable(open);
+  const allowDocumentSource = allowUrlSource && documentAvailable === true;
+  useEffect(() => { if (sourceMode === 'document' && !allowDocumentSource) setSourceMode('topic'); }, [sourceMode, allowDocumentSource]);
   const fromWebPage = sourceMode === 'web';
   const { docFile, docState, docError, pick: handlePickDocument, remove: handleRemoveDocument } = useDocumentSource();
   const [topic, setTopic] = useState('');
@@ -909,7 +913,7 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
         ) : (
           <OpEdCreateForm
             allowUrlSource={allowUrlSource}
-            allowDocumentSource={allowUrlSource}
+            allowDocumentSource={allowDocumentSource}
             sourceMode={sourceMode}
             setSourceMode={setSourceMode}
             docFile={docFile}

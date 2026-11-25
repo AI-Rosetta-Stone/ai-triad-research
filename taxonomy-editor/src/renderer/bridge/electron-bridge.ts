@@ -620,6 +620,17 @@ export const api: AppAPI = {
   // File operations
   fetchUrlContent: (url) => window.electronAPI.fetchUrlContent(url),
   pickDocumentFile: () => window.electronAPI.pickDocumentFile(),
+  documentExtractionAvailable: async () => {
+    const probe = window.electronAPI.documentExtractionAvailable;
+    if (!probe) {
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'electron-bridge', level: 'warn', message: 'WARN: preload has no documentExtractionAvailable; treating document extraction as available (t/634)' });
+      return true;
+    }
+    try { return await probe(); } catch (err) {
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'electron-bridge', level: 'warn', message: 'WARN: document-extraction-available failed; hiding the Document source (t/634)', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+      return false;
+    }
+  },
   clipboardWriteText: (text) => window.electronAPI.clipboardWriteText(text),
 
   // Window control

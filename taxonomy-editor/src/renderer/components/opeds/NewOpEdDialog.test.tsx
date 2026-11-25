@@ -19,6 +19,7 @@ const h = vi.hoisted(() => {
     hasApiKey: vi.fn().mockResolvedValue(true),
     createOpEdSet: vi.fn(),
     pickDocumentFile: vi.fn(),
+    documentExtractionAvailable: vi.fn().mockResolvedValue(true),
     cancelOpEdSet: vi.fn(),
     refreshAIModels: vi.fn().mockResolvedValue(undefined),
     onOpEdProgress: vi.fn((cb: (e: ProgressEvent) => void) => {
@@ -36,6 +37,7 @@ vi.mock('@bridge', () => ({
     hasApiKey: h.hasApiKey,
     createOpEdSet: h.createOpEdSet,
     pickDocumentFile: h.pickDocumentFile,
+    documentExtractionAvailable: h.documentExtractionAvailable,
     cancelOpEdSet: h.cancelOpEdSet,
     refreshAIModels: h.refreshAIModels,
     onOpEdProgress: h.onOpEdProgress,
@@ -56,6 +58,7 @@ function open(props: Partial<Parameters<typeof NewOpEdDialog>[0]> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   hasApiKey.mockResolvedValue(true);
+  h.documentExtractionAvailable.mockResolvedValue(true);
   h.state.cb = null;
   h.anonymous = false;
 });
@@ -188,9 +191,9 @@ describe('NewOpEdDialog — source selector', () => {
     expect((screen.getByLabelText(/Web page URL/) as HTMLInputElement).value).toBe('https://example.com/post');
   });
 
-  it('offers the Document segment on desktop only (web has no create path for it yet)', () => {
+  it('offers the Document segment on desktop only (web has no create path for it yet)', async () => {
     const { unmount } = open();
-    expect(screen.getByRole('radio', { name: 'Document' })).toBeTruthy();
+    expect(await screen.findByRole('radio', { name: 'Document' })).toBeTruthy();
     unmount();
     open({ allowUrlSource: false });
     expect(screen.queryByRole('radio', { name: 'Document' })).toBeNull();
@@ -242,13 +245,14 @@ describe('NewOpEdDialog — URL-in-topic steer (t/2899)', () => {
 
 describe('NewOpEdDialog — Document source (t/276)', () => {
   const chooseFile = () => fireEvent.click(screen.getByRole('button', { name: 'Choose a file…' }));
-  const selectDocument = () => fireEvent.click(screen.getByRole('radio', { name: 'Document' }));
+  // t/634: the Document segment shows once the capability check passes.
+  const selectDocument = async () => fireEvent.click(await screen.findByRole('radio', { name: 'Document' }));
 
   it('extracts the picked document, shows the chip, and submits documentSource only', async () => {
     pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'report.pdf', content: 'alpha beta gamma' });
     createOpEdSet.mockResolvedValue({ set_id: 's1' });
     open();
-    selectDocument();
+    await selectDocument();
     chooseFile();
     await waitFor(() => expect(screen.getByText('~3 words')).toBeTruthy());
     expect(screen.getByText('report.pdf')).toBeTruthy();
@@ -262,9 +266,9 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
     expect(payload).not.toHaveProperty('url');
   });
 
-  it('says why Start is off until a document is chosen', () => {
+  it('says why Start is off until a document is chosen', async () => {
     open();
-    selectDocument();
+    await selectDocument();
     expect(screen.getByText('Choose a document')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Draft/ }).getAttribute('aria-disabled')).toBe('true');
   });
@@ -272,7 +276,7 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
   it('reports an empty extraction and keeps Start off', async () => {
     pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'scan.pdf', content: '   ' });
     open();
-    selectDocument();
+    await selectDocument();
     chooseFile();
     await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/no readable text/));
     expect(screen.getByText('Choose a readable document')).toBeTruthy();
@@ -281,7 +285,7 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
   it('shows a picker or extraction error and keeps the zone for another pick', async () => {
     pickDocumentFile.mockRejectedValue(new Error('“big.pdf” is 14.8 MB. The limit is 10 MB.'));
     open();
-    selectDocument();
+    await selectDocument();
     chooseFile();
     await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/limit is 10 MB/));
     expect(screen.getByRole('button', { name: 'Choose a file…' })).toBeTruthy();
@@ -290,26 +294,48 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
   it('a cancelled pick leaves the source empty', async () => {
     pickDocumentFile.mockResolvedValue({ cancelled: true });
     open();
-    selectDocument();
+    await selectDocument();
     chooseFile();
     await waitFor(() => expect(pickDocumentFile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByText('Choose a document')).toBeTruthy());
   });
 
-  it('anonymous users see the Document zone disabled with the sign-in note, and no picker runs', () => {
+  it('anonymous users see the Document zone disabled with the sign-in note, and no picker runs', async () => {
     h.anonymous = true;
     open();
-    selectDocument();
+    await selectDocument();
     expect(screen.getByText('Sign in to upload a document.')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Choose a file…' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Choose a document')).toBeTruthy();
     expect(pickDocumentFile).not.toHaveBeenCalled();
   });
 
+  it('t/634: the Document segment stays hidden while the capability check runs (no flash)', () => {
+    h.documentExtractionAvailable.mockReturnValue(new Promise(() => {}));
+    open();
+    expect(screen.queryByRole('radio', { name: 'Document' })).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Topic' })).toBeTruthy();
+  });
+
+  it('t/634: when extraction is unavailable the segment is hidden (Topic and Web page only)', async () => {
+    h.documentExtractionAvailable.mockResolvedValue(false);
+    open();
+    await waitFor(() => expect(h.documentExtractionAvailable).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByRole('radio', { name: 'Document' })).toBeNull();
+    expect(screen.getAllByRole('radio').map(r => r.textContent)).toEqual(['Topic', 'Web page']);
+  });
+
+  it('t/634: the segment comes back when the check passes', async () => {
+    h.documentExtractionAvailable.mockResolvedValue(true);
+    open();
+    expect(await screen.findByRole('radio', { name: 'Document' })).toBeTruthy();
+  });
+
   it('Remove moves focus to Choose a file', async () => {
     pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'notes.md', content: 'one two' });
     open();
-    selectDocument();
+    await selectDocument();
     chooseFile();
     await waitFor(() => expect(screen.getByText('notes.md')).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: 'Remove notes.md' }));
@@ -319,7 +345,7 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
   it('Remove returns to the empty zone', async () => {
     pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'notes.md', content: 'one two' });
     open();
-    selectDocument();
+    await selectDocument();
     chooseFile();
     await waitFor(() => expect(screen.getByText('notes.md')).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: 'Remove notes.md' }));

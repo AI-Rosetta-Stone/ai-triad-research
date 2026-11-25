@@ -1397,6 +1397,7 @@ const rawApi: AppAPI = {
     });
     return { cancelled: false, filePath: file.name, content };
   },
+  documentExtractionAvailable: async () => true, // t/634: the server extracts; only desktop is gated
   clipboardWriteText: async (text) => {
     await navigator.clipboard.writeText(text);
   },
