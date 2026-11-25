@@ -31,7 +31,7 @@ import { getDataRoot } from '../config.js';
 import { gitBlobSha } from './gitBlobSha.js';
 import { writeFramedNdjson, log } from '../logger.js';
 import { BlobLease } from './blobLease.js';
-import { SharedOverlayStore, type SharedOverlayEntry } from './sharedOverlayStore.js';
+import { SharedOverlayStore, type SharedOverlayEntry, type SharedOverlayEntryWithEtag, type SharedOverlayStageExpect } from './sharedOverlayStore.js';
 import { BlobServiceClient, type ContainerClient, type BlockBlobClient, RestError } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
 
@@ -189,6 +189,12 @@ const OVERLAY_SHARED_STATE_COMMIT_READY = false;
  *  `_gen` has not moved, because a stage whose `_gen` bump failed is still acknowledged. */
 export const SHARED_OVERLAY_RELIST_MS = 10_000;
 
+/** t/550: attempts for one shared save whose conditional upload keeps losing to concurrent saves, before a 503. */
+const SHARED_SAVE_MAX_ATTEMPTS = 5;
+
+/** t/550: what a shared save checks before staging (the caller table on t/503#15). */
+type SharedSaveMode = { kind: 'precondition'; baseSha: string } | { kind: 'ifAbsent' } | { kind: 'latestWins' };
+
 /** t/4499: bounded concurrency for readFilesBatch's GraphQL chunks — same
  *  shape as nodeSourceIndex.ts's mapWithConcurrencyLimit, duplicated rather
  *  than shared since it's an 8-line generic and the two call sites (summary
@@ -343,6 +349,8 @@ export class GitHubAPIBackend implements StorageBackend {
   private readonly sharedOverlayStateActive: boolean = false;
   // t/549: `listedAt` is when the entries were last listed from the store (0 = never); see SHARED_OVERLAY_RELIST_MS.
   private sharedOverlayReadCache: Map<string, { gen: string | null; entries: Map<string, SharedOverlayEntry>; listedAt: number }> = new Map();
+  /** t/550: per (user, path) chain so this replica runs one shared save at a time for a path (SO condition 2). */
+  private readonly sharedSaveLocks = new Map<string, Promise<void>>();
 
   // t/4312: per-path base blob sha, recorded once when a path first enters a
   // clean overlay slot (never reset by a later same-path rewrite — see
@@ -1676,14 +1684,11 @@ export class GitHubAPIBackend implements StorageBackend {
     const existing = this.checkSessionOverlay(repoPath);
     const userId = this.getEffectiveUserId();
 
+    // t/550: with shared state active the save is acknowledged only once the shared store has it.
+    if (this.sharedSavesActive(userId)) return this.saveSharedWithOptionalBaseSha(userId, repoPath, content, ref, baseSha);
+
     if (baseSha === undefined) {
-      this.recordEvent({
-        type: 'storage.fallback', component: 'github-api', level: 'warn',
-        message: `writeFile(${repoPath}): no baseSha supplied on overlay write — falling back to no precondition (direct fileIO caller, not the save route)`,
-        data: { path: repoPath, ref },
-      });
-      log.github.warn({ path: repoPath, ref },
-        `storage.fallback: writeFile(${repoPath}) overlay write had no baseSha — no precondition`);
+      this.warnNoBaseShaOverlayWrite(repoPath, ref);
       await this.maybeRecordBaseShaForFreshStage(userId, repoPath, ref, existing !== undefined);
     } else {
       let currentVersion: string | null;
@@ -1751,6 +1756,10 @@ export class GitHubAPIBackend implements StorageBackend {
   private async createInOverlayIfAbsent(
     filePath: string, repoPath: string, content: string, ref: string,
   ): Promise<WriteIfAbsentResult> {
+    const sharedUser = this.getEffectiveUserId();
+    if (this.sharedSavesActive(sharedUser)) {
+      return (await this.stageSharedOverlaySave(sharedUser, repoPath, content, ref, { kind: 'ifAbsent' })) === 'exists' ? 'exists' : 'created';
+    }
     const isStagedFile = (v: string | undefined) => v !== undefined && v !== GitHubAPIBackend.TOMBSTONE;
     const staged = this.checkSessionOverlay(repoPath);
     if (isStagedFile(staged)) return 'exists';
@@ -4474,6 +4483,155 @@ export class GitHubAPIBackend implements StorageBackend {
     return Math.min(1, cachedCount / Math.max(1, this.repoTree.size));
   }
 
+  // ── t/550 (t/503 option 2): saves acknowledged only after the shared stage succeeds ──────────────────
+
+  /** One save to the shared overlay store when shared state is active (t/503#9 to #15, SO t/503#14):
+   *  - `precondition` (writeFile with a baseSha): the git blob sha of the entry's content must equal baseSha. A tombstone
+   *    entry counts as absent. With no entry, the branch file, read fresh on every attempt, decides. Mismatch: 409.
+   *  - `ifAbsent` (writeFileIfAbsent): an entry with content, or a branch file with no entry, means 'exists'.
+   *  - `latestWins` (deletes, and the logged no-baseSha write): no semantic check.
+   *  The check is enforced by the store's conditional upload (expect etag / absent), so a concurrent save on any replica
+   *  makes this one re-check instead of overwriting it; the loop is bounded by SHARED_SAVE_MAX_ATTEMPTS and ends in a 503.
+   *  `stagedAt` and `stageId` are set once, when the save arrives. Saves to one (user, path) run one at a time on this
+   *  replica. The local map is set only after the store acknowledged; it is a read cache. No local-only fallback. */
+  private async stageSharedOverlaySave(
+    userId: string, repoPath: string, content: string | null, ref: string, mode: SharedSaveMode,
+  ): Promise<'staged' | 'exists'> {
+    const store = this.sharedOverlayStore!;
+    if (content !== null) this.assertOverlayCap(userId, repoPath, content);
+    const stagedAt = new Date().toISOString();
+    const stageId = crypto.randomUUID();
+    return this.withSharedSaveLock(`${userId}\u0000${repoPath}`, async () => {
+      for (let attempt = 1; attempt <= SHARED_SAVE_MAX_ATTEMPTS; attempt++) {
+        const current = await this.readSharedEntryForSave(store, userId, repoPath);
+        const branch = current === null ? await this.getSessionBranchFileStatus(repoPath, ref) : null;
+        if (branch?.kind === 'unavailable') this.throwVersionUnavailable(repoPath, ref);
+        if (this.sharedSaveCheck(repoPath, ref, mode, current, branch) === 'exists') return 'exists';
+
+        const baseSha = current ? current.entry.baseSha : branch?.kind === 'present' ? branch.sha : null;
+        const expect: SharedOverlayStageExpect = mode.kind === 'latestWins' ? { latestWins: true }
+          : current ? { etag: current.etag } : { absent: true };
+        const result = await store.stage(userId, repoPath, { content, baseSha, stagedAt, stageId }, expect);
+        if (result.ok) {
+          this.applyAcknowledgedSharedSave(userId, repoPath, content, baseSha, result.gen, { content, baseSha, stagedAt, stageId });
+          return 'staged';
+        }
+        if (result.reason === 'newer_exists') return 'staged'; // ours is ordered before a save that overlapped it
+        if (result.reason === 'storage_unavailable') this.throwSharedStageFailed(repoPath, 'the shared store refused or could not be reached');
+        // precondition_failed: another save landed in between; re-check against it.
+      }
+      return this.throwSharedStageFailed(repoPath, `the entry kept changing (${SHARED_SAVE_MAX_ATTEMPTS} attempts)`);
+    });
+  }
+
+  private async readSharedEntryForSave(
+    store: SharedOverlayStore, userId: string, repoPath: string,
+  ): Promise<SharedOverlayEntryWithEtag | null> {
+    try {
+      return await store.getEntryWithEtag(userId, repoPath);
+    } catch (err) {
+      log.storage.warn({ userId, repoPath, err: String(err) }, 'shared overlay save: could not read the current entry; the save fails (t/550)');
+      return this.throwSharedStageFailed(repoPath, 'the current entry could not be read');
+    }
+  }
+
+  /** The semantic check for one attempt. Throws the 409 for a stale baseSha; 'exists' only for ifAbsent. */
+  private sharedSaveCheck(
+    repoPath: string, ref: string, mode: SharedSaveMode, current: SharedOverlayEntryWithEtag | null,
+    branch: { kind: 'present'; sha: string } | { kind: 'absent' } | { kind: string } | null,
+  ): 'ok' | 'exists' {
+    const presentContent = current ? current.entry.content : null; // a tombstone entry counts as absent
+    const branchPresent = current === null && branch?.kind === 'present';
+    if (mode.kind === 'ifAbsent') return presentContent !== null || branchPresent ? 'exists' : 'ok';
+    if (mode.kind === 'precondition') {
+      const currentVersion = presentContent !== null ? gitBlobSha(presentContent)
+        : branchPresent ? (branch as { sha: string }).sha : null;
+      if (currentVersion === null || currentVersion !== mode.baseSha) {
+        this.recordEvent({
+          type: 'github.api.conflict', component: 'github-api', level: 'warn',
+          message: `Overlay write conflict on ${repoPath} — the shared entry moved since the client's last read`,
+          data: { path: repoPath, ref, staleSha: mode.baseSha, currentSha: currentVersion, shared: true },
+        });
+        throw this.writeConflictError(repoPath, 'writeFile');
+      }
+    }
+    return 'ok';
+  }
+
+  /** After the store acknowledged: the local read cache and the base sha follow the store. */
+  private applyAcknowledgedSharedSave(
+    userId: string, repoPath: string, content: string | null, baseSha: string | null | 'unknown', gen: string | null,
+    entry: SharedOverlayEntry,
+  ): void {
+    this.sessionWriteActivitySeq.set(userId, ++this.sessionWriteActivityCounter); // t/4215 budget addendum
+    let overlay = this.sessionOverlays.get(userId);
+    if (!overlay) { overlay = new Map(); this.sessionOverlays.set(userId, overlay); }
+    overlay.set(repoPath, content ?? GitHubAPIBackend.TOMBSTONE);
+    this.recordOverlayBaseShaOnce(userId, repoPath, baseSha);
+    const cached = this.sharedOverlayReadCache.get(userId);
+    const entries = cached ? new Map(cached.entries) : new Map<string, SharedOverlayEntry>();
+    entries.set(repoPath, entry);
+    // A failed `_gen` bump leaves gen null, so the next read re-lists (t/549).
+    this.sharedOverlayReadCache.set(userId, { gen, entries, listedAt: cached?.listedAt ?? 0 });
+  }
+
+  private throwSharedStageFailed(repoPath: string, why: string): never {
+    log.storage.warn({ repoPath, why }, 'shared overlay save failed; nothing was acknowledged (t/550)');
+    this.recordEvent({
+      type: 'system.error', component: 'github-api', level: 'warn',
+      message: `Shared overlay save failed for ${repoPath}: ${why}`,
+      data: { path: repoPath },
+    });
+    throw new ActionableError({
+      goal: `Save ${repoPath}`,
+      problem: `Your change could not be saved to the shared session store: ${why}. Nothing was saved.`,
+      location: 'GitHubAPIBackend.stageSharedOverlaySave',
+      nextSteps: ['Retry the save in a moment', 'If it keeps failing, check /health for storage status'],
+      httpStatus: 503,
+      code: 'OVERLAY_STAGE_FAILED',
+    });
+  }
+
+  private async withSharedSaveLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.sharedSaveLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const mine = new Promise<void>(resolve => { release = resolve; });
+    const tail = prev.then(() => mine);
+    this.sharedSaveLocks.set(key, tail);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.sharedSaveLocks.get(key) === tail) this.sharedSaveLocks.delete(key);
+    }
+  }
+
+  /** True when saves for this request go through the shared store (t/550). */
+  private sharedSavesActive(userId: string | undefined): userId is string {
+    return !!userId && this.sharedOverlayStateActive && !!this.sharedOverlayStore;
+  }
+
+  /** t/550: writeFile's overlay path when shared state is active. Extracted to keep writeOverlayWithPrecondition small. */
+  private async saveSharedWithOptionalBaseSha(
+    userId: string, repoPath: string, content: string, ref: string, baseSha: string | undefined,
+  ): Promise<{ version: string }> {
+    if (baseSha === undefined) this.warnNoBaseShaOverlayWrite(repoPath, ref);
+    await this.stageSharedOverlaySave(userId, repoPath, content, ref,
+      baseSha === undefined ? { kind: 'latestWins' } : { kind: 'precondition', baseSha });
+    return { version: gitBlobSha(content) };
+  }
+
+  private warnNoBaseShaOverlayWrite(repoPath: string, ref: string): void {
+    this.recordEvent({
+      type: 'storage.fallback', component: 'github-api', level: 'warn',
+      message: `writeFile(${repoPath}): no baseSha supplied on overlay write — falling back to no precondition (direct fileIO caller, not the save route)`,
+      data: { path: repoPath, ref },
+    });
+    log.github.warn({ path: repoPath, ref },
+      `storage.fallback: writeFile(${repoPath}) overlay write had no baseSha — no precondition`);
+  }
+
   /** t/4312: record this path's base blob sha the first time it's staged in a
    *  clean overlay slot. Idempotent — a later call for an already-recorded
    *  path (a same-path rewrite, or a concurrent write that landed first) is a
@@ -4523,11 +4681,22 @@ export class GitHubAPIBackend implements StorageBackend {
       this.sessionOverlays.set(userId, overlay);
     }
 
-    // t/727: cap per-user overlay memory. Project the post-write total using
-    // replace semantics (the new content supersedes any existing entry for this
-    // path). Reject with 413 rather than silently growing unbounded.
+    this.assertOverlayCap(userId, repoPath, content);
+    overlay.set(repoPath, content);
+    // t/4311 follow-up: mirror into the shared store for cross-replica read
+    // visibility. Fire-and-forget (writeToOverlay stays synchronous — the
+    // local write above, which this follows, is the one that must never be
+    // delayed by a network call) — writeThroughSharedOverlay never rejects.
+    // t/550: the save paths do not come here when shared state is active; they stage first (stageSharedOverlaySave).
+    void this.writeThroughSharedOverlay(userId, repoPath, content, this.sessionOverlayBaseShas.get(userId)?.get(repoPath) ?? 'unknown');
+  }
+
+  /** t/727: cap per-user overlay memory. Projects the post-write total with replace semantics (the new content
+   *  supersedes any existing entry for this path) and rejects with 413 rather than growing unbounded. */
+  private assertOverlayCap(userId: string, repoPath: string, content: string): void {
+    const overlay = this.sessionOverlays.get(userId);
     const newBytes = Buffer.byteLength(content, 'utf-8');
-    const existing = overlay.get(repoPath);
+    const existing = overlay?.get(repoPath);
     const oldBytes = existing && existing !== GitHubAPIBackend.TOMBSTONE ? Buffer.byteLength(existing, 'utf-8') : 0;
     const projected = this.overlayBytes(userId) - oldBytes + newBytes;
     if (projected > this.maxOverlayBytesPerUser) {
@@ -4545,13 +4714,6 @@ export class GitHubAPIBackend implements StorageBackend {
         nextSteps: ['Commit your pending changes (sync) to flush the overlay to GitHub', 'Or discard changes to free space'],
       }), { statusCode: 413 });
     }
-
-    overlay.set(repoPath, content);
-    // t/4311 follow-up: mirror into the shared store for cross-replica read
-    // visibility. Fire-and-forget (writeToOverlay stays synchronous — the
-    // local write above, which this follows, is the one that must never be
-    // delayed by a network call) — writeThroughSharedOverlay never rejects.
-    void this.writeThroughSharedOverlay(userId, repoPath, content, this.sessionOverlayBaseShas.get(userId)?.get(repoPath) ?? 'unknown');
   }
 
   /** Total bytes of non-tombstone overlay content for a user (t/727). */
@@ -4588,6 +4750,10 @@ export class GitHubAPIBackend implements StorageBackend {
     const repoPath = this.toRepoPath(filePath);
     const userId = this.getEffectiveUserId();
     if (!userId) return;
+    if (this.sharedSavesActive(userId)) {
+      await this.stageSharedOverlaySave(userId, repoPath, null, ref, { kind: 'latestWins' }); // t/550
+      return;
+    }
     this.sessionWriteActivitySeq.set(userId, ++this.sessionWriteActivityCounter); // t/4215 budget addendum
     if (!this.sessionOverlayBaseShas.get(userId)?.has(repoPath)) {
       this.recordOverlayBaseShaOnce(userId, repoPath, await this.resolveLiveBaseSha(repoPath, ref));
