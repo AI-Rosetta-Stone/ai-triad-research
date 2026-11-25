@@ -1360,7 +1360,8 @@ export class DebateEngine {
   /** Map of doc_id → source metadata with title, URL, provenance (lazy). */
   private get docTitles(): import('./evidenceFromSummaries.js').DocMetaMap | undefined {
     if (this._docTitles !== undefined) return this._docTitles;
-    this._docTitles = this.loadDocTitles();
+    // t/492: a host with no sources directory on disk supplies the titles in the config.
+    this._docTitles = this.config.docTitles ?? this.loadDocTitles();
     return this._docTitles;
   }
 

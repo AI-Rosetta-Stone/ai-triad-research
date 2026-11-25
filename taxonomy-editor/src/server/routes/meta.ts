@@ -50,6 +50,7 @@ import { getLastEventLoopSample } from '../eventLoopMonitor.js';
 import { findUnreachableAllowlistEntries } from '../identityAllowlistCheck.js';
 import { getReadOnlyPrincipalEntries } from '../readOnlyGuard.js';
 import { getNodeSourceIndexStatus } from '../storage/nodeSourceIndex.js';
+import { callerHasKey } from '../ai/keyPresenceForCaller.js';
 
 // t/2059: throttle the readiness log to state transitions. ACA probes /healthz
 // every few seconds, so logging every not-ready probe would spam the log. Emit
@@ -198,7 +199,8 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // M5: liveness probes (unauthenticated) get a minimal OK. Operational detail
     // (versions, storage internals, GitHub rate limits, paths) only for admins.
     // AI key status is always included so deployment gates can verify readiness.
-    const geminiReady = await hasApiKey('gemini');
+    // t/516: for an anonymous caller (an unauthenticated probe is one) this is the free pool, never the owner's _local slot.
+    const geminiReady = await callerHasKey('gemini');
     const freeKeyPoolSize = proxyTiers.freeTierKeyCount();
     // t/3278 Arm-1: buildSha in the UNAUTH branch — the drift checker (Arm-2) hits /health anonymously
     // to compare the running image's SHA against origin/main HEAD. Public repo → the commit SHA is not

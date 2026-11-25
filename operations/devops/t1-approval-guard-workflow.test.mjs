@@ -7,7 +7,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
@@ -26,10 +27,21 @@ test('P1: the PR trigger is pull_request_target, not pull_request (a PR can no l
   assert.ok(!/^\s*pull_request:\s*\n\s*branches:/m.test(workflow), 'must not also trigger on plain pull_request');
 });
 
-test('P1: issue_comment and pull_request_review triggers are unaffected (no "target" variant exists for them)', () => {
+test('P1: issue_comment triggers are unaffected; reviews reach the guard only through the relay (t/534 part B)', () => {
   // `deleted` and `dismissed` (SO condition on #5176): a removed approval must re-evaluate.
   assert.match(workflow, /^\s*issue_comment:\s*\n\s*types: \[created, edited, deleted\]/m);
-  assert.match(workflow, /^\s*pull_request_review:\s*\n\s*types: \[submitted, dismissed\]/m);
+  // t/537 (Security, high): a pull_request_review run takes its workflow file from the PR's side, so
+  // the guard must not run on it. It follows the relay via workflow_run, which runs from main.
+  const on = workflow.slice(workflow.indexOf('\non:\n'), workflow.indexOf('\npermissions:'));
+  assert.ok(!/pull_request_review:/.test(on), 'the guard must not trigger on pull_request_review');
+  assert.match(on, /^\s*workflow_run:\s*\n\s*workflows: \[t1-approval-review-relay\]\s*\n\s*types: \[completed\]/m);
+  const relay = readFileSync(path.join(root, '.github', 'workflows', 't1-approval-review-relay.yml'), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(relay, /^name: t1-approval-review-relay$/m, 'the workflow_run name must match the relay\'s name');
+  assert.match(relay, /^\s*pull_request_review:\s*\n\s*types: \[submitted, dismissed\]/m);
+  assert.match(relay, /^permissions: \{\}$/m, 'the relay holds no token permissions');
+  const code = relay.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  assert.ok(!/uses:|actions\/checkout|github-script|gh api|curl/.test(code), 'the relay runs no action, script or API call');
+  assert.equal((code.match(/^\s*run:/gm) || []).length, 1, 'the relay has exactly one step, an echo');
 });
 
 test('P1: checkout never persists credentials, and the predicate is loaded only from the explicitly-fetched BASE tip', () => {
@@ -267,4 +279,29 @@ test('t/200 FAILURE PATH (old YAML): a predicate whose logic cannot load -> CANN
   assert.equal(log.failed.length, 1);
   assert.match(log.failed[0], /CANNOT EVALUATE/);
   assert.ok(verdictComments.some((b) => b.includes('CANNOT EVALUATE')));
+});
+
+// Security p/275#7: a plain-scalar `run:` value with ` #` in it is cut at the `#` by YAML (a comment),
+// so the shell got an unterminated quote and every review relay run exited 2. Pin it for EVERY
+// workflow: a `run:` that contains ` #` must be a block scalar (`run: |` / `run: >`).
+test('no workflow has a plain-scalar run: line containing " #" (YAML would truncate it as a comment)', () => {
+  const dir = path.join(root, '.github', 'workflows');
+  const bad = [];
+  for (const f of readdirSync(dir).filter((n) => /\.ya?ml$/.test(n))) {
+    readFileSync(path.join(dir, f), 'utf8').replace(/\r\n/g, '\n').split('\n').forEach((l, i) => {
+      if (/^\s*-?\s*run: (?![|>])/.test(l) && / #/.test(l.replace(/^\s*-?\s*run: /, ''))) bad.push(`${f}:${i + 1}: ${l.trim()}`);
+    });
+  }
+  assert.deepEqual(bad, []);
+});
+
+test('the review relay echo is a block scalar, and its shell line runs (exit 0) with the "#" intact', () => {
+  const relay = readFileSync(path.join(root, '.github', 'workflows', 't1-approval-review-relay.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const m = /\n {8}run: \|\n {10}(echo .*)\n/.exec(relay);
+  assert.ok(m, 'run: | with the echo on the next line');
+  assert.match(m[1], /on PR #\$PR at/);
+  const r = spawnSync('bash', ['-c', m[1]], { encoding: 'utf8', env: { ...process.env, ACTION: 'submitted', PR: '7', HEAD_SHA: 'abc' } });
+  if (r.error) return; // no bash on this machine; the text pin above still holds
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /review submitted on PR #7 at abc/);
 });

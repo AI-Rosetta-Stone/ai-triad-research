@@ -448,6 +448,53 @@ describe('runInquiryPipeline — persistSession (t/284 item 5, t/476)', () => {
   });
 });
 
+describe('runInquiryPipeline — residual similarity is recorded for study only (t/496)', () => {
+  const twoTurns = (): DebateSession => ({
+    ...makeSession(),
+    transcript: [
+      { id: 'e1', timestamp: '', type: 'statement', speaker: 'accelerationist', content: 'Risks are small.', taxonomy_refs: [] },
+      { id: 'e2', timestamp: '', type: 'statement', speaker: 'safetyist', content: 'Risks are large.', taxonomy_refs: [] },
+    ],
+  } as unknown as DebateSession);
+  // Question [10, 1]; turns [10, 1] and [10, -1]; the field centroid from the taxonomy is [10, 0].
+  const embed = () => vi.fn().mockResolvedValue([[10, 1], [10, 1], [10, -1]]);
+  const taxonomy = { povNodes: [], situationNodes: [], nodeEmbeddings: { a: { pov: 'acc', vector: [9, 0] }, b: { pov: 'saf', vector: [11, 0] } } } as never;
+
+  it('stores per-turn residual similarity and its mean beside the plain similarity', async () => {
+    const session = twoTurns();
+    await runInquiryPipeline(makeRequest(), makeDeps({ embed: embed(), taxonomy, runDebate: vi.fn().mockResolvedValue({ session }) }));
+    expect(session.relevance?.residual_similarity?.map(t => t.entry_id)).toEqual(['e1', 'e2']);
+    expect(session.relevance?.residual_similarity?.[0].similarity).toBeCloseTo(1);
+    expect(session.relevance?.residual_similarity?.[1].similarity).toBeCloseTo(-1);
+    expect(session.relevance?.residual_mean).toBeCloseTo(0);
+  });
+
+  it('changes nothing else: the plain similarity, mean and drift flag are the same with and without taxonomy vectors', async () => {
+    const withTax = twoTurns(), without = twoTurns();
+    await runInquiryPipeline(makeRequest(), makeDeps({ embed: embed(), taxonomy, runDebate: vi.fn().mockResolvedValue({ session: withTax }) }));
+    await runInquiryPipeline(makeRequest(), makeDeps({ embed: embed(), runDebate: vi.fn().mockResolvedValue({ session: without }) }));
+    const { residual_similarity: _r, residual_mean: _m, ...rest } = withTax.relevance!;
+    expect(rest).toEqual(without.relevance);
+    // A low residual mean raises no flag: the drift flag here comes from the plain similarity only.
+    expect(withTax.relevance?.drift_warning).toBe(false);
+  });
+
+  it('leaves the fields off and records a WARN when the host has no taxonomy vectors', async () => {
+    const record = vi.fn();
+    vi.mocked(getGlobalRecorder).mockReturnValue({ record } as never);
+    const session = twoTurns();
+    try {
+      await runInquiryPipeline(makeRequest(), makeDeps({ embed: embed(), runDebate: vi.fn().mockResolvedValue({ session }) }));
+    } finally {
+      vi.mocked(getGlobalRecorder).mockReturnValue(undefined as never);
+    }
+    expect(session.relevance && 'residual_similarity' in session.relevance).toBe(false);
+    const warns = record.mock.calls.map(c => c[0]).filter(e => String(e.message).includes('residual similarity not recorded'));
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toMatchObject({ level: 'warn', component: 'inquiryPipeline' });
+  });
+});
+
 describe('runInquiryPipeline — empty transcript relevance (t/284 item 5, CL note 2)', () => {
   it('stores unavailable with a reason, never a clean no-drift reading', async () => {
     const session = { ...makeSession(), transcript: [] } as unknown as DebateSession;

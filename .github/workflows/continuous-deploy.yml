@@ -153,111 +153,134 @@ jobs:
             $clWindowUntil = [datetime]$env:CL_WINDOW_UNTIL_RAW
           }
 
-          # ── Last deployed SHA, from prod's own /health (TL ruling p/331#2350, ported from
-          #    t/4285 condition 2 -- the known-good tag can silently fail to apply, t/4273).
-          #    Unreadable or missing buildSha fails CLOSED (TL ruling p/331#2352) -- same as the
-          #    retired advisory's "treating as UNREADABLE, not as a deploy signal", never read as
-          #    "nothing deployed yet, go ahead". ──
-          $lastDeployedSha = $null
-          $lastDeployedShaUnknown = $false
-          try {
-            $health = Invoke-RestMethod -Uri $env:PROD_HEALTH_URL -TimeoutSec 15
-            if ([string]::IsNullOrWhiteSpace($health.buildSha)) {
-              Write-Warning "prod's /health returned no buildSha -- hold-last-deployed-unknown."
-              $lastDeployedShaUnknown = $true
-            } else {
-              $lastDeployedSha = $health.buildSha
-            }
-          } catch {
-            Write-Warning "Cannot read prod's /health buildSha -- hold-last-deployed-unknown. $_"
-            $lastDeployedShaUnknown = $true
-          }
-
-          # Timestamp for the batch window: the deploy-azure.yml run matching that SHA (the
-          # actual production deploy history) -- /health gives the authoritative SHA, this gives
-          # its authoritative "when". No match fails CLOSED (TL ruling p/331#2352): an unknown
-          # timestamp must never be read as "the batch floor is satisfied".
+          # ── Kill switch FIRST. Get-ContinuousDeployVerdict checks it before every other fact
+          #    and returns hold-kill-switch whenever it is not exactly 'on', so with the switch
+          #    off none of the facts gathered below can change the verdict. Gathering them anyway
+          #    cost one `gh run list`, one `commits/<sha>/pulls` call per commit since the last
+          #    deploy and a paginated check-runs read on every green main CI run, out of the
+          #    shared GITHUB_TOKEN quota. Same case-SENSITIVE compare as the predicate. With the
+          #    switch off the facts keep the fail-closed defaults set here and the predicate
+          #    still computes and logs the verdict. Cost: the gathering code is not exercised on
+          #    real traffic until the switch is 'on' (still no dispatch is wired). ──
+          $killSwitchOn = $env:KILL_SWITCH -ceq 'on'
+          "kill_switch_on=$($killSwitchOn.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          $lastDeployedShaUnknown = $true
           $lastDispatchAt = $null
-          $batchTimestampUnknown = $false
-          if ($lastDeployedSha) {
-            $lastRunJson = gh run list --workflow deploy-azure.yml --status success --limit 20 --json createdAt,headSha
-            $lastRuns = @($lastRunJson | ConvertFrom-Json | Where-Object { $_.headSha -eq $lastDeployedSha })
-            if ($lastRuns.Count -gt 0) {
-              $lastDispatchAt = [datetime]($lastRuns | Sort-Object createdAt -Descending | Select-Object -First 1).createdAt
-            } else {
-              Write-Warning "No deploy-azure.yml run found matching prod's /health buildSha ($lastDeployedSha) -- hold-batch-timestamp-unknown."
-              $batchTimestampUnknown = $true
-            }
-          }
-
-          # ── Tier infra (t/4285 condition 3 ported) -- diff changed paths against
-          #    .github/ci/tier-paths.json's r1Paths/r1Globs, a superset of the bicep-env/
-          #    bicep-resources path filters above (branch-protection, CODEOWNERS,
-          #    consult-hold-guard.yml, Move-PiCredential*.ps1, etc.). Skipped entirely when
-          #    $lastDeployedSha is unknown -- hold-last-deployed-unknown already holds before
-          #    this value is ever consulted by the predicate. ──
-          $touchesTierInfraPaths = $false
-          if ($lastDeployedSha -and $lastDeployedSha -ne $env:SHA) {
-            $changedPaths = @(git diff --name-only "$lastDeployedSha..$($env:SHA)" 2>&1)
-            if ($LASTEXITCODE -ne 0) {
-              Write-Warning "git diff failed between $lastDeployedSha and $($env:SHA) -- treating tier-infra touch as unknown (fails toward true/hold, never toward a false dispatch). $changedPaths"
-              $touchesTierInfraPaths = $true
-            } else {
-              $tierPaths = Get-Content '.github/ci/tier-paths.json' -Raw | ConvertFrom-Json
-              $infraPaths = @($tierPaths.r1Paths) + @($tierPaths.r1Globs)
-              foreach ($changed in $changedPaths) {
-                foreach ($infra in $infraPaths) {
-                  $isMatch = if ($infra -match '\*') { $changed -like $infra } else { $changed -eq $infra }
-                  if ($isMatch) { $touchesTierInfraPaths = $true; break }
-                }
-                if ($touchesTierInfraPaths) { break }
-              }
-            }
-          }
-
-          # ── Commit-PR association (t/4285 ported). A failed `git log` fails CLOSED (TL ruling
-          #    p/331#2352) -- never read as "no commits to check", which would silently skip the
-          #    PR-association check entirely. Skipped entirely when $lastDeployedSha is unknown,
-          #    same reasoning as the tier-infra check above. ──
+          $batchTimestampUnknown = $true
+          $touchesTierInfraPaths = $true
           $commitsWithoutMergedPR = @()
-          $commitLogUnknown = $false
-          if ($lastDeployedSha -and $lastDeployedSha -ne $env:SHA) {
-            $commitShas = @(git log --format='%H' "$lastDeployedSha..$($env:SHA)" 2>&1)
-            if ($LASTEXITCODE -ne 0) {
-              Write-Warning "git log failed between $lastDeployedSha and $($env:SHA) -- hold-pr-association-unknown. $commitShas"
-              $commitLogUnknown = $true
-            } else {
-              foreach ($sha in $commitShas) {
-                $pullsJson = gh api "repos/$($env:REPO)/commits/$sha/pulls" 2>&1
-                if ($LASTEXITCODE -ne 0) {
-                  Write-Warning "gh api commits/.../pulls failed for $sha -- treating as NOT PR-associated (fails toward a hold, never toward dispatch). $pullsJson"
-                  $commitsWithoutMergedPR += $sha
-                  continue
-                }
-                $pulls = @($pullsJson | ConvertFrom-Json)
-                $hasMergedPR = @($pulls | Where-Object { $null -ne $_.merged_at }).Count -gt 0
-                if (-not $hasMergedPR) { $commitsWithoutMergedPR += $sha }
-              }
-            }
-          }
-
-          # ── ci-gate / CodeQL check-run conclusions (t/4285 ported) ──
-          # t/3912 (issue #3822): `gh api ... --paginate` on this endpoint concatenates each
-          # page's whole `{total_count, check_runs:[...]}` object one after another, which is
-          # multiple JSON documents, not one -- piping the raw text to a single `ConvertFrom-Json`
-          # throws "Conversion from JSON failed with error: Additional text encountered" the
-          # moment a commit has more than one page of check-runs. `--jq '.check_runs[]'` makes gh
-          # emit one check-run object per line across every page instead, which parses cleanly.
-          $checkRunsJson = gh api "repos/$($env:REPO)/commits/$($env:SHA)/check-runs" --paginate --jq '.check_runs[]' 2>&1
+          $commitLogUnknown = $true
           $ciGateConclusion = 'missing'
           $codeQlConclusion = $null
-          if ($LASTEXITCODE -eq 0) {
-            $checkRunsList = @($checkRunsJson | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json })
-            $liveByName = ConvertFrom-CheckRunsResponse -CheckRunsResponse ([pscustomobject]@{ check_runs = $checkRunsList })
-            if ($liveByName.ContainsKey('ci-gate')) { $ciGateConclusion = $liveByName['ci-gate'].Conclusion }
-            if ($liveByName.ContainsKey('CodeQL')) { $codeQlConclusion = $liveByName['CodeQL'].Conclusion }
+          if (-not $killSwitchOn) {
+            Write-Host "CONTINUOUS_DEPLOY is not 'on' -- skipping fact gathering (no GitHub API calls); the verdict is hold-kill-switch."
           } else {
-            Write-Warning "gh api commits/.../check-runs failed for $($env:SHA) -- treating ci-gate as 'missing' (fails toward a hold). $checkRunsJson"
+            # ── Last deployed SHA, from prod's own /health (TL ruling p/331#2350, ported from
+            #    t/4285 condition 2 -- the known-good tag can silently fail to apply, t/4273).
+            #    Unreadable or missing buildSha fails CLOSED (TL ruling p/331#2352) -- same as the
+            #    retired advisory's "treating as UNREADABLE, not as a deploy signal", never read as
+            #    "nothing deployed yet, go ahead". ──
+            $lastDeployedSha = $null
+            $lastDeployedShaUnknown = $false
+            try {
+              $health = Invoke-RestMethod -Uri $env:PROD_HEALTH_URL -TimeoutSec 15
+              if ([string]::IsNullOrWhiteSpace($health.buildSha)) {
+                Write-Warning "prod's /health returned no buildSha -- hold-last-deployed-unknown."
+                $lastDeployedShaUnknown = $true
+              } else {
+                $lastDeployedSha = $health.buildSha
+              }
+            } catch {
+              Write-Warning "Cannot read prod's /health buildSha -- hold-last-deployed-unknown. $_"
+              $lastDeployedShaUnknown = $true
+            }
+
+            # Timestamp for the batch window: the deploy-azure.yml run matching that SHA (the
+            # actual production deploy history) -- /health gives the authoritative SHA, this gives
+            # its authoritative "when". No match fails CLOSED (TL ruling p/331#2352): an unknown
+            # timestamp must never be read as "the batch floor is satisfied".
+            $lastDispatchAt = $null
+            $batchTimestampUnknown = $false
+            if ($lastDeployedSha) {
+              $lastRunJson = gh run list --workflow deploy-azure.yml --status success --limit 20 --json createdAt,headSha
+              $lastRuns = @($lastRunJson | ConvertFrom-Json | Where-Object { $_.headSha -eq $lastDeployedSha })
+              if ($lastRuns.Count -gt 0) {
+                $lastDispatchAt = [datetime]($lastRuns | Sort-Object createdAt -Descending | Select-Object -First 1).createdAt
+              } else {
+                Write-Warning "No deploy-azure.yml run found matching prod's /health buildSha ($lastDeployedSha) -- hold-batch-timestamp-unknown."
+                $batchTimestampUnknown = $true
+              }
+            }
+
+            # ── Tier infra (t/4285 condition 3 ported) -- diff changed paths against
+            #    .github/ci/tier-paths.json's r1Paths/r1Globs, a superset of the bicep-env/
+            #    bicep-resources path filters above (branch-protection, CODEOWNERS,
+            #    consult-hold-guard.yml, Move-PiCredential*.ps1, etc.). Skipped entirely when
+            #    $lastDeployedSha is unknown -- hold-last-deployed-unknown already holds before
+            #    this value is ever consulted by the predicate. ──
+            $touchesTierInfraPaths = $false
+            if ($lastDeployedSha -and $lastDeployedSha -ne $env:SHA) {
+              $changedPaths = @(git diff --name-only "$lastDeployedSha..$($env:SHA)" 2>&1)
+              if ($LASTEXITCODE -ne 0) {
+                Write-Warning "git diff failed between $lastDeployedSha and $($env:SHA) -- treating tier-infra touch as unknown (fails toward true/hold, never toward a false dispatch). $changedPaths"
+                $touchesTierInfraPaths = $true
+              } else {
+                $tierPaths = Get-Content '.github/ci/tier-paths.json' -Raw | ConvertFrom-Json
+                $infraPaths = @($tierPaths.r1Paths) + @($tierPaths.r1Globs)
+                foreach ($changed in $changedPaths) {
+                  foreach ($infra in $infraPaths) {
+                    $isMatch = if ($infra -match '\*') { $changed -like $infra } else { $changed -eq $infra }
+                    if ($isMatch) { $touchesTierInfraPaths = $true; break }
+                  }
+                  if ($touchesTierInfraPaths) { break }
+                }
+              }
+            }
+
+            # ── Commit-PR association (t/4285 ported). A failed `git log` fails CLOSED (TL ruling
+            #    p/331#2352) -- never read as "no commits to check", which would silently skip the
+            #    PR-association check entirely. Skipped entirely when $lastDeployedSha is unknown,
+            #    same reasoning as the tier-infra check above. ──
+            $commitsWithoutMergedPR = @()
+            $commitLogUnknown = $false
+            if ($lastDeployedSha -and $lastDeployedSha -ne $env:SHA) {
+              $commitShas = @(git log --format='%H' "$lastDeployedSha..$($env:SHA)" 2>&1)
+              if ($LASTEXITCODE -ne 0) {
+                Write-Warning "git log failed between $lastDeployedSha and $($env:SHA) -- hold-pr-association-unknown. $commitShas"
+                $commitLogUnknown = $true
+              } else {
+                foreach ($sha in $commitShas) {
+                  $pullsJson = gh api "repos/$($env:REPO)/commits/$sha/pulls" 2>&1
+                  if ($LASTEXITCODE -ne 0) {
+                    Write-Warning "gh api commits/.../pulls failed for $sha -- treating as NOT PR-associated (fails toward a hold, never toward dispatch). $pullsJson"
+                    $commitsWithoutMergedPR += $sha
+                    continue
+                  }
+                  $pulls = @($pullsJson | ConvertFrom-Json)
+                  $hasMergedPR = @($pulls | Where-Object { $null -ne $_.merged_at }).Count -gt 0
+                  if (-not $hasMergedPR) { $commitsWithoutMergedPR += $sha }
+                }
+              }
+            }
+
+            # ── ci-gate / CodeQL check-run conclusions (t/4285 ported) ──
+            # t/3912 (issue #3822): `gh api ... --paginate` on this endpoint concatenates each
+            # page's whole `{total_count, check_runs:[...]}` object one after another, which is
+            # multiple JSON documents, not one -- piping the raw text to a single `ConvertFrom-Json`
+            # throws "Conversion from JSON failed with error: Additional text encountered" the
+            # moment a commit has more than one page of check-runs. `--jq '.check_runs[]'` makes gh
+            # emit one check-run object per line across every page instead, which parses cleanly.
+            $checkRunsJson = gh api "repos/$($env:REPO)/commits/$($env:SHA)/check-runs" --paginate --jq '.check_runs[]' 2>&1
+            $ciGateConclusion = 'missing'
+            $codeQlConclusion = $null
+            if ($LASTEXITCODE -eq 0) {
+              $checkRunsList = @($checkRunsJson | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json })
+              $liveByName = ConvertFrom-CheckRunsResponse -CheckRunsResponse ([pscustomobject]@{ check_runs = $checkRunsList })
+              if ($liveByName.ContainsKey('ci-gate')) { $ciGateConclusion = $liveByName['ci-gate'].Conclusion }
+              if ($liveByName.ContainsKey('CodeQL')) { $codeQlConclusion = $liveByName['CodeQL'].Conclusion }
+            } else {
+              Write-Warning "gh api commits/.../check-runs failed for $($env:SHA) -- treating ci-gate as 'missing' (fails toward a hold). $checkRunsJson"
+            }
           }
 
           $v = Get-ContinuousDeployVerdict `
@@ -330,8 +353,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Skipped while the kill switch is off: the verdict step then makes no GitHub API call, and
+      # this lookup was the one call left in every run (it also turned runs red when the shared
+      # quota was exhausted). A dead-gate issue opened by a failure while the switch is off is
+      # therefore closed by hand, or by the first green run after the switch is turned on.
       - name: On success, auto-close any open dead-gate issue
-        if: success()
+        if: success() && steps.verdict.outputs.kill_switch_on == 'true'
         run: |
           EXISTING=$(gh issue list --label "continuous-deploy-dead-gate" --state open --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then

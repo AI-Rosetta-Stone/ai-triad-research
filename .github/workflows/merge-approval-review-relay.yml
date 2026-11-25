@@ -1,0 +1,24 @@
+name: merge-approval-review-relay
+
+# t/537: a wake-up call, nothing more. pull_request_review has no base-branch variant, so a
+# workflow that runs on it is taken from the PR side. This one therefore holds no secret, checks
+# nothing out, has no token permissions, and produces nothing anyone reads. Its only effect is the
+# workflow_run event that starts merge-approval.yml (from main), which re-judges the PR from the
+# API alone, so a submitted, edited or dismissed review updates `merge-approval` without a push.
+# merge-approval.yml accepts the event only if workflow_run.event is pull_request_review and the
+# head repository is this repository, finds the PR through the API from workflow_run.head_sha,
+# and skips without posting if no open PR has that head any more.
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed, edited]
+
+permissions: {}
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake merge-approval
+        run: echo "merge-approval relay for a review event; merge-approval.yml on main does the work."

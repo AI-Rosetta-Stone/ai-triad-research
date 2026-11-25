@@ -100,6 +100,18 @@ export interface GitHubAPIBackendConfig {
   sharedOverlayState?: {
     store: SharedOverlayStore;
     forceActiveForTesting?: boolean;
+    /** t/549 (t/503 PR 1, interface only; used from t/550): the per-user commit lease, in the same
+     *  container as the store (one grant scope, t/503#5 ruling 4). `maxHoldMs` caps how long one
+     *  commit may keep renewing, so a hung GitHub call lets the lease lapse instead of starving the
+     *  user under 'busy' (SO t/503#8 condition 3). */
+    commitLock?: {
+      accountUrl: string;
+      container: string;
+      leaseSeconds?: number; // default 60 (the Azure maximum)
+      renewEveryMs?: number; // default 20_000
+      maxHoldMs?: number; // default 300_000
+      serviceClient?: BlobServiceClient; // test seam (Azurite)
+    };
   };
 }
 
@@ -111,7 +123,7 @@ interface PollState {
   /** Capped-length history of per-generation changed paths, oldest first —
    *  lets a non-holder catch up without replaying every tick, and lets it
    *  detect a gap (its last-seen generation predates the oldest entry here). */
-  changedSinceGeneration: Array<{ generation: number; paths: string[] }>;
+  changedSinceGeneration: Array<{ generation: number; paths: string[] | null }>; // t/547: null = unknown, invalidate all
   publishedAt: string; // ISO timestamp — staleness detection
 }
 
@@ -135,11 +147,21 @@ function isBlobNotFoundForPoll(err: unknown): boolean {
 const DEFAULT_MAX_OVERLAY_BYTES_PER_USER = 20 * 1024 * 1024; // 20 MB
 
 const POLL_INTERVAL_MS = 60_000;
+
+/** t/505: the ref callers pass to mean "the shared base data, not a session branch". It is the literal
+ *  'main' for historical reasons: callers across the server pin reads with `{ ref: 'main' }`. It is NOT
+ *  a branch name. The backend maps it to its base branch (GITHUB_BRANCH, default 'main'), so on a
+ *  deployment whose base branch is something else (staging) a pinned read reads that branch. Before
+ *  this mapping such a read went to the repository's default branch, a different branch from the tree,
+ *  the listings and the strict reads. */
+export const BASE_BRANCH_REF = 'main';
 const ERROR_BUFFER_CAPACITY = 100;
 
 // t/4179 (TL R1/R2/R3): single-holder poll coordination constants.
 const POLL_STATE_BLOB = 'poll-state.json';
 const POLL_STATE_HISTORY_CAP = 50;
+// t/547: GitHub's compare API lists at most 300 files; a list that long may have been cut.
+const COMPARE_FILES_CAP = 300;
 // A non-holder falls back to direct polling once the published state is
 // older than this multiple of the poll interval — fails toward coherence,
 // never toward silent staleness (TL t/4179#2 §2 point 2).
@@ -162,6 +184,10 @@ const OVERLAY_SHARED_STATE_ENABLED = process.env.OVERLAY_SHARED_STATE_ENABLED ==
 // discarded or already-committed content keep serving as "staged" to
 // other replicas forever. Flips to true in that later PR, never by env var.
 const OVERLAY_SHARED_STATE_COMMIT_READY = false;
+
+/** t/549 (SO t/503#10): a reader re-lists a user's shared overlay entries at least this often even when
+ *  `_gen` has not moved, because a stage whose `_gen` bump failed is still acknowledged. */
+export const SHARED_OVERLAY_RELIST_MS = 10_000;
 
 /** t/4499: bounded concurrency for readFilesBatch's GraphQL chunks — same
  *  shape as nodeSourceIndex.ts's mapWithConcurrencyLimit, duplicated rather
@@ -315,7 +341,8 @@ export class GitHubAPIBackend implements StorageBackend {
   // for a read once synced (t/4311#30 R1), refreshed whenever `_gen` moves.
   private readonly sharedOverlayStore: SharedOverlayStore | null = null;
   private readonly sharedOverlayStateActive: boolean = false;
-  private sharedOverlayReadCache: Map<string, { gen: string | null; entries: Map<string, SharedOverlayEntry> }> = new Map();
+  // t/549: `listedAt` is when the entries were last listed from the store (0 = never); see SHARED_OVERLAY_RELIST_MS.
+  private sharedOverlayReadCache: Map<string, { gen: string | null; entries: Map<string, SharedOverlayEntry>; listedAt: number }> = new Map();
 
   // t/4312: per-path base blob sha, recorded once when a path first enters a
   // clean overlay slot (never reset by a later same-path rewrite — see
@@ -378,11 +405,15 @@ export class GitHubAPIBackend implements StorageBackend {
   private readonly blobLeaseContainerClient: ContainerClient | null = null;
   private readonly pollLeaseDurationSeconds: number = 0;
   private leaseRenewTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly holderId = crypto.randomUUID();
+  /** t/547: per tenure, not per process: a new id each time this replica acquires the lease, since its
+   *  history restarts then and another holder may have published in between. */
+  private holderId = crypto.randomUUID();
   private pollStateGeneration = 0;
-  private pollStateHistory: Array<{ generation: number; paths: string[] }> = [];
+  private pollStateHistory: PollState['changedSinceGeneration'] = [];
   private pollLastSeenGeneration = 0;
   private pollLastSeenHolderId: string | null = null;
+  /** t/547: the commit this non-holder's manifest was brought to by its last applied poll state. */
+  private pollLastSeenCommitSha = '';
   private repoTreeRefillInFlight: Promise<void> | null = null;
 
   // Coherency probe stats
@@ -608,7 +639,19 @@ export class GitHubAPIBackend implements StorageBackend {
     if (this.leaseRenewTimer) { clearInterval(this.leaseRenewTimer); this.leaseRenewTimer = null; }
   }
 
+  /** t/505: map the base-branch alias to this deployment's base branch. Any other ref (a real session
+   *  branch, a commit SHA) passes through unchanged, and undefined stays undefined so the caller's
+   *  own default applies. */
+  private resolveReadRef(ref: string | undefined): string | undefined {
+    return ref === BASE_BRANCH_REF ? this.baseBranch : ref;
+  }
+
   private async runInitialize(): Promise<void> {
+    if (this.baseBranch !== BASE_BRANCH_REF) {
+      // t/505: say once, at start-up, that pinned reads do not go to a branch called 'main' here.
+      log.storage.info({ baseBranch: this.baseBranch },
+        `base branch is '${this.baseBranch}': reads pinned with ref '${BASE_BRANCH_REF}' are mapped to it (t/505)`);
+    }
     this.recordEvent({
       type: 'storage.mode',
       component: 'storage',
@@ -837,10 +880,12 @@ export class GitHubAPIBackend implements StorageBackend {
     const cached = this.sharedOverlayReadCache.get(userId);
     try {
       const currentGen = await this.sharedOverlayStore.getGeneration(userId);
-      if (cached && cached.gen === currentGen) return cached.entries;
+      // t/549: an unchanged `_gen` is trusted only for SHARED_OVERLAY_RELIST_MS, the backstop for a
+      // stage whose `_gen` bump failed after its entry landed (it is acknowledged, but bumps nothing).
+      if (cached && cached.gen === currentGen && Date.now() - cached.listedAt < SHARED_OVERLAY_RELIST_MS) return cached.entries;
       const listed = await this.sharedOverlayStore.listEntries(userId);
       const entries = new Map(listed.map(e => [e.repoPath, e.entry]));
-      this.sharedOverlayReadCache.set(userId, { gen: currentGen, entries });
+      this.sharedOverlayReadCache.set(userId, { gen: currentGen, entries, listedAt: Date.now() });
       return entries;
     } catch (err) {
       const message = `Shared overlay sync failed; falling back to the local overlay for this read: ${userId}`;
@@ -956,25 +1001,17 @@ export class GitHubAPIBackend implements StorageBackend {
    * WARN-logged, never thrown, so the returned promise never rejects.
    * No-op when the flag is inactive.
    *
-   * KNOWN GAP (flagged, not fixed, here — t/4311#29/#31): `SharedOverlayEntry.baseSha`
-   * is typed `string | 'unknown'`, with no slot for the local model's
-   * `null` ("file was absent when staged" — t/4312). The `?? 'unknown'`
-   * below collapses that distinction. It's inert today: this PR's read
-   * path only ever consults `content`, never `baseSha`, and the commit
-   * path (the only consumer t/4312's fencing matters to) is a separate,
-   * not-yet-wired follow-up. That follow-up must widen
-   * `SharedOverlayEntry.baseSha`'s type before relying on it, or it will
-   * silently treat every staged-absent path as "unknown" (fail-closed per
-   * t/4312, so not unsafe, just not what it meant to record).
+   * t/549: `SharedOverlayEntry.baseSha` now carries `null` (the file was absent when staged), closing
+   * the t/4311#29/#31 known gap. This stays a fire-and-forget `latestWins` stage, inert behind the
+   * flag; t/550 (t/503 PR 2) replaces it with the awaited, conditional stage of option 2.
    */
   private async writeThroughSharedOverlay(userId: string, repoPath: string, content: string | null, baseSha: string | null | 'unknown'): Promise<void> {
     if (!this.sharedOverlayStateActive || !this.sharedOverlayStore) return;
     try {
-      const result = await this.sharedOverlayStore.stage(userId, repoPath, {
-        content,
-        baseSha: baseSha ?? 'unknown',
-        stagedAt: new Date().toISOString(),
-      });
+      const entry = { content, baseSha, stagedAt: new Date().toISOString(), stageId: crypto.randomUUID() };
+      const result = await this.sharedOverlayStore.stage(userId, repoPath, entry, { latestWins: true });
+      // t/549: a later save already holds the path; ours is ordered before it, nothing to cache.
+      if (!result.ok && result.reason === 'newer_exists') return;
       if (!result.ok) {
         this.recordEvent({
           type: 'system.error', component: 'github-api', level: 'warn',
@@ -987,10 +1024,11 @@ export class GitHubAPIBackend implements StorageBackend {
       // for a future getGeneration() round trip to notice our own `_gen`
       // bump — avoids a self-inflicted sync on a replica's own
       // write-then-immediate-read (t/4311#30 R1).
+      // t/549: a failed `_gen` bump leaves gen null, so the next read re-lists.
       const cached = this.sharedOverlayReadCache.get(userId);
       const entries = cached ? new Map(cached.entries) : new Map<string, SharedOverlayEntry>();
-      entries.set(repoPath, { content, baseSha: baseSha ?? 'unknown', stagedAt: new Date().toISOString() });
-      this.sharedOverlayReadCache.set(userId, { gen: result.gen, entries });
+      entries.set(repoPath, entry);
+      this.sharedOverlayReadCache.set(userId, { gen: result.gen, entries, listedAt: cached?.listedAt ?? 0 });
     } catch (err) {
       const message = `Shared overlay write-through threw (local write already succeeded): ${repoPath}`;
       this.recordEvent({
@@ -1049,7 +1087,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const repoPath = this.toRepoPath(filePath);
     const effectiveRef = this.getEffectiveRef();
     // Pinned ref (e.g. 'main') for shared data; else the effective session ref.
-    const ref = opts?.ref ?? effectiveRef;
+    const ref = this.resolveReadRef(opts?.ref) ?? effectiveRef;
 
     // t/4510: skip the overlay only when genuinely pinned away from the
     // session's own ref, unless the caller explicitly opts back in (see the
@@ -1368,7 +1406,7 @@ export class GitHubAPIBackend implements StorageBackend {
       return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : { content: overlayVal, version: gitBlobSha(overlayVal) };
     }
 
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
 
     // t/4224 (TL design, p/538#40/#43): an edit-load on a session branch with
     // no pending overlay entry must read the branch's own current content and
@@ -1432,7 +1470,7 @@ export class GitHubAPIBackend implements StorageBackend {
   // serve or pollute the main cache from a non-main session branch.
   async readBinaryFile(filePath: string, opts?: { ref?: string }): Promise<Buffer | null> {
     const repoPath = this.toRepoPath(filePath);
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
 
     if (ref === this.baseBranch) {
       const cached = await this.readBinaryFromDiskCache(repoPath);
@@ -1450,7 +1488,8 @@ export class GitHubAPIBackend implements StorageBackend {
     return result.content;
   }
 
-  async readFileAtRef(repoPath: string, ref: string): Promise<string | null> {
+  async readFileAtRef(repoPath: string, requestedRef: string): Promise<string | null> {
+    const ref = this.resolveReadRef(requestedRef) ?? requestedRef;
     if (ref === this.baseBranch) {
       const cached = await this.readFromDiskCache(repoPath);
       if (cached !== null) return cached;
@@ -1983,7 +2022,7 @@ export class GitHubAPIBackend implements StorageBackend {
         ],
       });
     }
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${this.toRepoPath(dirPath)}${qRef}`);
@@ -2009,7 +2048,7 @@ export class GitHubAPIBackend implements StorageBackend {
       log.server.warn({ dir: repoPath, cause: 'no-credentials' }, 'listDirectory returning [] — no GitHub credentials available, may be false-empty (t/3300)');
       return 'no-credentials';
     }
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
@@ -2100,7 +2139,7 @@ export class GitHubAPIBackend implements StorageBackend {
   async fileExists(filePath: string, opts?: { ref?: string }): Promise<boolean> {
     const repoPath = this.toRepoPath(filePath);
     const effectiveRef = this.getEffectiveRef();
-    const ref = opts?.ref ?? effectiveRef;
+    const ref = this.resolveReadRef(opts?.ref) ?? effectiveRef;
 
     // Check session overlay — only when this call isn't pinned away from the
     // session's own ref (t/4428#2 condition 1). An explicit opts.ref that
@@ -2263,7 +2302,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const creds = await this.getCredsCached();
     if (!creds) return { contents, fallbackCount: filePaths.length, graphqlCost: 0 };
 
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
     const [owner, name] = creds.repo.split('/');
     // repoPath (the GraphQL expression's path) <-> the caller's original
     // absolute filePath, so the result map is keyed the same way callers
@@ -2714,8 +2753,12 @@ export class GitHubAPIBackend implements StorageBackend {
       return { ahead_by: 0, behind_by: 0, status: 'identical', files: [], total_commits: 0, merge_base_sha: null };
     }
 
+    // t/505: callers pass the base-branch alias ('main') for either side. Compare against this
+    // deployment's base branch, not a branch that happens to be called 'main'.
+    const baseRef = this.resolveReadRef(base) ?? base;
+    const headRef = this.resolveReadRef(head) ?? head;
     const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/compare/${base}...${head}`);
+      `/repos/${creds.repo}/compare/${baseRef}...${headRef}`);
 
     if (!resp.ok) {
       return { ahead_by: 0, behind_by: 0, status: 'identical', files: [], total_commits: 0, merge_base_sha: null };
@@ -3726,6 +3769,13 @@ export class GitHubAPIBackend implements StorageBackend {
       });
       return;
     }
+    // t/547 (for the t/504 staging proof): a healthy hand-over logged nothing, so the log could not show
+    // which replica held the lease.
+    if (isHolder && !wasHolder) this.holderId = crypto.randomUUID();
+    if (isHolder !== wasHolder) {
+      log.storage.info({ holderId: this.holderId, container: this.pollLeaseContainer },
+        isHolder ? 'poll lease acquired: this replica is now the poll holder' : 'poll lease lost: this replica is now a non-holder');
+    }
     if (isHolder && !wasHolder) await this.seedGenerationAfterAcquiring();
   }
 
@@ -3781,35 +3831,57 @@ export class GitHubAPIBackend implements StorageBackend {
    *  entries from the manifest before the fetch, and advance the manifest commit after it, so a failed
    *  fetch left the manifest naming a commit whose tree was never loaded, and the next poll saw
    *  "nothing changed". #5309 (t/463) fixed the same thing in initialize().
-   *  Returns the changed paths, or null when the tree load failed and nothing was applied. */
-  private async applyPolledCommit(currentSha: string): Promise<string[] | null> {
+   *  Returns `{ changed }`, where `changed` is null when the changed paths are unknown (t/547), or null
+   *  overall when the tree load failed and nothing was applied. */
+  private async applyPolledCommit(currentSha: string): Promise<{ changed: string[] | null } | null> {
     const previousSha = this.manifest?.lastCommitSha ?? '';
-    const changed = previousSha ? await this.getChangedFiles(previousSha, currentSha) : [];
+    const changed = previousSha ? await this.compareChangedPaths(previousSha, currentSha) : null;
 
     const loaded = await this.fetchRepoTree(currentSha);
     if (!loaded) {
-      log.storage.warn({ previousSha, currentSha, changedCount: changed.length },
+      log.storage.warn({ previousSha, currentSha, changedCount: changed?.length ?? 'unknown' },
         'poll: tree load failed for the new commit; manifest and live tree left unchanged, will retry on the next poll (t/483)');
       return null;
     }
 
-    if (changed.length > 0) {
-      this.recordEvent({
-        type: 'cache.invalidate',
-        component: 'cache',
-        level: 'info',
-        message: `Poll: ${changed.length} files changed`,
-        data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
-      });
-      await this.withManifestLock(async () => {
-        for (const filePath of changed) {
-          if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
-        }
-      });
+    if (changed === null) {
+      log.storage.warn({ previousSha, currentSha },
+        'poll: the changed paths for the new commit are unknown; falling back to invalidating every cached file (t/547)');
     }
+    this.recordEvent({
+      type: 'cache.invalidate',
+      component: 'cache',
+      level: changed === null ? 'warn' : 'info',
+      message: changed === null ? 'Poll: changed paths unknown, all cached files invalidated' : `Poll: ${changed.length} files changed`,
+      data: { paths: (changed ?? []).slice(0, 20), trigger: 'poll', sha: currentSha, full: changed === null },
+    });
+    await this.withManifestLock(async () => {
+      if (!this.manifest) return;
+      if (changed === null) this.manifest.files = {};
+      else for (const filePath of changed) delete this.manifest.files[filePath];
+    });
 
     await this.updateManifestSha(currentSha);
-    return changed;
+    return { changed };
+  }
+
+  /** t/547: the paths that changed between two commits, or null when the compare cannot vouch for the whole
+   *  set. getChangedFiles answers [] for a failed compare (including a force-push, where the old commit is
+   *  no longer in history) and for a list cut at GitHub's cap, and a moved commit with no changed file is
+   *  not trusted as "nothing changed" either. Unlike getChangedFiles, this does not invalidate the cache
+   *  itself on a force-push: the caller does that after the new tree has loaded (t/483 ordering). */
+  private async compareChangedPaths(fromSha: string, toSha: string): Promise<string[] | null> {
+    const creds = await this.getCredsCached();
+    if (!creds) return null;
+    const resp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}/compare/${fromSha}...${toSha}`);
+    if (!resp.ok) {
+      log.storage.warn({ fromSha, toSha, status: resp.status, forcePush: resp.status === 404 || resp.status === 422 },
+        'poll: compare failed; the changed paths are unknown (t/547)');
+      return null;
+    }
+    const files = (resp.data as { files?: Array<{ filename: string }> } | null | undefined)?.files;
+    if (!Array.isArray(files) || files.length === 0 || files.length >= COMPARE_FILES_CAP) return null;
+    return files.map(f => f.filename);
   }
 
   /** The pre-t/4179 poll body, unchanged — used when no pollLease is
@@ -3845,14 +3917,14 @@ export class GitHubAPIBackend implements StorageBackend {
    *  pollDirect), then publishes the result for non-holders to consume. */
   private async pollAsHolder(): Promise<void> {
     let currentSha = '';
-    let changed: string[] = [];
+    let changed: string[] | null = [];
     try {
       currentSha = await this.getLatestCommitSha();
       if (currentSha && currentSha !== this.manifest?.lastCommitSha) {
         const applied = await this.applyPolledCommit(currentSha);
         // t/483: a failed tree load applied nothing, so there is nothing to publish to non-holders.
         if (applied === null) return;
-        changed = applied;
+        changed = applied.changed;
       }
     } catch (err: unknown) {
       getGlobalRecorder()?.record({
@@ -3879,13 +3951,14 @@ export class GitHubAPIBackend implements StorageBackend {
    *  that renewed too late (another replica already took over) gets a 412
    *  here and just skips the publish, instead of silently writing stale
    *  state under a lease it no longer holds. */
-  private async publishPollState(lastCommitSha: string, changedPaths: string[]): Promise<void> {
+  private async publishPollState(lastCommitSha: string, changedPaths: string[] | null): Promise<void> {
     if (!this.blobLease) return;
     const leaseId = this.blobLease.getLeaseId();
     if (!leaseId) return; // lost holder status — next tick re-evaluates via isHolder()
 
     this.pollStateGeneration++;
-    if (changedPaths.length > 0) {
+    // t/547: null (paths unknown) is published as its own entry, so a non-holder invalidates everything.
+    if (changedPaths === null || changedPaths.length > 0) {
       this.pollStateHistory.push({ generation: this.pollStateGeneration, paths: changedPaths });
       if (this.pollStateHistory.length > POLL_STATE_HISTORY_CAP) this.pollStateHistory.shift();
     }
@@ -3969,62 +4042,82 @@ export class GitHubAPIBackend implements StorageBackend {
       return this.pollDirect();
     }
 
-    await this.applyPollState(state);
+    // t/547: a catch-up that could not load the new commit's tree applied nothing, so the bookkeeping
+    // stays where it was and the next tick tries the same catch-up again.
+    if (!(await this.applyPollState(state))) return;
 
     this.pollLastSeenGeneration = state.generation;
     this.pollLastSeenHolderId = state.holderId;
+    this.pollLastSeenCommitSha = state.lastCommitSha;
   }
 
-  /** Extracted from pollAsNonHolder() to keep its own complexity under
-   *  budget. Decides gap vs. incremental catch-up and applies it to the
-   *  local manifest/tree caches; does not touch pollLastSeen* bookkeeping. */
-  private async applyPollState(state: PollState): Promise<void> {
-    // t/4179 R2: a generation that goes backwards, or stays the same/lower
-    // while the holderId changed, is a gap — never trust it as "no change".
-    const generationWentBackwards = state.generation < this.pollLastSeenGeneration;
-    const suspiciousHolderChange = this.pollLastSeenHolderId !== null
-      && state.holderId !== this.pollLastSeenHolderId
-      && state.generation <= this.pollLastSeenGeneration;
+  /** Extracted from pollAsNonHolder() to keep its own complexity under budget. Brings the local manifest
+   *  and tree to the holder's published commit; does not touch pollLastSeen* bookkeeping.
+   *
+   *  t/547: the invariant is that the manifest's file entries and the live tree both describe
+   *  `manifest.lastCommitSha`. So there is nothing to do unless the published commit differs from ours,
+   *  whatever the generation says (a heartbeat with an empty history used to count as a gap and wipe the
+   *  whole cache on every tick). When it differs, the new commit's tree is loaded FIRST, and nothing else
+   *  changes unless that load succeeds (the old code reloaded the tree at the previous commit and then
+   *  advanced the manifest, so changed files kept serving their old blob). Then either only the published
+   *  changed paths are dropped, when they are known to cover the whole step from our commit, or every
+   *  file entry is.
+   *  Returns false when the tree load failed and nothing was applied. */
+  private async applyPollState(state: PollState): Promise<boolean> {
+    const targetSha = state.lastCommitSha;
+    const ourSha = this.manifest?.lastCommitSha ?? '';
+    if (!targetSha || targetSha === ourSha) return true;
 
-    if (this.pollLastSeenGeneration === 0 || generationWentBackwards || suspiciousHolderChange) {
-      await this.fullCacheInvalidation();
-      await this.ensureRepoTreeFilled();
-    } else if (state.generation > this.pollLastSeenGeneration) {
-      await this.applyIncrementalPollChanges(state);
+    const loaded = await this.fetchRepoTree(targetSha);
+    if (!loaded) {
+      log.storage.warn({ ourSha, targetSha, generation: state.generation },
+        'poll (non-holder): tree load failed for the published commit; manifest and live tree left unchanged, will retry on the next poll (t/547)');
+      return false;
     }
 
-    if (state.lastCommitSha && state.lastCommitSha !== this.manifest?.lastCommitSha) {
-      await this.updateManifestSha(state.lastCommitSha);
+    const paths = this.knownChangedPathsSince(state, ourSha);
+    if (paths === null) {
+      log.storage.warn({ ourSha, targetSha, generation: state.generation, lastSeenGeneration: this.pollLastSeenGeneration },
+        'poll (non-holder): the poll state cannot vouch for the changed paths since our commit; falling back to invalidating every cached file (t/547)');
     }
-  }
-
-  /** Extracted from applyPollState(): the "generation moved forward, no gap
-   *  detected yet" branch — still checks the history-list gap case. */
-  private async applyIncrementalPollChanges(state: PollState): Promise<void> {
-    const oldestTracked = state.changedSinceGeneration[0]?.generation;
-    const hasHistoryGap = oldestTracked === undefined || oldestTracked > this.pollLastSeenGeneration + 1;
-    if (hasHistoryGap) {
-      await this.fullCacheInvalidation();
-      await this.ensureRepoTreeFilled();
-      return;
-    }
-
-    const toApply = state.changedSinceGeneration.filter(e => e.generation > this.pollLastSeenGeneration);
-    const paths = new Set<string>();
-    for (const entry of toApply) for (const p of entry.paths) paths.add(p);
-    if (paths.size === 0) return;
-
     await this.withManifestLock(async () => {
-      for (const p of paths) if (this.manifest?.files[p]) delete this.manifest.files[p];
+      if (!this.manifest) return;
+      if (paths === null) this.manifest.files = {};
+      else for (const p of paths) delete this.manifest.files[p];
     });
-    this.repoTree.clear();
-    this.treeSha = null;
-    await this.ensureRepoTreeFilled();
+    await this.updateManifestSha(targetSha);
     this.recordEvent({
       type: 'cache.invalidate', component: 'cache', level: 'info',
-      message: `Poll (non-holder): ${paths.size} files changed`,
-      data: { paths: [...paths].slice(0, 20), trigger: 'poll-shared-state' },
+      message: paths === null
+        ? 'Poll (non-holder): changed paths unknown, all cached files invalidated'
+        : `Poll (non-holder): ${paths.size} files changed`,
+      data: { paths: paths === null ? [] : [...paths].slice(0, 20), trigger: 'poll-shared-state', sha: targetSha, full: paths === null },
     });
+    return true;
+  }
+
+  /** t/547: the paths that changed between our commit and the published one, or null when the poll state
+   *  cannot vouch for that whole step. It can only when: we applied this same holder's state before
+   *  (t/4179 R2: a new holder restarts its history), our manifest is still at the commit we applied then
+   *  (a direct-poll fallback in between moves it), the generation moved forward, and the history list was
+   *  not cut at its cap past our last generation, and no entry since then says its paths are unknown. The
+   *  holder adds an entry for every commit it moves to (null paths when its compare could not vouch for
+   *  them), and its id is per tenure, so within one id the list is complete up to the cap. It holds only
+   *  generations that moved the commit, so gaps between its entries are normal and are not a cut. */
+  private knownChangedPathsSince(state: PollState, ourSha: string): Set<string> | null {
+    const lastSeen = this.pollLastSeenGeneration;
+    if (lastSeen === 0 || state.holderId !== this.pollLastSeenHolderId) return null;
+    if (ourSha !== this.pollLastSeenCommitSha || state.generation <= lastSeen) return null;
+    const history = state.changedSinceGeneration;
+    const oldest = history[0]?.generation;
+    if (history.length >= POLL_STATE_HISTORY_CAP && oldest !== undefined && oldest > lastSeen + 1) return null;
+    const paths = new Set<string>();
+    for (const entry of history) {
+      if (entry.generation <= lastSeen) continue;
+      if (entry.paths === null) return null;
+      for (const p of entry.paths) paths.add(p);
+    }
+    return paths;
   }
 
   /**

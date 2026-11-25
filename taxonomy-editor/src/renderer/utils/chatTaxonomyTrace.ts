@@ -19,16 +19,20 @@ export interface ChatTurnTrace {
   context_statements: { node_id: string; index: number; text: string }[];
   /** The situation ids injected this turn. */
   context_situation_ids: string[];
+  /** The injected nodes whose line uses their label, not a statement (statement route unavailable). Empty when none. */
+  label_only_node_ids: string[];
 }
 
 /** Builds the trace from the kept BDI nodes (with their statements) and the selected situations. */
 export function buildChatTurnTrace(
   kept: { nodeId: string; statement: ChatStatement }[],
   situationIds: string[],
+  labelOnlyNodeIds: string[] = [],
 ): ChatTurnTrace {
   return {
     context_node_ids: kept.map(k => k.nodeId),
     context_statements: kept.map(k => ({ node_id: k.nodeId, index: k.statement.index, text: k.statement.text })),
     context_situation_ids: [...situationIds],
+    label_only_node_ids: [...labelOnlyNodeIds],
   };
 }

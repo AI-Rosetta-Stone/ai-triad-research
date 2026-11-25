@@ -70,7 +70,7 @@ afterEach(() => {
  *  then persistSession once with the same session object. Returns the debateId the pipeline would stamp. */
 function pipelineOrderWithRelevance(deps: InquiryPipelineDeps): Promise<unknown> {
   return (async () => {
-    const debate = await deps.runDebate({} as never, 'Is the sky blue?', undefined);
+    const debate = await deps.runDebate({ topic: 'Is the sky blue?' } as never, 'Is the sky blue?', undefined);
     const session = debate.session as { id: string; relevance?: unknown };
     session.relevance = { value: 0.82, method: 'embedding' }; // what recordQuestionRelevance sets
     await deps.persistSession?.(session as never);

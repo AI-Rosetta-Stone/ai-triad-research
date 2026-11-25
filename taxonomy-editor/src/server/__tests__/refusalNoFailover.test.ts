@@ -16,7 +16,8 @@ const { providerCalls, claudeBehavior, storedKeys } = vi.hoisted(() => ({
 }));
 
 vi.mock('../security/keyStore.js', () => ({ getKeyStore: () => ({ getKeys: async (backend: string) => storedKeys[backend] ?? [] }) }));
-vi.mock('../security/userContext.js', () => ({ getCurrentUserId: () => 'test-user' }));
+// t/501: config reads isAnonymousRequest(); these tests are signed-in by construction.
+vi.mock('../security/userContext.js', () => ({ getCurrentUserId: () => 'test-user', isAnonymousRequest: () => false, isHostedAnonymousRequest: () => false }));
 vi.mock('../../../../lib/ai-client/index.js', async (importActual) => {
   const actual = await importActual<typeof import('../../../../lib/ai-client/index.js')>();
   const { KeyRoutingRefusal } = await import('../../../../lib/ai-client/apiKeyFallback.js');

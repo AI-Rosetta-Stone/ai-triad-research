@@ -34,6 +34,66 @@ function Test-IsAwaitingPi {
     return @($Labels | Where-Object { $null -ne $_ } | Where-Object { $_.name -eq 'awaiting-pi' }).Count -gt 0
 }
 
+function Test-TicketHintTrustworthy {
+    <#
+    .SYNOPSIS
+        Should the calling agent trust a branch-derived ticketHint's get_ticket resolution as
+        the owner, or fall back to file-ownership resolution (t/4972)?
+    .DESCRIPTION
+        DevOps Lead finding (p/648#406): low-numbered refs cited in PRs since ~2026-11-10
+        (t/37, t/53, t/162, t/224, t/284...) come from a SECOND ticket series -- the PI's
+        Interweave tooling -- not Orca. The numbers collide with old, closed Orca tickets, so
+        get_ticket resolves them to the wrong thing entirely (a namespace clash, not bad token
+        extraction). Confirmed live on r/27#560: every one of 11 sampled ticketHints resolved
+        to an unrelated, already-closed May/June 2026 Orca ticket with no connection to the
+        PR's actual content.
+
+        Two independent signals, either one is enough to distrust the hint:
+          - the ticket's number is below LowNumberFloor (default 1000) -- every confirmed
+            second-series collision observed so far is in this range;
+          - the ticket resolved as closed/done BEFORE the PR that cites it was even opened --
+            an Orca ticket can't be the PR's real tracking ticket if it closed first.
+        A ticket that can't be read at all (TicketStatusCategory is $null, e.g. get_ticket
+        404'd) is ALSO untrustworthy -- never read an unresolvable ticket as a trusted owner
+        source, same fail-closed discipline as the rest of this file.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$TicketHint,
+        [Parameter()]
+        [AllowNull()]
+        [string]$TicketStatusCategory,
+        [Parameter()]
+        [AllowNull()]
+        [Nullable[datetime]]$TicketClosedAt,
+        [Parameter(Mandatory)]
+        [datetime]$PrCreatedAt,
+        [int]$LowNumberFloor = 1000
+    )
+    Set-StrictMode -Version Latest
+
+    # A [string] parameter converts a passed $null to '' during binding even with
+    # [AllowNull()] -- check both, or an unreadable ticket (the real caller shape) silently
+    # passes as trustworthy instead of failing closed.
+    if ([string]::IsNullOrEmpty($TicketStatusCategory)) {
+        return [pscustomobject]@{ Trustworthy = $false; Reason = "ticket '$TicketHint' could not be read -- never trusted on doubt" }
+    }
+
+    if ($TicketHint -match '^t/(\d+)$') {
+        $num = [int]$Matches[1]
+        if ($num -lt $LowNumberFloor) {
+            return [pscustomobject]@{ Trustworthy = $false; Reason = "ticket number $num is below the low-number floor ($LowNumberFloor) -- signature of the second (Interweave) ticket series, not Orca" }
+        }
+    }
+
+    if ($TicketStatusCategory -eq 'completed' -and $null -ne $TicketClosedAt -and $TicketClosedAt -lt $PrCreatedAt) {
+        return [pscustomobject]@{ Trustworthy = $false; Reason = "ticket '$TicketHint' closed at $($TicketClosedAt.ToString('o')), before the PR was opened at $($PrCreatedAt.ToString('o')) -- cannot be the PR's real tracking ticket" }
+    }
+
+    return [pscustomobject]@{ Trustworthy = $true; Reason = $null }
+}
+
 function Test-IsDraft {
     <#
     .SYNOPSIS

@@ -44,13 +44,39 @@ jobs:
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const MARKER = '<!-- cl-path-check:verdict -->';
 
+            // BEGIN github-retry-loader (t/238, same loader as tier-check t/4819): every GitHub call
+            // below goes through retry(), which retries a 5xx/429 and a rate-limited 403 (waiting for
+            // the reset, capped) and rethrows anything else, so exhausted retries still land in the
+            // CANNOT EVALUATE catch. A permission 403 is never retried. The helper comes from the
+            // DEFAULT BRANCH'S LIVE TIP via git show, never the PR tree, so a PR cannot weaken it.
+            // If it is missing (bootstrap) or unloadable, calls run once, unretried, with a WARN.
+            let retry = (label, fn) => fn();
+            try {
+              const defaultBranch = context.payload.repository?.default_branch || 'main';
+              execSync(`git fetch origin ${JSON.stringify(defaultBranch)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperSha = execSync('git rev-parse FETCH_HEAD', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+              const helperText = execSync(`git show ${helperSha}:operations/devops/github-retry.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cl-path-check-retry-'));
+              const helperPath = path.join(helperDir, 'github-retry.mjs');
+              fs.writeFileSync(helperPath, helperText);
+              const { withGitHubRetry } = await import(pathToFileURL(helperPath).href);
+              retry = (label, fn) => withGitHubRetry(label, fn, {
+                warn: (m) => core.warning(m),
+                sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+                prefix: 'cl-path-check',
+              });
+            } catch (err) {
+              core.warning(`WARN cl-path-check: retry helper not loadable from the default branch tip (${String(err && err.message ? err.message : err).split('\n')[0]}) -- GitHub calls in this run are NOT retried.`);
+            }
+            // END github-retry-loader
+
             async function postVerdictComment(body, { createIfAbsent } = { createIfAbsent: true }) {
-              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
+              const comments = await retry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
               const existing = comments.find((c) => c.body?.includes(MARKER));
               if (existing) {
-                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+                await retry('issues.updateComment', () => github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body }));
               } else if (createIfAbsent) {
-                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+                await retry('issues.createComment', () => github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body }));
               }
             }
 
@@ -81,7 +107,7 @@ jobs:
             // narrow its own path sets or weaken the predicate in the same change that should be
             // caught by it, and a PR opened before this check existed isn't judged against a
             // stale, pre-bootstrap base.sha.
-            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+            const { data: pr } = await retry('pulls.get', () => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
             const headSha = pr.head.sha;
             execSync(`git fetch origin ${JSON.stringify(pr.base.ref)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
             const baseTipSha = execSync(`git rev-parse FETCH_HEAD`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
@@ -161,7 +187,7 @@ jobs:
 
             const { evaluateClPathCheck } = baseModule;
 
-            const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
+            const files = await retry('pulls.listFiles', () => github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 }));
             const mappedFiles = files
               .filter((f) => typeof f.filename === 'string')
               .map((f) => ({ path: f.filename, status: f.status }));

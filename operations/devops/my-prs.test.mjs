@@ -20,6 +20,13 @@ test('ticketRefs: loose forms in title and branch, canonical t/N only in the bod
   assert.equal(ticketRefs({ title: 'Tier: T1 hotfix' }).primary.size, 0, 'an upper-case tier tag is not a ticket');
 });
 
+test('t/535: lower-case tier tokens in a title or branch are not tickets (t/0-t/2)', () => {
+  const r = ticketRefs({ title: 'ci(t1-approval-guard): use the shared retry', branch: 'devops/t238-withretry-split' });
+  assert.deepEqual([...r.primary], [238]);
+  assert.equal(ticketRefs({ title: 'docs: t0 vs t2 promotion', branch: 'x/t1' }).primary.size, 0);
+  assert.deepEqual([...ticketRefs({ title: 'fix (t3)' }).primary], [3], 't/3 and up are still tickets');
+});
+
 test('a title/branch ticket of mine claims the PR', () => {
   const c = claim({ refs: refsOf({ title: 'fix(ci): x (t/357)', branch: 'fix/t357-x' }), myTickets: mine, fileOwners: null, agent: ME });
   assert.equal(c.owned, true);

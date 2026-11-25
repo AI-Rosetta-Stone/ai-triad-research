@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { resolveRepoRoot, resolveDataRoot } from './taxonomyLoader.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { usableTitle } from './docTitlesFromSourcesIndex.js';
 import type { SourceEvidenceIndex, DocMetaMap } from './evidenceFromSummaries.js';
 
 /** Load source evidence index from configured taxonomy directory. Returns undefined if not found. */
@@ -58,7 +59,15 @@ export function loadDocTitles(sessionId?: string): DocMetaMap | undefined {
     const __dir = path.dirname(fileURLToPath(import.meta.url));
     const root = resolveRepoRoot(__dir);
     const sourcesRoot = resolveSourcesRoot(root);
-    if (!sourcesRoot) return undefined;
+    if (!sourcesRoot) {
+      // t/492: without the sources root no document has a title, and every evidence citation falls
+      // back to its document id. Say so instead of returning quietly.
+      getGlobalRecorder()?.record({
+        type: 'state.error', component: 'debate-engine', level: 'warn', debate_id: sessionId,
+        message: `Document titles not loaded: no sources root for repo root ${root} (sources_root in .aitriad.json is missing or its directory does not exist). Evidence will be cited by document id (t/492)`,
+      });
+      return undefined;
+    }
     return loadDocMetadataMap(sourcesRoot);
   } catch (err) {
     getGlobalRecorder()?.record({
@@ -101,8 +110,10 @@ function loadDocMetadataMap(sourcesRoot: string): DocMetaMap | undefined {
 function loadSingleDocMeta(metaPath: string, docName: string): { title: string; resolved_url?: string; provenance_label?: string } | null {
   try {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-    if (!meta.title) return null;
-    const docMeta: { title: string; resolved_url?: string; provenance_label?: string } = { title: meta.title };
+    // t/492: a title that is only an identifier counts as no title, the same rule the hosted mapping uses.
+    const title = usableTitle(meta.title, docName);
+    if (!title) return null;
+    const docMeta: { title: string; resolved_url?: string; provenance_label?: string } = { title };
     if (meta.resolved_url) docMeta.resolved_url = meta.resolved_url;
     if (meta.provenance?.length > 0 && meta.provenance[0].id) docMeta.provenance_label = meta.provenance[0].id;
     if (!docMeta.resolved_url && meta.url) docMeta.resolved_url = meta.url;

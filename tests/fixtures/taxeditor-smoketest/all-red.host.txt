@@ -19,14 +19,10 @@ Smoke testing: https://stub
   [FAIL] Status page — all systems
 ::warning::GitHub services degraded — monitoring signal only, does not block the traffic shift. See '=== GitHub Services ===' above.
 
-=== Analytics Round-Trip ===
-  (anonymous session not established — analytics round-trip may hit the auth interstitial; delta cannot be trusted)
+=== Analytics Write ===
+  (anonymous session not established — the analytics write may hit the auth interstitial)
   [FAIL] POST /api/analytics/event — 503 10ms
         HTTP 503
-  [FAIL] GET /api/analytics/query (delta read-back) — 200 20ms
-        Silent drop: totalEvents did not increase after write (before=5, after=5, delta=0) — event accepted but not persisted (blob backend misconfigured?)
-  [FAIL] GET /api/analytics/query (view.dwell eventType) — 200 10ms
-        view.dwell absent or zero in eventTypes after probe write (count=0) — event not persisted or event_type mis-routed
 
 === Data Presence ===
   (anonymous session not established — data GETs may return the auth interstitial)
@@ -58,15 +54,15 @@ Smoke testing: https://stub
   Health:  Unhealthy
   Azure:   Unhealthy
   GitHub:  Unhealthy
-  Endpoints: 0/9 passed
-  Response: avg=18ms min=10ms max=42ms
+  Endpoints: 0/7 passed
+  Response: avg=19ms min=10ms max=42ms
   Duration: <masked>s
 
 === Per-Category Breakdown ===
 
 Category     Pass Fail
 --------     ---- ----
-Analytics       0    3
+Analytics       0    1
 Community       0    2
 DataPresence    0    3
 OpedFiles       0    1

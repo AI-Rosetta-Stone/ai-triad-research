@@ -76,3 +76,15 @@ describe('relevant-nodes pool size (t/424)', () => {
     expect(h.select).not.toHaveBeenCalled();
   });
 });
+
+describe('chat round body (t/348#62, TL p/10#248): the real handler', () => {
+  it('accepts the body the chat wiring sends (minPerCategory 1, maxTotal 500, threshold 0)', async () => {
+    const r = await post({ minPerCategory: 1, maxTotal: 500, threshold: 0 });
+    expect(r.status).toBe(200);
+  });
+
+  it('refuses the body the wiring sent before the fix (minPerCategory 0, maxTotal 100000) with 400', async () => {
+    const r = await post({ minPerCategory: 0, maxTotal: 100000, threshold: 0 });
+    expect(r.status).toBe(400);
+  });
+});

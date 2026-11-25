@@ -25,9 +25,12 @@
 //      no consult-hold / joint-gv / no-auto-enqueue label, not manually dequeued, no conflict,
 //      review data complete, no active changes-request, Design gate passed when user-facing,
 //      and ci-gate / CodeQL Analysis / joint-gv-guard / consult-hold-guard all green;
-//   2. approvalAtHeadVerdict (t1-approval-at-head.mjs, the SAME check enqueue-pr.mjs refuses
-//      on) is `guard_success` for the guard run fetched at this head by the same fetchGuardRun;
-//   3. that run's summary is `approved after the latest push` (never `not a T1 PR`);
+//   2. approvalFromApiVerdict (t1-approval-at-head.mjs, the SAME check enqueue-pr.mjs refuses
+//      on) is `approved_at_head` for the PR's reviews, comments and commits read from the API at
+//      this head by fetchApprovalInputs (t/534 part A: no check run is read, so a forged green
+//      `t1-approval-guard` row changes nothing; this replaces the old rules 2 and 3, which read
+//      the guard run and its summary);
+//   3. (folded into 2);
 //   4. HEAD-BOUND APPROVAL: a reviewer-App `Approved (<role>):` review whose commit is the
 //      current head SHA, from a role other than the branch owner. The guard measures staleness
 //      against the last commit's COMMITTER date, which is not push time: a commit made before an
@@ -49,7 +52,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { extractTier } from './tier-check-predicate.mjs';
 import { parseTier, ownerSlugFromBranch, normalizeRole } from './t1-approval-guard-predicate.mjs';
-import { approvalAtHeadVerdict, fetchGuardRun } from './t1-approval-at-head.mjs';
+import { approvalFromApiVerdict, fetchApprovalInputs } from './t1-approval-at-head.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
 import { sharedSkipReason, listOpenPRs, enqueueOne, REVIEWER_APP_LOGIN } from './t0-enqueue-sweep.mjs';
 
@@ -93,34 +96,26 @@ export function headBoundApprover(pr) {
 
 /**
  * PURE. Splits open PRs into those to enqueue now and those to skip (with the reason). Each PR
- * carries `guard`: fetchGuardRun's result at its head (`{ run, lookupError }`), attached by the
- * shim. A PR without `guard` fails closed (treated as a lookup error).
+ * carries `approvalInputs`: fetchApprovalInputs's API read at its head, attached by the shim
+ * (t/534 part A). A PR without it fails closed (treated as a lookup error). No check run is read:
+ * the decision is approvalFromApiVerdict, the same one enqueue-pr.mjs refuses on.
  */
 export function selectT1Candidates(prs) {
   const enqueue = [];
   const skip = [];
   for (const pr of prs) {
     let reason = sharedSkipReason(pr, { declares: declaresT1, tierName: 'T1' });
-    let guardNudge = null;
     if (!reason) {
-      const v = approvalAtHeadVerdict({ tier: extractTier(pr.body), isDraft: pr.isDraft, guard: pr.guard });
-      const summary = pr.guard?.run?.output?.summary ?? null;
-      if (v.reason === 'guard_lookup_error') {
-        reason = 'WARN: could not look up t1-approval-guard at the head -- failing closed (the next sweep retries)';
-      } else if (GUARD_NEVER_RAN.includes(v.reason) && headBoundApprover(pr)) {
-        // Approved at this head and otherwise ready, but the guard has no evaluation here at all.
-        reason = `WARN: t1-approval-guard never evaluated this head (${v.reason.replace(/^guard_/, '')}) although a ` +
-          'reviewer-App approval is bound to it -- asking the guard to run again';
-        guardNudge = { headRefOid: pr.headRefOid };
-      } else if (!v.allow || v.reason !== 'guard_success') {
-        reason = `t1-approval-guard at head is ${v.reason.replace(/^guard_/, '')}`;
-      } else if (summary !== GUARD_APPROVED_SUMMARY) {
-        reason = `t1-approval-guard summary is ${JSON.stringify(summary)}, not "${GUARD_APPROVED_SUMMARY}"`;
+      const v = approvalFromApiVerdict({ tier: extractTier(pr.body), isDraft: pr.isDraft, headSha: pr.headRefOid, inputs: pr.approvalInputs });
+      if (v.reason === 'approval_lookup_error') {
+        reason = `WARN: could not read the approval at the head (${v.detail}) -- failing closed (the next sweep retries)`;
+      } else if (!v.allow || v.reason !== 'approved_at_head') {
+        reason = `approval at head is ${v.reason}`;
       } else if (!headBoundApprover(pr)) {
         reason = 'no reviewer-App approval review bound to the current head SHA (stale or comment-only approval)';
       }
     }
-    if (reason) skip.push({ number: pr.number, reason, ...(guardNudge ? { guardNudge } : {}) });
+    if (reason) skip.push({ number: pr.number, reason });
     else enqueue.push({ number: pr.number, headRefOid: pr.headRefOid, armed: pr.autoMergeRequest != null });
   }
   return { enqueue, skip };
@@ -178,46 +173,39 @@ export function parseCliArgs(argv) {
  * One pass. `deps` replaces the listing, the guard lookup and enqueueOne's own deps in tests.
  * Returns the outcome per enqueued PR number.
  *
- * TWO GATES, both default to FALSE and both turn on only for the boolean `true`, so a caller
- * that forgets one (or passes a string) can neither enqueue nor comment:
- *   - `enqueueEnabled`: off -> a selected PR is only logged as `[enqueue off] would enqueue`: no
- *     live re-read, no disarm and no enqueue call.
- *   - `nudgeEnabled`: off -> a PR that would be nudged is only logged as `[nudge off] would ask
- *     t1-approval-guard to re-run`: postGuardNudge is not called, so no comment list is read and
- *     nothing is posted.
- * `nudgeOnlyPr` (a PR number) allows the nudge for that one PR while `nudgeEnabled` is off. It is
- * for checking the first live nudge on a throwaway PR, and it cannot enqueue anything.
- * With both gates off the sweep only reports: listing, guard lookup, selection and skip reasons
- * run as usual. `dryRun` wins over everything: no nudge and no enqueue.
+ * ONE GATE, default FALSE, on only for the boolean `true`, so a caller that forgets it (or passes
+ * a string) cannot enqueue: `enqueueEnabled` off -> a selected PR is only logged as
+ * `[enqueue off] would enqueue`: no live re-read, no disarm and no enqueue call. `dryRun` wins.
+ *
+ * GUARD NUDGES ARE RETIRED (t/534 part A). They asked t1-approval-guard to re-run on an approved
+ * head whose check run was missing, because that run decided the enqueue. The decision now reads
+ * the reviews from the API, so a missing run no longer blocks anything and nothing is nudged.
+ * `nudgeEnabled` / `nudgeOnlyPr` (and the CLI's --nudge / --nudge-pr, still passed by
+ * enqueue-sweep.yml) are accepted and ignored; postGuardNudge is no longer called. Removing them
+ * with the workflow flags is a follow-up.
  */
 export async function sweep(repo, { dryRun = false, enqueueEnabled = false, nudgeEnabled = false, nudgeOnlyPr = null, deps = {} } = {}) {
-  const { list = listOpenPRs, fetchGuard = fetchGuardRun, enqueueDeps, nudge = postGuardNudge } = deps;
-  // Only the boolean: a stray 'off' or 'false' string must not enqueue or comment.
+  const { list = listOpenPRs, fetchApproval = fetchApprovalInputs, enqueueDeps } = deps;
+  // Only the boolean: a stray 'off' or 'false' string must not enqueue.
   const enqueueOn = enqueueEnabled === true;
-  const nudgeOn = nudgeEnabled === true;
-  const onlyPr = Number.isInteger(nudgeOnlyPr) && nudgeOnlyPr > 0 ? nudgeOnlyPr : null;
   if (!dryRun) {
-    console.log(`T1 sweep: enqueue is ${enqueueOn ? 'ON (--enqueue)' : 'OFF (no --enqueue)'}; ` +
-      `guard nudges are ${nudgeOn ? 'ON (--nudge)' : onlyPr ? `OFF except for #${onlyPr} (--nudge-pr)` : 'OFF (no --nudge)'}.` +
-      (enqueueOn || nudgeOn || onlyPr ? '' : ' This run only reports.'));
+    console.log(`T1 sweep: enqueue is ${enqueueOn ? 'ON (--enqueue)' : 'OFF (no --enqueue)'}; guard nudges are retired (t/534)` +
+      `${nudgeEnabled === true || nudgeOnlyPr != null ? ', so --nudge / --nudge-pr do nothing' : ''}.` +
+      (enqueueOn ? '' : ' This run only reports.'));
   }
   const prs = list(repo);
   for (const pr of prs) {
     if (!declaresT1(pr.body)) continue;
-    pr.guard = fetchGuard(repo, pr.headRefOid);
-    if (pr.guard.lookupError) {
-      console.warn(`WARN: could not look up t1-approval-guard for #${pr.number} at ${pr.headRefOid} ` +
-        `(${pr.guard.error?.message ?? 'API error'}); skipping it this pass.`);
+    // t/534 part A: the approval is read from the API at the head, never from the guard's check run.
+    pr.approvalInputs = fetchApproval(repo, pr.number, pr.headRefOid);
+    if (pr.approvalInputs?.error) {
+      console.warn(`WARN: could not read the approval for #${pr.number} at ${pr.headRefOid} ` +
+        `(${pr.approvalInputs.error?.message ?? 'API error'}); skipping it this pass.`);
     }
   }
   const { enqueue, skip } = selectT1Candidates(prs);
   for (const s of skip) {
     console.log(`skip #${s.number}: ${s.reason}`);
-    if (s.guardNudge) {
-      if (dryRun) console.log(`[dry-run] would comment on #${s.number}: ask t1-approval-guard to re-run`);
-      else if (!nudgeOn && s.number !== onlyPr) console.log(`[nudge off] would ask t1-approval-guard to re-run for #${s.number} at ${s.guardNudge.headRefOid}`);
-      else nudge(repo, s.number, s.guardNudge);
-    }
   }
   if (enqueue.length === 0) console.log('no T1 PRs to enqueue.');
 

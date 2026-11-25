@@ -127,55 +127,92 @@ function listOpenDependabotPRs(repo) {
   }));
 }
 
-export async function sweep(repo, { dryRun = false } = {}) {
-  const { enqueue, skip } = selectSweepCandidates(listOpenDependabotPRs(repo));
+/**
+ * PURE (t/600). A refusal from enqueue-pr.mjs is a POLICY decision (gate files, budget, approval, hold
+ * label, stale copy...) and must never be retried or worked around; anything else (an API error, a
+ * queue entry that didn't appear) is TRANSIENT and may be retried once. enqueue-pr.mjs words every
+ * refusal 'refusing to arm/enqueue #N on <repo> (<reason>)'.
+ */
+export function classifyEnqueueFailure(err) {
+  const m = /refusing to arm\/enqueue #\d+ on \S+ \(([a-z0-9_]+)\)/.exec(String(err?.message ?? err ?? ''));
+  return m ? { kind: 'policy', reason: m[1] } : { kind: 'transient', reason: null };
+}
+
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Disarms with the GraphQL mutation (t/600: no `gh pr merge` in this file; arming is enqueue-pr.mjs's alone). */
+export function disarmViaGraphql(repo, number, ghFn) {
+  const [owner, name] = repo.split('/');
+  const id = JSON.parse(ghFn(['api', 'graphql', '-f', 'query=query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){id autoMergeRequest{enabledAt}}}}',
+    '-f', `o=${owner}`, '-f', `n=${name}`, '-F', `p=${number}`]))?.data?.repository?.pullRequest;
+  if (!id?.id) throw new Error(`could not read #${number}'s node id to disarm it`);
+  if (!id.autoMergeRequest) return;
+  ghFn(['api', 'graphql', '-f', 'query=mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}', '-f', `id=${id.id}`]);
+}
+
+export async function sweep(repo, { dryRun = false, deps = {} } = {}) {
+  const { gh: ghFn = gh, enqueue: enqueueFn = enqueuePR, readLive = readLivePR, list = listOpenDependabotPRs, sleep = sleepMs, retryDelayMs = 10000 } = deps;
+  const { enqueue, skip } = selectSweepCandidates(list(repo));
   for (const s of skip) console.log(`skip #${s.number}: ${s.reason}`);
-  if (enqueue.length === 0) { console.log('No Dependabot PRs to enqueue.'); return { enqueued: 0, failed: 0 }; }
+  if (enqueue.length === 0) { console.log('No Dependabot PRs to enqueue.'); return { enqueued: 0, failed: 0, refused: [] }; }
 
   let enqueued = 0;
   const failures = [];
+  const refused = [];
   for (const pr of enqueue) {
     if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
     // Search results lag: re-read the PR directly before touching it (see live-pr-state.mjs).
     // Checked BEFORE the disarm, so a PR that has moved on keeps its policy arm.
-    const before = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
+    const before = liveEnqueueVerdict(readLive(repo, pr.number), pr.headRefOid);
     if (!before.ok) {
       console.log(`skip #${pr.number} at enqueue time: ${before.reason}` +
         (before.raced ? '' : ' (WARN: will retry on the next sweep)'));
       continue;
     }
     try {
-      // Disarm first: re-arming an already-armed PR is a no-op, which leaves the original
-      // GITHUB_TOKEN arm in place (the state that never enqueues).
-      gh(['pr', 'merge', String(pr.number), '-R', repo, '--disable-auto']);
-      const result = await enqueuePR(repo, pr.number);
+      // Disarm first: the GITHUB_TOKEN policy arm never enqueues, and enqueue-pr.mjs's own arm is a
+      // no-op while it stands.
+      disarmViaGraphql(repo, pr.number, ghFn);
+      let result;
+      try {
+        result = await enqueueFn(repo, pr.number);
+      } catch (err) {
+        const c = classifyEnqueueFailure(err);
+        if (c.kind === 'policy') throw err;
+        // t/600 (TL p/9#577): only a TRANSIENT failure may retry, once, through enqueue-pr.mjs.
+        console.warn(`WARN: #${pr.number}: transient enqueue failure (${String(err?.message ?? err).split('\n')[0]}); retrying once in ${retryDelayMs / 1000}s.`);
+        await sleep(retryDelayMs);
+        result = await enqueueFn(repo, pr.number);
+      }
       console.log(`enqueued #${pr.number} (usedFallback=${result.usedFallback})`);
       enqueued++;
     } catch (err) {
       // The PR may have moved on in the seconds since the check above (merged or queued, or
-      // Dependabot rebased it). That is a race, not a failure, and no re-arm is needed: a
-      // rebase re-runs dependabot-auto-merge.yml, which arms the new head itself.
-      const after = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
+      // Dependabot rebased it). That is a race, not a failure.
+      const after = liveEnqueueVerdict(readLive(repo, pr.number), pr.headRefOid);
       if (after.raced) {
         console.log(`skip #${pr.number}: ${after.reason} while enqueuing (race, not a failure): ${err.message ?? err}`);
         continue;
       }
-      failures.push(pr.number);
+      const c = classifyEnqueueFailure(err);
       console.error(`::error::#${pr.number}: ${err.message ?? err}`);
-      // Restore the policy marker so the next sweep retries this PR instead of dropping it.
-      try {
-        gh(['pr', 'merge', String(pr.number), '-R', repo, '--auto', '--squash', '--match-head-commit', pr.headRefOid]);
-        console.warn(`WARN: re-armed #${pr.number} after a failed enqueue so the next sweep retries it.`);
-      } catch (rearmErr) {
-        console.warn(`WARN: could not re-arm #${pr.number} after a failed enqueue (${rearmErr.message ?? rearmErr}); ` +
-          'it will not be retried automatically. Enqueue it by hand.');
+      // t/600: NEVER re-arm. The old 'restore the policy marker' re-arm used this App's token, which
+      // enters the merge queue, so every refusal (gate files, budget, approval) landed the PR anyway
+      // (#5509). A refused or failed PR stays unarmed and is left for a person.
+      if (c.kind === 'policy') {
+        refused.push({ number: pr.number, reason: c.reason });
+        console.warn(`WARN: #${pr.number} refused by enqueue-pr.mjs (${c.reason}); left UNARMED for a person (t/600).`);
+      } else {
+        failures.push(pr.number);
+        console.warn(`WARN: #${pr.number} failed to enqueue twice; left UNARMED, enqueue it by hand with enqueue-pr.mjs (t/600).`);
       }
     }
   }
   console.log(`Enqueued ${enqueued}/${enqueue.length}.`);
-  if (failures.length) {
+  if (refused.length) console.warn(`WARN: refused, left unarmed for a person: ${refused.map((r) => `#${r.number} (${r.reason})`).join(', ')}.`);
+  if (failures.length || refused.length) {
     throw new Error(
-      `dependabot-enqueue-sweep: failed to enqueue ${failures.map((n) => `#${n}`).join(', ')} on ${repo}.\n` +
+      `dependabot-enqueue-sweep: did not enqueue ${[...failures, ...refused.map((r) => r.number)].map((n) => `#${n}`).join(', ')} on ${repo}.\n` +
       '  Goal:       land green, policy-armed Dependabot PRs through the merge queue.\n' +
       '  Problem:    enqueue-pr.mjs could not get these PRs into the queue as the App.\n' +
       '  Location:   operations/devops/dependabot-enqueue-sweep.mjs (see the ::error:: lines above).\n' +
@@ -183,7 +220,7 @@ export async function sweep(repo, { dryRun = false } = {}) {
       'pull requests and, for workflow-file bumps, workflows: write).',
     );
   }
-  return { enqueued, failed: 0 };
+  return { enqueued, failed: 0, refused };
 }
 
 const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];

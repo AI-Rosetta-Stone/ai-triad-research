@@ -20,9 +20,10 @@ import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
 import { json, error, param } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
-import { getStateRoot, getProjectRoot, STORAGE_MODE } from '../config.js';
+import { getStateRoot, getProjectRoot, STORAGE_MODE, isEmbeddingWorkerOffloadEnabled } from '../config.js';
 import { writeDump, isValidDumpId, readMergedDump } from '../flightRecorderDumps.js';
 import { escapeForInlineScript } from '../flightRecorderViewer.js';
+import { requireFlightRecorderAccess, resolveDumpFile } from './flightRecorderAccess.js';
 import { clientSafeMessage } from '../security/accessControl.js';
 import { getSessionBranchName } from '../security/userContext.js';
 import { filterSessionEvents } from './sessionScopedDump.js';
@@ -30,6 +31,7 @@ import { getRequestId } from '../logger.js';
 import { log } from '../logger.js';
 import * as fileIO from '../storage/fileIO.js';
 import { getWarmupStatus, computeEmbedding } from '../../../../lib/embeddings/onnxEmbedding.js';
+import { computeEmbeddingsOffThread } from '../../../../lib/embeddings/offThreadEmbedding.js';
 import { tagSoulFileName } from '../../../../lib/schema/povTags.js';
 
 /**
@@ -185,7 +187,9 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
   });
 
   // Server-side flight recorder dump
+  // t/579: admin-only. A server dump drains the server log buffer into a file; anyone could create one before.
   post('/api/flight-recorder/server-dump', (_req, res) => {
+    if (!requireFlightRecorderAccess(res)) return;
     try {
       const ndjson = appendServerLogs(serverRecorder.buildDump('manual').ndjson);
       const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
@@ -269,7 +273,9 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
     }
   });
 
+  // t/579: admin-only. The list named every client and server dump to any caller, anonymous included.
   get('/api/flight-recorder/list', (_req, res) => {
+    if (!requireFlightRecorderAccess(res)) return;
     try {
       const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
       if (!fs.existsSync(dumpDir)) { json(res, { files: [] }); return; }
@@ -293,16 +299,15 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
     }
   });
 
+  // t/579: admin-only, and the filename is confined to the dump directory. Before, the name was decoded twice and
+  // only regex-checked, so 'flight-recorder-%252F..%252F..%252Fx.jsonl' read any .jsonl the process could read.
   get('/api/flight-recorder/download/:filename', (req, res) => {
+    if (!requireFlightRecorderAccess(res)) return;
     try {
-      const filename = decodeURIComponent(param(req, 'filename', '/api/flight-recorder/download/:filename'));
-      // Sanitize: allow flight-recorder-*.jsonl and server-flight-recorder-*.jsonl
-      if (!/^(server-)?flight-recorder-.+\.jsonl$/.test(filename)) {
-        error(res, 'Invalid filename', 400);
-        return;
-      }
+      const filename = param(req, 'filename', '/api/flight-recorder/download/:filename');
       const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
-      const filePath = path.join(dumpDir, filename);
+      const filePath = resolveDumpFile(dumpDir, filename);
+      if (!filePath) { error(res, 'Invalid filename', 400); return; }
       if (!fs.existsSync(filePath)) { error(res, 'File not found', 404); return; }
       const content = fs.readFileSync(filePath, 'utf-8');
       res.writeHead(200, {
@@ -313,15 +318,14 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to download flight-recorder dump', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
   });
 
+  // t/579: admin-only, with the same filename confinement as download.
   get('/api/flight-recorder/view/:filename', (req, res) => {
+    if (!requireFlightRecorderAccess(res)) return;
     try {
-      const filename = decodeURIComponent(param(req, 'filename', '/api/flight-recorder/view/:filename'));
-      if (!/^(server-)?flight-recorder-.+\.jsonl$/.test(filename)) {
-        error(res, 'Invalid filename', 400);
-        return;
-      }
+      const filename = param(req, 'filename', '/api/flight-recorder/view/:filename');
       const dumpDir = path.join(getStateRoot(), 'flight-recorder'); // t/2643: class-A writable state
-      const filePath = path.join(dumpDir, filename);
+      const filePath = resolveDumpFile(dumpDir, filename);
+      if (!filePath) { error(res, 'Invalid filename', 400); return; }
       if (!fs.existsSync(filePath)) { error(res, 'File not found', 404); return; }
 
       const viewerPath = path.join(getProjectRoot(), 'tools', 'flight-recorder-viewer.html');
@@ -392,14 +396,20 @@ document.addEventListener('DOMContentLoaded', function() {
   // No-auth endpoint: fast-fails on cached warmup status, then runs a 1-vector
   // self-test (compute one embedding, assert 384-dim non-empty). Does NOT gate
   // /healthz — embedding failure is degraded-but-non-fatal.
+  // t/520: with the offload on, the worker owns the only ONNX session, so the self-test runs there; the
+  // main-thread warmup status does not apply (boot no longer warms the main thread), and computing on the main
+  // thread would load a second session. Same response shape either way.
   get('/api/health/embeddings', async (_req, res) => {
+    const offload = isEmbeddingWorkerOffloadEnabled();
     const status = getWarmupStatus();
-    if (!status.ready) {
+    if (!offload && !status.ready) {
       json(res, { ok: false, error: status.error ?? 'not ready' }, 503);
       return;
     }
     try {
-      const vector = await computeEmbedding('health check');
+      const vector = offload
+        ? Array.from((await computeEmbeddingsOffThread(['health check'], { requester: 'health' }))[0] ?? [])
+        : await computeEmbedding('health check');
       const dims = vector.length;
       if (dims !== 384) {
         json(res, { ok: false, error: `unexpected embedding dims: ${dims}` }, 503);

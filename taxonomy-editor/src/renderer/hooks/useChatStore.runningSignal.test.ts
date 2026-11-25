@@ -12,6 +12,7 @@ const { mockApi, mockRegisterRun, mockFinishRun } = vi.hoisted(() => {
   const mockFinishRun = vi.fn();
   const mockRegisterRun = vi.fn().mockReturnValue(mockFinishRun);
   const mockApi = {
+    checkAnonymousSession: vi.fn().mockResolvedValue(false),
     listChatSessions: vi.fn().mockResolvedValue([]),
     loadChatSession: vi.fn(),
     saveChatSession: vi.fn().mockResolvedValue(undefined),
@@ -133,6 +134,8 @@ describe('useChatStore — running signal wiring (t/4690)', () => {
     useChatStore.setState({ activeChatId: 'chat-1', activeChat: makeChatSession() as never });
 
     const generating = useChatStore.getState().generateOpening();
+    // t/348: the taxonomy turn is awaited before the stream starts, so wait for the stream to begin.
+    await vi.waitFor(() => expect(mockApi.startChatStream).toHaveBeenCalled());
     // Navigated away mid-stream: another chat becomes active before this one resolves.
     useChatStore.setState({ activeChatId: 'chat-2', activeChat: makeChatSession({ id: 'chat-2' }) as never });
     resolveStream!(JSON.stringify({ response: 'Late reply', taxonomy_refs: [] }));

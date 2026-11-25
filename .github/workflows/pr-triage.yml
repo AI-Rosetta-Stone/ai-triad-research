@@ -38,6 +38,27 @@ jobs:
   triage:
     runs-on: ubuntu-latest
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       # t/4351#4 Lead finding 2: the nudge step below dynamic-imports
       # operations/devops/t1-approval-guard-predicate.mjs via GITHUB_WORKSPACE, which needs a
       # real checkout -- this job never had one before, since the rest of its logic is pure
@@ -477,6 +498,27 @@ jobs:
   stuck-pr-alert:
     runs-on: ubuntu-latest
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
       - name: Self-health — classifier unit suite
@@ -495,7 +537,7 @@ jobs:
               REQUIRED_CONTEXTS, REQUIRED_CONTEXT_PATHS, ARM_EVENT_RE,
               classifyHealLiveness, HEAL_WORKFLOW_PATH,
             } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/stuck-pr-classifier.mjs`).href);
-            const { SO_CLEARED_RE } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/fleet-delivery-metrics.mjs`).href);
+            const { SO_CLEARED_RE, soRepliedAtHead } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/fleet-delivery-metrics.mjs`).href);
 
             const owner = context.repo.owner, repo = context.repo.repo;
             const nowMs = Date.now();
@@ -522,6 +564,13 @@ jobs:
             // t/4533: also returns soClearanceDetected (any comment, bot or not -- the SO's own
             // reply is itself posted via an agent App account, so excluding bots here would hide
             // every real SO reply) -- reuses the SAME comments fetch rather than a second call.
+            // t/4972 (PR #5199): SO_CLEARED_RE only matches the "SO cleared/clearing/did not
+            // review" phrasing -- a "Second Opinion verdict: proceed with conditions" reply at
+            // the PR's CURRENT head is still an answer to the 2h time-box question, just not a
+            // clearance, so it ALSO suppresses consult-hold-aged (soRepliedAtHead, pinned to
+            // pr.head.sha so a reply to a since-superseded head never suppresses a later push).
+            // A "send back" verdict does NOT suppress it (Quality, #5286): the PR went back to
+            // its author, and this alert is the only thing that surfaces that state.
             // t/4557: also returns hasApproval -- ANY review in GitHub's native APPROVED state,
             // bot or not (the reviewer App posts real APPROVED reviews, e.g. PR #3911's
             // `ai-triad-reviewer-jpsnover` review) -- reuses the SAME reviews fetch.
@@ -534,7 +583,7 @@ jobs:
                 github.rest.issues.listComments({ owner, repo, issue_number: pr.number, per_page: 100 }),
                 github.rest.pulls.listReviews({ owner, repo, pull_number: pr.number, per_page: 100 }),
               ]);
-              let soClearanceDetected = false;
+              let soClearanceDetected = soRepliedAtHead(comments, pr.head?.sha);
               for (const c of comments) {
                 if (SO_CLEARED_RE.test(c.body ?? '')) soClearanceDetected = true;
                 if (c.user?.type === 'Bot') continue;
@@ -739,7 +788,18 @@ jobs:
                 isDependabotAuthor: /dependabot/i.test(full.user?.login ?? ''),
               };
 
-              const blocker = classifyBlocker(prFacts, nowMs);
+              let blocker = classifyBlocker(prFacts, nowMs);
+              // t/535 (Lead p/233#82): before calling a PR approved-not-armed ("enqueue it"), read its
+              // changed files once and re-classify, so a user-facing PR without the Design gate is
+              // reported as awaiting-design instead. Only for that class, to keep API spend low (t/563).
+              if (blocker?.class === 'approved-not-armed') {
+                try {
+                  const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: pr.number, per_page: 100 });
+                  blocker = classifyBlocker({ ...prFacts, files: files.map((f) => f.filename) }, nowMs);
+                } catch (e) {
+                  core.warning(`WARN #${pr.number}: could not list changed files (${e.message}); the Design-gate check was skipped, so this stays approved-not-armed (t/535).`);
+                }
+              }
               if (blocker) blockerFindings.push({ pr: full, ticketHint: ticketHintFromBranch(full.head.ref), ...blocker });
               const healFinding = classifyHealLiveness(prFacts);
               if (healFinding) blockerFindings.push({ pr: full, ticketHint: ticketHintFromBranch(full.head.ref), ...healFinding });

@@ -1,7 +1,7 @@
 # ─── CodeQL SAST ───
 # What:  Static application security testing for TypeScript/JavaScript using
 #        GitHub CodeQL with security-extended queries (OWASP Top 10 coverage).
-# Before: Triggers on TS/JS pushes to main, on EVERY pull_request to main (no
+# Before: Triggers on TS/JS pushes to main (incl. .mjs/.cjs, t/377), on EVERY pull_request to main (no
 #         path filter, so the differential check-run always reports — t/2025),
 #         plus weekly Monday scan. No manual setup needed.
 # After:  SARIF results appear in the GitHub Security tab. Review any new alerts
@@ -17,6 +17,8 @@ on:
       - '**.tsx'
       - '**.js'
       - '**.jsx'
+      - '**.mjs'
+      - '**.cjs'
   pull_request:
     # No path filter on PRs (t/2025): CodeQL must run on EVERY PR so the
     # differential code-scanning check-run always reports. Once that check is a
@@ -89,7 +91,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea  # v4
         with:
           languages: javascript-typescript
           # queries (security-extended) + the test/archive paths-ignore live in the
@@ -97,10 +99,10 @@ jobs:
           config-file: ./.github/codeql/codeql-config.yml
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
+        uses: github/codeql-action/autobuild@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea  # v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea  # v4
         with:
           category: '/language:javascript-typescript'
           # SARIF uploaded to GitHub Security tab automatically

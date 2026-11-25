@@ -195,6 +195,11 @@ async function createReplica(pollIntervalMs: number): Promise<InstanceType<typeo
 // observable surface (it's an internal scheduling detail of one backend).
 function priv(backend: unknown): any { return backend as any; }
 
+// t/518: the first leader election is driven by real poll timers (300 ms here). It completes in well under a
+// second on an idle machine, but a 5 s budget flaked under machine-wide load (1 failure in 3 on main alone).
+// The budget is a load allowance, not a wait for slowness: a real election still completes inside it.
+const ELECTION_BUDGET_MS = 20_000;
+
 async function waitUntil(predicate: () => boolean, timeoutMs: number, stepMs = 50): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -227,7 +232,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — single-holder poll coordi
     const a = await createReplica(300);
     const b = await createReplica(300);
 
-    await waitUntil(() => priv(a).blobLease.isHolder() || priv(b).blobLease.isHolder(), 5000);
+    await waitUntil(() => priv(a).blobLease.isHolder() || priv(b).blobLease.isHolder(), ELECTION_BUDGET_MS);
 
     const aHolds = priv(a).blobLease.isHolder();
     const bHolds = priv(b).blobLease.isHolder();
@@ -247,7 +252,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — single-holder poll coordi
     const a = await createReplica(300);
     const b = await createReplica(300);
 
-    await waitUntil(() => priv(a).blobLease.isHolder() || priv(b).blobLease.isHolder(), 5000);
+    await waitUntil(() => priv(a).blobLease.isHolder() || priv(b).blobLease.isHolder(), ELECTION_BUDGET_MS);
     const holder = priv(a).blobLease.isHolder() ? a : b;
     const nonHolder = holder === a ? b : a;
 
@@ -281,7 +286,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — single-holder poll coordi
     const a = await createReplica(300); // will become holder, then get paused
     const b = await createReplica(300); // successor
 
-    await waitUntil(() => priv(a).blobLease.isHolder() || priv(b).blobLease.isHolder(), 5000);
+    await waitUntil(() => priv(a).blobLease.isHolder() || priv(b).blobLease.isHolder(), ELECTION_BUDGET_MS);
     // Whichever replica actually won the race becomes the one we pause —
     // the scenario doesn't depend on which of a/b that is.
     const pausedHolder = priv(a).blobLease.isHolder() ? a : b;

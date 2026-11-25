@@ -36,13 +36,15 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 - **Errors:** use `New-ActionableError` / `ActionableError` (Goal / Problem / Location / Next Steps), never a bare `throw`. **Log every fallback with a `WARN`** saying it was taken and why. See `docs/error-handling.md`.
 - **Tokens:** prefer pings to email, reference entities (`t/KEY`) instead of inlining them, read files in ranges, pipe long output through head/tail/grep, quote test summaries not runs, and read CI with `gh run view --log-failed`.
 - **Playbooks:** `/name` in these docs is the skill `interweave:name` that Claude and Copilot sessions load (t/366). Either name means the same playbook.
+- **Browser checks:** every session has the `chrome-devtools` MCP server (headless Chrome, isolated profile, pinned 1.14.0; t/523). Use it to verify UI and hosted behaviour (navigate, snapshot, console, network) instead of ad-hoc Playwright. Never point it at prod with a request that writes or spends without the TL's go.
 
 ## Situational Rules (read the doc first)
 
 - **Ownership:** for `.github/workflows/*` and other paths `resolve-owner` can't express, `docs/ownership-exceptions.md` wins.
 - **Landing code:** see `docs/pr-landing.md`.
+  - Every ticket lands in a feature PR (`feat/t<N>`) or an area train (`train/<area>-YYYYMMDD`); open your own PR only for broken main, an incident, a security fix or a PI request with the TL's go (`docs/pr-landing.md`).
   - Merge through a PR to `main` via the merge queue.
-  - Enqueue only pinned, with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`. If it refuses, stop and escalate; never fall back to the raw `enablePullRequestAutoMerge` mutation or `gh pr merge --auto`, which skip the approval guard (PI-approved 2026-11-09, t/4939).
+  - Enqueue only pinned, with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`. If it refuses, stop and escalate; never fall back to the raw `enablePullRequestAutoMerge` mutation, and never run `gh pr merge` in any form (with or without `--auto`): on a merge-queue branch even a plain `gh pr merge` arms auto-merge and enters the queue, skipping the approval guard (PI-approved 2026-11-09, t/4939; t/537).
   - **Never push to a queued PR.**
   - User-facing UI changes need `Approved (Design):` (`docs/review-routing.md`).
 - **Change tiers and decision rights:** see `docs/change-tiers.md`.

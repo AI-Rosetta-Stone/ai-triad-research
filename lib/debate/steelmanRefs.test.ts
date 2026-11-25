@@ -90,10 +90,11 @@ describe('plan to statement path (t/388, CL review t/388#11)', () => {
     expect(toPromptJson(planForLaterStages(p))).toBe(before);
   });
 
-  it('removes an offered id that reached the statement, and only an offered id', () => {
+  it('removes any argument id that reached the statement, offered or not, and leaves other brackets alone (widened by t/487)', () => {
     const s = 'They will object [AN-2] that costs rise. See note [1] and [AN-9].';
-    expect(stripSteelmanIdsFromStatement(s, ['AN-2'])).toBe('They will object that costs rise. See note [1] and [AN-9].');
-    expect(stripSteelmanIdsFromStatement(s, [])).toBe(s);
+    const cleaned = 'They will object that costs rise. See note [1] and.';
+    expect(stripSteelmanIdsFromStatement(s, ['AN-2'])).toBe(cleaned);
+    expect(stripSteelmanIdsFromStatement(s, [])).toBe(cleaned);
   });
 });
 
@@ -212,7 +213,8 @@ describe('anticipated challenges returned as objects (t/485)', () => {
   it('keeps an item with no usable text as its JSON, so nothing is dropped', () => {
     const p = plan([{ type: 'ATTACK', target: 'acc-intentions-099' }, 42]);
     applyPlanSteelmanRefs(p, []);
-    expect(p.anticipated_challenges).toEqual(['ATTACK: {"type":"ATTACK","target":"acc-intentions-099"} (target: acc-intentions-099)', 'OTHER: 42']);
+    // The kept JSON already shows the target, so it is not appended a second time (t/485#4, t/487).
+    expect(p.anticipated_challenges).toEqual(['ATTACK: {"type":"ATTACK","target":"acc-intentions-099"}', 'OTHER: 42']);
   });
 
   it('records one WARN per converted object, with the original, and none for strings', () => {

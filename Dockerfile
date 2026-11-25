@@ -6,7 +6,7 @@
 # minor/major on `/` lands with #5023; until then reject any python tag-bump PR here.
 FROM python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS python
 
-FROM mcr.microsoft.com/devcontainers/javascript-node:26-trixie@sha256:79dc0a2abec8743065a7b43774f9301f18c1a6f69702acd0010b9b06d9789041
+FROM mcr.microsoft.com/devcontainers/javascript-node:26-trixie@sha256:294bebcbbc229249a8eb0867cf305e82aee9c307e95d46b02518c3335a663b51
 
 # Pin Python to 3.12 — Debian trixie's own apt repo only ships 3.13. Copy the
 # official python:3.12-slim-trixie image's self-contained /usr/local instead

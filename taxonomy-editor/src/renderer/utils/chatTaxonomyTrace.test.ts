@@ -40,7 +40,7 @@ describe('buildChatTurnTrace', () => {
   });
 
   it('a turn with nothing selected has an empty trace', () => {
-    expect(buildChatTurnTrace([], [])).toEqual({ context_node_ids: [], context_statements: [], context_situation_ids: [] });
+    expect(buildChatTurnTrace([], [])).toEqual({ context_node_ids: [], context_statements: [], context_situation_ids: [], label_only_node_ids: [] });
   });
 });
 

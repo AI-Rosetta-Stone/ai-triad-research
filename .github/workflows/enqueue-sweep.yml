@@ -8,10 +8,9 @@
 #           no-auto-enqueue label) with all required checks green and NOTHING PUSHED FOR 15
 #           MINUTES, since pushing to a queued PR is refused (operations/devops/t0-enqueue-sweep.mjs).
 #        3. T1 PRs (t/73, Orca t/4820): REPORT-ONLY AS MERGED. The step ships with
-#           `T1_NUDGE: 'off'` and `T1_ENQUEUE: 'off'` (see the step below for what must be true
-#           before each is turned on), so it neither enqueues nor comments: it only logs the PRs
-#           it would enqueue, and the PRs whose approved, green head t1-approval-guard never
-#           evaluated (which it would nudge with one comment per head). Once on, it enqueues, and
+#           `T1_ENQUEUE: 'off'` (see the step below for what must be true before it is turned
+#           on), so it neither enqueues nor comments: it only logs the PRs it would enqueue
+#           (guard nudges are retired, t/534 part A). Once on, it enqueues, and
 #           it runs BEFORE the T0 step so its idle-window wait never delays T1 PRs. Selection is
 #           the same filters as T0 (labels, draft, queue, dequeue hold, conflict,
 #           review blocks, all required checks green), plus the SAME approval-at-head check
@@ -66,14 +65,8 @@ on:
         required: false
         default: false
         type: boolean
-      # T1 guard-nudge check (t/73). Lets ONE run post the guard nudge on ONE PR while T1_NUDGE
-      # is 'off', so the first live nudge is seen on a throwaway PR and not on a real one. It
-      # cannot enqueue: the T1 step turns it into `--nudge-pr=<N>` only, and only if all digits.
-      nudge_pr:
-        description: 'T1 nudge check: number of a throwaway PR this run may nudge (never enqueues). Empty = none.'
-        required: false
-        default: ''
-        type: string
+      # The `nudge_pr` input (t/73's one-PR guard-nudge check) is removed: guard nudges were retired
+      # by t/534 part A, which stopped the sweep reading the guard run at all (t/438 cancelled).
 
 permissions:
   contents: read   # checkout only; all writes use the App token
@@ -102,6 +95,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25   # up to 16 min of idle-window waiting in the T0 step, plus the sweeps
     steps:
+      # t/563 (spend attribution): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-start-step.yml; rate-limit-snapshot-step.test.mjs fails if
+      # a job's copy drifts. It is the FIRST step of every job that ends with the t/314 snapshot, so the
+      # pool's change across the job can be computed (t/563's spend report). Logs one
+      # line only, no summary. GET /rate_limit does not count against the primary limit. Never fails
+      # the job; timeout-minutes bounds a hung call.
+      - name: Rate-limit snapshot at job start (t/563)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.reset, .resources.graphql.used, .resources.graphql.reset] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu creset gu greset extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$creset" "$gu" "$greset"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
+          else
+            echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
+          fi
+
       - name: Check App configuration
         id: cfg
         env:
@@ -130,7 +144,7 @@ jobs:
       - name: Mint App token
         id: app
         if: steps.cfg.outputs.configured == 'true'
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc  # v3.4.0
         with:
           client-id: ${{ vars.DEPENDABOT_MERGE_APP_CLIENT_ID }}
           private-key: ${{ secrets.DEPENDABOT_MERGE_APP_PRIVATE_KEY }}
@@ -146,43 +160,30 @@ jobs:
       # Runs even if the Dependabot step failed. Before the T0 step, whose idle-window wait can
       # take 16 minutes. No wait here: the approval must already be bound to the head.
       #
-      # SHIPS REPORT-ONLY: T1_ENQUEUE and T1_NUDGE are both 'off' (Second Opinion's conditions on
-      # #4795, 2026-11-15). As merged this step neither enqueues nor comments on any PR. It
-      # selects, logs each skip reason, and logs `[nudge off] would ask t1-approval-guard to
-      # re-run for #N` and `[enqueue off] would enqueue #N` for the PRs it would act on. Each
-      # switch is a literal here, not a repo variable, so that turning it on is a reviewed
-      # commit, and each passes its flag only when it is exactly 'on'.
+      # SHIPS REPORT-ONLY: T1_ENQUEUE is 'off' (Second Opinion's conditions on #4795, 2026-11-15).
+      # As merged this step enqueues nothing and comments on nothing. It selects, logs each skip
+      # reason, and logs `[enqueue off] would enqueue #N` for the PRs it would act on. The switch
+      # is a literal here, not a repo variable, so that turning it on is a reviewed commit, and it
+      # passes its flag only when it is exactly 'on'.
       #
-      # T1_NUDGE gates the guard nudge: one comment per head, posted with the App token on a PR
-      # whose approval t1-approval-guard never evaluated. Before flipping it to 'on': one clean
-      # nudge has been observed on a THROWAWAY PR (one comment, one t1-approval-guard run, no
-      # second comment on the next sweep). To get that nudge without turning nudges on for
-      # every PR, dispatch this workflow by hand with `nudge_pr` set to the throwaway PR's
-      # number: that one run may nudge that one PR and no other. `nudge_pr` is read only on
-      # workflow_dispatch, must be all digits, and cannot enqueue anything.
+      # Guard nudges (T1_NUDGE, `nudge_pr`) are removed: t/534 part A retired them, since the
+      # sweep no longer reads the guard run (t/438 cancelled). t1-enqueue-sweep.mjs still accepts
+      # and ignores --nudge / --nudge-pr, so an old caller cannot break it.
       #
-      # T1_ENQUEUE gates the enqueue. Before flipping it to 'on': #5150 is on main, and the
-      # clean nudge above has been observed. Flip it in the same commit as T1_NUDGE or a later
-      # one, never before.
+      # T1_ENQUEUE gates the enqueue. Before flipping it to 'on': #5150 is on main.
       #
-      # Each flip is its own T2 commit, and must change t1-enqueue-sweep.test.mjs's
+      # The flip is its own T2 commit, and must change t1-enqueue-sweep.test.mjs's
       # "SHIPS REPORT-ONLY" test in the same commit.
-      - name: T1 sweep (report-only unless T1_NUDGE / T1_ENQUEUE is 'on')
+      - name: T1 sweep (report-only unless T1_ENQUEUE is 'on')
         if: always() && steps.cfg.outputs.configured == 'true' && steps.app.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-          NUDGE_PR: ${{ github.event_name == 'workflow_dispatch' && inputs.nudge_pr || '' }}
-          T1_NUDGE: 'off'
           T1_ENQUEUE: 'off'
         run: |
-          NUDGE_FLAG=''
-          if [ "$T1_NUDGE" = "on" ]; then NUDGE_FLAG='--nudge'; fi
-          NUDGE_PR_FLAG=''
-          case "$NUDGE_PR" in ''|*[!0-9]*) ;; *) NUDGE_PR_FLAG="--nudge-pr=$NUDGE_PR" ;; esac
           ENQUEUE_FLAG=''
           if [ "$T1_ENQUEUE" = "on" ]; then ENQUEUE_FLAG='--enqueue'; fi
-          node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN $NUDGE_FLAG $NUDGE_PR_FLAG $ENQUEUE_FLAG
+          node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN $ENQUEUE_FLAG
 
       # Runs even if an earlier step failed: one stuck PR must not hold back T0 PRs.
       - name: Enqueue green, idle T0 PRs

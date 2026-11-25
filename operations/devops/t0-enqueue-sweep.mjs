@@ -36,8 +36,11 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
-import { checkVerdict, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
+import { checkVerdict, classifyEnqueueFailure, disarmViaGraphql, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
+// t/602: the refusals that mean "over the PR budget, wait for a slot" (the same set the budget report pings).
+import { PING_REASONS as BUDGET_SKIP_REASONS } from './pr-budget-notify.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
+import { ejectedBatchVerdict, listMergeGroupRuns, listRunJobs, readJobLog } from './ejected-batch.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
 import { isUserFacing } from './design-review-scope.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
@@ -85,6 +88,35 @@ export const BLOCKING_LABELS = ['consult-hold', 'joint-gv', 'no-auto-enqueue'];
 export function declaresT0(body) {
   const first = String(body ?? '').split(/\r?\n/).find((l) => l.trim() !== '') ?? '';
   return /^\s*Tier:\s*T0\b/i.test(first);
+}
+
+// t/440: a PR with no `Tier:` line at all is skipped by every tier sweep, and nothing told its
+// author (seen on #5168, #5167, #5166, #5116, #5147, #5150). The sweep now posts one comment per
+// head asking for the line. A PR that declares T1 or T2 is not missing anything: no comment.
+export const TIER_NUDGE_MARKER = '<!-- t0-sweep-missing-tier:';
+
+/** PURE. True when the first non-empty line declares any tier (`Tier: T0`, `T1` or `T2`). */
+export function declaresAnyTier(body) {
+  const first = String(body ?? '').split(/\r?\n/).find((l) => l.trim() !== '') ?? '';
+  return /^\s*Tier:\s*T[012]\b/i.test(first);
+}
+
+/**
+ * PURE. Whether the sweep should ask this PR's author for a Tier line. Only same-repo,
+ * non-draft, non-Dependabot PRs on main with no Tier line on line 1. Forks fail closed (no
+ * comment), the same way sharedSkipReason treats an unknown fork status.
+ */
+export function needsTierNudge(pr) {
+  if (pr.isCrossRepository !== false) return false;
+  if (pr.isDraft) return false;
+  if (/dependabot/i.test(pr.author ?? '')) return false;
+  if (pr.baseRefName !== 'main') return false;
+  return !declaresAnyTier(pr.body);
+}
+
+/** PURE. The once-per-head marker for the missing-Tier comment. */
+export function tierNudgeMarker(headRefOid) {
+  return `${TIER_NUDGE_MARKER}${headRefOid} -->`;
 }
 
 /** PURE. Earliest check-run start on the head, as a push-time proxy; null when unknown. */
@@ -213,7 +245,10 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
         }
       }
     }
-    if (reason) skip.push({ number: pr.number, reason, ...(needsRepinComment ? { repinComment: { headRefOid: pr.headRefOid, reason: pr.repinCheck.reason } } : {}) });
+    const tierNudge = reason && needsTierNudge(pr)
+      ? { tierNudge: { headRefOid: pr.headRefOid, knownCommentBodies: (pr.comments ?? []).map((c) => c.body ?? '') } }
+      : {};
+    if (reason) skip.push({ number: pr.number, reason, ...(needsRepinComment ? { repinComment: { headRefOid: pr.headRefOid, reason: pr.repinCheck.reason } } : {}), ...tierNudge });
     else enqueue.push({ number: pr.number, headRefOid: pr.headRefOid, armed: pr.autoMergeRequest != null });
   }
   return { enqueue, skip, waiting };
@@ -385,6 +420,35 @@ function postRepinComment(repo, number, { headRefOid, reason }) {
   }
 }
 
+/**
+ * t/440: asks the author to add the missing `Tier:` line, at most once per head (found by its
+ * marker), the way postGuardNudge works in t1-enqueue-sweep.mjs. `knownCommentBodies` are the
+ * comments the open-PR search already fetched; when the marker is there no API call is made.
+ * Otherwise it reads up to 100 comments before posting. Best-effort: a failed read or post only
+ * WARNs, since the PR is skipped either way and the next sweep tries again. Returns 'posted',
+ * 'already' or 'failed'.
+ */
+export function postTierNudge(repo, number, { headRefOid, knownCommentBodies = [] }, { ghFn = gh } = {}) {
+  const marker = tierNudgeMarker(headRefOid);
+  try {
+    if (knownCommentBodies.some((b) => (b ?? '').includes(marker))) return 'already';
+    const bodies = JSON.parse(ghFn(['api', `repos/${repo}/issues/${number}/comments?per_page=100`, '--jq', '[.[].body]']));
+    if (bodies.some((b) => (b ?? '').includes(marker))) return 'already';
+    const body = [
+      `**Enqueue sweep (t/440): this PR has no \`Tier:\` line, so no sweep will enqueue it.** The first line of the PR body must be \`Tier: T0\`, \`Tier: T1\` or \`Tier: T2\` (AGENTS.md; the tiers are in docs/change-tiers.md).`,
+      '',
+      `Edit the PR description and put the tier on line 1. This is posted once per head (\`${headRefOid.slice(0, 9)}\`); nothing else is needed from you once the line is there.`,
+      marker,
+    ].join('\n');
+    ghFn(['api', `repos/${repo}/issues/${number}/comments`, '-f', `body=${body}`]);
+    console.log(`commented on #${number}: asked for a Tier line at ${headRefOid.slice(0, 9)}`);
+    return 'posted';
+  } catch (err) {
+    console.log(`WARN: #${number}: could not post the missing-Tier comment (${err.message ?? err}); the PR is still skipped`);
+    return 'failed';
+  }
+}
+
 // Fetch re-pin facts only where they can change the verdict: same-repo T0 re-pin PRs whose
 // review data loaded (the earlier skips in selectT0Candidates would fire first otherwise).
 function withRepinChecks(repo, prs) {
@@ -398,7 +462,7 @@ function withRepinChecks(repo, prs) {
 
 /**
  * Enqueues one selected PR (`{ number, headRefOid, armed }`) and reports what happened:
- * 'enqueued', 'skipped' (the live re-read said no), 'raced' (the PR moved on by itself while
+ * 'enqueued', 'skipped' (the live re-read said no, or enqueue-pr refused it over the PR budget, t/602), 'raced' (the PR moved on by itself while
  * enqueuing) or 'failed'. Shared by the T0 and T1 sweeps (t/73); moved out of `sweep` unchanged.
  * `enqueueOpts` is passed to enqueuePR (the T1 sweep pins `expectedHeadOid`). `deps` replaces the
  * live read, the enqueue call and `gh` in tests.
@@ -415,7 +479,8 @@ export async function enqueueOne(repo, pr, { enqueueOpts, deps = {} } = {}) {
   try {
     // An arm that never reached the queue (the silent-miss class, t/4740) is a no-op to
     // re-arm, so clear it first.
-    if (pr.armed) ghFn(['pr', 'merge', String(pr.number), '-R', repo, '--disable-auto']);
+    // t/600: disarm through GraphQL; no `gh pr merge` outside enqueue-pr.mjs (Security p/131#66).
+    if (pr.armed) disarmViaGraphql(repo, pr.number, ghFn);
     const result = enqueueOpts ? await enqueue(repo, pr.number, enqueueOpts) : await enqueue(repo, pr.number);
     console.log(`enqueued #${pr.number} (${JSON.stringify(result)})`);
     return 'enqueued';
@@ -426,6 +491,14 @@ export async function enqueueOne(repo, pr, { enqueueOpts, deps = {} } = {}) {
     if (after.raced) {
       console.log(`skip #${pr.number}: ${after.reason} while enqueuing (race, not a failure): ${err.message ?? err}`);
       return 'raced';
+    }
+    // t/602: a budget refusal is the budget working, not a failed sweep. The PR waits for the next
+    // day's slots (the 12:00Z/18:00Z budget report already names it to its owner) and stays unarmed
+    // (t/600: never re-arm). Every other refusal and failure still fails the job.
+    const c = classifyEnqueueFailure(err);
+    if (c.kind === 'policy' && BUDGET_SKIP_REASONS.includes(c.reason)) {
+      console.log(`skip #${pr.number}: over the PR budget (${c.reason}); waits for the next day's slots`);
+      return 'skipped';
     }
     console.error(`::error::#${pr.number}: ${err.message ?? err}`);
     return 'failed';
@@ -442,6 +515,7 @@ export async function enqueueOne(repo, pr, { enqueueOpts, deps = {} } = {}) {
 export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
   const deadline = Date.now() + waitMaxMinutes * 60000;
   const failures = new Set();
+  const tierNudged = new Set(); // `${number}@${head}` handled this run, so later passes don't re-read comments
   for (let pass = 1; ; pass++) {
     const { enqueue, skip, waiting } = selectT0Candidates(withRepinChecks(repo, listOpenPRs(repo)), Date.now());
     for (const s of skip) {
@@ -450,11 +524,35 @@ export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
         if (dryRun) console.log(`[dry-run] would comment on #${s.number}: re-pin head not T0`);
         else postRepinComment(repo, s.number, s.repinComment);
       }
+      if (s.tierNudge) {
+        const key = `${s.number}@${s.tierNudge.headRefOid}`;
+        if (tierNudged.has(key)) continue;
+        tierNudged.add(key);
+        if (dryRun) console.log(`[dry-run] would ask #${s.number} for a Tier line (unless already asked at this head)`);
+        else postTierNudge(repo, s.number, s.tierNudge);
+      }
     }
     if (enqueue.length === 0) console.log(`pass ${pass}: no T0 PRs to enqueue.`);
 
+    // t/423: one read of the merge_group runs per pass. A failed read is kept, not thrown, so
+    // every PR below fails open to 'unknown' (WARN, not skipped).
+    let mergeGroupRuns;
+    try { mergeGroupRuns = { runs: listMergeGroupRuns(repo, gh) }; } catch (err) { mergeGroupRuns = { error: err }; }
+    const ejectedCheck = (prNumber, prContexts) => {
+      if (mergeGroupRuns.error) return { verdict: 'unknown', reason: `could not list merge_group runs: ${mergeGroupRuns.error.message ?? mergeGroupRuns.error}` };
+      return ejectedBatchVerdict({ prNumber, runs: mergeGroupRuns.runs, pushedAt: headPushedAt(prContexts), readJobs: (id) => listRunJobs(repo, id, gh), readLog: (id) => readJobLog(repo, id, gh) });
+    };
+
     for (const pr of enqueue) {
       if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
+      // t/423: skip only a confirmed exit-3 (EJECTED) on this PR's latest queue run. Anything else
+      // proceeds as before, with a WARN when the state could not be read (fail open).
+      const eject = ejectedCheck(pr.number, pr.contexts);
+      if (eject.verdict === 'ejected') {
+        console.log(`skip #${pr.number}: its merge-queue batch was ejected (run ${eject.runId}, t/423); not enqueuing`);
+        continue;
+      }
+      if (eject.verdict === 'unknown') console.log(`WARN t/423: could not confirm the merge-queue state of #${pr.number} (${eject.reason}); not skipping (fail open)`);
       const outcome = await enqueueOne(repo, pr);
       if (outcome === 'enqueued') failures.delete(pr.number);
       else if (outcome === 'failed') failures.add(pr.number);

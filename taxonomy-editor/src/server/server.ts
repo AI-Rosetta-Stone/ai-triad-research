@@ -41,7 +41,7 @@ import {
   STORAGE_MODE, CACHE_DIR, isEmbeddingWorkerOffloadEnabled, getEmbeddingWorkerPoolSize, getMaxReplicas,
 } from './config.js';
 import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
-import { configureEmbeddingWorkerPool } from '../../../lib/embeddings/offThreadEmbedding.js';
+import { configureEmbeddingWorkerPool, computeEmbeddingsOffThread } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
@@ -78,6 +78,7 @@ import { stampNodeAuthorship, diffNodes, changedFields } from './storage/editMet
 import { computeNodeConflicts, type TaxNode, type NodeConflict } from './community/nodeConflicts.js';
 import { getConfig, getConfigState, writeConfig, forceReload as reloadRuntimeConfig, diffFromDefaults } from './runtimeConfig.js';
 import { setRuntimeCredentials, clearRuntimeCredentials, getCredentials } from './security/githubAppAuth.js';
+import { validateStagingBootGuard, validateStagingBranchPrefix } from './security/stagingBootGuard.js';
 import * as proxyTiers from './ai/proxyTiers.js';
 import * as rateLimiter from './security/rateLimiter.js';
 import * as analytics from './community/analytics.js';
@@ -252,6 +253,10 @@ let githubBackend: GitHubAPIBackend | null = null;
 let sessionManager: SessionBranchManager | null = null;
 
 if (STORAGE_MODE === 'github-api') {
+  // t/77 Phase 0: Validate staging boot guard (fail-closed: prevent staging from accessing prod data)
+  validateStagingBootGuard();
+  validateStagingBranchPrefix();
+
   githubBackend = new GitHubAPIBackend({
     cacheDir: CACHE_DIR,
     recorder: serverRecorder,
@@ -1393,7 +1398,13 @@ server.listen(PORT, BIND_HOST, () => {
   const poolSize = getEmbeddingWorkerPoolSize();
   configureEmbeddingWorkerPool(poolSize);
   log.server.info({ requestedPoolSize: poolSize }, 'embedding worker pool configured at boot');
-  void warmupEmbeddings().catch((err: unknown) => {
+  // t/520: one ONNX session per process. With the offload on, the worker owns the only session, so boot warms
+  // the worker; warming the main thread too kept a second ~300 MiB session resident from boot (t/520#13).
+  const bootWarmup: Promise<unknown> = isEmbeddingWorkerOffloadEnabled()
+    ? computeEmbeddingsOffThread(['warmup'], { requester: 'boot-warmup' })
+    : warmupEmbeddings();
+  log.server.info({ target: isEmbeddingWorkerOffloadEnabled() ? 'worker' : 'main-thread' }, 'ONNX embedding warmup at boot (t/520)');
+  void bootWarmup.catch((err: unknown) => {
     log.server.error({ err: String(err) }, 'ONNX embedding warmup failed at boot');
     getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'ONNX embedding warmup failed at boot', error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack } });
   });

@@ -187,3 +187,41 @@ test('t/125: the reset epoch is read from x-ratelimit-reset (seconds to ms)', ()
   assert.equal(rateLimitResetMs(rlError('0', 1700000000)), 1700000000000);
   assert.equal(rateLimitResetMs(httpError(403, 'x')), null);
 });
+
+// ── t/562 (Lead p/233#71): maxRateWaitMs / maxRateWaits for the merge-group guard paths ──
+const FIFTEEN_MIN = 15 * 60 * 1000;
+
+test('t/562: the default wait is unchanged -- a reset 10 min away still fails at once without the option', async () => {
+  let calls = 0;
+  const fn = async () => { calls++; throw rlError('0', NOW_MS / 1000 + 600); };
+  await assert.rejects(withGitHubRetry('label', fn, { ...quiet, sleep: async () => { throw new Error('must not sleep'); } }), /RATE-LIMITED/);
+  assert.equal(calls, 1);
+});
+
+test('t/562: maxRateWaitMs 15 min -- a reset 10 min away is waited for, then the call succeeds', async () => {
+  const waits = [];
+  let calls = 0;
+  const fn = async () => { calls++; if (calls === 1) throw rlError('0', NOW_MS / 1000 + 600); return 'ok'; };
+  const out = await withGitHubRetry('pulls.get #1', fn, { ...quiet, maxRateWaitMs: FIFTEEN_MIN, maxRateWaits: 1, sleep: async (ms) => waits.push(ms) });
+  assert.equal(out, 'ok');
+  assert.deepEqual(waits, [601000], 'waits the 600 s to the reset plus 1 s');
+});
+
+test('t/562: maxRateWaits 1 -- a second rate limit after the wait fails closed, naming the re-run time', async () => {
+  const waits = [];
+  let calls = 0;
+  const fn = async () => { calls++; throw rlError('0', NOW_MS / 1000 + 600); };
+  await assert.rejects(
+    withGitHubRetry('pulls.get #1', fn, { ...quiet, maxRateWaitMs: FIFTEEN_MIN, maxRateWaits: 1, sleep: async (ms) => waits.push(ms) }),
+    /RATE-LIMITED, re-run after \d{2}:\d{2}Z/,
+  );
+  assert.equal(calls, 2, 'one wait, one retry');
+  assert.equal(waits.length, 1);
+});
+
+test('t/562: maxRateWaitMs 15 min -- a reset 40 min away still fails at once', async () => {
+  let calls = 0;
+  const fn = async () => { calls++; throw rlError('0', NOW_MS / 1000 + 2400); };
+  await assert.rejects(withGitHubRetry('label', fn, { ...quiet, maxRateWaitMs: FIFTEEN_MIN, maxRateWaits: 1, sleep: async () => { throw new Error('must not sleep'); } }), /RATE-LIMITED/);
+  assert.equal(calls, 1);
+});

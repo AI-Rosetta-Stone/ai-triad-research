@@ -4,7 +4,7 @@
 // Run: node --test operations/devops/t0-enqueue-sweep.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pageCapWarning, isTransientGatewayError, withGatewayRetry, SEARCH_PAGE_SIZE, SEARCH_MAX_PAGES, declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES, hasReviewDataError, repinTierCheck, isRepinBranch, REPIN_DOCKERFILE } from './t0-enqueue-sweep.mjs';
+import { declaresAnyTier, needsTierNudge, postTierNudge, tierNudgeMarker, pageCapWarning, isTransientGatewayError, withGatewayRetry, SEARCH_PAGE_SIZE, SEARCH_MAX_PAGES, declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES, hasReviewDataError, repinTierCheck, isRepinBranch, REPIN_DOCKERFILE } from './t0-enqueue-sweep.mjs';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
 const minsAgo = (m) => new Date(NOW - m * 60000).toISOString();
@@ -382,3 +382,104 @@ test('a green T0 PR with a non-required check still running is not enqueued (t/4
   assert.deepEqual(enqueue, []);
   assert.match(skip[0].reason, /^1 check\(s\) still running \(Stray File Guard\)/);
 });
+
+// ── t/440: one comment per head asking for a missing Tier line ──────────────────────────────────
+
+test('t/440: declaresAnyTier reads only the first non-empty line, T0-T2', () => {
+  assert.equal(declaresAnyTier('Tier: T0\nx'), true);
+  assert.equal(declaresAnyTier('\n\n  tier: t1 (Quality)'), true);
+  assert.equal(declaresAnyTier('Tier: T2\n'), true);
+  assert.equal(declaresAnyTier('Fix a thing.\n\nTier: T1'), false);
+  assert.equal(declaresAnyTier('Tier: T3'), false);
+  assert.equal(declaresAnyTier(''), false);
+  assert.equal(declaresAnyTier(null), false);
+});
+
+test('t/440: a PR with no Tier line is skipped with a tierNudge; a PR with any Tier line gets none', () => {
+  const { skip } = selectT0Candidates([
+    pr({ number: 30, body: 'Fix a thing.', headRefOid: 'h30', comments: [{ body: 'hello' }] }),
+    pr({ number: 31, body: 'Tier: T1\n\nNeeds Quality.' }),
+    pr({ number: 32, body: 'Tier: T2\n' }),
+  ], NOW);
+  const s30 = skip.find((s) => s.number === 30);
+  assert.match(s30.reason, /not declared Tier: T0/);
+  assert.deepEqual(s30.tierNudge, { headRefOid: 'h30', knownCommentBodies: ['hello'] });
+  assert.equal(skip.find((s) => s.number === 31).tierNudge, undefined);
+  assert.equal(skip.find((s) => s.number === 32).tierNudge, undefined);
+});
+
+test('t/440: a T0 PR that is enqueued, or skipped for another reason, gets no tierNudge', () => {
+  const { enqueue, skip } = selectT0Candidates([pr({ number: 33 }), pr({ number: 34, mergeStateStatus: 'DIRTY' })], NOW);
+  assert.deepEqual(enqueue.map((e) => e.number), [33]);
+  assert.equal(skip[0].tierNudge, undefined);
+});
+
+test('t/440: never on drafts, Dependabot PRs, forks (or unknown fork status) or a non-main base', () => {
+  const cases = [
+    pr({ number: 40, body: 'no tier', isDraft: true }),
+    pr({ number: 41, body: 'no tier', author: 'app/dependabot' }),
+    pr({ number: 42, body: 'no tier', author: 'dependabot[bot]' }),
+    pr({ number: 43, body: 'no tier', isCrossRepository: true }),
+    pr({ number: 44, body: 'no tier', isCrossRepository: undefined }),
+    pr({ number: 45, body: 'no tier', baseRefName: 'epic/x' }),
+  ];
+  const { skip } = selectT0Candidates(cases, NOW);
+  for (const p of cases) assert.equal(skip.find((s) => s.number === p.number).tierNudge, undefined, `#${p.number}`);
+  for (const p of cases) assert.equal(needsTierNudge(p), false, `#${p.number}`);
+  assert.equal(needsTierNudge(pr({ body: '' })), true);
+});
+
+/** A fake `gh` holding one PR's comments, so consecutive sweeps see what earlier ones posted. */
+function fakeGh({ failPost = false, failRead = false } = {}) {
+  const comments = [];
+  const calls = [];
+  const ghFn = (args) => {
+    calls.push(args);
+    if (args[2] === '--jq') {
+      if (failRead) throw new Error('HTTP 502');
+      return JSON.stringify(comments);
+    }
+    if (failPost) throw new Error('HTTP 403: Resource not accessible by integration');
+    comments.push(args.at(-1).replace(/^body=/, ''));
+    return '{}';
+  };
+  return { ghFn, comments, calls, posts: () => calls.filter((a) => a[2] === '-f').length };
+}
+
+test('t/440: no Tier line -> one comment with the marker; the next sweep posts no second one', () => {
+  const g = fakeGh();
+  assert.equal(postTierNudge('o/r', 30, { headRefOid: 'abc123def456' }, { ghFn: g.ghFn }), 'posted');
+  assert.equal(g.comments.length, 1);
+  assert.ok(g.comments[0].includes(tierNudgeMarker('abc123def456')));
+  assert.match(g.comments[0], /Tier: T0.*Tier: T1.*Tier: T2/);
+  // Next sweep: the marker is found through the REST read, so nothing is posted.
+  assert.equal(postTierNudge('o/r', 30, { headRefOid: 'abc123def456' }, { ghFn: g.ghFn }), 'already');
+  // Next sweep with the comment already in the search results: no API call at all.
+  const before = g.calls.length;
+  assert.equal(postTierNudge('o/r', 30, { headRefOid: 'abc123def456', knownCommentBodies: [...g.comments] }, { ghFn: g.ghFn }), 'already');
+  assert.equal(g.calls.length, before);
+  assert.equal(g.posts(), 1);
+});
+
+test('t/440: a new head is asked again, once', () => {
+  const g = fakeGh();
+  postTierNudge('o/r', 30, { headRefOid: 'head1' }, { ghFn: g.ghFn });
+  assert.equal(postTierNudge('o/r', 30, { headRefOid: 'head2' }, { ghFn: g.ghFn }), 'posted');
+  assert.equal(postTierNudge('o/r', 30, { headRefOid: 'head2' }, { ghFn: g.ghFn }), 'already');
+  assert.equal(g.posts(), 2);
+});
+
+for (const [label, opts] of [['post', { failPost: true }], ['comment read', { failRead: true }]]) {
+  test(`t/440: a failed ${label} only WARNs and returns 'failed', never throws`, () => {
+    const g = fakeGh(opts);
+    const logs = [];
+    const orig = console.log;
+    console.log = (s) => logs.push(String(s));
+    try {
+      assert.equal(postTierNudge('o/r', 30, { headRefOid: 'abc' }, { ghFn: g.ghFn }), 'failed');
+    } finally {
+      console.log = orig;
+    }
+    assert.ok(logs.some((l) => /^WARN: #30: could not post the missing-Tier comment/.test(l)), logs.join('\n'));
+  });
+}
