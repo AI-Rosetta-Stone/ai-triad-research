@@ -27,4 +27,7 @@ jobs:
           ACTION: ${{ github.event.action }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: echo "review $ACTION on PR #$PR at $HEAD_SHA; t1-approval-guard re-evaluates from main (workflow_run)."
+        # A block scalar: in a plain scalar, ` #` starts a YAML comment and cut the echo mid-quote,
+        # so every relay run exited 2 (Security p/275#7, run 45529348284).
+        run: |
+          echo "review $ACTION on PR #$PR at $HEAD_SHA; t1-approval-guard re-evaluates from main (workflow_run)."
