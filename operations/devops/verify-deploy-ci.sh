@@ -5,8 +5,9 @@
 #
 # WHAT CHANGED from the inline step, and why:
 #   1. CI is judged by ANY completed run on the deploy SHA (or its nearest ancestor that has CI runs,
-#      the docs-only walk, unchanged) whose test-container job is success or skipped, AND whose event
-#      is TRUSTED: a push to main, merge_group, or workflow_dispatch. Not by recency: in the incident
+#      accepted ONLY when every file changed since it is in ci.yml's paths-ignore) whose test-container
+#      job is success or skipped, AND whose event is TRUSTED: a push to main or epic/**, merge_group, or
+#      workflow_dispatch. Not by recency: in the incident
 #      the newest run was a QUEUED pull_request run from an accidental PR on the hotfix branch, and it
 #      displaced a green workflow_dispatch run. A pull_request run never counts, green or not.
 #      No green trusted run -> if a trusted run is still queued or in progress, wait for the newest one
@@ -77,13 +78,38 @@ container_status() {
     --jq '.jobs[] | select(.name == "test-container") | .conclusion // .status'
 }
 
+# Trusted events (Lead t/591): a push to main or to an epic/** integration branch (ci.yml runs on push
+# to [main, 'epic/**']), merge_group, workflow_dispatch. CI on the exact SHA from an epic push is the
+# same evidence as a dispatch on a branch: both run that branch's own ci.yml, an exposure the dispatch
+# route already accepts. pull_request runs are never trusted.
 trusted() { # event head_branch
   case "$1" in
     merge_group|workflow_dispatch) return 0 ;;
-    push) [ "$2" = "main" ] ;;
+    push) [ "$2" = "main" ] || [[ "$2" == epic/* ]] ;;
     *) return 1 ;;
   esac
 }
+
+# ci.yml's `on.push.paths-ignore`: a push that changes ONLY these paths runs no CI. One list, pinned to
+# ci.yml by test-verify-deploy-ci.sh (it fails if the two ever differ).
+CI_PATHS_IGNORE=('**.md' 'docs/**' 'deploy/azure/runbooks/**')
+# A GitHub Actions glob as a regex: `**` matches across '/', `*` within one segment.
+glob_re() {
+  local g="$1" re="" i c
+  for ((i = 0; i < ${#g}; i++)); do
+    c="${g:i:1}"
+    if [ "$c" = "*" ] && [ "${g:i+1:1}" = "*" ]; then re+=".*"; i=$((i + 1))
+    elif [ "$c" = "*" ]; then re+="[^/]*"
+    elif [[ "$c" =~ [.+?^\$\(\)\[\]\{\}\|\\] ]]; then re+="\\$c"
+    else re+="$c"; fi
+  done
+  printf '^%s$' "$re"
+}
+ignored_by_ci() { # path
+  local g; for g in "${CI_PATHS_IGNORE[@]}"; do [[ "$1" =~ $(glob_re "$g") ]] && return 0; done; return 1
+}
+# GitHub's compare API lists at most 300 files; at the cap the list may be cut short.
+COMPARE_FILE_CAP=300
 
 echo "Checking CI status for ${DEPLOY_SHA}..."
 # Docs-only pushes to main are skipped by ci.yml paths-ignore, so the commit may have no CI run. Walk
@@ -96,7 +122,27 @@ for COMMIT in $COMMITS; do
   if [ -n "$RUNS" ]; then JUDGED="$COMMIT"; break; fi
 done
 [ -n "$JUDGED" ] || block "No CI run found for commit ${DEPLOY_SHA} or recent ancestors. CI must run before deploying."
-[ "$JUDGED" = "$DEPLOY_SHA" ] || echo "Commit ${DEPLOY_SHA} has no CI run (docs-only skip). Judging ancestor ${JUDGED}."
+if [ "$JUDGED" != "$DEPLOY_SHA" ]; then
+  # t/591 (DeployAzure t/591#5, Lead p/233#124): an ancestor's CI stands in ONLY when every file changed
+  # since it is one ci.yml ignores, i.e. CI skipped those commits on purpose. A commit where CI simply
+  # did not run (a hotfix push that started no CI) must not pass on its parent's green.
+  # First line: the file count; then one filename per line.
+  CMP=$(api "repos/${GH_REPO}/compare/${JUDGED}...${DEPLOY_SHA}" --jq '(.files | length | tostring), (.files[].filename)') || exit 1
+  NFILES=$(printf '%s\n' "$CMP" | head -n 1)
+  [[ "$NFILES" =~ ^[0-9]+$ ]] || block "cannot verify CI (the compare of ${JUDGED}...${DEPLOY_SHA} returned no file count). This is not a CI failure."
+  if [ "$NFILES" -ge "$COMPARE_FILE_CAP" ]; then
+    block "cannot verify CI (the compare of ${JUDGED}...${DEPLOY_SHA} lists ${NFILES} files, GitHub's cap, so it may be cut short and cannot prove the commits are docs-only). Dispatch ci.yml on a branch whose head is ${DEPLOY_SHA}, then re-run the deploy."
+  fi
+  CODE=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    ignored_by_ci "$f" || CODE="${CODE} ${f}"
+  done < <(printf '%s\n' "$CMP" | tail -n +2)
+  if [ -n "$CODE" ]; then
+    block "no CI on ${DEPLOY_SHA}: the commits since ${JUDGED} (which has CI) change files CI does not ignore:$(printf '%s' "$CODE" | cut -c1-300). Dispatch ci.yml on a branch whose head is ${DEPLOY_SHA}, then re-run the deploy."
+  fi
+  echo "Commit ${DEPLOY_SHA} has no CI run, and the ${NFILES} file(s) changed since ${JUDGED} are all ignored by ci.yml (docs-only). Judging ancestor ${JUDGED}."
+fi
 
 SEEN=""; WAIT_ID=""
 # '|' and not a tab: tab is whitespace to `read`, so an empty conclusion would shift the columns.
@@ -128,4 +174,4 @@ if [ -n "$WAIT_ID" ]; then
   block "CI run ${WAIT_ID} finished with test-container '${st:-not found}'. Container-relevant CI must pass before deploying."
 fi
 
-block "No completed green CI run (test-container success or skipped) from a trusted event (push to main, merge_group, workflow_dispatch) on ${JUDGED}. Runs seen:${SEEN}. Pull-request runs never count. Deploy blocked."
+block "No completed green CI run (test-container success or skipped) from a trusted event (push to main or epic/**, merge_group, workflow_dispatch) on ${JUDGED}. Runs seen:${SEEN}. Pull-request runs never count. Fix: dispatch ci.yml on a branch whose head is ${JUDGED} (or fix the failing run), then re-run the deploy."

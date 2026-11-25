@@ -104,6 +104,7 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/test-get-merge-group-prs-f4.sh',
   'operations/devops/test-get-merge-group-prs-ratelimit.sh',
   'operations/devops/test-verify-deploy-ci.sh', // t/591
+  'operations/devops/verify-deploy-ci.sh', // t/591: the prod deploy preflight's CI check (deploy-azure.yml runs it)
   'operations/devops/test-powershell-shard-durations.json',
 ];
 

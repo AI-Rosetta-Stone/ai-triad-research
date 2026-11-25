@@ -33,6 +33,7 @@ if [ "$1" = "api" ]; then
     *"/commits?sha="*) cat "$F/commits"; exit 0 ;;
     *"/workflows/ci.yml/runs?head_sha="*) s=${url##*head_sha=}; s=${s%%&*}; cat "$F/runs.$s" 2>/dev/null || true; exit 0 ;;
     *"/actions/runs/"*"/jobs"*) id=${url#*/actions/runs/}; id=${id%%/*}; cat "$F/job.$id" 2>/dev/null || true; exit 0 ;;
+    *"/compare/"*) cat "$F/compare" 2>/dev/null || echo 0; exit 0 ;;
   esac
 fi
 echo "shim: unexpected gh $*" >&2; exit 1
@@ -99,11 +100,48 @@ CASE=wait-then-green; setup $CASE
 row 950 push in_progress "" main > "$FIX/runs.$SHA"; echo success > "$FIX/job.950.after"
 if run 0; then ok 'grep -q "^950$" "$FIX/.watched"' "should watch run 950"; fi
 
-# 7. Docs-only commit: no runs on the SHA -> the nearest ancestor with runs is judged.
+# 7. Docs-only commit: no runs on the SHA, and the compare since the ancestor touches only paths-ignore -> the ancestor is judged.
 CASE=docs-only; setup $CASE
 ANC=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 printf '%s\n%s\n' "$SHA" "$ANC" > "$FIX/commits"; row 960 push completed success main > "$FIX/runs.$ANC"; echo success > "$FIX/job.960"
-if run 0; then ok 'echo "$OUT" | grep -q "Judging ancestor $ANC"' "should judge the ancestor"; fi
+printf '3\nREADME.md\ndocs/guide/a.txt\ndeploy/azure/runbooks/r.ps1\n' > "$FIX/compare"
+if run 0; then ok 'echo "$OUT" | grep -q "all ignored by ci.yml (docs-only). Judging ancestor $ANC"' "should judge the ancestor"; fi
+
+# 7b. THE 8726893f CASE (DeployAzure t/591#5): no CI on the SHA, and the commits since the green ancestor change code -> blocked with the fix.
+CASE=no-ci-code-change; setup $CASE
+printf '%s\n%s\n' "$SHA" "$ANC" > "$FIX/commits"; row 961 push completed success main > "$FIX/runs.$ANC"; echo success > "$FIX/job.961"
+printf '2\ndocs/a.md\nlib/oped/x.ts\n' > "$FIX/compare"
+if run 1; then
+  ok 'echo "$OUT" | grep -q "no CI on $SHA: the commits since $ANC .*lib/oped/x.ts"' "should block, naming the code file"
+  ok 'echo "$OUT" | grep -q "Dispatch ci.yml on a branch whose head is $SHA"' "should say how to fix"
+  ok '! echo "$OUT" | grep -q "passed for this commit"' "must not pass on the parent's green"
+fi
+
+# 7c. A truncated compare (GitHub's 300-file cap) -> cannot verify, never docs-only.
+CASE=compare-truncated; setup $CASE
+printf '%s\n%s\n' "$SHA" "$ANC" > "$FIX/commits"; row 962 push completed success main > "$FIX/runs.$ANC"; echo success > "$FIX/job.962"
+{ echo 300; for i in $(seq 1 300); do echo "docs/f$i.md"; done; } > "$FIX/compare"
+if run 1; then ok 'echo "$OUT" | grep -q "cannot verify CI (the compare .* lists 300 files"' "should refuse a capped compare"; fi
+
+# 7d. A failed compare read -> cannot verify (fails closed), not docs-only.
+CASE=compare-fails; setup $CASE
+printf '%s\n%s\n' "$SHA" "$ANC" > "$FIX/commits"; row 963 push completed success main > "$FIX/runs.$ANC"
+printf 'ok\nok\nok\n403\n' > "$FIX/fail"; echo "4000 $((NOW + 60))" > "$FIX/probe"
+if run 1; then ok 'echo "$OUT" | grep -q "cannot verify CI (the API refused a read with quota left"' "should fail closed on the compare read"; fi
+
+# 7e. A push to an epic/** branch is trusted (ci.yml runs on push to epic/**).
+CASE=epic-push; setup $CASE
+row 964 push completed success epic/t579-hotfix > "$FIX/runs.$SHA"; echo success > "$FIX/job.964"
+if run 0; then ok 'echo "$OUT" | grep -q "CI run 964 (push on epic/t579-hotfix)"' "should trust the epic push"; fi
+
+# 7f. Drift pin (Lead p/233#124): the script's paths-ignore list equals ci.yml's on.push.paths-ignore.
+CASE=paths-ignore-drift
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+CI_LIST=$(awk '/^on:/{on=1} on&&/^  push:/{p=1;next} p&&/^  [a-z_]+:/{exit} p&&/paths-ignore:/{pi=1;next} pi&&/^      - /{gsub(/^      - |['"'"'"]/,""); print; next} pi&&!/^ *#/&&!/^      - /{pi=0}' "$REPO_ROOT/.github/workflows/ci.yml" | sort)
+SCRIPT_LIST=$(grep -oE "^CI_PATHS_IGNORE=\(.*\)" "$SCRIPT_DIR/verify-deploy-ci.sh" | grep -oE "'[^']+'" | tr -d "'" | sort)
+if [ -z "$CI_LIST" ] || [ "$CI_LIST" != "$SCRIPT_LIST" ]; then
+  echo "FAIL [$CASE]: verify-deploy-ci.sh CI_PATHS_IGNORE differs from ci.yml on.push.paths-ignore. ci.yml: [$(printf '%s ' "$CI_LIST" | tr '\n' ' ')] script: [$(printf '%s ' "$SCRIPT_LIST" | tr '\n' ' ')]"; fail=1
+fi
 
 # 8. A rate-limit 403 with the reset 2 min away -> waits 125 s once, retries, passes; never "CI failed".
 CASE=ratelimit-wait; setup $CASE
