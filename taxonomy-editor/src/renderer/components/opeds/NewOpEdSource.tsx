@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { documentPickErrorLine } from './documentPickError';
 
 /** One source is active at a time (Design t/272#1). Each mode keeps its value until the dialog closes. */
 export type SourceMode = 'topic' | 'web' | 'document';
@@ -158,10 +159,11 @@ export function useDocumentSource() {
       }
       setDocState('ready');
     } catch (err) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'oped-new-dialog', level: 'error', message: 'Failed to read document source', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'oped-new-dialog', level: 'warn', message: 'WARN: document pick failed; the field shows a plain line, the raw error is recorded here', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       setDocFile(null);
       setDocState('error');
-      setDocError(err instanceof Error && err.message ? err.message : "Couldn't read text from this file. If it's a scanned PDF it has no text layer: try a text-based PDF or another format.");
+      // t/632: never the raw text (the desktop IPC wrapper carries an ActionableError dump and the user's paths).
+      setDocError(documentPickErrorLine(err));
     }
   };
 
