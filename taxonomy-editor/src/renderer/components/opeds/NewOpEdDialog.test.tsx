@@ -266,6 +266,21 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
     expect(payload).not.toHaveProperty('url');
   });
 
+  it('t/632: a desktop pick with a full path shows and sends only the file name', async () => {
+    pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'C:\\Users\\someone\\Documents\\report.pdf', content: 'alpha beta gamma' });
+    createOpEdSet.mockResolvedValue({ set_id: 's1' });
+    open();
+    await selectDocument();
+    chooseFile();
+    await waitFor(() => expect(screen.getByText('report.pdf')).toBeTruthy());
+    expect(screen.queryByText(/Users/)).toBeNull();
+    const draft = screen.getByRole('button', { name: /Draft/ });
+    await waitFor(() => expect(draft.getAttribute('aria-disabled')).toBe('false'));
+    fireEvent.click(draft);
+    await waitFor(() => expect(createOpEdSet).toHaveBeenCalledTimes(1));
+    expect(createOpEdSet.mock.calls[0][0].documentSource).toEqual({ text: 'alpha beta gamma', name: 'report.pdf' });
+  });
+
   it('says why Start is off until a document is chosen', async () => {
     open();
     await selectDocument();

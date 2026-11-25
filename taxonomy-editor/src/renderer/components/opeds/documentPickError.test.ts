@@ -5,6 +5,19 @@
 // path. An app fault says so instead of blaming the file; a cause in the file keeps the file's line.
 import { describe, it, expect } from 'vitest';
 import { documentPickErrorLine, appFaultLine, SCANNED_PDF_LINE } from './documentPickError';
+import { fileNameOf } from './NewOpEdSource';
+
+describe('t/632: fileNameOf (the chip and sourceName never carry a path)', () => {
+  it.each([
+    ['C:\\Users\\someone\\Documents\\brief.pdf', 'brief.pdf'],
+    ['/home/someone/docs/brief.docx', 'brief.docx'],
+    ['brief.md', 'brief.md'],
+    ['', undefined],
+    [undefined, undefined],
+  ])('%s -> %s', (input, expected) => {
+    expect(fileNameOf(input)).toBe(expected);
+  });
+});
 
 // The exact text the packed desktop app produced in the t/276 live check (path anonymised to the same shape).
 const IPC_ENOENT = "Error invoking remote method 'pick-document-file': ActionableError: \n  Goal:     Extract text from PDF document\n  Error:    Failed to extract text from document\n  Inner error: ENOENT, dist\\main\\lib\\node_modules\\pdfjs-dist not found in C:\\Users\\someone\\app\\resources\\app.asar\n  Location: lib/extraction:extract*Text\n  Resolve:\n  1. Verify the document is not corrupted";

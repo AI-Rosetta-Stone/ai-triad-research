@@ -17,6 +17,12 @@ export interface DocumentChoice { name: string; text: string; words: number }
 export const SOURCE_MODES: SourceMode[] = ['topic', 'web', 'document'];
 const SOURCE_LABELS: Record<SourceMode, string> = { topic: 'Topic', web: 'Web page', document: 'Document' };
 
+/** The last segment of a Windows or POSIX path; undefined for an empty value. */
+export function fileNameOf(path: string | undefined): string | undefined {
+  const name = path?.split(/[\\/]/).pop()?.trim();
+  return name || undefined;
+}
+
 export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -174,7 +180,9 @@ export function useDocumentSource() {
         setDocState(docFile ? 'ready' : 'idle');
         return;
       }
-      const name = res.filePath ?? 'document';
+      // The desktop picker returns the full path; only the file's own name is shown and sent as sourceName (the
+      // server takes a bare name only), so no folder or account name ever reaches the chip or the server (t/632).
+      const name = fileNameOf(res.filePath) ?? 'document';
       const words = countWords(res.content);
       setDocFile({ name, text: res.content, words });
       if (words === 0) {
