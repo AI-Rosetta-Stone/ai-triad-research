@@ -43,6 +43,7 @@ $script:VerbatimHtmlTagPattern = '(?i)</?(?:a|abbr|article|aside|b|blockquote|br
 $script:VerbatimBlankLineRegex = [regex]::new('\r?\n(?:[ \t]*\r?\n)+')   # one or more blank lines
 $script:VerbatimFigureLinePattern = '^[^\p{L}\r\n]*\p{Nd}[^\p{L}\r\n]*$'      # a line with a digit and no letter
 $script:VerbatimFigureTokenPattern = '(?<!\S)[^\p{L}\s]*\p{Nd}[^\p{L}\s]*(?!\S)'  # a word with a digit and no letter
+$script:VerbatimElisionMaxGap = 1000   # letters between two segments of an elided quote (CL t/389#40, stipulated; to be revisited)
 $script:VerbatimWordTail = 2           # source letters past a quote word's end that a stored piece may take (a plural)
 $script:VerbatimElisionPattern = '\[\s*(?:\.{3,}|\u2026)\s*\]|\(\s*(?:\.{3,}|\u2026)\s*\)|(?:\.[ \u00A0]){2,}\.|\.{3,}|\u2026'
 $script:VerbatimUrlPattern = '(?i)\b(?:https?://|www\.)[^\s<>"\)\]]+'
@@ -295,7 +296,7 @@ function Get-VerbatimAlignment {
 
 function Find-VerbatimSnap {
     # The best in-order alignment of a quote to the source. Returns $null, or { Start; End; Coverage;
-    # Contiguous; Pieces; QuoteLetters; FigureSplit }. Coverage is the share of the quote's letters matched. Contiguous
+    # Contiguous; Pieces; QuoteLetters; FigureLines }. Coverage is the share of the quote's letters matched. Contiguous
     # says the match is one passage: about as long as the quote, with no other text inside it. Pieces are
     # the matched stretches of source, in order, as { Start; End; QuoteLetters }: source offsets, and how
     # many of the quote's letters the piece covers. There is one piece when Contiguous, and several when
@@ -384,7 +385,8 @@ function Find-VerbatimSnap {
     $Text = $Source.Text
     $Pieces = [System.Collections.Generic.List[object]]::new()
     $CarryHyphen = $false
-    $FigureSplit = $false
+    $FigureLines = [System.Collections.Generic.List[object]]::new()
+    $FigureSeen = [System.Collections.Generic.HashSet[int]]::new()
     foreach ($P in $Best.Pieces) {
         # A piece that starts or ends inside a quote word: take the rest of the word when the source has
         # it right there (the neighbouring piece's run had claimed those letters), else give the word up.
@@ -436,11 +438,9 @@ function Find-VerbatimSnap {
             $CarryHyphen = $true
         }
         if ($PE -le $PS -or $Letters -le 0) { continue }
-        # Text inside a piece that is not quote text splits it. Each is a stretch to leave out:
-        #   - a blanked header or footer line;
-        #   - a blank line with a numbers-only line on either side of it (CL ruling p/70#93): a chart or
-        #     table value printed on its own line is not the continuation of the line before it, so
-        #     "label / 72% / 63%" is not a passage even though the source prints it in that order.
+        # A blanked header or footer line inside a piece splits it: the line is not quote text.
+        # A numbers-only line next to a blank line (a chart or table value, a page or footnote number) does
+        # not split a piece; it is reported in FigureLines and Resolve-VerbatimSegment decides (t/389#40).
         $Skips = [System.Collections.Generic.List[object]]::new()
         if ($Source.BlankedAt.Count -gt 0) {
             $B = [Array]::BinarySearch($Source.BlankedAt, $PS)
@@ -456,10 +456,10 @@ function Find-VerbatimSnap {
             $L0 = $Text.LastIndexOf([char]10, [Math]::Max(0, $G0 - 1)) + 1
             $L1 = $Text.IndexOf([char]10, $G1); if ($L1 -lt 0) { $L1 = $Text.Length }
             # Trim: with CRLF line ends the line after the gap still carries its carriage return.
-            if ($Text.Substring($L0, $G0 - $L0).Trim() -match $script:VerbatimFigureLinePattern -or
-                $Text.Substring($G1, $L1 - $G1).Trim() -match $script:VerbatimFigureLinePattern) {
-                $Skips.Add(@{ Start = $G0; End = $G1 })
-                $FigureSplit = $true
+            foreach ($Line in @(@{ Start = $L0; End = $G0 }, @{ Start = $G1; End = $L1 })) {
+                if ($Text.Substring($Line.Start, $Line.End - $Line.Start).Trim() -match $script:VerbatimFigureLinePattern -and $FigureSeen.Add($Line.Start)) {
+                    $FigureLines.Add([pscustomobject]@{ Start = $Line.Start; End = $Line.End; PieceStart = $PS; PieceEnd = $PE })
+                }
             }
         }
         if ($Skips.Count -eq 0) {
@@ -490,7 +490,7 @@ function Find-VerbatimSnap {
         Contiguous   = $Contiguous
         Pieces       = $Pieces.ToArray()
         QuoteLetters = $N
-        FigureSplit  = $FigureSplit
+        FigureLines  = $FigureLines.ToArray()
     }
 }
 
@@ -516,35 +516,94 @@ function Remove-VerbatimQuoteNoise {
     [regex]::Replace($Q, '\s{2,}', ' ').Trim()
 }
 
+function Get-VerbatimFigureVerdict {
+    # What the numbers-only lines inside a placed quote mean for it (CL rulings t/389#40, stipulated).
+    # A line is the quote's own figure when the quote's letters match the source better with the line than
+    # without it; otherwise it is a marker (a page or footnote number the quote does not have).
+    #   Verdict 'drop'  two or more of the quote's figures sit on lines of their own, or quote text goes on
+    #                   after one: a label and chart cells, not a passage ("label / 72% / 63%").
+    #           'keep'  exactly one, and it ends its piece: a label and its one value. Stored whole; the
+    #                   figure is never cut out of a quote that states it.
+    #           'none'  no figure of the quote is on a line of its own.
+    # MarkerLetters: the letters and digits of the marker lines, for the marker rule in Resolve-VerbatimSegment.
+    param([object]$Source, [object]$Snap, [string]$Quote)
+    $Out = [pscustomobject]@{ Verdict = 'none'; Markers = 0; MarkerLetters = 0 }
+    if (-not $Snap -or @($Snap.FigureLines).Count -eq 0) { return $Out }
+    $Letters = { param($T) (ConvertTo-EvidenceKey -Quote $T) -replace ' ', '' }
+    $Q = & $Letters $Quote
+    $Text = $Source.Text
+    $Own = 0; $OwnNotLast = $false
+    foreach ($F in $Snap.FigureLines) {
+        $Line = $Text.Substring($F.Start, $F.End - $F.Start)
+        $LineLetters = (& $Letters $Line).Length
+        if ($LineLetters -eq 0) { continue }
+        # Compare within the piece, taking the whole line even where the piece stops short of its end ("63" of "63%").
+        $From = [Math]::Min($F.PieceStart, $F.Start); $To = [Math]::Max($F.PieceEnd, $F.End)
+        $With = & $Letters $Text.Substring($From, $To - $From)
+        $Without = & $Letters ($Text.Substring($From, $F.Start - $From) + ' ' + $Text.Substring($F.End, $To - $F.End))
+        $MWith = (Get-VerbatimAlignment -Hay $With -Q $Q -From 0 -To $With.Length).Matched
+        $MWithout = (Get-VerbatimAlignment -Hay $Without -Q $Q -From 0 -To $Without.Length).Matched
+        if ($MWithout -lt $MWith) {
+            $Own++
+            if ((& $Letters $Text.Substring($F.End, $To - $F.End)).Length -gt 0) { $OwnNotLast = $true }
+        } else {
+            $Out.Markers++; $Out.MarkerLetters += $LineLetters
+        }
+    }
+    if ($Own -ge 2 -or $OwnNotLast) { $Out.Verdict = 'drop' } elseif ($Own -eq 1) { $Out.Verdict = 'keep' }
+    $Out
+}
+
 function Resolve-VerbatimSegment {
-    # Decides one elision-free segment. Returns { Decision; Texts; Coverage }: Decision is 'exact',
-    # 'snapped', 'interleaved' or 'dropped', and Texts is what to store, in order (empty when dropped).
+    # Decides one elision-free segment. Returns { Decision; Texts; Coverage; Start; End }: Decision is 'exact',
+    # 'snapped', 'interleaved' or 'dropped', Texts is what to store, in order (empty when dropped), and
+    # Start/End are the segment's place in the source text when it was located ($null when it was not).
     # An interleaved segment is stored as its matched source pieces, each the source's own text: kept as
     # the model wrote it, it would read as one continuous passage, which it isn't (CL ruling p/70#77).
     param([object]$Source, [string]$Segment)
-    # A quote with a figure standing as its own word may run from a line of text onto a chart or table
-    # value on its own line (CL ruling p/70#93). The words then match exactly and still aren't a passage,
-    # so such a quote is placed in the source before it is accepted as written.
+    $Result = {
+        param($Decision, $Texts, $Coverage, $Snap)
+        [pscustomobject]@{ Decision = $Decision; Texts = @($Texts); Coverage = $Coverage
+            Start = $(if ($Snap) { $Snap.Start } else { $null }); End = $(if ($Snap) { $Snap.End } else { $null }) }
+    }
+    # A quote with a figure standing as its own word may run from a line of text onto chart or table values
+    # on lines of their own (CL rulings p/70#93, t/389#40). Its words then match exactly and it may still not
+    # be a passage, so such a quote is placed in the source before it is accepted as written.
     $Snap = $null
     $HasFigure = $Segment -match $script:VerbatimFigureTokenPattern
     if (Test-VerbatimExact -Source $Source -Quote $Segment) {
-        if ($HasFigure) { $Snap = Find-VerbatimSnap -Source $Source -Quote $Segment }
-        if (-not $Snap -or -not $Snap.FigureSplit) {
-            return [pscustomobject]@{ Decision = 'exact'; Texts = @($Segment); Coverage = 1.0 }
-        }
-    }
-    $Clean = Remove-VerbatimQuoteNoise -Source $Source -Quote $Segment
-    if (-not $Snap) {
-        if ($Clean -cne $Segment -and (Test-VerbatimExact -Source $Source -Quote $Clean)) {
-            if ($HasFigure) { $Snap = Find-VerbatimSnap -Source $Source -Quote $Clean }
-            if (-not $Snap -or -not $Snap.FigureSplit) {
-                return [pscustomobject]@{ Decision = 'snapped'; Texts = @($Clean); Coverage = 1.0 }
+        if ($HasFigure) {
+            $Snap = Find-VerbatimSnap -Source $Source -Quote $Segment
+            if ((Get-VerbatimFigureVerdict -Source $Source -Snap $Snap -Quote $Segment).Verdict -eq 'drop') {
+                return (& $Result 'dropped' @() $(if ($Snap) { [double]$Snap.Coverage } else { 0.0 }) $null)
             }
         }
+        return (& $Result 'exact' @($Segment) 1.0 $Snap)
     }
-    if (-not $Snap) { $Snap = Find-VerbatimSnap -Source $Source -Quote $Clean }
+    $Clean = Remove-VerbatimQuoteNoise -Source $Source -Quote $Segment
+    if ($Clean -cne $Segment -and (Test-VerbatimExact -Source $Source -Quote $Clean)) {
+        if ($HasFigure) {
+            $Snap = Find-VerbatimSnap -Source $Source -Quote $Clean
+            if ((Get-VerbatimFigureVerdict -Source $Source -Snap $Snap -Quote $Clean).Verdict -eq 'drop') {
+                return (& $Result 'dropped' @() $(if ($Snap) { [double]$Snap.Coverage } else { 0.0 }) $null)
+            }
+        }
+        return (& $Result 'snapped' @($Clean) 1.0 $Snap)
+    }
+    $Snap = Find-VerbatimSnap -Source $Source -Quote $Clean
     $Coverage = if ($Snap) { $Snap.Coverage } else { 0.0 }
     if ($Snap -and $Coverage -ge $script:VerbatimSnapThreshold) {
+        $Figure = Get-VerbatimFigureVerdict -Source $Source -Snap $Snap -Quote $Clean
+        if ($Figure.Verdict -eq 'drop') { return (& $Result 'dropped' @() $Coverage $null) }
+        # A page or footnote number between two lines of the quote (t/389#40 ruling 2): when every letter of
+        # the quote is in the source in one stretch and the only other text in that stretch is such marker
+        # lines, the model's quote is stored exactly as written, as one piece. Nothing is split at a marker.
+        if ($Figure.Markers -gt 0 -and $Snap.Contiguous -and $Clean -ceq $Segment -and $Coverage -ge 1.0) {
+            $SpanLetters = ((ConvertTo-EvidenceKey -Quote $Source.Text.Substring($Snap.Start, $Snap.End - $Snap.Start)) -replace ' ', '').Length
+            if ($SpanLetters - $Figure.MarkerLetters -eq $Snap.QuoteLetters) {
+                return (& $Result 'snapped' @($Segment) 1.0 $Snap)
+            }
+        }
         $Texts = [System.Collections.Generic.List[string]]::new()
         $StoredLetters = 0
         foreach ($P in $Snap.Pieces) {
@@ -563,10 +622,29 @@ function Resolve-VerbatimSegment {
         $Coverage = [Math]::Min([double]$Coverage, [double]$StoredLetters / [double]$Snap.QuoteLetters)
         if ($Texts.Count -gt 0 -and $Coverage -ge $script:VerbatimSnapThreshold) {
             $Decision = if ($Snap.Contiguous) { 'snapped' } else { 'interleaved' }
-            return [pscustomobject]@{ Decision = $Decision; Texts = $Texts.ToArray(); Coverage = $Coverage }
+            return (& $Result $Decision $Texts.ToArray() $Coverage $Snap)
         }
     }
-    [pscustomobject]@{ Decision = 'dropped'; Texts = @(); Coverage = $Coverage }
+    & $Result 'dropped' @() $Coverage $null
+}
+
+function Test-VerbatimElisionGap {
+    # May two segments of an elided quote stand as one quote (CL ruling t/389#40 (4), stipulated)? They must
+    # be in source order, at most VerbatimElisionMaxGap letters apart, with no layout marker in the gap: a
+    # page break, a blanked page header, a table row, or a numbers-only line (a chart value, a page number).
+    param([object]$Source, [int]$PrevEnd, [int]$NextStart)
+    if ($NextStart -lt $PrevEnd) { return $false }
+    $Gap = $Source.Text.Substring($PrevEnd, $NextStart - $PrevEnd)
+    if (([regex]::Replace($Gap, '[^\p{L}\p{Nd}]', '')).Length -gt $script:VerbatimElisionMaxGap) { return $false }
+    if ($Gap.IndexOf([char]12) -ge 0) { return $false }
+    if ($Gap -match '(?m)^\s*\|' -or $Gap -match '\|\s[^|\r\n]*\|') { return $false }
+    if ($Gap -match '(?m)^[^\p{L}\r\n]*\p{Nd}[^\p{L}\r\n]*\r?$') { return $false }
+    if ($Source.BlankedAt.Count -gt 0) {
+        $B = [Array]::BinarySearch($Source.BlankedAt, $PrevEnd)
+        if ($B -lt 0) { $B = -bnot $B }
+        if ($B -lt $Source.BlankedAt.Count -and $Source.BlankedAt[$B] -lt $NextStart) { return $false }
+    }
+    $true
 }
 
 function Resolve-VerbatimQuote {
@@ -592,14 +670,52 @@ function Resolve-VerbatimQuote {
     }
     $Kept = [System.Collections.Generic.List[object]]::new()
     $BestCoverage = 0.0
+    $AllLetters = 0
     foreach ($Part in $Parts) {
+        $PartLetters = ((ConvertTo-EvidenceKey -Quote $Part) -replace ' ', '').Length
+        $AllLetters += $PartLetters
         # A fragment shorter than one run can't be placed in the source, so it can't be kept as a quote.
-        if (((ConvertTo-EvidenceKey -Quote $Part) -replace ' ', '').Length -lt $script:VerbatimMinRun) { continue }
+        if ($PartLetters -lt $script:VerbatimMinRun) { continue }
         $R = Resolve-VerbatimSegment -Source $Source -Segment $Part
         if ($R.Coverage -gt $BestCoverage) { $BestCoverage = $R.Coverage }
-        if ($R.Decision -ne 'dropped') { $Kept.Add($R) }
+        if ($R.Decision -eq 'dropped') { continue }
+        # Where the segment is, for the elision rule below. A segment accepted as written was not placed yet.
+        if ($null -eq $R.Start) {
+            $At = Find-VerbatimSnap -Source $Source -Quote $R.Texts[0]
+            if ($At) { $R.Start = $At.Start; $R.End = $At.End }
+        }
+        Add-Member -InputObject $R -NotePropertyName Letters -NotePropertyValue $PartLetters
+        $Kept.Add($R)
     }
     if ($Kept.Count -eq 0) { $Dropped.Coverage = $BestCoverage; return $Dropped }
+    # An elision joins sentences of one passage (CL ruling t/389#40 (4)): consecutive segments must be in
+    # source order, close together, with no layout marker between them (Test-VerbatimElisionGap). The kept
+    # segments are cut into runs wherever that fails; the run that holds the most of the quote is stored,
+    # and only if it holds VerbatimSnapThreshold of the whole quote. Otherwise the quote is dropped: its
+    # parts are from different places and the stored quote would join them.
+    if ($Kept.Count -gt 1) {
+        $Runs = [System.Collections.Generic.List[object]]::new()
+        $Run = [System.Collections.Generic.List[object]]::new()
+        foreach ($R in $Kept) {
+            if ($Run.Count -gt 0) {
+                $Prev = $Run[$Run.Count - 1]
+                $Together = ($null -ne $Prev.End -and $null -ne $R.Start) -and (Test-VerbatimElisionGap -Source $Source -PrevEnd $Prev.End -NextStart $R.Start)
+                if (-not $Together) { $Runs.Add($Run); $Run = [System.Collections.Generic.List[object]]::new() }
+            }
+            $Run.Add($R)
+        }
+        $Runs.Add($Run)
+        if ($Runs.Count -gt 1) {
+            $BestRun = $null; $BestLetters = -1
+            foreach ($Candidate in $Runs) {
+                $L = 0; foreach ($R in $Candidate) { $L += $R.Letters }
+                if ($L -gt $BestLetters) { $BestLetters = $L; $BestRun = $Candidate }
+            }
+            $Share = if ($AllLetters -gt 0) { [double]$BestLetters / [double]$AllLetters } else { 0.0 }
+            if ($Share -lt $script:VerbatimSnapThreshold) { $Dropped.Coverage = [Math]::Min([double]$BestCoverage, $Share); return $Dropped }
+            $Kept = $BestRun
+        }
+    }
     $MinCoverage = 1.0
     foreach ($R in $Kept) { if ($R.Coverage -lt $MinCoverage) { $MinCoverage = $R.Coverage } }
     $Interleaved = @($Kept | Where-Object { $_.Decision -eq 'interleaved' }).Count

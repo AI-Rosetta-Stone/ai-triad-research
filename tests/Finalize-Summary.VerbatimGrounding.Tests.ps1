@@ -415,12 +415,65 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.Stored | Should -BeNullOrEmpty
     }
 
-    It 'prose that ends with a figure on its own line keeps the prose and not the figure (p/70#93)' {
+    It 'a label and its one value on the next line are kept whole: the figure is never cut out (t/389#40 (1), F02)' {
+        $Src = "Risks students report`r`n`r`nGetting biased results`r`n`r`n32%`r`n`r`nGetting inaccurate results`r`n`r`n51%`r`n`r`nMore text about the survey of students.`r`n"
+        $Out = & $script:Run $Src 'Getting biased results (32%)' 'doc-label-value'
+        $Out.R.Dropped | Should -Be 0
+        $Out.R.Snapped | Should -Be 0
+        $Out.R.Interleaved | Should -Be 0
+        $Out.Stored | Should -Be 'Getting biased results (32%)'
+    }
+
+    It 'prose that ends with its figure on a line of its own is kept whole, figure included (t/389#40 (1))' {
         $Prose = 'Employers surveyed expect that skills gaps in the labour market will hinder their transformation over the next five years'
         $Src = "Some other text about the survey.`n`n$Prose`n`n63%`n`nMore text about the survey of employers.`n"
         $Out = & $script:Run $Src "$Prose 63%" 'doc-prose-figure'
-        $Out.R.Interleaved | Should -Be 1
-        $Out.Stored | Should -Be $Prose
+        $Out.R.Dropped | Should -Be 0
+        $Out.R.Interleaved | Should -Be 0
+        $Out.Stored | Should -Be "$Prose 63%"
+    }
+
+    It 'quote text that goes on after a figure line is a chart row, not a passage (t/389#40 (1), F06)' {
+        $Src = "Labour-market churn`r`n`r`nFive-year structural labour-force churn`r`n`r`n97%`r`n`r`nGlobal 39%`r`n`r`nSkill disruption`r`n`r`nMore text about the survey of employers.`r`n"
+        $Out = & $script:Run $Src 'Five-year structural labour-force churn 97% Global 39%' 'doc-chart-row'
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
+    }
+
+    It 'a page number between two lines of the quote is not matched and not stored: the quote is kept as written, one piece (t/389#40 (2), F01)' {
+        $Src = "Lermen, Simon, Charlie Rogers-Smith, and Jeffrey Ladish (Oct. 2023). LoRA Fine-Tuning`r`nEfficiently Undoes Safety Training in Llama 2-Chat 70B. arXiv. DOI: 10.48550/arXi`r`n`r`n91`r`n`r`n$([char]12)v.2310.20624. URL: http://arxiv.org/abs/2310.20624 (visited on 01/13/2024).`r`n"
+        $Quote = 'Lermen, Simon, Charlie Rogers-Smith, and Jeffrey Ladish (Oct. 2023). LoRA Fine-Tuning Efficiently Undoes Safety Training in Llama 2-Chat 70B. arXiv. DOI: 10.48550/arXi v.2310.20624.'
+        $Out = & $script:Run $Src $Quote 'doc-page-number-marker'
+        $Out.R.Dropped | Should -Be 0
+        $Out.R.Interleaved | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+        "$($Out.Stored)" | Should -Not -Match '91'
+    }
+
+    It 'an elided quote whose segments are close together in the source is kept as its segments (t/389#40 (4))' {
+        $A = 'Developers answer that the evaluations they run today were never designed for licensing.'
+        $B = 'Auditors therefore ask for access to the weights and to the training data.'
+        $Src = "$A A short sentence sits between the two in the source. $B`n"
+        $Out = & $script:Run $Src "$A [...] $B" 'doc-elision-near'
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be @($A, $B)
+    }
+
+    It 'an elided quote that joins text more than 1,000 letters apart is dropped (t/389#40 (4), F07)' {
+        $A = 'Developers answer that the evaluations they run today were never designed for licensing.'
+        $B = 'Auditors therefore ask for access to the weights and to the training data.'
+        $Filler = (1..40 | ForEach-Object { "Unrelated sentence number $_ about some other matter entirely." }) -join ' '
+        $Src = "$A $Filler $B`n"
+        $Out = & $script:Run $Src "$A [...] $B" 'doc-elision-far'
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
+    }
+
+    It 'an elided quote whose segments are out of source order, or have a page break between them, is dropped (t/389#40 (4))' {
+        $A = 'Developers answer that the evaluations they run today were never designed for licensing.'
+        $B = 'Auditors therefore ask for access to the weights and to the training data.'
+        (& $script:Run "$B Some text between. $A`n" "$A [...] $B" 'doc-elision-order').R.Dropped | Should -Be 1
+        (& $script:Run "$A`n$([char]12)$B`n" "$A [...] $B" 'doc-elision-pagebreak').R.Dropped | Should -Be 1
     }
 
     It 'a figure inside a line of prose is part of the passage' {
