@@ -23,6 +23,7 @@ import * as proxyTiers from '../ai/proxyTiers.js';
 import { getEmbeddingsCacheStatus, getEmbeddingsResolution } from '../ai/aiBackends.js';
 import * as community from '../community/community.js';
 import * as fileIO from '../storage/fileIO.js';
+import { anonSessionSigningReady } from '../security/anonSessionSigning.js';
 import { requireAdminOrOperator } from './adminGate.js';
 import { getFreePoolBudget, getFreePoolBudgetConfig } from '../storage/freePoolBudget.js';
 import { isFreePoolBudgetEnforced } from '../featureFlags.js';
@@ -102,6 +103,11 @@ async function validTaxonomyDirName(body: unknown): Promise<string | null> {
   const dirName = (body as { dirName?: unknown } | null)?.dirName;
   if (typeof dirName !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(dirName)) return null;
   return (await fileIO.getTaxonomyDirs()).includes(dirName) ? dirName : null;
+}
+
+/** t/666 (SO p/252#59): whether anonymous sessions can be minted ('unavailable' = no anon-session-hmac secret loaded). */
+function anonSessionSigningState(): 'ready' | 'unavailable' {
+  return anonSessionSigningReady() ? 'ready' : 'unavailable';
 }
 
 export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
@@ -258,6 +264,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
         githubRateLimitRemaining, githubRateLimitResetsAt, githubRateLimitObservedAt, githubCircuitOpen, entityRegistryDegraded, organizationsRegistryDegraded,
         freePoolBudget: freePoolBudgetHealth(),
         blobBackend: blobBackendHealth(),
+        anonSessionSigning: anonSessionSigningState(), // t/664/t/666: 'unavailable' = no anon-session-hmac secret, anonymous sessions refused 503 (SO p/252#59)
       });
       return;
     }
@@ -279,6 +286,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
       storage: {
         mode: STORAGE_MODE,
       },
+      anonSessionSigning: anonSessionSigningState(), // t/666
     };
 
     base.ai = {

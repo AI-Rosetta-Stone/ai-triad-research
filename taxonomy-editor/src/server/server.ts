@@ -68,7 +68,7 @@ import { resolveAllowedOrigins, corsOriginFor, resolveBindHost, isNonLoopbackDev
 import { parseCookies } from './httpCookies.js';
 import { registerAllRoutes } from './routes/all.js';
 import { invalidateConflictsCache, warmConflictsCache } from './routes/conflicts.js';
-import { anonSessionCookiesWithCreated } from './routes/session.js';
+import { handleAnonAuthEndpoints } from './anonAuthEndpoints.js';
 import { setDataRootReady, setDataRootFailed } from './routes/dataRootReadiness.js'; // t/3309: data-root → /readyz readiness cache
 import { buildLoginPage, FORBIDDEN_PAGE, SW_HEAL_SCRIPT_CSP_HASH, loginPageHeaders } from './loginPage.js';
 import type { ServerCtx } from './routes/context.js';
@@ -748,35 +748,7 @@ function resolvePrincipalIdentity(req: http.IncomingMessage, res: http.ServerRes
 
 /** The two anonymous-session establishment endpoints (t/1483). Returns true when handled
  *  (cookies set + responded). Must run before the auth gate — the caller has no session yet. */
-function handleAnonAuthEndpoints(req: http.IncomingMessage, res: http.ServerResponse, urlPath: string, authOptional: boolean): boolean {
-  // /.auth/anonymous — sets a session cookie and redirects to the app (browser
-  // link on the login page). POST /api/auth/anonymous below is the JSON sibling.
-  if (urlPath === '/.auth/anonymous' && authOptional) {
-    res.writeHead(302, {
-      'Location': '/',
-      'Set-Cookie': anonSessionCookiesWithCreated(req), // t/2464 (id) + t/2493 (created marker on fresh mint)
-    });
-    res.end();
-    return true;
-  }
-
-  // POST /api/auth/anonymous — JSON sibling of GET /.auth/anonymous (t/1483,
-  // follow-up from t/1476). Establishes an anonymous session for programmatic
-  // callers (the web-bridge session-recovery path) with the same two cookies but
-  // a JSON 200 instead of a 302 + ~2KB HTML round-trip. Must run before the auth
-  // gate below — the caller has no session yet. POST-only so a stray GET still
-  // falls through to the 302 link / login page. The session id stays in the
-  // HttpOnly cookie and is never echoed in the body.
-  if (urlPath === '/api/auth/anonymous' && req.method === 'POST' && authOptional) {
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Set-Cookie': anonSessionCookiesWithCreated(req), // t/2464 (id) + t/2493 (created marker on fresh mint)
-    });
-    res.end(JSON.stringify({ ok: true, anonymous: true }));
-    return true;
-  }
-  return false;
-}
+// t/666 (SO p/252#59): handleAnonAuthEndpoints moved to anonAuthEndpoints.ts, which also catches a signing failure.
 
 /** Clear anonymous cookies when a user signs in via EasyAuth. */
 function clearAnonCookiesOnSignin(req: http.IncomingMessage, res: http.ServerResponse, principalName: string): void {
