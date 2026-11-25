@@ -12,6 +12,7 @@ import { GATE_SCRIPTS, PR_FILES_API_CAP, gateFileChangeVerdict, isGateFile } fro
 import {
   classifyEnqueueOutcome, formatSilentMissWarning, classifyT1GuardForEnqueue, enqueuePR,
   fetchGuardRun, classifyGhApiError, pickAuthoritativeGuardRun, tierCheckDisagreesAt, approvalFromApiVerdict,
+  holdLabelVerdict,
 } from './enqueue-pr.mjs';
 import { COMMENT_APPROVER_ALLOWLIST } from './t1-approval-at-head.mjs';
 
@@ -309,7 +310,7 @@ test('t/556 shim: a stale running copy is refused BEFORE any gh call (no PR read
   await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: () => undefined, gh: fakeGh }), (err) => err.reason === 'no_result');
 });
 
-const T1_PR_VIEW = JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T1\n\nsome PR body', isDraft: false });
+const T1_PR_VIEW = JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T1\n\nsome PR body', isDraft: false, labels: [] });
 
 // Both refusal tests mock the FULL happy-path chain (graphql queue reads, pr merge) too, not
 // just the calls up to the refusal. If the refusal check were ever moved below `gh pr merge`
@@ -491,7 +492,7 @@ test('t/534 A (1): an App approval COMMENT alone never approves, whatever its ti
 });
 
 // Lead t/534 (2): T2 needs the same reviewer-App review as T1 (TL ruling; merge-approval does it).
-const T2_VIEW = JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T2\n\nA consult-gated change.', isDraft: false });
+const T2_VIEW = JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T2\n\nA consult-gated change.', isDraft: false, labels: [] });
 function t2Fake(approval) {
   const fakeGh = forgedRowFake(approval);
   fakeGh.approval.pr = { ...fakeGh.approval.pr, body: 'Tier: T2\n\nA consult-gated change.' };
@@ -520,7 +521,7 @@ test('t/534 A (2): a T2 PR with a reviewer-App review at the head proceeds', asy
 test('t/534 A: a T0 PR reads no approval data at all (exempt, unchanged)', async () => {
   const fakeGh = forgedRowFake();
   fakeGh.approvalError = 'must not be read';
-  const happy = happyPathNext(JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0\n\nbody', isDraft: false }));
+  const happy = happyPathNext(JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0\n\nbody', isDraft: false, labels: [] }));
   fakeGh.next = (args) => {
     const joined = args.join(' ');
     if (joined.includes('check-runs') && joined.includes('tier-check')) return JSON.stringify({ check_runs: [] });
@@ -535,7 +536,7 @@ test('t/534 A: a T0 PR reads no approval data at all (exempt, unchanged)', async
 
 test('t/534 A: an undeclared tier is evaluated as T1 (fail closed): no approval -> refused', async () => {
   const fakeGh = forgedRowFake(approvalState({ reviews: [] }));
-  const happy = happyPathNext(JSON.stringify({ headRefOid: 'cafebabe', body: 'no tier line', isDraft: false }));
+  const happy = happyPathNext(JSON.stringify({ headRefOid: 'cafebabe', body: 'no tier line', isDraft: false, labels: [] }));
   fakeGh.next = (args) => {
     const joined = args.join(' ');
     if (joined.includes('check-runs')) return FORGED_GREEN;
@@ -742,7 +743,7 @@ test('tierCheckDisagreesAt: the latest completed github-actions run wins (older 
 
 test('enqueuePR shim: a T0 PR whose tier-check lookup fails still proceeds (non-blocking) but WARNs about tier-check', async () => {
   const fakeGh = fakeGhTracking();
-  const happy = happyPathNext(JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0\n\nbody', isDraft: false }));
+  const happy = happyPathNext(JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0\n\nbody', isDraft: false, labels: [] }));
   fakeGh.next = (args) => {
     const joined = args.join(' ');
     if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) return JSON.stringify({ check_runs: [] });
@@ -862,7 +863,7 @@ function gateFake(prView, files, review = null) {
   fakeGh.review = review;
   return fakeGh;
 }
-const T0_VIEW = JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0\n\nbody', isDraft: false });
+const T0_VIEW = JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0\n\nbody', isDraft: false, labels: [] });
 
 test('t/537 shim: a T1 PR with a green guard that changes a workflow is refused before any guard read or merge', async () => {
   const fakeGh = gateFake(T1_PR_VIEW, ['README.md', '.github/workflows/ci.yml']);
@@ -973,4 +974,72 @@ test('t/537 pure: a renamed workflow counts under its old name, and the API cap 
   assert.equal(capped.reason, 'files_unreadable');
   assert.equal(gateFileChangeVerdict({ ...base, files: { paths: null } }).reason, 'files_unreadable');
   assert.equal(gateFileChangeVerdict({ ...base, files: undefined }).reason, 'files_unreadable');
+});
+
+// ── t/132: the `no-auto-enqueue` label refuses unless --override-hold ──
+// Each shim test runs on the full happy path (gateFake: non-gate files, green guard, approved T1),
+// so a refusal can only come from the label, and a removed refusal would reach `gh pr merge`.
+const labelledView = (labels) => JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T1\n\nsome PR body', isDraft: false, labels });
+const fileReads = (fakeGh) => fakeGh.calls.filter((a) => a.join(' ').includes('/files')).length;
+
+test('t/132 pure: holdLabelVerdict refuses the label, allows it with the override (WARN), and fails closed on unreadable labels', () => {
+  assert.deepEqual(holdLabelVerdict({ labels: [] }), { allow: true, reason: 'no_hold_label' });
+  assert.deepEqual(holdLabelVerdict({ labels: [{ name: 'stuck-pr-alert-owner' }] }), { allow: true, reason: 'no_hold_label' });
+  assert.deepEqual(holdLabelVerdict({ labels: [{ name: 'no-auto-enqueue' }] }), { allow: false, reason: 'no_auto_enqueue' });
+  assert.deepEqual(holdLabelVerdict({ labels: ['no-auto-enqueue'] }), { allow: false, reason: 'no_auto_enqueue' });
+  const over = holdLabelVerdict({ labels: [{ name: 'no-auto-enqueue' }], overrideHold: true });
+  assert.equal(over.allow, true);
+  assert.equal(over.reason, 'hold_overridden');
+  assert.match(over.warn, /no-auto-enqueue.*--override-hold/);
+  for (const bad of [undefined, null, 'no-auto-enqueue', {}]) {
+    assert.deepEqual(holdLabelVerdict({ labels: bad, overrideHold: true }), { allow: false, reason: 'labels_unreadable' }, String(bad));
+  }
+  // A near-miss name is not the hold label.
+  assert.equal(holdLabelVerdict({ labels: [{ name: 'no-auto-enqueue-later' }] }).allow, true);
+});
+
+test('t/132 shim: a labelled PR is refused before any file read or merge', async () => {
+  const fakeGh = gateFake(labelledView([{ name: 'no-auto-enqueue' }]), ['taxonomy-editor/src/a.ts']);
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /refusing to arm\/enqueue #42 on o\/r \(no_auto_enqueue\)[\s\S]*--override-hold/);
+  assert.equal(merges(fakeGh), 0);
+  assert.equal(fileReads(fakeGh), 0);
+});
+
+test('t/132 shim: --override-hold arms a labelled PR and WARNs', async () => {
+  const fakeGh = gateFake(labelledView([{ name: 'no-auto-enqueue' }]), ['taxonomy-editor/src/a.ts']);
+  const warn = mock.method(console, 'warn', () => {});
+  let result;
+  try {
+    result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh, overrideHold: true });
+    assert.ok(warn.mock.calls.some((c) => /WARN: .*no-auto-enqueue.*--override-hold.*#42 on o\/r, head cafebabe/.test(String(c.arguments[0]))));
+  } finally { warn.mock.restore(); }
+  assert.equal(result.ok, true);
+  assert.equal(merges(fakeGh), 1);
+});
+
+test('t/132 shim: the override does not bypass the approval check that follows', async () => {
+  const fakeGh = gateFake(labelledView([{ name: 'no-auto-enqueue' }]), ['taxonomy-editor/src/a.ts']);
+  fakeGh.approval = approvalState({ reviews: [] });
+  const warn = mock.method(console, 'warn', () => {});
+  try {
+    await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh, overrideHold: true }), /\(no_approval\)/);
+  } finally { warn.mock.restore(); }
+  assert.equal(merges(fakeGh), 0);
+});
+
+test('t/132 shim: unreadable labels refuse with a WARN, even with --override-hold', async () => {
+  const fakeGh = gateFake(JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T1\n\nbody', isDraft: false }), ['taxonomy-editor/src/a.ts']);
+  const warn = mock.method(console, 'warn', () => {});
+  try {
+    await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh, overrideHold: true }), /\(labels_unreadable\)/);
+    assert.ok(warn.mock.calls.some((c) => /WARN: enqueue-pr could not read the labels of #42/.test(String(c.arguments[0]))));
+  } finally { warn.mock.restore(); }
+  assert.equal(merges(fakeGh), 0);
+});
+
+test('t/132 shim: an unrelated label proceeds as before', async () => {
+  const fakeGh = gateFake(labelledView([{ name: 'stuck-pr-alert-owner' }]), ['taxonomy-editor/src/a.ts']);
+  const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
+  assert.equal(result.ok, true);
+  assert.equal(merges(fakeGh), 1);
 });
