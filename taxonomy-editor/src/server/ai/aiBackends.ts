@@ -393,13 +393,14 @@ export async function generateText(
   const registry = getModelRegistry(); // read once per call, not once per chain link (TL e/284#19)
   const modelsToTry = chainModelsToTry(resolved, explicitKeys !== undefined, registry, options);
   const entryMap = loadModelConfig().entryMap;
+  const linkBackends = modelsToTry.map(m => resolveBackend(m, registry)); // registry first (t/4105 cond 3)
 
   let lastError: unknown;
   const onChainLinkComplete = options?.onChainLinkComplete; // t/4088: hoisted once — repeated optional access adds no further complexity
   for (let mi = 0; mi < modelsToTry.length; mi++) {
     const currentModel = modelsToTry[mi];
-    const backend = resolveBackend(currentModel, registry); // registry first (t/4105 cond 3)
-    const keys = await chainLinkKeys(modelsToTry, mi, backend, explicitKeys);
+    const backend = linkBackends[mi];
+    const keys = await chainLinkKeys(modelsToTry, mi, linkBackends, explicitKeys);
     if (!keys) continue;
 
     // t/4088: per-link retry count and key source for the AI call log.
@@ -461,7 +462,7 @@ export async function generateText(
     }
   }
 
-  if (lastError === undefined) throwNoApiKeyError(resolveBackend(resolved, registry), modelsToTry); // every link was skipped
+  if (lastError === undefined) throwNoApiKeyError(modelsToTry, linkBackends); // every link was skipped
   throw lastError;
 }
 
