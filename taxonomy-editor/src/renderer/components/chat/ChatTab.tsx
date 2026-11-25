@@ -15,7 +15,8 @@ import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { NewChatDialog } from './NewChatDialog';
 import { ChatGettingStarted } from './ChatGettingStarted';
 import { buildChatLibraryListConfig, rowCampChip } from './chatLibraryListConfig';
-import { ChatWorkspace } from './ChatWorkspace';
+import { ChatWorkspace, TaxonomyRefsSection, CHAT_HOW_METHODS_LINKS } from './ChatWorkspace';
+import { HowPanel } from '../shared/HowPanel';
 import { SearchPreview } from '../edge-browser/SearchPreview';
 import { PromptDetailPanel } from './PromptsPanel';
 import type { PromptCatalogEntry } from '../../data/promptCatalog';
@@ -27,7 +28,7 @@ import { LibraryListPage } from '../shared/LibraryListPage';
 import type { LibraryEditModeAction } from '../shared/LibraryListPage.types';
 import { useDialog } from '../shared/useDialog'; // t/4901
 import { POVER_INFO } from '../../types/debate';
-import type { ChatSessionSummary, ChatMode, ChatSession } from '../../types/chat';
+import type { ChatSessionSummary, ChatMode, ChatSession, ChatEntry } from '../../types/chat';
 import { api } from '@bridge';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1084,6 +1085,24 @@ function CommunityChatMetaGrid({ metadataExpanded, full, chat }: { metadataExpan
   );
 }
 
+/** t/595: an answer's Why (BDI grounding) and How (raw prompt and response) in the read-only community
+ *  view, using the same shared components as the chat workspace. Each part shows only when the entry
+ *  carries it. An entry that carries neither returns null, and the caller then renders the answer
+ *  exactly as before (no wrapper), so a chat saved without refs or raw fields is unchanged. */
+function communityAnswerProvenance(entry: ChatEntry) {
+  if (entry.speaker === 'user') return null;
+  const hasRefs = (entry.taxonomy_refs?.length ?? 0) > 0;
+  const hasRaw = Boolean(entry.raw_prompt || entry.raw_response);
+  if (!hasRefs && !hasRaw) return null;
+  return (
+    <>
+      {hasRefs && <span className="chat-message-why-eyebrow">Why</span>}
+      {hasRefs && <TaxonomyRefsSection refs={entry.taxonomy_refs} />}
+      {hasRaw && <HowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} methodsLinks={CHAT_HOW_METHODS_LINKS} />}
+    </>
+  );
+}
+
 function CommunityChatTranscript({ full }: { full: ChatSession | null }) {
   if (!full?.transcript || full.transcript.length === 0) return null;
   return (
@@ -1093,6 +1112,12 @@ function CommunityChatTranscript({ full }: { full: ChatSession | null }) {
         {full.transcript.map((entry) => {
           const color = speakerColor(entry.speaker);
           const isUser = entry.speaker === 'user';
+          const provenance = communityAnswerProvenance(entry);
+          const content = (
+            <div className="chat-message-content markdown-body">
+              <Markdown remarkPlugins={[remarkGfm, remarkColorizePov]}>{entry.content}</Markdown>
+            </div>
+          );
           return (
             <div key={entry.id} className={`chat-message chat-speaker-${entry.speaker}${isUser ? ' chat-message-user' : ''}`}>
               <div className="chat-message-header">
@@ -1104,9 +1129,8 @@ function CommunityChatTranscript({ full }: { full: ChatSession | null }) {
                   {speakerLabel(entry.speaker)}
                 </span>
               </div>
-              <div className="chat-message-content markdown-body">
-                <Markdown remarkPlugins={[remarkGfm, remarkColorizePov]}>{entry.content}</Markdown>
-              </div>
+              {/* .chat-message is a flex row, so Why and How stack under the answer inside one body column. */}
+              {provenance ? <div className="chat-message-body">{content}{provenance}</div> : content}
             </div>
           );
         })}
