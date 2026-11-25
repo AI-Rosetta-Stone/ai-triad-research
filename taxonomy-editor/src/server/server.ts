@@ -51,6 +51,7 @@ import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchNa
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
 import { anonRouteDecision } from './anonAiRoutes.js';
+import { loadAuthorizedUsers, type AuthorizedUsersFile } from './authorizedUsers.js';
 import { getRollbackStatus } from './rollbackStatus.js';
 import { getErrorSummaryCached, type ErrorEntry } from './errorAggregation.js';
 import { isCaseStatus } from './support/types.js';
@@ -434,43 +435,7 @@ function getCorsOrigin(req: http.IncomingMessage): string {
 // Azure Easy Auth sets X-MS-CLIENT-PRINCIPAL-NAME and X-MS-CLIENT-PRINCIPAL-IDP
 // after successful login. We match against emails, GitHub username, or display name.
 
-interface AuthorizedUser {
-  name: string;
-  emails?: string[];
-  github?: string;
-}
-
-interface AuthorizedUsersFile {
-  users: AuthorizedUser[];
-}
-
-function loadAuthorizedUsers(): AuthorizedUsersFile | null {
-  // Only load from the data volume — auth is opt-in per deployment.
-  // Drop authorized-users.json into /data/ (Azure Files) to enable the gate.
-  const candidates = [
-    path.join(getDataRoot(), 'authorized-users.json'),
-  ];
-  for (const p of candidates) {
-    try {
-      if (fs.existsSync(p)) {
-        // eslint-disable-next-line local/no-raw-data-root-read -- auth allowlist is mount-sourced (/data volume) with an existsSync fallback loop BY DESIGN; routing through readDataFile would flip the trust source from the mount to the data-repo-via-API (auth surface — t/3093#3, ServerAPI route-b)
-        const data = JSON.parse(fs.readFileSync(p, 'utf-8')) as AuthorizedUsersFile;
-        log.auth.info({ count: data.users.length, path: p }, 'Loaded authorized users');
-        return data;
-      }
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        component: 'server',
-        level: 'error',
-        message: 'Operation failed',
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      log.auth.error({ path: p, err }, 'Failed to parse authorized users file');
-    }
-  }
-  return null; // No file found = no restriction
-}
+// t/625: the allowlist loader and its types live in authorizedUsers.ts (testable without starting the server).
 
 let authorizedUsersCache: AuthorizedUsersFile | null | undefined;
 let authorizedUsersCacheTime = 0;
