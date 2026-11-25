@@ -81,7 +81,7 @@ if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq
 }
 
 $quotedPaths = ($Path | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ','
-$pesterCommand = "Import-Module Pester -RequiredVersion $pesterPin -ErrorAction Stop; Write-Host 'Pester $pesterPin (ci.yml pin)'; Invoke-Pester -Path @($quotedPaths) -Output $Output"
+$pesterCommand = "Import-Module Pester -RequiredVersion $pesterPin -ErrorAction Stop; Write-Host 'Pester $pesterPin (ci.yml pin)'; `$r = Invoke-Pester -Path @($quotedPaths) -Output $Output -PassThru; if (`$null -eq `$r -or `$r.TotalCount -eq 0) { Write-Host 'BOUNDED-RUN: no tests ran'; exit 3 }; if (`$r.FailedCount -gt 0) { exit 1 }; exit 0"
 # Timed with a Stopwatch, not $proc.StartTime: StartTime is unreliable for a just-launched
 # process on some platforms (observed: Linux CI throws "Cannot find an overload for
 # op_Subtraction" when it's read back for the elapsed-time calculation below).
@@ -167,7 +167,11 @@ if ($killedReason -eq 'Timeout') {
 $failedLines = @($result.Output -split "`r?`n" | Where-Object { $_ -match '^\s*\[-\]' })
 $summaryLine = @($result.Output -split "`r?`n" | Where-Object { $_ -match '^Tests Passed:' }) | Select-Object -Last 1
 foreach ($failedLine in $failedLines) { Write-Information $failedLine.Trim() -InformationAction Continue }
-if ($summaryLine) {
+if ($result.ExitCode -eq 3) {
+    # Not a pass: Pester found no test file under -Path (a relative path resolves against the repo root).
+    Write-Warning "No tests ran: Pester found no test file under -Path ($($Path -join ', ')). Give a path that exists; a relative path is read from $repoRoot."
+}
+elseif ($summaryLine) {
     Write-Information $summaryLine -InformationAction Continue
 }
 elseif ($result.ExitCode -eq 0) {
