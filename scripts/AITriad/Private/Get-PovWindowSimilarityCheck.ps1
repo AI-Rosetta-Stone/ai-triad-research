@@ -1,6 +1,46 @@
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
+function Get-PovCampVectorGroups {
+    # Groups node-description embeddings by POV camp. Behavior-preserving extraction
+    # of Get-PovWindowSimilarityCheck's camp-grouping loop (t/4477 forensic cross-check).
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][hashtable]$Embeddings)
+
+    Set-StrictMode -Version Latest
+
+    $CampVectors = @{ accelerationist = @(); safetyist = @(); skeptic = @() }
+    foreach ($NodeId in $Embeddings.Keys) {
+        $Camp = if ($NodeId -match '^acc-') { 'accelerationist' } elseif ($NodeId -match '^saf-') { 'safetyist' } elseif ($NodeId -match '^skp-') { 'skeptic' } else { $null }
+        if ($Camp) { $CampVectors[$Camp] += , [double[]]$Embeddings[$NodeId] }
+    }
+    $CampVectors
+}
+
+function Get-PovCampMeanVectors {
+    # Computes each camp's L2-normalized mean embedding. Behavior-preserving extraction
+    # of Get-PovWindowSimilarityCheck's camp-mean loop (t/4477 forensic cross-check).
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][hashtable]$CampVectors)
+
+    Set-StrictMode -Version Latest
+
+    $CampMeans = @{}
+    foreach ($Camp in $CampVectors.Keys) {
+        $Vecs = @($CampVectors[$Camp])
+        if ($Vecs.Count -eq 0) { continue }
+        $Dim = $Vecs[0].Count
+        $Mean = [double[]]::new($Dim)
+        foreach ($V in $Vecs) { for ($d = 0; $d -lt $Dim; $d++) { $Mean[$d] += $V[$d] } }
+        $Norm = [Math]::Sqrt((($Mean | ForEach-Object { $_ * $_ }) | Measure-Object -Sum).Sum)
+        if ($Norm -gt 0) { for ($d = 0; $d -lt $Dim; $d++) { $Mean[$d] = $Mean[$d] / $Norm } }
+        $CampMeans[$Camp] = $Mean
+    }
+    $CampMeans
+}
+
 function Get-PovWindowSimilarityCheck {
     <#
     .SYNOPSIS
@@ -34,23 +74,8 @@ function Get-PovWindowSimilarityCheck {
         return $null
     }
 
-    $CampVectors = @{ accelerationist = @(); safetyist = @(); skeptic = @() }
-    foreach ($NodeId in $script:CachedEmbeddings.Keys) {
-        $Camp = if ($NodeId -match '^acc-') { 'accelerationist' } elseif ($NodeId -match '^saf-') { 'safetyist' } elseif ($NodeId -match '^skp-') { 'skeptic' } else { $null }
-        if ($Camp) { $CampVectors[$Camp] += , [double[]]$script:CachedEmbeddings[$NodeId] }
-    }
-
-    $CampMeans = @{}
-    foreach ($Camp in $CampVectors.Keys) {
-        $Vecs = @($CampVectors[$Camp])
-        if ($Vecs.Count -eq 0) { continue }
-        $Dim = $Vecs[0].Count
-        $Mean = [double[]]::new($Dim)
-        foreach ($V in $Vecs) { for ($d = 0; $d -lt $Dim; $d++) { $Mean[$d] += $V[$d] } }
-        $Norm = [Math]::Sqrt((($Mean | ForEach-Object { $_ * $_ }) | Measure-Object -Sum).Sum)
-        if ($Norm -gt 0) { for ($d = 0; $d -lt $Dim; $d++) { $Mean[$d] = $Mean[$d] / $Norm } }
-        $CampMeans[$Camp] = $Mean
-    }
+    $CampVectors = Get-PovCampVectorGroups -Embeddings $script:CachedEmbeddings
+    $CampMeans = Get-PovCampMeanVectors -CampVectors $CampVectors
     if ($CampMeans.Count -eq 0) { return $null }
 
     function script:Get-Cosine([double[]]$A, [double[]]$B) {

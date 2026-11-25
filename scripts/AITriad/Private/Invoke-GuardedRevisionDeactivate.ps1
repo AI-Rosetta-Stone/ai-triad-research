@@ -85,30 +85,61 @@ function Read-RevisionDeactivationVerdict {
     )
     Set-StrictMode -Version Latest
 
-    $fresh = $null
-    $revJson = & az containerapp revision show -g $ResourceGroup -n $AppName --revision $RevisionName --output json 2>$null
-    if ($LASTEXITCODE -eq 0 -and $revJson) { try { $fresh = ($revJson -join "`n") | ConvertFrom-Json } catch { $fresh = $null } }
-    $app = $null
-    $appJson = & az containerapp show -g $ResourceGroup -n $AppName --output json 2>$null
-    if ($LASTEXITCODE -eq 0 -and $appJson) { try { $app = ($appJson -join "`n") | ConvertFrom-Json } catch { $app = $null } }
+    $fresh = Read-AzContainerAppJson -AzArgs @('containerapp', 'revision', 'show', '-g', $ResourceGroup,
+        '-n', $AppName, '--revision', $RevisionName, '--output', 'json')
+    $app = Read-AzContainerAppJson -AzArgs @('containerapp', 'show', '-g', $ResourceGroup,
+        '-n', $AppName, '--output', 'json')
 
-    $props = if ($null -ne $fresh -and $fresh.PSObject.Properties['properties']) { $fresh.properties } else { $null }
+    $revInfo = Get-FreshRevisionWeightInfo -Fresh $fresh
+    $appInfo = Get-AppTrafficConfigInfo -App $app
+
+    $ingress = Get-IngressTrafficWeightForRevision -RevisionName $RevisionName -TrafficEntries $appInfo.TrafficEntries -LatestRevisionName $appInfo.LatestRevisionName
+    Get-RevisionDeactivationVerdict -RevisionName $RevisionName -TrafficWeight $revInfo.Weight -Active $revInfo.Active `
+        -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic `
+        -ServingRevisionName $ServingRevisionName -ProtectedNames $ProtectedNames
+}
+
+function Read-AzContainerAppJson {
+    # Runs an `az` command that emits JSON and parses it. Returns $null when the call fails (nonzero
+    # exit, empty output) or the output is not valid JSON — an unreadable source is never read as 0.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string[]]$AzArgs)
+    Set-StrictMode -Version Latest
+    $out = & az @AzArgs 2>$null
+    if ($LASTEXITCODE -eq 0 -and $out) {
+        try { return ($out -join "`n") | ConvertFrom-Json } catch { return $null }
+    }
+    return $null
+}
+
+function Get-FreshRevisionWeightInfo {
+    # Pulls the revision's own trafficWeight and active flag from its `az containerapp revision show`
+    # object. A missing weight stays $null (never 0); a missing active flag reads $false.
+    [CmdletBinding()]
+    param($Fresh)
+    Set-StrictMode -Version Latest
+    $props = if ($null -ne $Fresh -and $Fresh.PSObject.Properties['properties']) { $Fresh.properties } else { $null }
     $weight = if ($null -ne $props -and $props.PSObject.Properties['trafficWeight']) { $props.trafficWeight } else { $null }
     $active = if ($null -ne $props -and $props.PSObject.Properties['active']) { [bool]$props.active } else { $false }
+    [pscustomobject]@{ Weight = $weight; Active = $active }
+}
 
+function Get-AppTrafficConfigInfo {
+    # Pulls the ingress traffic entries and latestRevisionName from the `az containerapp show` object.
+    # Either stays $null when its path is absent.
+    [CmdletBinding()]
+    param($App)
+    Set-StrictMode -Version Latest
     $trafficEntries = $null; $latestRevisionName = $null
-    if ($null -ne $app -and $app.PSObject.Properties['properties']) {
-        $ap = $app.properties
+    if ($null -ne $App -and $App.PSObject.Properties['properties']) {
+        $ap = $App.properties
         if ($ap.PSObject.Properties['configuration'] -and $ap.configuration.PSObject.Properties['ingress'] -and
             $ap.configuration.ingress.PSObject.Properties['traffic']) {
             $trafficEntries = @($ap.configuration.ingress.traffic)
         }
         if ($ap.PSObject.Properties['latestRevisionName']) { $latestRevisionName = [string]$ap.latestRevisionName }
     }
-    $ingress = Get-IngressTrafficWeightForRevision -RevisionName $RevisionName -TrafficEntries $trafficEntries -LatestRevisionName $latestRevisionName
-    Get-RevisionDeactivationVerdict -RevisionName $RevisionName -TrafficWeight $weight -Active $active `
-        -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic `
-        -ServingRevisionName $ServingRevisionName -ProtectedNames $ProtectedNames
+    [pscustomobject]@{ TrafficEntries = $trafficEntries; LatestRevisionName = $latestRevisionName }
 }
 
 function Import-RevisionDeactivationVerdict {
