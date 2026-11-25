@@ -229,6 +229,10 @@ COPY --chown=aitriad:aitriad ai-models.json ./
 COPY --chown=aitriad:aitriad ai-usages.json ./
 COPY --chown=aitriad:aitriad .aitriad.json ./
 COPY --chown=aitriad:aitriad taxonomy/schemas/ ./taxonomy/schemas/
+# t/572 / t/586: the legacy-chunk manifest (spec 6.2). The node-source index reads it at
+# <repo root>/docs/specs/ (= /app/docs/specs/ here); without it the server folds no chunks and logs a WARN.
+# .dockerignore excludes docs/, so it re-includes this one file.
+COPY --chown=aitriad:aitriad docs/specs/source-identity-legacy-chunks.json ./docs/specs/
 COPY --chown=aitriad:aitriad scripts/ ./scripts/
 # Op-ed prompt templates (t/2609 relocated them out of scripts/AITriad/Prompts).
 # The op-ed create route resolves promptsDir = getProjectRoot()/lib/oped/prompts
