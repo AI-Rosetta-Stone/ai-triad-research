@@ -12,7 +12,7 @@ import {
   exemptionVerdict, fetchPrsCreated, isAccidentalClose, isOneUnitBranch, rankOf, unitKey, windowStartDay,
 } from './pr-budget.mjs';
 import { pingBudgetRefusal, resolvePrOwner } from './pr-budget-notify.mjs';
-import { analyze, planMessages, run as runReport } from './pr-budget-report.mjs';
+import { analyze, formatText, planMessages, run as runReport, splitExempt } from './pr-budget-report.mjs';
 import { enqueuePR, runCli } from './enqueue-pr.mjs';
 import { GATE_SCRIPTS, REVIEWER_APP_REST_LOGIN } from './gate-file-change.mjs';
 
@@ -527,4 +527,54 @@ test('report: accidental opens are listed as not counted; it never pings its own
   });
   assert.match(logs.join('\n'), /Not counted: closed within 1 h \(1\): #/);
   assert.deepEqual(sent, ['tl-id']); // the only owner is the sender itself: skipped, not a failed send
+});
+
+// ── t/619: exempted merges are listed as 'Exempt', not 'Over budget' ─────────────────────────────
+
+const exemptReview = (headSha, over = {}) => ({ id: 6057900456, user: { login: REVIEWER_APP_REST_LOGIN }, state: 'APPROVED', commit_id: headSha,
+  body: 'Approved (Tech Lead): budget-exempt: incident fix', ...over });
+
+test('t/619 splitExempt: an exempt merge is exempt; a non-exempt merge, an open PR and an unreadable merge stay over', () => {
+  const x = (n, state) => ({ pr: { number: n, state, title: `pr ${n}` }, rank: 20 + n });
+  const evidence = new Map([
+    [1, { headSha: 'h1', reviews: [{ id: 5, user: { login: REVIEWER_APP_REST_LOGIN }, state: 'COMMENTED', commit_id: 'h1', body: 'nit' }, exemptReview('h1')] }],
+    [2, { headSha: 'h2', reviews: [exemptReview('h2', { body: 'Approved (Tech Lead): looks fine' })] }],          // no budget-exempt: still over
+    [4, { headSha: 'h4', reviews: [exemptReview('old-head')] }],                                                  // bound to another commit: over
+    [5, { error: 'HTTP 502' }],
+  ]);
+  const { over, exempt } = splitExempt([x(1, 'MERGED'), x(2, 'MERGED'), x(3, 'OPEN'), x(4, 'MERGED'), x(5, 'MERGED')], evidence);
+  assert.deepEqual(exempt.map((e) => [e.pr.number, e.reviewId, e.approver]), [[1, 6057900456, 'Tech Lead']]);
+  assert.deepEqual(over.map((e) => e.pr.number), [2, 3, 4, 5]);
+  assert.equal(over.find((e) => e.pr.number === 5).exemptCheck, 'unreadable (HTTP 502)');
+});
+
+test('t/619 run: the report lists an exempt merge under Exempt (with the review id and approver), and pings nobody about it', async () => {
+  const t = day(TODAY, 23);
+  Object.assign(t[20], { state: 'MERGED', mergedAt: `${TODAY}T02:00:00Z` }); // exempt
+  Object.assign(t[21], { state: 'MERGED', mergedAt: `${TODAY}T02:00:00Z` }); // merged, no exemption
+  // t[22] stays OPEN
+  const looked = [];
+  const fetchExemptEvidence = (repo, n) => {
+    looked.push(n);
+    return n === t[20].number ? { headSha: 'hx', reviews: [exemptReview('hx')] } : { headSha: 'hy', reviews: [] };
+  };
+  const logs = [];
+  const sent = [];
+  const out = await runReport({ repo: 'o/r', json: false, send: true, sender: 's', tl: 'tl-id' }, {
+    now: NOW_MS, fetch: () => ({ prs: t, calls: 1 }), fetchExemptEvidence, resolveOwner: async () => ({ id: 'agent-a' }),
+    appRun: async (app, cmd, args) => { sent.push(args); return {}; }, log: (l) => logs.push(String(l)), warn: () => {},
+  });
+  assert.deepEqual(looked.sort(), [t[20].number, t[21].number].sort(), 'only merged over-budget PRs are looked up');
+  const text = logs.join('\n');
+  assert.ok(text.includes(`Over budget today (2):\n  #${t[21].number} `) && text.includes(`\n  #${t[22].number} `), text);
+  assert.ok(text.includes(`Exempt (1):\n  #${t[20].number} `) && text.includes('merged with a budget-exempt review 6057900456 (Tech Lead)'), text);
+  assert.deepEqual(out.report.exempt.map((x) => x.pr.number), [t[20].number]);
+  const ownerMsg = sent.find((s) => s.to === 'agent-a').body;
+  assert.ok(!ownerMsg.includes(`#${t[20].number} `), 'the exempt merge is not in the owner ping');
+  assert.ok(ownerMsg.includes(`#${t[21].number} `) && ownerMsg.includes(`#${t[22].number} `));
+});
+
+test('t/619 formatText: the Exempt heading always shows, with none when empty', () => {
+  const r = analyze(day(TODAY, 3), NOW);
+  assert.match(formatText({ ...r, exempt: [] }), /Exempt \(0\):\n  none/);
 });

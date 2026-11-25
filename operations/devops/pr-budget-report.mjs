@@ -19,9 +19,10 @@
 // Usage: node operations/devops/pr-budget-report.mjs [--json] [--repo owner/name]
 //          [--daemon http://127.0.0.1:7420] [--send --sender <collaborator id> --tl <collaborator id>]
 
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { addDays, budgetFor, buildUnits, fetchPrsCreated, isAccidentalClose, nextDayStart, poolOf, POOL_DAYS, rankOf, SOFT_POINT, unitCount, utcDay } from './pr-budget.mjs';
+import { addDays, budgetFor, buildUnits, exemptionVerdict, fetchPrsCreated, isAccidentalClose, nextDayStart, poolOf, POOL_DAYS, rankOf, SOFT_POINT, unitCount, utcDay } from './pr-budget.mjs';
 import { assertLoopback, DEFAULT_DAEMON, makeAppRun, resolvePrOwner } from './pr-budget-notify.mjs';
 
 export function parseArgs(argv) {
@@ -60,12 +61,54 @@ export function analyze(prs, nowIso) {
   return { today, nextDayStart: nextDayStart(today), units, budget: b.budget, mean: b.mean, counts: b.counts, slots, overToday, pool, nearlyUsed, softPoint: SOFT_POINT, todays, notCounted };
 }
 
+/**
+ * PURE (t/619). Splits today's over-budget list: a MERGED PR with a valid `budget-exempt:` review (the
+ * same match enqueue-pr.mjs applies, exemptionVerdict: reviewer App, APPROVED, bound to the PR's head,
+ * body `Approved (Tech Lead|Security): budget-exempt: <reason>`) is listed as exempt, with the review id
+ * and approver. Open, closed-unmerged and non-exempt merged PRs stay over budget. `evidence` maps a PR
+ * number to { headSha, reviews } or { error }; an unreadable one stays over, marked so.
+ */
+export function splitExempt(overToday, evidence) {
+  const over = [];
+  const exempt = [];
+  for (const x of overToday) {
+    const ev = x.pr.state === 'MERGED' ? evidence.get(x.pr.number) : undefined;
+    if (!ev) { over.push(x); continue; }
+    if (ev.error) { over.push({ ...x, exemptCheck: `unreadable (${ev.error})` }); continue; }
+    let hit = null;
+    for (const review of ev.reviews ?? []) {
+      const v = exemptionVerdict({ review, headSha: ev.headSha });
+      if (v.valid) { hit = { reviewId: review.id, approver: v.role, reason: v.reason }; break; }
+    }
+    if (hit) exempt.push({ ...x, ...hit }); else over.push(x);
+  }
+  return { over, exempt };
+}
+
+/** Impure (gh injectable). A merged PR's head SHA and reviews, for splitExempt. Never throws. */
+export function fetchExemptEvidence(repo, prNumber, ghFn = ghCli) {
+  try {
+    const head = JSON.parse(ghFn(['api', `repos/${repo}/pulls/${prNumber}`, '--jq', '{sha: .head.sha}'])).sha;
+    const reviews = JSON.parse(ghFn(['api', '--paginate', '--slurp', `repos/${repo}/pulls/${prNumber}/reviews`])).flat();
+    return { headSha: head, reviews };
+  } catch (e) {
+    return { error: String(e?.message ?? e).split('\n')[0] };
+  }
+}
+
+function ghCli(args) {
+  return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
 export function formatText(r) {
   const row = (x, extra) => `  #${x.pr.number} ${x.pr.title} [owner ${x.owner ?? 'unresolved'}] ${extra}`;
+  const exempt = r.exempt ?? [];
   return [
     ...(r.nearlyUsed ? [`**Budget nearly used:** ${r.units} of ${r.budget} units today (soft point ${r.softPoint}); PRs past ${r.budget} are refused until ${r.nextDayStart}.`] : []),
     `PR budget ${r.today} (UTC): ${r.units} unit(s) today, budget ${r.budget}, 3-day mean ${r.mean.toFixed(2)} (${r.counts.join(', ')}); ${r.slots} free slot(s) for the pool; next day starts ${r.nextDayStart}.`,
-    `Over budget today (${r.overToday.length}):`, ...(r.overToday.length ? r.overToday.map((x) => row(x, `rank ${x.rank}`)) : ['  none']),
+    `Over budget today (${r.overToday.length}):`, ...(r.overToday.length ? r.overToday.map((x) => row(x, `rank ${x.rank}${x.exemptCheck ? `; exemption check ${x.exemptCheck}` : ''}`)) : ['  none']),
+    // t/619: merged past the cap with a TL/Security budget-exempt review. Not violations, so not under 'Over budget'.
+    `Exempt (${exempt.length}):`, ...(exempt.length ? exempt.map((x) => row(x, `rank ${x.rank}, merged with a budget-exempt review ${x.reviewId} (${x.approver})`)) : ['  none']),
     `Carryover pool (${r.pool.length} open PR(s)):`, ...(r.pool.length ? r.pool.map((x) => row(x, `from ${x.day}, rank ${x.rank}/${x.dayBudget}, position ${x.position}${x.hasSlot ? ' (may enqueue today)' : ''}`)) : ['  empty']),
     ...((r.notCounted ?? []).length ? [`Not counted: closed within 1 h (${r.notCounted.length}): ${r.notCounted.map((pr) => `#${pr.number}`).join(', ')}`] : []),
   ].join('\n');
@@ -107,10 +150,21 @@ export async function run(o, deps = {}) {
   const start = Date.parse(`${addDays(today, -POOL_DAYS - 3)}T00:00:00Z`);
   const { prs, calls } = (deps.fetch ?? fetchPrsCreated)(o.repo, start, now, deps.gh);
   const r = analyze(prs, nowIso);
+  // t/619: a merged PR past the cap may carry a budget-exempt review; read only those (two REST calls each).
+  const merged = r.overToday.filter((x) => x.pr.state === 'MERGED');
+  const evidence = new Map();
+  for (const x of merged) {
+    const ev = (deps.fetchExemptEvidence ?? fetchExemptEvidence)(o.repo, x.pr.number, deps.gh);
+    if (ev.error) warn(`WARN: pr-budget-report: could not read #${x.pr.number}'s reviews (${ev.error}); listing it as over budget.`);
+    evidence.set(x.pr.number, ev);
+  }
+  const split = splitExempt(r.overToday, evidence);
+  r.overToday = split.over;
+  r.exempt = split.exempt;
   const appRun = deps.appRun ?? makeAppRun(o.daemon);
   const ticketCache = new Map();
   const ownerOf = new Map();
-  for (const x of [...r.overToday, ...r.pool, ...(r.todays ?? [])]) {
+  for (const x of [...r.overToday, ...r.exempt, ...r.pool, ...(r.todays ?? [])]) {
     if (!ownerOf.has(x.pr.number)) {
       const res = await (deps.resolveOwner ?? resolvePrOwner)(x.pr, { appRun, repo: o.repo, warn, ticketCache, ...(deps.gh ? { gh: deps.gh } : {}) });
       if (!res?.id) warn(`WARN: pr-budget-report: no owner for #${x.pr.number} (${res?.why ?? 'unknown'}).`);
@@ -118,8 +172,8 @@ export async function run(o, deps = {}) {
     }
     x.owner = ownerOf.get(x.pr.number);
   }
-  const report = { ...r, githubCalls: { search: calls } };
-  if (o.json) log(JSON.stringify({ ...report, overToday: r.overToday.map(slim), pool: r.pool.map(slim) }, null, 2));
+  const report = { ...r, githubCalls: { search: calls, exemptChecks: merged.length * 2 } };
+  if (o.json) log(JSON.stringify({ ...report, overToday: r.overToday.map(slim), exempt: r.exempt.map((x) => ({ ...slim(x), reviewId: x.reviewId, approver: x.approver })), pool: r.pool.map(slim) }, null, 2));
   else log(formatText(r));
   // Never ping yourself: chat refuses a send to the sender (the first live run, 2026-11-25).
   const messages = o.tl ? planMessages(r, { tl: o.tl }).filter((m) => m.to && m.to !== 'human' && m.to !== o.sender) : [];
