@@ -22,3 +22,13 @@
   color: var(--link-color);
   font-weight: 600;
 }
+
+/* Design nit (t/678, p/25#194): on narrow screens the links stack the same way in every pane, rather than
+   wrapping or not depending on the pane's width. */
+@media (max-width: 480px) {
+  .source-signin-prompt-links {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}
