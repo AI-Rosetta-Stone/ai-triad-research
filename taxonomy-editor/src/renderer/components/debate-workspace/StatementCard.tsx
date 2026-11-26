@@ -589,7 +589,6 @@ function StatementBody({
       ) : WHY_TIERS.has(displayedTier) ? (
         <div className="debate-statement-content">
           <BdiGroundingView
-            compact
             stateKey={entry.id}
             refs={entry.taxonomy_refs}
             policyRefs={entry.policy_refs}
