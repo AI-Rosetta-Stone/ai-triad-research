@@ -3,7 +3,7 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, act, waitFor } from '@testing-library/react';
-import { DebateWorkspace } from './DebateWorkspace';
+import { DebateWorkspace, computeSelectionAnchor } from './DebateWorkspace';
 import { usePreferencesStore } from '../../store/preferencesStore';
 import { api } from '@bridge';
 import { isDebatePopoutWindow } from '../../hooks/useDebateStore/shared/guards';
@@ -274,6 +274,27 @@ function makeDebate(overrides: Partial<any> = {}): any {
 afterEach(() => { vi.clearAllMocks(); });
 
 // ── Loading and empty states ──────────────────────────────────
+
+describe('computeSelectionAnchor: a comment is anchored to the tier the card shows', () => {
+  const selection = { getRangeAt: () => ({ startContainer: document.createElement('div'), startOffset: 0 }), toString: () => 'picked' } as unknown as Selection;
+  const entry = (display_tier?: string) => ({ id: 'e1', type: 'statement', display_tier }) as any;
+
+  it('t/697 (Quality, t/467#84): a statement saved on convergence anchors to reasoning, never convergence', () => {
+    expect(computeSelectionAnchor(selection, entry('convergence'), 'picked', 'detailed').tier).toBe('reasoning');
+    expect(computeSelectionAnchor(selection, entry(), 'picked', 'convergence' as any).tier).toBe('reasoning');
+  });
+
+  it('t/701 §2: a saved medium anchors to brief; brief and detailed are unchanged', () => {
+    expect(computeSelectionAnchor(selection, entry('medium'), 'picked', 'detailed').tier).toBe('brief');
+    expect(computeSelectionAnchor(selection, entry(), 'picked', 'medium').tier).toBe('brief');
+    expect(computeSelectionAnchor(selection, entry('detailed'), 'picked', 'brief').tier).toBe('detailed');
+    expect(computeSelectionAnchor(selection, entry(), 'picked', 'brief')).toEqual({ startOffset: 0, endOffset: 6, tier: 'brief' });
+  });
+
+  it('a card that is not a substantive statement always anchors to detailed', () => {
+    expect(computeSelectionAnchor(selection, { id: 'q', type: 'question', display_tier: 'convergence' } as any, 'picked', 'brief').tier).toBe('detailed');
+  });
+});
 
 describe('loading and empty states', () => {
   it('renders loading text when debateLoading is true', () => {

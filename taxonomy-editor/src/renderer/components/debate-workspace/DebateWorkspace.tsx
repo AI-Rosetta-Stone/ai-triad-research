@@ -1111,14 +1111,16 @@ function findSelectedEntry(anchorNode: Node | null | undefined, currentTarget: E
 }
 
 // Rendered-text offset + active tier for a selection within a statement card (t/1694).
-function computeSelectionAnchor(
+// The tier is the one the card shows, not the one stored: a saved 'convergence' shows as
+// Reasoning (t/697, Quality t/467#84) and a saved 'medium' as Brief (t/701 §2). Exported for its test.
+export function computeSelectionAnchor(
   selection: Selection,
   entry: ActiveTranscriptEntry,
   selectedText: string,
   defaultTier: DWStore['defaultDisplayTier'],
 ): { startOffset: number; endOffset: number; tier: DetailTier } {
   const isSub = ['opening', 'statement', 'fact-check', 'cross_respond'].includes(entry.type);
-  const tier: DetailTier = isSub ? lengthTier((entry as any).display_tier ?? defaultTier ?? 'detailed') : 'detailed';
+  const tier: DetailTier = isSub ? lengthTier(shownTier((entry as any).display_tier ?? defaultTier ?? 'detailed')) : 'detailed';
   let startOffset = 0;
   let endOffset = selectedText.length;
   const range = selection.getRangeAt(0);
