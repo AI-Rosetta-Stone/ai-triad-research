@@ -77,7 +77,12 @@ jobs:
             core.setOutput('arm', verdict.arm ? 'true' : 'false');
 
       - name: Arm auto-merge for minor/patch bumps
+        # t/753 (SO p/136#111): a PR held with `no-auto-enqueue` is not armed here. `gh pr merge --auto`
+        # on a merge-queue branch can itself enqueue, so only enqueue-pr and the sweep honouring the
+        # label was not enough. Dependabot PRs open with the label (dependabot.yml); a person removes it
+        # after reading the commits.
         if: >-
+          !contains(github.event.pull_request.labels.*.name, 'no-auto-enqueue') &&
           (steps.meta.outputs.update-type == 'version-update:semver-minor' ||
            steps.meta.outputs.update-type == 'version-update:semver-patch') &&
           (steps.meta.outputs.package-ecosystem != 'docker' || steps.docker_gate.outputs.arm == 'true')

@@ -100,6 +100,7 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/guard-pr-read.sh',
   'operations/devops/merge-approval-run.mjs',
   'operations/devops/merge-approval-verdict.mjs',
+  'operations/devops/packed-extract-gate.mjs', // t/660: run by ci.yml's packed-extract-check job (never-gating)
   'operations/devops/rate-limit-snapshot-step.yml',
   'operations/devops/rate-limit-snapshot-start-step.yml', // t/563
   'operations/devops/run-merge-guard-tests.sh',
@@ -224,6 +225,7 @@ export const VERDICT_SCRIPTS = [
 // checked by the gates, it does not change what the gates decide. Listed so the test can tell
 // "deliberately unprotected" from "forgotten". "Lead decision" marks a borderline call made deliberately (t/543#7); each is a stated limit.
 export const CODE_UNDER_TEST = [
+  'lib/extraction/packed-extract-check.cjs', // t/660: Shared Lib's test of product code, run by the never-gating packed-extract-check job; MOVE to the protected list in the change that adds the job to ci-gate's needs
   // Product config and data named in ci.yml path filters (what a change triggers) or read by checks.
   '.aitriad.json', // product data-root config; schema/container filters
   '.dockerignore', // container build context; container filter
