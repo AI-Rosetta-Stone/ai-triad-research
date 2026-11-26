@@ -243,6 +243,32 @@ describe('DraftStore follow-ups (t/507)', () => {
     expect(logged).not.toContain('secret-payload-marker');
   });
 
+  it('t/756 (Security): a backend error naming a full draft id never puts it in a log line', async () => {
+    const hex = 'fedcba9876543210fedcba9876543210';
+    const named = (op: string) => new Error(`EACCES: ${op} 'community/_drafts/drf_${hex}.json'`);
+    const expired = JSON.stringify({ draftId: 'drf_x', expiresAt: new Date(1_000).toISOString() });
+    const store = createDraftStore({ backend: mockBackend, now: () => 5_000_000 });
+    files.set(FULL_PATH, expired);
+    // sweep: the delete fails ('could not sweep'), then the listing fails, then claim listing fails
+    (mockBackend.deleteFile as any).mockImplementationOnce(async () => { throw named('unlink'); });
+    await store.sweepExpiredDrafts();
+    (mockBackend.listDirectory as any).mockImplementationOnce(async () => { throw named('scandir'); });
+    await expect(store.sweepExpiredDrafts()).rejects.toBeTruthy();
+    (mockBackend.listDirectory as any).mockImplementation(async (dir: string) => {
+      if (normalize(dir).endsWith('_drafts/claims')) throw named('scandir');
+      return listDirectoryImpl(dir);
+    });
+    await store.sweepExpiredDrafts();
+    // count paths: a read of a listed record fails
+    (mockBackend.listDirectory as any).mockImplementation(listDirectoryImpl);
+    (mockBackend.readFile as any).mockImplementation(async () => { throw named('open'); });
+    await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'c-err' }).catch(() => undefined);
+    const logged = allLogged();
+    expect(logged).toContain('drf_fedc'); // the error text is still useful: the short id is there
+    expect(logged).not.toContain(hex);
+    expect(logged).not.toContain(`drf_${hex}`);
+  });
+
   it('t/756: the count paths log a fixed kind for a corrupt record: no full id, no parse message', async () => {
     const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
     files.set(FULL_PATH, '{"secret-payload-marker": ');
