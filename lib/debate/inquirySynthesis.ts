@@ -20,8 +20,10 @@ import type {
   NodeRef,
   CampVerdict,
   Convergence,
+  DirectAnswer,
+  QuestionDrift,
 } from '../inquiry/schema.js';
-import { INQUIRY_SCHEMA_VERSION, HEADLINE_MAX_CHARS } from '../inquiry/schema.js';
+import { INQUIRY_SCHEMA_VERSION, HEADLINE_MAX_CHARS, DirectAnswerSchema } from '../inquiry/schema.js';
 import { parseInquiryResult } from '../inquiry/parse.js';
 import { ActionableError } from './errors.js';
 import { parseAIJson } from './helpers.js';
@@ -42,7 +44,12 @@ interface LlmCampVerdict {
   camp: string;
   verdict: string;
   nodeIds?: string[];
+  answeredLiteralQuestion?: boolean;
+  answerNote?: string;
 }
+
+const ANSWER_NOTE_MAX_CHARS = 300;
+const DEBATED_TOPIC_MAX_CHARS = 300;
 
 interface LlmConvergence {
   claim: string;
@@ -68,6 +75,7 @@ interface LlmSynthesisOutput {
   unresolvedGaps: LlmUnresolvedGap[];
   singleRunCaveat?: string;
   synthesizedHeadline?: string;
+  directAnswer?: { text?: string; agreement?: string };
 }
 
 // ── Figure token post-check (t/4303) ─────────────────────────────────────────
@@ -215,6 +223,74 @@ function buildHeadlineField(
   return {};
 }
 
+/**
+ * Return a partial object carrying directAnswer, or {} when the model omitted it or it fails the schema.
+ * Like the headline, an invalid answer is omitted with a WARN, never fabricated or truncated (t/285).
+ */
+export function buildDirectAnswerField(raw: LlmSynthesisOutput['directAnswer']): { directAnswer?: DirectAnswer } {
+  if (raw === undefined || raw === null) {
+    warn('synthesizeInquiry: directAnswer missing from LLM output — omitted');
+    return {};
+  }
+  const parsed = DirectAnswerSchema.safeParse(raw);
+  if (!parsed.success) {
+    warn('synthesizeInquiry: directAnswer failed schema (text 1–1000 chars, agreement consensus|split) — omitted');
+    return {};
+  }
+  // Named fields only: the schema is passthrough for storage round-trips, but a stray key from the model is not
+  // part of the answer and must not be stored (Quality t/285#54).
+  return { directAnswer: { text: parsed.data.text, agreement: parsed.data.agreement } };
+}
+
+/**
+ * The debated topic, when the session's final topic differs from the question as asked; else undefined (t/285).
+ * A topic over the schema's 300-character bound is omitted with a WARN: it must not fail the whole result's
+ * parse, and truncation would misstate what was debated (TL t/285#50).
+ */
+export function debatedTopicOf(question: string, sessionFinalTopic: string | undefined): string | undefined {
+  const final = sessionFinalTopic?.trim();
+  if (!final) return undefined;
+  if (final.toLowerCase() === question.trim().toLowerCase()) return undefined;
+  if (final.length > DEBATED_TOPIC_MAX_CHARS) {
+    warn(`synthesizeInquiry: debatedTopic over bound (${final.length} > ${DEBATED_TOPIC_MAX_CHARS}) — omitted`);
+    return undefined;
+  }
+  return final;
+}
+
+/** Session wrapper for debatedTopicOf. Kept out of synthesizeInquiry so its complexity budget stays put (t/285). */
+export function debatedTopicOfSession(question: string, session: DebateSession): string | undefined {
+  return debatedTopicOf(question, session.topic?.final);
+}
+
+/**
+ * Build the per-camp answer flags, keeping only well-formed values. An over-long answerNote is omitted with a WARN,
+ * since the schema caps it at 300 and truncation would misstate what the camp said (t/285).
+ */
+export function campAnswerFields(cv: LlmCampVerdict): { answeredLiteralQuestion?: boolean; answerNote?: string } {
+  const out: { answeredLiteralQuestion?: boolean; answerNote?: string } = {};
+  if (typeof cv.answeredLiteralQuestion === 'boolean') out.answeredLiteralQuestion = cv.answeredLiteralQuestion;
+  if (typeof cv.answerNote === 'string' && cv.answerNote.length > 0) {
+    if (cv.answerNote.length <= ANSWER_NOTE_MAX_CHARS) out.answerNote = cv.answerNote;
+    else warn(`synthesizeInquiry: answerNote for ${cv.camp} over bound (${cv.answerNote.length} > ${ANSWER_NOTE_MAX_CHARS}) — omitted`);
+  }
+  return out;
+}
+
+/**
+ * The question-drift block (t/285). Always present on a new result, so absence keeps meaning "not analyzed".
+ * It describes what was debated; it does not judge. `warning` is never set here (TL t/285#53): absent means
+ * not evaluated. The only candidate input is the model's own per-camp `answeredLiteralQuestion`, and t/496
+ * found no method that can tell "did not answer at all" from "answered partly". Set `warning` only once a
+ * method has cleared that bar on t/496 and the TL has ruled on it.
+ */
+export function buildQuestionDrift(input: { debatedTopic?: string; driftScore?: number }): QuestionDrift {
+  return {
+    ...(input.debatedTopic !== undefined && { debatedTopic: input.debatedTopic }),
+    ...(input.driftScore !== undefined && { driftScore: input.driftScore }),
+  };
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -247,11 +323,14 @@ export async function synthesizeInquiry(
   const anSummary = summarizeArgumentNetwork(anNodes, anEdges);
   const groundingContext = formatGroundingContext(grounding.nodesByCamp, grounding.campCoverage);
 
+  const debatedTopic = debatedTopicOfSession(request.question, session);
+
   const prompt = inquirySynthesisPrompt(
     request.question,
     transcriptHighlights,
     anSummary,
     groundingContext,
+    debatedTopic,
   );
 
   // 2. LLM call
@@ -284,6 +363,7 @@ export async function synthesizeInquiry(
     camp: cv.camp as CampVerdict['camp'],
     verdict: cv.verdict ?? '',
     nodes: resolveNodeRefs(cv.nodeIds ?? [], nodeRefMap),
+    ...campAnswerFields(cv),
   }));
 
   const convergences: Convergence[] = (parsed.convergences ?? []).map((c) => ({
@@ -302,6 +382,8 @@ export async function synthesizeInquiry(
     unresolvedGaps: parsed.unresolvedGaps ?? [],
     singleRunCaveat: parsed.singleRunCaveat || SINGLE_RUN_CAVEAT,
     ...buildHeadlineField(parsed.synthesizedHeadline),
+    ...buildDirectAnswerField(parsed.directAnswer),
+    questionDrift: buildQuestionDrift({ debatedTopic }),
     calibration,
     derivation,
     grounding,

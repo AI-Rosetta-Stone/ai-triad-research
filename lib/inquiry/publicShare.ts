@@ -15,9 +15,10 @@
 // makes the shape ⟷ matrix cross-check exact, which is worth more than a flatter artifact.
 
 import { z } from 'zod';
-import { CampSchema, FidelitySchema, TagModeSchema, TrustVerdictSchema, HEADLINE_MAX_CHARS, inquiryDisplayTitle, type InquiryResult, type NodeRef, type SituationRef, type TagMode } from './schema.js';
+import { CampSchema, FidelitySchema, TagModeSchema, TrustVerdictSchema, HEADLINE_MAX_CHARS, DirectAnswerSchema, QuestionDriftSchema, inquiryDisplayTitle, type InquiryResult, type NodeRef, type SituationRef, type TagMode } from './schema.js';
 import { PovNameSchema, type PovName } from '../schema/povTags.js';
 import { TRUNCATION_REASONS } from './jobStatus.js';
+import { shownDirectAnswer, shownQuestionDrift } from './gatedFields.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
 
 /** Independent of INQUIRY_SCHEMA_VERSION — the public artifact is its own contract (SO e/201#2). */
@@ -33,7 +34,16 @@ const PublicTrustStateSchema = z.object({
   terminationReason: z.string().optional(),
   metricFamily: z.string().optional(),
 }).strict();
-const PublicCampVerdictSchema = z.object({ camp: CampSchema, verdict: z.string(), nodes: z.array(PublicNodeRefSchema) }).strict();
+// t/285: the public share drops questionDrift.warning until the CL validation gate is met (t/285#7).
+// Strict on the write side: the stored objects are passthrough, the share is not (Quality t/285#54).
+const PublicQuestionDriftSchema = QuestionDriftSchema.omit({ warning: true }).strict();
+// t/285#53: the per-camp answer flag and note are stored, not shown, so they are not in the share. Fields are
+// named, not spread, so a new field stays out until classified.
+const PublicCampVerdictSchema = z.object({
+  camp: CampSchema,
+  verdict: z.string(),
+  nodes: z.array(PublicNodeRefSchema),
+}).strict();
 const PublicConvergenceSchema = z.object({ claim: z.string(), nodes: z.array(PublicNodeRefSchema) }).strict();
 const PublicEvidenceLayerSchema = z.object({ title: z.string(), role: z.string(), solves: z.string(), sources: z.array(z.string()) }).strict();
 const PublicUnresolvedGapSchema = z.object({ description: z.string(), confidence: z.string() }).strict();
@@ -88,6 +98,11 @@ export const PublicInquiryShareSchema = z.object({
    *  construction if any calibration entry carries a `censored` trust verdict. Also absent when undefined
    *  (no field produced by the generator). Construction is the ONLY enforcement point (t/3667). */
   synthesizedHeadline: z.string().optional(),
+  /** t/285: the answer to the question as asked. Condition A applies (as for the headline): omitted on degraded runs. */
+  directAnswer: DirectAnswerSchema.strict().optional(),
+  /** t/285: whether the debate stayed on the question. The warning is gated (CL t/285#7 notes 1 and 3): the public
+   *  share carries debatedTopic and driftScore only, never `warning`. */
+  questionDrift: PublicQuestionDriftSchema.optional(),
 }).strict();
 export type PublicInquiryShare = z.infer<typeof PublicInquiryShareSchema>;
 
@@ -149,6 +164,8 @@ export const PublicInquiryShareReadSchema = z.object({
   derivation: PublicDerivationReadSchema,
   grounding: PublicGroundingReadSchema,
   singleRunCaveat: z.string(),
+  directAnswer: DirectAnswerSchema.optional(),
+  questionDrift: QuestionDriftSchema.optional(),
 }).passthrough();
 export type PublicInquiryShareRead = z.infer<typeof PublicInquiryShareReadSchema>;
 
@@ -192,7 +209,7 @@ const publicTagSelection = (t: { pov: PovName; tag: string; mode: TagMode }) => 
  *  "cut short by a binding budget/ceiling", per jobStatus.ts). These two arms are independent: `censored`
  *  is an explicit trust failure; a truncation reason marks an incomplete run that happened to pass the trust
  *  gate. `synthesizedHeadline` must not appear in the anonymous public projection for either (t/3667). */
-function isRunDegraded(result: InquiryResult): boolean {
+export function isRunDegraded(result: InquiryResult): boolean {
   return result.calibration.some(
     (c) => c.trust.verdict === 'censored' ||
            (c.trust.terminationReason !== undefined && TRUNCATION_REASONS.has(c.trust.terminationReason)),
@@ -229,7 +246,11 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       // Display title (t/4891#3): a renamed Question is shared under its new name; omitted when it is the question.
       ...(inquiryDisplayTitle(result) !== result.request.question ? { title: inquiryDisplayTitle(result) } : {}),
     },
-    campVerdicts: result.campVerdicts.map((cv) => ({ camp: cv.camp, verdict: cv.verdict, nodes: cv.nodes.map(publicNode) })),
+    campVerdicts: result.campVerdicts.map((cv) => ({
+      camp: cv.camp,
+      verdict: cv.verdict,
+      nodes: cv.nodes.map(publicNode),
+    })),
     convergences: result.convergences.map((c) => ({ claim: truncateExcerpt(c.claim), nodes: c.nodes.map(publicNode) })),
     evidenceLayers: result.evidenceLayers.map((e) => ({ title: truncateExcerpt(e.title), role: truncateExcerpt(e.role), solves: truncateExcerpt(e.solves), sources: sanitizeSources(e.sources) })),
     unresolvedGaps: result.unresolvedGaps.map((g) => ({ description: truncateExcerpt(g.description), confidence: g.confidence })),
@@ -277,6 +298,21 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       }
       return { synthesizedHeadline: result.synthesizedHeadline };
     })(),
+    // t/285: the direct answer is answer substance, so it follows the headline's Condition A. A questionDrift
+    // block is diagnostic and is carried on every run.
+    ...(() => {
+      if (result.directAnswer === undefined) return {};
+      if (isRunDegraded(result)) {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'inquiry.publicShare', level: 'warn',
+          message: `toPublicInquiryShare: directAnswer suppressed — degraded run (Condition A, as for synthesizedHeadline)` });
+        return {};
+      }
+      return { directAnswer: shownDirectAnswer(result.directAnswer) };
+    })(),
+    // t/285: the warning is gated, so only the debated topic and score reach the public share.
+    ...(result.questionDrift !== undefined
+      ? { questionDrift: shownQuestionDrift(result.questionDrift) }
+      : {}),
   };
   return PublicInquiryShareSchema.parse(share);
 }

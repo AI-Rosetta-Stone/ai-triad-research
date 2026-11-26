@@ -1386,6 +1386,11 @@ export class DebateEngine {
       // t/700: brief + medium required; brief_claim/brief_points kept only when well formed.
       const { summaries, structuredDropped, structuredWarning } = parseEntrySummaries(raw);
       if (summaries) entry.summaries = summaries;
+      else {
+        // t/730: the entry shows full text only; say so, so a missing Brief can be explained.
+        getGlobalRecorder()?.record({ type: 'ai.fallback', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: `Entry summary dropped for entry ${entry.id}: response lacked brief or medium; the entry shows full text only`, data: { entry_id: entry.id, raw_head: raw.slice(0, 200) } });
+        console.warn(`[debate] WARN summarizeEntry: no brief/medium for ${entry.id}; full text only (t/730)`);
+      }
       if (summaries && structuredDropped) {
         getGlobalRecorder()?.record({ type: 'ai.fallback', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: `Structured Brief dropped for entry ${entry.id} (${structuredDropped}); the brief paragraph is kept`, data: { entry_id: entry.id, reason: structuredDropped } });
         console.warn(`[debate] WARN summarizeEntry: structured Brief dropped for ${entry.id} (${structuredDropped}); brief paragraph kept (t/700)`);

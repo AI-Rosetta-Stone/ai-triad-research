@@ -3,7 +3,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { inquiryPayloadSchema, HttpUrlSchema } from './inquiryPayloadSchema.js';
-import { makeValidResult } from './__fixtures__/validResult.js';
+import { makeValidResult, makeDriftedResult } from './__fixtures__/validResult.js';
+import { toCommunityInquiryResult } from './communityProjection.js';
 
 describe('HttpUrlSchema', () => {
   it('accepts valid HTTP URLs', () => {
@@ -113,5 +114,63 @@ describe('inquiryPayloadSchema', () => {
       expect(parsed.result).toBeTruthy();
       expect(parsed.note).toBe('');
     });
+  });
+});
+
+// t/285 (TL p/35#89): the community projection drops questionDrift.warning, so it must pass the upload schema.
+describe('inquiryPayloadSchema with questionDrift (t/285)', () => {
+  it('accepts a community-projected drifted result (warning dropped)', () => {
+    const projected = toCommunityInquiryResult(makeDriftedResult() as any);
+    const parsed = inquiryPayloadSchema.safeParse({ result: projected, note: 'n' });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.result.questionDrift).toEqual({
+      debatedTopic: 'How should AI regulation be designed?',
+    });
+  });
+
+  // TL t/285#55: a new Ask result reaches the upload as it was stored, with no projection by the caller. The schema
+  // strips the gated leaves itself, so the parse succeeds and its OUTPUT (what the desktop uploads) carries none.
+  it('accepts an unprojected new result and strips the three gated leaves from its output', () => {
+    const stored = makeDriftedResult();
+    // The fixture is a stored result: it carries all three gated leaves.
+    const raw = JSON.stringify(stored);
+    expect(raw).toContain('"warning"');
+    expect(raw).toContain('"answeredLiteralQuestion"');
+    expect(raw).toContain('"answerNote"');
+
+    const parsed = inquiryPayloadSchema.safeParse({ result: stored, note: '' });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    const out = JSON.stringify(parsed.data);
+    expect(out).not.toContain('"warning"');
+    expect(out).not.toContain('"answeredLiteralQuestion"');
+    expect(out).not.toContain('"answerNote"');
+    // What is not gated survives.
+    expect(parsed.data.result.questionDrift).toEqual({ debatedTopic: 'How should AI regulation be designed?' });
+    expect(parsed.data.result.campVerdicts[0].verdict).toBe((stored.campVerdicts as { verdict: string }[])[0].verdict);
+    // The caller's object is not mutated.
+    expect(JSON.stringify(stored)).toBe(raw);
+  });
+
+  it('strips only the three named leaves: any other unknown key is still refused', () => {
+    const stored = makeDriftedResult() as Record<string, any>;
+    const strayOnDrift = { ...stored, questionDrift: { ...stored.questionDrift, laterGatedField: true } };
+    const strayOnCamp = { ...stored, campVerdicts: stored.campVerdicts.map((cv: object) => ({ ...cv, modelExtra: 'x' })) };
+    const strayOnAnswer = { ...stored, directAnswer: { text: 'Yes.', agreement: 'consensus', modelExtra: 'x' } };
+    const strayOnResult = { ...stored, somethingNew: 1 };
+    for (const result of [strayOnDrift, strayOnCamp, strayOnAnswer, strayOnResult]) {
+      expect(inquiryPayloadSchema.safeParse({ result, note: '' }).success).toBe(false);
+    }
+  });
+
+  it('leaves a malformed body for the strict check to refuse, without throwing', () => {
+    for (const body of [null, 'x', [], { result: null, note: '' }, { result: { campVerdicts: 'no' }, note: '' }]) {
+      expect(() => inquiryPayloadSchema.safeParse(body)).not.toThrow();
+      expect(inquiryPayloadSchema.safeParse(body).success).toBe(false);
+    }
+  });
+
+  it('still accepts a result with no questionDrift block at all', () => {
+    expect(inquiryPayloadSchema.safeParse({ result: makeValidResult(), note: '' }).success).toBe(true);
   });
 });
