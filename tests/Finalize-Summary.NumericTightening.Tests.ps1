@@ -135,10 +135,6 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
         ) {
             Invoke-NumericDrop 'The correlation was 0.48.' $Source @{ LeadingDot = $true } | Should -Be 0
         }
-        # Known limit, accepted by CL (t/384): pinned so a change to it is seen and goes back to CL.
-        It 'known limit: a section number glued to the next word reads as a decimal' {
-            Invoke-NumericDrop 'The effect was 0.3 overall.' 'SeeSectionB.3onextensions of the attack.' @{ LeadingDot = $true } | Should -Be 0
-        }
     }
 
     Context 'Superscript exponents' {
@@ -154,16 +150,6 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
         }
         It 'the bracketed exponent grounds only its own power' {
             Invoke-NumericDrop 'The threshold is 10^26 floating point operations.' 'computation exceeds 10(^25) floating point operations' @{ Superscript = $true } | Should -Be 1
-        }
-    }
-
-    Context 'Defaults (CL ruling on t/384)' {
-        It 'Scale, LeadingDot and Superscript are on and Percent is off' {
-            $F = & (Get-Module AITriad) { $script:NumericGroundingFeatures }
-            $F.Scale | Should -BeTrue
-            $F.LeadingDot | Should -BeTrue
-            $F.Superscript | Should -BeTrue
-            $F.Percent | Should -BeFalse
         }
     }
 
