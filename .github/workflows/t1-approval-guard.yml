@@ -429,6 +429,8 @@ jobs:
             const { evaluateT1ApprovalGuard } = await import(pathToFileURL(predicatePath).href);
 
             const commits = await withRetry('pulls.listCommits', () => github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 }));
+            // t/776: the Dependabot exemption also reads the changed paths and each package.json patch (same read and mapping as ci.yml's merge_group arm and merge-approval-run.mjs: keep them identical).
+            const changedFiles = (await withRetry('pulls.listFiles', () => github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 }))).map((f) => ({ filename: f.filename, previous_filename: f.previous_filename, status: f.status, patch: f.patch }));
             const lastCommit = commits[commits.length - 1];
             const lastPushAt = lastCommit ? (lastCommit.commit.committer?.date || lastCommit.commit.author?.date) : pr.created_at;
 
@@ -447,7 +449,7 @@ jobs:
             const botReviews = rawReviews.map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body, commitId: r.commit_id }));
 
             const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, headSha: pr.head.sha, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN,
-              dependabot: { authorLogin: pr.user?.login ?? null, headRepo: pr.head.repo?.full_name ?? null, baseRepo: pr.base.repo?.full_name ?? null, commits, commitsTotal: pr.commits } });
+              dependabot: { authorLogin: pr.user?.login ?? null, headRepo: pr.head.repo?.full_name ?? null, baseRepo: pr.base.repo?.full_name ?? null, commits, commitsTotal: pr.commits, files: changedFiles, filesTotal: pr.changed_files } });
             core.info(`t1-approval-guard verdict: pass=${result.pass} tier=${result.tier} reason=${result.reason}${result.blockers ? ' blockers=' + JSON.stringify(result.blockers) : ''}`);
 
             if (result.pass) {
