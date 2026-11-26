@@ -42,20 +42,20 @@ Problem: people report that the debate is overwhelming. Each statement is one de
 
 ## 6. Turn symbols (model-chosen emoji)
 
-- They move into the header, after the kind, at body size (`--text-base`), not `--text-2xl`.
+- They move into the header, after the kind, at `--text-md`, not `--text-2xl` (corrected 2026-11-26: there is no `--text-base` token, t/701#17). Each symbol sits in a fixed-width slot so the header and claim indent don't shift with the symbol (t/761).
 - Each is `<span role="img" aria-label="{tooltip}">`, with the analogy as its `title`.
 - They're decoration, not a control: the click that opens the symbol list is removed.
 - No row of their own between the header and the text.
 
 ## 7. Tagline
 
-- In Full text, a trailing `Tagline: …` line renders as the statement's last line, in italics, **without the word `Tagline:`**.
-- The engine should stop emitting the label: Debate Engine, in the same change as §1. The renderer strip stays as a guard for old debates.
+- Corrected 2026-11-26 (t/701#4): the label only ever appeared in the stored `summaries.brief`, never in the statement text. The summary prompt no longer asks for it (t/700).
+- For old debates, the Brief fallback drops a trailing `Tagline: …` line entirely. Full text needs no handling.
 
 ## 8. Older turns collapse to their claim
 
 - In a debate with more than 3 turns, **every turn except the 2 most recent** starts collapsed.
-  - A collapsed turn is one row: caret ▸, speaker, kind, and the claim (`brief_claim`, or the first sentence of `brief` for old debates), on one line, ellipsized at two lines.
+  - A collapsed turn is two lines (amended 2026-11-26, human, t/761). Line 1 is the caret ▸, symbol, speaker and kind, never truncated. Line 2 is the claim (`brief_claim`, or the first sentence of `brief` for old debates), full width, aligned with the speaker name, ellipsized at two lines.
   - Clicking the row or the caret expands it (`aria-expanded`). Keyboard: Enter and Space.
 - When a new turn arrives, the third most recent collapses, unless the user expanded it by hand.
 - **`Expand all turns` / `Collapse earlier turns`** sits in the debate toolbar next to Brief | Full.
