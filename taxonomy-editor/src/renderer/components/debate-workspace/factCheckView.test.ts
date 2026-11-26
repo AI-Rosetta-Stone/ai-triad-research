@@ -39,13 +39,17 @@ describe('factCheckView (t/764)', () => {
     expect(limitOf({ limit: 3 })).toBeNull();
   });
 
-  it('source links show the publisher domain, at most 3, and count the rest', () => {
+  it('source links prefer a real short title, fall back to the domain, show at most 3 and count the rest', () => {
     const { shown, more } = sourceLinksOf([
-      { uri: 'https://www.nature.com/a', title: 'T1' }, { uri: 'https://b.org/x', title: 'T2' },
+      { uri: 'https://www.nature.com/a', title: 'Simulated labs, 2017' }, { uri: 'https://b.org/x', title: 'b.org' },
       { uri: '', title: 'A very long title that exceeds thirty characters' }, { uri: 'https://d.org', title: 'T4' },
     ]);
-    expect(shown.map(s => s.label)).toEqual(['nature.com', 'b.org', 'A very long title that exceed…']);
+    expect(shown.map(s => s.label)).toEqual(['Simulated labs, 2017', 'b.org', 'A very long title that exceed…']);
     expect(more).toBe(1);
+  });
+
+  it('a citation with no title uses the domain', () => {
+    expect(sourceLinksOf([{ uri: 'https://www.nature.com/a', title: '' }]).shown[0].label).toBe('nature.com');
   });
 
   it('quotes the claim with typographic quotes and does not double them', () => {
