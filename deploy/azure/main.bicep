@@ -982,6 +982,13 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
   identity: {
     type: 'SystemAssigned'
   }
+  // t/624: the 'prod-state' volume names its storage by string, which creates no implicit
+  // dependency, so without this the app update can run before 'taxonomy-state-prod' is
+  // registered and be refused (the same reason as the staging app's dependsOn below).
+  // 'taxonomy-data' is not listed: that registration is managed outside this template
+  // (see "Staging Azure Files" above), so there is no resource here to depend on.
+  // tests/BicepProdStateShareIsolation.Tests.ps1 fails if a volume's in-template storage is missing here.
+  dependsOn: [envStorageProdState]
   properties: {
     managedEnvironmentId: containerAppEnv.id
     configuration: {
