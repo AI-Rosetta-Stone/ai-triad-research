@@ -10,6 +10,7 @@
 import fs from 'fs';
 import { parsePoverResponse, parseJsonRobust, stripCodeFences } from './helpers.js';
 import { POVER_INFO } from './types.js';
+import { orderSynthesisLists } from './synthesisOrder.js';
 import type { SpeakerId } from './types.js';
 import { formatDebateMarkdown } from './formatters.js';
 import { DebateSessionSchema } from './schemas.js';
@@ -143,6 +144,12 @@ if (synthEntry) {
       };
       synthEntry.metadata = { ...synthEntry.metadata, synthesis: synthData };
       log(`Extracted: ${synthData.areas_of_agreement.length} agree, ${synthData.areas_of_disagreement.length} disagree, ${synthData.cruxes.length} cruxes`);
+    }
+
+    // t/769: the same relevance order the synthesis card shows.
+    if (synthData) {
+      synthData = orderSynthesisLists(synthData as Record<string, unknown>) as typeof synthData;
+      synthEntry.metadata = { ...synthEntry.metadata, synthesis: synthData };
     }
 
     // Format readable content
