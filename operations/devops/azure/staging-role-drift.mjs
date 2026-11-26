@@ -152,6 +152,12 @@ export function roleDriftVerdict({ declared, unresolved = [], live }) {
     problems.push('the live assignment list is not a JSON array; an empty or failed read must not pass as "no drift"');
     return verdict([], [], problems);
   }
+  // The staging app cannot run with no role at all (it reads its vault and writes its containers),
+  // so zero assignments means the read saw nothing: wrong principal, wrong scope or no read access.
+  if (live.length === 0) {
+    problems.push('the live read returned zero role assignments for the staging identity; that is a failed read, not a clean result');
+    return verdict([], [], problems);
+  }
 
   const matched = new Set();
   const undeclared = [];
