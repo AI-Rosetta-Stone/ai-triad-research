@@ -23,11 +23,11 @@ export const MODELS_BY_BACKEND: Record<AIBackend, AIModelEntry[]> = {
     { value: 'gemini-3.5-flash', label: '3.5 Flash' },
   ],
   claude: [
-    { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
-    { value: 'claude-haiku-3.5', label: 'Haiku 3.5 (fastest)' },
+    // t/781: claude-sonnet-4-5 retires Nov 30, 2026; ids follow the registry (aiModels.test.ts guards it).
+    { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    { value: 'claude-haiku-4-5', label: 'Haiku 4.5 (fastest)' },
   ],
   groq: [
-    { value: 'groq-llama-4-scout', label: 'Llama 4 Scout' },
     { value: 'groq-openai-gpt-oss-120b', label: 'GPT-OSS 120B' },
   ],
   openai: [
@@ -38,8 +38,8 @@ export const MODELS_BY_BACKEND: Record<AIBackend, AIModelEntry[]> = {
 
 export const DEFAULT_MODELS: Record<AIBackend, AIModel> = {
   gemini: 'gemini-3.5-flash-lite',
-  claude: 'claude-sonnet-4-5',
-  groq: 'groq-llama-4-scout',
+  claude: 'claude-sonnet-4-6',
+  groq: 'groq-openai-gpt-oss-120b',
   openai: 'openai-gpt-5.5',
 };
 
