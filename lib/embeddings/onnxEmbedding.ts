@@ -23,6 +23,7 @@ import path from 'path';
 import https from 'https';
 import { ActionableError } from '../debate/errors.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { assertEmbeddingTexts } from './embeddingInput.js';
 
 // ── Types (onnxruntime-node is a peer dependency, resolved at runtime) ──
 
@@ -649,6 +650,8 @@ export async function computeEmbeddings(
   texts: string[],
   onChunkDone?: (chunkIndex: number) => void,
 ): Promise<number[][]> {
+  // t/716: refuse a non-string text here, naming the element, before it reaches the tokenizer.
+  assertEmbeddingTexts(texts, 'lib/embeddings/onnxEmbedding.ts:computeEmbeddings');
   await ensureReady();
   if (texts.length === 0) return [];
 

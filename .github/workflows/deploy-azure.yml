@@ -494,6 +494,8 @@ jobs:
           IDENTITY_MAP_VALUE: ${{ vars.IDENTITY_MAP }}
           # t/4732: 'true'/'false' only — the key itself never enters this step's env.
           STAGING_FREE_TIER_KEY_SET: ${{ secrets.FREE_TIER_GEMINI_KEY_STAGING != '' }}
+          # t/75: 'true'/'false' only; the address itself stays out of this step's env and log.
+          ALERT_EMAIL_SET: ${{ vars.ALERT_EMAIL != '' }}
         run: |
           # t/4326: legacy names may contain spaces (quoted below) but never quote/shell
           # characters — arm-deploy re-tokenises its parameter string on double quotes, and the
@@ -518,6 +520,14 @@ jobs:
               exit 1
             fi
             echo "::warning::WARN t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty — staging gets NO free-tier key (t/654: it never falls back to prod's free-tier-gemini-key), so staging AI calls on the free pool will fail until the staging key is set."
+          fi
+          # t/75: main.bicep deploys the budget and the monitoring module (alert rules and their action
+          # group) only when budgetAlertEmail is non-empty, so that an empty value can never empty the
+          # alerts' action groups (SO, t/75#3). The cost is a green deploy that applied no alert change.
+          # Say so. A warning, not a failure: live alerts keep working, and stopping a prod deploy over
+          # an unset variable would be a behaviour change for the TL to decide.
+          if [ "$ALERT_EMAIL_SET" != "true" ]; then
+            echo "::warning::WARN t/75: vars.ALERT_EMAIL is empty, so this deploy SKIPS the budget and the monitoring module (alert rules and their action group). Live alerts are left as they are and get none of this deploy's alert changes; a new environment gets no alerts at all. Set the repository variable ALERT_EMAIL and redeploy."
           fi
           echo "Previewing infrastructure changes..."
           RESULT=$(az deployment group what-if \

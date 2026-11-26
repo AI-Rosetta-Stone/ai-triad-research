@@ -140,4 +140,8 @@ while IFS="$(printf '	')" read -r path ref locked; do
     echo "sweep-landed-worktrees: WARN could not remove $path; left in place" >&2
   fi
 done
+# t/727 (SO t/727#3): the one line every completed walk prints. run-worktree-sweep.mjs requires it, so a
+# run that exited 0 without walking the worktrees (no gh, not a repo, a shell that did nothing) is not
+# reported as a clean sweep. The early exits above deliberately do not print it.
+echo "sweep-landed-worktrees: done"
 exit 0

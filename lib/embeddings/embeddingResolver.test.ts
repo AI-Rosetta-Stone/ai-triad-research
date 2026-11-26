@@ -63,6 +63,50 @@ describe('resolveEmbeddings — fallback exhaustion (t/3538)', () => {
     expect(ae.message).toContain('Resolve:'); // renders `nextSteps`
   });
 
+  it('carries each backend’s own failure reason, so a log of this error alone names the cause (t/716)', async () => {
+    const err = await resolveEmbeddings(['a'], undefined, null, failingChain).then(
+      () => { throw new Error('expected resolveEmbeddings to throw'); },
+      (e: unknown) => e,
+    );
+    const ae = err as ActionableError;
+    expect(ae.problem).toContain('onnx: onnx down');
+    expect(ae.problem).toContain('python: python missing');
+    expect(String(ae)).toContain('onnx: onnx down'); // what the server's `err: String(err)` log line prints
+  });
+
+  it('uses an ActionableError member’s one-line problem, not its multi-line message (t/716)', async () => {
+    const inner = new ActionableError({ goal: 'g', problem: 'Embedding request was shed: queue full', location: 'l', nextSteps: ['n'] });
+    const chain: EmbeddingFallback[] = [{ name: 'worker', compute: async () => { throw inner; } }];
+    const ae = await resolveEmbeddings(['a'], undefined, null, chain).then(
+      () => { throw new Error('expected resolveEmbeddings to throw'); },
+      (e: unknown) => e as ActionableError,
+    );
+    expect(ae.problem).toContain('worker: Embedding request was shed: queue full');
+    expect(ae.problem).not.toContain('Goal:');
+    expect(ae.problem).not.toMatch(/[\r\n]/);
+  });
+
+  it('bounds an over-long failure reason (t/716)', async () => {
+    const chain: EmbeddingFallback[] = [{ name: 'onnx', compute: async () => { throw new Error('x'.repeat(5000)); } }];
+    const ae = await resolveEmbeddings(['a'], undefined, null, chain).then(
+      () => { throw new Error('expected resolveEmbeddings to throw'); },
+      (e: unknown) => e as ActionableError,
+    );
+    expect(ae.problem.length).toBeLessThan(450);
+    expect(ae.problem).toContain('…');
+  });
+
+  it('keeps a code every failed backend shares, and drops it when they differ (t/716)', async () => {
+    const coded = (code: string) => async (): Promise<number[][]> => { throw Object.assign(new Error('shed'), { code }); };
+    const run = (chain: EmbeddingFallback[]) => resolveEmbeddings(['a'], undefined, null, chain).then(
+      () => { throw new Error('expected resolveEmbeddings to throw'); },
+      (e: unknown) => e as ActionableError,
+    );
+    expect((await run([{ name: 'worker', compute: coded('WORKER_POOL_SHED') }])).code).toBe('WORKER_POOL_SHED');
+    expect((await run([{ name: 'a', compute: coded('X') }, { name: 'b', compute: coded('Y') }])).code).toBeUndefined();
+    expect((await run(failingChain)).code).toBeUndefined();
+  });
+
   it('handles an empty fallback chain (no members) with the same ActionableError, not a crash', async () => {
     const err = await resolveEmbeddings(['a'], undefined, null, []).then(
       () => { throw new Error('expected resolveEmbeddings to throw'); },

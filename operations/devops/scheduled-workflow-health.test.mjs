@@ -188,3 +188,38 @@ test('LINT: every declared entry is a real scheduled workflow with a positive si
     assert.ok(Number.isFinite(w.maxSilentHours) && w.maxSilentHours >= 10, `${w.file}: maxSilentHours must be >= 10`);
   }
 });
+
+// ── LINT: a job gated on one cron must name a cron the workflow actually declares (t/707, SO t/707#14) ──
+// A job with `if: github.event.schedule == '<cron>'` runs only on that firing. If the string drifts from
+// `on.schedule` (one edited, the other not), the job silently never runs and nothing goes red. Returns the
+// gated cron strings that are not declared; comment lines are ignored on both sides.
+function undeclaredScheduleGates(text) {
+  const lines = text.split(/\r?\n/).filter((l) => !/^\s*#/.test(l));
+  const declaredCrons = lines.flatMap((l) => [...l.matchAll(/\bcron:\s*(['"])(.+?)\1/g)].map((m) => m[2]));
+  const gated = lines.flatMap((l) => [...l.matchAll(/github\.event\.schedule\s*[!=]=\s*(['"])(.+?)\1/g)].map((m) => m[2]));
+  return gated.filter((c) => !declaredCrons.includes(c));
+}
+
+test('undeclaredScheduleGates: a gate naming a declared cron passes; a drifted or commented-out cron is reported', () => {
+  const wf = (cron, gate) => `on:\n  schedule:\n    - cron: '7 * * * *'\n${cron}\njobs:\n  daily:\n    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '${gate}'\n`;
+  assert.deepEqual(undeclaredScheduleGates(wf("    - cron: '43 5 * * *'", '43 5 * * *')), []);
+  assert.deepEqual(undeclaredScheduleGates(wf('    - cron: "43 5 * * *"', '43 5 * * *')), [], 'quote style does not matter');
+  assert.deepEqual(undeclaredScheduleGates(wf("    - cron: '43 6 * * *'", '43 5 * * *')), ['43 5 * * *'], 'the cron was edited, the gate was not');
+  assert.deepEqual(undeclaredScheduleGates(wf("    # - cron: '43 5 * * *'", '43 5 * * *')), ['43 5 * * *'], 'a commented-out cron is not declared');
+  assert.deepEqual(undeclaredScheduleGates(wf("    - cron: '43 5 * * *'", '43  5 * * *')), ['43  5 * * *'], 'the match is exact, as GitHub compares strings');
+});
+
+test('LINT: every job gated on github.event.schedule names a cron its workflow declares (t/707)', () => {
+  const problems = [];
+  let gatedWorkflows = 0;
+  for (const n of readdirSync(wfDir).filter((f) => /\.ya?ml$/.test(f))) {
+    const text = readFileSync(join(wfDir, n), 'utf8');
+    if (/^[^#\n]*github\.event\.schedule\s*[!=]=/m.test(text)) gatedWorkflows += 1;
+    for (const c of undeclaredScheduleGates(text)) problems.push(`${n}: a job is gated on cron '${c}', which is not in on.schedule, so it would never run on a schedule`);
+  }
+  assert.deepEqual(problems, []);
+  // Not vacuous: health-monitor.yml's staging-role-drift job is gated this way, and its cron is declared.
+  const hm = readFileSync(join(wfDir, 'health-monitor.yml'), 'utf8');
+  assert.match(hm, /^\s*if:.*github\.event\.schedule == '43 5 \* \* \*'/m, "health-monitor.yml's staging-role-drift gate is the population this lint must see");
+  assert.ok(gatedWorkflows >= 1, 'no workflow gates a job on github.event.schedule: the detector found nothing to check');
+});
