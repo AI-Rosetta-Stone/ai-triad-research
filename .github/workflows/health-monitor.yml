@@ -20,6 +20,10 @@ name: Health Monitor
 on:
   schedule:
     - cron: '7,22,37,52 * * * *'  # t/4501: off round-minute marks, GitHub's congestion peak
+    # t/707: the daily staging role-drift check. Only the staging-role-drift job is tied to this
+    # firing (its `if:` names this exact string, so change both together); the other jobs simply
+    # run once more a day on it.
+    - cron: '43 5 * * *'
   workflow_dispatch:
     inputs:
       gv_inject_missing:
@@ -718,3 +722,192 @@ jobs:
                 issue_number: issue.number, state: 'closed',
               });
             }
+
+  staging-role-drift:
+    # t/707 (child of t/92): the staging app identity must hold only the role assignments Bicep
+    # declares. A grant made by hand survives every deploy (ARM incremental mode never removes what
+    # a template omits) and no review sees it; t/92#18 made one. This reads the identity's live
+    # assignments and compares them with deploy/azure/*.bicep (logic and tests: Azure,
+    # operations/devops/azure/staging-role-drift.mjs).
+    #
+    # LIMIT (TL t/707#5 condition 3): it checks role assignments in resource group ai-triad only.
+    # The monitoring identity is Reader on that group, so a grant made to the staging identity at
+    # subscription scope or in another group is NOT seen. A clean result is not subscription-wide.
+    #
+    # Daily, on its own cron (see `on.schedule`), and on demand. Not on the 15-minute firings: on
+    # drift it comments on the issue and fails, and once a day is enough of both. A daily firing
+    # that GitHub drops means no check that day; nothing alarms on that (the workflow's other
+    # firings keep its heartbeat fresh).
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '43 5 * * *'
+    runs-on: ubuntu-latest
+    # Same Reader-only monitoring identity as the other Azure jobs here (t/4340): read-only queries.
+    environment: monitoring
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          sparse-checkout-cone-mode: false
+          # The test imports the script, reads the recorded fixture and reads both templates.
+          sparse-checkout: |
+            operations/devops/azure/staging-role-drift.mjs
+            operations/devops/azure/staging-role-drift.test.mjs
+            operations/devops/azure/staging-role-drift.recorded-20261125.json
+            deploy/azure/main.bicep
+            deploy/azure/staging-keyvault.bicep
+
+      # No other workflow runs this test, so it runs here. It includes the failing arm on a
+      # recorded read (an undeclared assignment exits 1) and "zero assignments is a failed read".
+      - name: Test the drift predicate
+        run: node --test operations/devops/azure/staging-role-drift.test.mjs
+
+      - name: Log in to Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.MONITOR_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.MONITOR_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.MONITOR_AZURE_SUBSCRIPTION_ID }}
+
+      # Fail-closed by construction: `shell: bash` runs with -e -o pipefail, so any failed az or jq
+      # call stops the step; nothing is sent to /dev/null; and the script itself exits 1 on an empty
+      # list. `state` is written only after the script has run, so a failed sign-in or read leaves
+      # it unset, both issue steps skip, and the job is red.
+      #
+      # Why `az rest` and not `az role assignment list --assignee <id> --all`: `--all` lists at
+      # subscription scope, which a resource-group Reader may not be allowed to do, and `--assignee`
+      # needs a Graph lookup this identity has no permission for. The resource-group list with a
+      # principalId filter returns that principal's assignments at and below the group (Azure,
+      # t/707#9: the same 5 assignments as `--all`, read under the shared sign-in).
+      #
+      # Two guards on the read itself, because `az rest` returns one page and trusts the filter:
+      # a `nextLink` means assignments were left unread, and an assignment for another principal
+      # means the filter was not applied. Either one fails the step instead of comparing a partial
+      # or wrong list.
+      - name: Read the staging identity's live role assignments and compare with Bicep
+        id: drift
+        shell: bash
+        env:
+          # main.bicep names the storage account 'staitriad${uniqueSuffix}', and uniqueSuffix is
+          # uniqueString(resourceGroup().id): fixed for the life of the resource group, and already
+          # public in the vault names in deploy/azure/. The predicate matches each assignment on its
+          # whole resource path (SO t/707#14), so it needs the value. A wrong or missing value
+          # matches nothing and exits 1 (could not evaluate): it can make the job red, never clean.
+          UNIQUE_SUFFIX: kvwl3nywge4iw
+        run: |
+          principal="$(az containerapp show --name "${CONTAINER_APP_NAME}-staging" -g "${RESOURCE_GROUP}" --query identity.principalId -o tsv)"
+          if ! [[ "$principal" =~ ^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$ ]]; then
+            echo "::error::Goal: read the staging app's managed identity. Problem: principalId came back as '${principal}'. Location: health-monitor.yml staging-role-drift. Next steps: check the app name and the monitoring identity's Reader role on ${RESOURCE_GROUP}."
+            exit 1
+          fi
+          az rest --method get \
+            --url "https://management.azure.com/subscriptions/{subscriptionId}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Authorization/roleAssignments" \
+            --url-parameters api-version=2022-04-01 "\$filter=principalId eq '${principal}'" \
+            -o json > "$RUNNER_TEMP/raw.json"
+          if ! jq -e '(.value | type) == "array" and ((.nextLink // "") == "")' "$RUNNER_TEMP/raw.json" > /dev/null; then
+            echo "::error::Goal: read every role assignment the staging identity holds in ${RESOURCE_GROUP}. Problem: the response has no value array, or it is paged (nextLink), so the list is incomplete. Location: health-monitor.yml staging-role-drift. Next steps: follow nextLink in this step before trusting the result."
+            exit 1
+          fi
+          if ! jq -e --arg p "$principal" 'all(.value[]; (.properties.principalId // "" | ascii_downcase) == $p)' "$RUNNER_TEMP/raw.json" > /dev/null; then
+            echo "::error::Goal: read only the staging identity's role assignments. Problem: the response holds an assignment for another principal, so the principalId filter was not applied. Location: health-monitor.yml staging-role-drift. Next steps: check the \$filter and api-version of the az rest call."
+            exit 1
+          fi
+          jq '[.value[] | {name: .name, roleDefinitionId: .properties.roleDefinitionId, scope: .properties.scope}]' \
+            "$RUNNER_TEMP/raw.json" > "$RUNNER_TEMP/live.json"
+
+          set +e
+          node operations/devops/azure/staging-role-drift.mjs --param "uniqueSuffix=${UNIQUE_SUFFIX}" "$RUNNER_TEMP/live.json" \
+            deploy/azure/main.bicep deploy/azure/staging-keyvault.bicep > "$RUNNER_TEMP/summary.raw"
+          code=$?
+          set -e
+          # Issues in this repository are public: keep the subscription id out of the summary.
+          sed -E 's#/subscriptions/[0-9a-fA-F-]{36}##g' "$RUNNER_TEMP/summary.raw" > "$RUNNER_TEMP/summary.txt"
+          cat "$RUNNER_TEMP/summary.txt"
+
+          case "$code" in
+            0) state=clean ;;
+            1) state=drift ;;
+            *) state=error ;;
+          esac
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Staging role drift: ${state}"
+            echo
+            echo "Checks role assignments in resource group ai-triad only."
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/summary.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Exit 1 covers both "an undeclared assignment" and "could not evaluate" (empty read, a
+      # template the check cannot resolve). Both need a person, so both open the issue; the
+      # summary line says which it is.
+      - name: Open or update the role-drift issue
+        if: steps.drift.outputs.state == 'drift'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const fs = require('fs');
+            const LABEL = 'staging-role-drift';
+            const summary = fs.readFileSync(`${process.env.RUNNER_TEMP}/summary.txt`, 'utf8').trim();
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: LABEL, per_page: 1,
+            });
+            if (existing.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: 'Staging identity holds a role assignment Bicep does not declare (t/707)',
+                body: [
+                  '## Staging role drift (t/707)',
+                  '',
+                  `Detected at ${new Date().toISOString()} by [health-monitor](${run}).`,
+                  '',
+                  '```',
+                  summary,
+                  '```',
+                  '',
+                  '**Scope of this check: it checks role assignments in resource group ai-triad only.** A grant at subscription scope or in another resource group is not seen.',
+                  '',
+                  'What to do: if the grant is needed, declare it in `deploy/azure/main.bicep` (or `staging-keyvault.bicep`) and land it as T2. If it is not, remove it by assignment id with a read-back. If the text says "could not evaluate", the read or a template failed the check; fix that first. Do not close this by hand: it closes itself on the next clean run.',
+                ].join('\n'),
+                labels: [LABEL, 'alert-escalated'],
+              });
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: existing.data[0].number,
+              body: ['Still failing at ' + new Date().toISOString() + ` ([run](${run})). Checks role assignments in resource group ai-triad only.`, '', '```', summary, '```'].join('\n'),
+            });
+
+      - name: Auto-close the role-drift issue when clean
+        if: steps.drift.outputs.state == 'clean'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'staging-role-drift', per_page: 5,
+            });
+            for (const issue of existing.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Resolved at ${new Date().toISOString()}: every live role assignment on the staging identity in resource group ai-triad is declared in Bicep.`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, state: 'closed',
+              });
+            }
+
+      # Unlike the two warn-only jobs above, drift here is never intentional: the run goes red too.
+      # `state` is one of clean, drift, error, set by the step above; it is passed through env, not
+      # written into the script.
+      - name: Fail the run unless the check was clean
+        if: steps.drift.outputs.state != 'clean'
+        env:
+          STATE: ${{ steps.drift.outputs.state }}
+        run: |
+          echo "::error::Staging role-drift check did not pass (state: ${STATE}). It checks role assignments in resource group ai-triad only. See the job summary."
+          exit 1
