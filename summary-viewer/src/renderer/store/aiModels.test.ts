@@ -75,6 +75,15 @@ describe('t/785 saved model validated against ai-models.json', () => {
     expect(warned('gemini-2.5-flash')).toBe(true);
   });
 
+  it('every built-in picker id and default is a model ai-models.json lists (t/781)', async () => {
+    vi.resetModules();
+    const mod = await import('./aiModels');
+    const ids = new Set(realRegistry.models.map(m => m.id));
+    const builtIns = [...Object.values(mod.MODELS_BY_BACKEND).flatMap(e => e.map(x => x.value)), ...Object.values(mod.DEFAULT_MODELS)];
+    expect(builtIns.filter(id => !ids.has(id))).toEqual([]);
+    expect(builtIns).not.toContain('claude-sonnet-4-5');
+  });
+
   it('resolveStoredModel falls to the global default when the backend default is unknown', async () => {
     const mod = await loadModule({});
     const ids = new Set(['g']);
