@@ -16,7 +16,7 @@ import { runWithUser } from '../security/userContext.js';
 import {
   anonDebateShapeViolation, anonDebateMaxDebaterEntries, ANON_DEBATE_MAX_TOTAL_ENTRIES,
   refuseAnonDebateSave, refuseAnonDebatePatch, refuseAnonDebateCall, invalidateAnonDebateShape,
-  _resetAnonDebateShapeCacheForTest,
+  _resetAnonDebateShapeCacheForTest, stripAnonDiagnostics,
 } from '../routes/anonDebateLimits.js';
 import type { DebateDelta } from '../../../../lib/debate/types/session.js';
 
@@ -230,5 +230,35 @@ describe('t/724 check B: a debate AI call belongs to the caller\'s own saved Qui
     currentKey = ANON.storageUserId;
     as(ANON, () => invalidateAnonDebateShape('d1'));
     expect((await call(ANON, 'd1', t0 + 62_000)).status).toBe(403);
+  });
+});
+
+describe('TL p/16#466: an anonymous save keeps no diagnostics', () => {
+  const diag = { entries: { e1: { prompt: 'SECRET-PROMPT', raw_response: 'SECRET-RESPONSE' } }, enabled: true };
+  it('strips diagnostics from a PUT body, a PATCH meta and a PATCH changedFields, and reports the bytes', () => {
+    const put = { id: 'd', diagnostics: diag, topic: { final: 'x' } };
+    const bytes = as(ANON, () => stripAnonDiagnostics(put, 'PUT /api/debates'));
+    expect(bytes).toBe(Buffer.byteLength(JSON.stringify(diag)));
+    expect(put).toEqual({ id: 'd', topic: { final: 'x' } });
+    const d = { debateId: 'd', baseVersion: 1, meta: { title: 't', diagnostics: diag }, changedFields: { diagnostics: diag, convergence_tracker: { a: 1 } } };
+    as(ANON, () => stripAnonDiagnostics(d, 'PATCH /api/debates/:id'));
+    expect(d).toEqual({ debateId: 'd', baseVersion: 1, meta: { title: 't' }, changedFields: { convergence_tracker: { a: 1 } } });
+  });
+  it('leaves a signed-in save and an unrelated field untouched, and does nothing when there is no diagnostics', () => {
+    const put = { id: 'd', diagnostics: diag };
+    expect(as(SIGNED_IN, () => stripAnonDiagnostics(put, 'PUT /api/debates'))).toBe(0);
+    expect(put.diagnostics).toBe(diag);
+    const clean = { id: 'd', adaptive_staging_diagnostics: { x: 1 } };
+    expect(as(ANON, () => stripAnonDiagnostics(clean, 'PUT /api/debates'))).toBe(0);
+    expect(clean).toEqual({ id: 'd', adaptive_staging_diagnostics: { x: 1 } });
+  });
+  it('never logs the content (DEBUG line carries the byte count only)', async () => {
+    const { log } = await import('../logger.js');
+    const spy = vi.spyOn(log.api, 'debug');
+    as(ANON, () => stripAnonDiagnostics({ id: 'd', diagnostics: diag }, 'PUT /api/debates'));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(spy.mock.calls)).not.toContain('SECRET');
+    expect(spy.mock.calls[0][0]).toMatchObject({ stripped_bytes: expect.any(Number) });
+    spy.mockRestore();
   });
 });

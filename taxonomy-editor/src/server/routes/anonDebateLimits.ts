@@ -139,6 +139,30 @@ export function refuseAnonLimit(res: ServerResponse, routePattern: string, v: An
   return true;
 }
 
+/** TL ruling p/16#466 (data minimisation): a hosted anonymous save does not keep `diagnostics` (the raw prompts, raw
+ *  responses and taxonomy context of each AI call: developer data that holds more of the visitor's text than the
+ *  24-hour promise needs, and about 74 KB per entry). Removed in place from a PUT body (the session) or a PATCH body
+ *  (`meta.diagnostics` and `changedFields.diagnostics`) BEFORE the shape check and the write. Logs once per save at
+ *  DEBUG with the byte count, never the content. Not stripped: argument_network, topic.suggested_critique (the next
+ *  largest fields; the TL decides those). Returns the bytes removed. */
+export function stripAnonDiagnostics(payload: unknown, route: string): number {
+  if (!isHostedAnonymousRequest() || !payload || typeof payload !== 'object') return 0;
+  const p = payload as Record<string, unknown>;
+  let bytes = 0;
+  const drop = (holder: unknown): void => {
+    if (!holder || typeof holder !== 'object') return;
+    const h = holder as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(h, 'diagnostics')) return;
+    bytes += Buffer.byteLength(JSON.stringify(h.diagnostics ?? null));
+    delete h.diagnostics;
+  };
+  drop(p);
+  drop(p.meta);
+  drop(p.changedFields);
+  if (bytes > 0) log.api.debug({ component: 'anon-limits', route, stripped_bytes: bytes }, 'Anonymous debate save: diagnostics stripped (t/723)');
+  return bytes;
+}
+
 /** B1: a hosted anonymous caller on the shared '_local' store is refused (401 no_session) before any read or write.
  *  True when the response was written. */
 export function refuseUnkeyedAnonDebate(res: ServerResponse, routePattern: string): boolean {

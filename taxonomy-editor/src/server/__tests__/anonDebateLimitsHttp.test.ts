@@ -23,7 +23,7 @@ import { anonRequestIdentity } from '../anonRequestIdentity.js';
 import { runWithUser, getStorageUserId } from '../security/userContext.js';
 import { setAnonSessionSecret, signAnonSessionId } from '../security/anonSessionSigning.js';
 import {
-  anonDebateLimitsApply, refuseAnonDebateSave, refuseAnonDebatePatch, refuseAnonDebateCall, invalidateAnonDebateShape,
+  anonDebateLimitsApply, stripAnonDiagnostics, refuseAnonDebateSave, refuseAnonDebatePatch, refuseAnonDebateCall, invalidateAnonDebateShape,
   _resetAnonDebateShapeCacheForTest,
 } from '../routes/anonDebateLimits.js';
 import type { DebateDelta } from '../../../../lib/debate/types/session.js';
@@ -33,6 +33,7 @@ const ENV = ['AUTH_OPTIONAL', 'AUTH_DISABLED', 'FREE_TIER_GEMINI_KEY'];
 const saved: Record<string, string | undefined> = {};
 const store = new Map<string, Map<string, Record<string, unknown>>>();
 const loadOwn = async (id: string): Promise<unknown> => store.get(getStorageUserId())?.get(id) ?? null;
+let lastPatch: Record<string, unknown> | null = null;
 let server: http.Server;
 let base: string;
 
@@ -47,6 +48,7 @@ async function dispatch(req: http.IncomingMessage, res: http.ServerResponse, url
   const body = await readJson(req);
   const reached = (): void => { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('reached'); };
   if (req.method === 'PUT' && urlPath === '/api/debates') {
+    stripAnonDiagnostics(body, 'PUT /api/debates');
     if (refuseAnonDebateSave(res, body)) return;
     const mine = store.get(getStorageUserId()) ?? new Map<string, Record<string, unknown>>();
     store.set(getStorageUserId(), mine);
@@ -55,6 +57,8 @@ async function dispatch(req: http.IncomingMessage, res: http.ServerResponse, url
     return reached();
   }
   if (req.method === 'PATCH' && urlPath.startsWith('/api/debates/')) {
+    stripAnonDiagnostics(body, 'PATCH /api/debates/:id');
+    lastPatch = body;
     if (anonDebateLimitsApply() && await refuseAnonDebatePatch(res, body as unknown as DebateDelta, loadOwn)) return;
     return reached();
   }
@@ -193,6 +197,18 @@ describe('t/724 over real HTTP: the title-only rename delta (Rosetta Stone p/74#
     expectAnonLimit(await send('PATCH', '/api/debates/old', signed(A), { ...rename, changedFields: ['title'] }), 'anon_debate_kind');
     expectAnonLimit(await send('PATCH', '/api/debates/old', signed(A), { ...rename, newMutations: [{ id: 'm' }] }), 'anon_debate_kind');
     expectAnonLimit(await send('PATCH', '/api/debates/old', signed(A), { ...rename, meta: {} }), 'anon_debate_kind');
+  });
+});
+
+describe('TL p/16#466 over real HTTP: diagnostics are not kept for an anonymous visitor', () => {
+  it('a PUT carrying diagnostics is stored without it, and a PATCH carrying it reaches storage without it', async () => {
+    const diag = { entries: { e1: { prompt: 'p', raw_response: 'r' } } };
+    expect((await send('PUT', '/api/debates', signed(A), session('q1', { diagnostics: diag }))).text).toBe('reached');
+    expect(store.get(`anon-${A}`)?.get('q1')).not.toHaveProperty('diagnostics');
+    expect(store.get(`anon-${A}`)?.get('q1')).toHaveProperty('transcript'); // the rest of the session is kept
+    expect((await send('PATCH', '/api/debates/q1', signed(A), delta('q1', { meta: { title: 'T', diagnostics: diag }, changedFields: { diagnostics: diag } }))).text).toBe('reached');
+    expect(lastPatch?.meta).toEqual({ title: 'T' });
+    expect(lastPatch?.changedFields).toEqual({});
   });
 });
 

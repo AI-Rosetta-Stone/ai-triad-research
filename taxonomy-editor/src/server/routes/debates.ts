@@ -21,7 +21,7 @@ import * as rateLimiter from '../security/rateLimiter.js';
 import { getStateRoot } from '../config.js';
 import type { DebateDelta } from '../../../../lib/debate/types.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
-import { anonDebateLimitsApply, refuseAnonDebateSave, refuseAnonDebatePatch, invalidateAnonDebateShape } from './anonDebateLimits.js';
+import { anonDebateLimitsApply, stripAnonDiagnostics, refuseAnonDebateSave, refuseAnonDebatePatch, invalidateAnonDebateShape } from './anonDebateLimits.js';
 // t/2626: this static `import type` forces tsc to emit lib/debate/newsReport.js into the
 // build (rootDir=../ → dist/server/lib/debate/newsReport.js). newsReport is otherwise
 // reached ONLY by the dynamic import() in the news-report handler, so it never enters the
@@ -146,6 +146,7 @@ export function registerDebatesRoutes(r: Router, _ctx: ServerCtx): void {
     // `error: 'save_in_progress'` value (t/1468). Backstop only — per-process, so
     // same-replica; the client coalesce is the cross-replica fix.
     // t/723: a hosted anonymous visitor may save Quick Take shaped debates only (403 before anything is stored).
+    stripAnonDiagnostics(body, 'PUT /api/debates'); // TL p/16#466: an anonymous save keeps no diagnostics
     if (refuseAnonDebateSave(res, body)) return;
     const debateId = (body as { id?: string })?.id;
     const saveKey = debateId ? `${getStorageUserId()}:${debateId}` : null;
@@ -214,6 +215,7 @@ export function registerDebatesRoutes(r: Router, _ctx: ServerCtx): void {
     const startedAt = Date.now();
     try {
       const delta = body as DebateDelta;
+      stripAnonDiagnostics(delta, 'PATCH /api/debates/:id'); // TL p/16#466
       // t/723: the same Quick Take check, on the server's own merge of the stored session and this delta. Both the
       // check and the write key on delta.debateId, so they always see the same debate.
       if (anonDebateLimitsApply() && await refuseAnonDebatePatch(res, delta, (id) => fileIO.loadDebateSession(id))) return;
