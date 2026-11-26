@@ -601,7 +601,7 @@ function Write-SmokeSummary {
         $EmbColor = if ($EmbeddingStatus -eq 'ok') { 'Gray' } elseif ($EmbeddingStatus -in 'failed', 'unreachable') { 'Red' } else { 'Yellow' }
         Write-Host "  Embedding probe: $EmbeddingSummary" -ForegroundColor $EmbColor
         if ($EmbeddingStatus -in 'failed', 'unreachable' -and $env:GITHUB_STEP_SUMMARY) {
-            try { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Embedding probe: $EmbeddingSummary (warning; does not block the gate)" -ErrorAction Stop }
+            try { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Embedding probe: $EmbeddingSummary (warning; does not block the gate)" -ErrorAction Stop }  # sink-guard-allow: the GitHub job summary file, not an ai-triad-data file
             catch { Write-Warning "Smoke summary: could not write the embedding probe line to the job summary ($($_.Exception.Message)); it is in the log above." }
         }
     }
