@@ -365,9 +365,17 @@ export function factCheckPrompt(
   taxonomyNodes: string,
   conflictData: string,
   audience?: DebateAudience,
+  /** Whether a web search ran for this check (t/763, Design ruling 3). Hosts should pass it; when
+   *  omitted it is read from the WEB SEARCH RESULTS block the renderer appends to conflictData. */
+  webSearchRan?: boolean,
 ): string {
+  const ranWeb = webSearchRan ?? /=== WEB SEARCH RESULTS ===/.test(conflictData);
+  const webLine = ranWeb
+    ? 'WEB SEARCH: a web search ran for this check; its results are in the section above.'
+    : 'WEB SEARCH: none ran for this check. Do not mention web search, web results or online searches anywhere in your answer.';
   return `You are a fact-checker analyzing a claim made during a structured AI policy debate.
 ${getReadingLevel(audience)}
+${webLine}
 
 === CLAIM TO CHECK ===
 "${selectedText}"
@@ -404,9 +412,23 @@ A "partially_accurate" verdict WITHOUT a discrepancy carrying claimed + actual +
 
 When web search results are available, cite them specifically in your explanation.
 
+Also write the reader-facing finding:
+- "finding": ONE sentence of 25 words or fewer that opens with the plain verdict word for your verdict, then states what the evidence shows. Verdict words: supported → "Accurate."; partially_accurate → "Partly accurate." (or "Overstated." when the speaker over-claimed a number or scope); disputed → "Disputed."; false → "False."; unverifiable → "Can't be verified.".
+- "finding_points": 1 to 3 items, each 25 words or fewer, each one concrete piece of evidence behind the finding.
+- "limit": OPTIONAL, 25 words or fewer. Include it only for a real caveat (for example, the evidence is old, narrow, or from one source). Omit it otherwise.
+Rules for the finding, points and limit:
+- Name sources by title, publisher or author, never by a raw document id, node id, conflict id or URL. Never invent a source.
+- When the evidence comes from the material above rather than a named outside source, call it "this project's taxonomy" or "the debate so far". Never write "conflict data", "conflict logs", "conflict records", "taxonomy records", "nodes", "debate record", "debate materials" or "verified record".
+- If the speaker cited a bad or unknown identifier, you may quote it in a point, attributed to them (e.g. "The statement cites '<id>', which doesn't match a known paper."). Never put it in the finding.
+- For "Can't be verified.", write the finding exactly as: "Can't be verified. No source checked here reports <the specific figure, date or source the speaker cited>." Never leave it as the bare verdict words, and never say something is absent from public data, public databases or public records.
+- Use neutral summary verbs and add no intensifiers.
+
 Respond ONLY with a JSON object (no markdown, no code fences):
 {
   "verdict": "supported" | "partially_accurate" | "disputed" | "false" | "unverifiable",
+  "finding": "Accurate. ...",
+  "finding_points": ["...", "..."],
+  "limit": "... (optional)",
   "explanation": "brief explanation of your assessment",
   "discrepancy": {
     "dimension": "magnitude",

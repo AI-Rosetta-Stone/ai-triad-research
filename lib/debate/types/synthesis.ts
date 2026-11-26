@@ -54,6 +54,14 @@ export interface FactCheckResult {
   checked_text: string;
   /** Populated (and required) when verdict === 'partially_accurate'; diagnostic otherwise. */
   discrepancy?: FactDiscrepancy;
+  /** Pithy finding (t/763): one sentence, at most ~25 words, opening with the plain verdict word
+   *  for the (resolved) verdict. Optional: absent on older fact checks and whenever malformed. */
+  finding?: string;
+  /** 1-3 supporting points, each at most ~25 words, sources named by title/publisher/author (t/763).
+   *  Present only together with `finding`. */
+  finding_points?: string[];
+  /** Optional caveat, at most ~25 words, only for a real limitation (t/763). */
+  limit?: string;
 }
 
 /** AIF attack on a claim — added in dolce-phase-3. */
