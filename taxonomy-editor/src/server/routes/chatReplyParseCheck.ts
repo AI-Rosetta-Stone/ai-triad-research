@@ -36,19 +36,28 @@ export function _resetChatReplyParseCountsForTest(): void {
 }
 
 const FENCE = /^\s*```[a-zA-Z]*\s*\n?([\s\S]*?)\n?\s*```\s*$/;
-const DOUBLE_QUOTED = /"(?:[^"\\]|\\.)*"/g;
-const SINGLE_QUOTED = /'(?:[^'\\]|\\.)*'/g;
 const CONTROL_CHAR = /[\u0000-\u001f]/;
 
-/** The error kind with every quoted fragment removed (V8 quotes the offending input), and its position if given. */
+/** The fixed kinds a JSON.parse failure maps to. The engine's message quotes about ten characters of the input, and
+ *  that snippet can hold quotes of its own, so no part of the message is ever kept (Quality p/17#85): the message's
+ *  own leading words only pick a kind from this closed list. */
+const PARSE_ERROR_KINDS: ReadonlyArray<[RegExp, string]> = [
+  [/^Unexpected end of JSON input/, 'unexpected_end'],
+  [/^Unexpected non-whitespace character after JSON/, 'trailing_characters'],
+  [/^Unexpected token/, 'unexpected_token'],
+  [/^Unexpected (number|string)/, 'unexpected_value'],
+  [/^Unterminated string/, 'unterminated_string'],
+  [/^Bad control character/, 'bad_control_character'],
+  [/^Bad (escaped character|Unicode escape)/, 'bad_escape'],
+  [/^(No number after minus sign|Exponent part is missing a number|Unterminated fractional number)/, 'bad_number'],
+  [/^Expected /, 'expected_token'],
+];
+
+/** A fixed kind for a JSON.parse error message, and its position when the message ENDS with one. The position is
+ *  read only from the message's own tail ("... at position N (line L column C)"), never from the quoted snippet. */
 export function parseErrorShape(message: string): { kind: string; position: number | null } {
-  const kind = message
-    .replace(DOUBLE_QUOTED, '<input>')
-    .replace(SINGLE_QUOTED, '<token>')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-  const m = /position (\d+)/.exec(message);
+  const kind = PARSE_ERROR_KINDS.find(([re]) => re.test(message))?.[1] ?? 'other';
+  const m = / at position (\d+)(?: \(line \d+ column \d+\))?$/.exec(message);
   return { kind, position: m ? Number(m[1]) : null };
 }
 

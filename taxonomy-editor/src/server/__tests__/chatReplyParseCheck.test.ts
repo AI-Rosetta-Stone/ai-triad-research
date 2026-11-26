@@ -37,7 +37,7 @@ describe('t/618: finished chat reply parse check', () => {
     checkFinishedChatReply('{"response":"line one\nline two","taxonomy_refs":[]}', TURN);
     expect(getChatReplyParseCounts()).toEqual({ strictFailures: 1, unrecovered: 1 });
     const f = fields();
-    expect(String(f.parseErrorKind)).toMatch(/JSON|control character|position/i);
+    expect(f.parseErrorKind).toBe('bad_control_character');
     expect(f.parseErrorPosition).toBe(21);
     expect(f.charClassAtError).toBe('newline');
   });
@@ -65,14 +65,45 @@ describe('t/618: finished chat reply parse check', () => {
     }
   });
 
-  it('parseErrorShape strips every quoted fragment from a V8 message; charClass never returns the character', async () => {
+  it('parseErrorShape keeps nothing of the message: a fixed kind only; charClass never returns the character', async () => {
     const { parseErrorShape, charClass } = await import('../routes/chatReplyParseCheck.js');
     const s = parseErrorShape(`Unexpected token 'M', "MARKER-7f3a is not json" is not valid JSON`);
-    expect(s.kind).toBe(`Unexpected token <token>, <input> is not valid JSON`);
-    expect(parseErrorShape('Bad control character in string literal in JSON at position 21 (line 1 column 22)').position).toBe(21);
+    expect(s).toEqual({ kind: 'unexpected_token', position: null });
+    expect(parseErrorShape('Bad control character in string literal in JSON at position 21 (line 1 column 22)')).toEqual({ kind: 'bad_control_character', position: 21 });
+    // Quality p/17#85: the quoted snippet holds quotes of its own, which mis-paired the old quoted-span regexes and
+    // left reply words behind. Also a snippet that itself says "position 99" must not be read as the position.
+    const inner = parseErrorShape(`Unexpected token 'r', ..."a "reply" 're' at position 99 MARKER-7f3a"... is not valid JSON`);
+    expect(inner).toEqual({ kind: 'unexpected_token', position: null });
+    expect(parseErrorShape('Some future engine message quoting MARKER-7f3a')).toEqual({ kind: 'other', position: null });
     expect(['quote', 'json-punct', 'backslash', 'backtick', 'newline', 'whitespace', 'control', 'digit', 'letter', 'other', 'end', null])
       .toEqual(expect.arrayContaining([charClass('é', 0), charClass('x', 5), charClass('x', null)]));
     expect(charClass('a{', 1)).toBe('json-punct');
+  });
+
+  // TL p/16#453: structure only. Whatever the reply holds, and wherever the engine's message quotes it, no marker
+  // from the reply reaches the WARN, and the kind is one of the fixed labels.
+  it('a reply containing a marker never appears in the WARN, with quotes around and inside the failing spot', () => {
+    const M = 'MARKER-7f3a';
+    const KINDS = ['unexpected_end', 'trailing_characters', 'unexpected_token', 'unexpected_value', 'unterminated_string', 'bad_control_character', 'bad_escape', 'bad_number', 'expected_token', 'other'];
+    const replies = [
+      `${M} "quoted ${M}" 'and ${M}' is not json`,
+      `{"response": "${M}" "${M}" '${M}'}`,
+      `{"a":"${M}"} ${M} "${M}"`,
+      `{"response":"${M}\n${M}"}`,
+      `{"response":"${M}`,
+      `{"response":"\\q${M}"}`,
+      `{"n":-${M}}`,
+      `"${M}' "re" 'reply' ${M}`,
+      `{'${M}': "${M}"}`,
+    ];
+    for (const reply of replies) {
+      h.warn.mockClear();
+      checkFinishedChatReply(reply, TURN);
+      expect(h.warn).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(h.warn.mock.calls)).not.toContain('MARKER');
+      expect(JSON.stringify(h.warn.mock.calls)).not.toContain('7f3a');
+      expect(KINDS).toContain(fields().parseErrorKind);
+    }
   });
 
   it('never throws, even on a pathological input', () => {
