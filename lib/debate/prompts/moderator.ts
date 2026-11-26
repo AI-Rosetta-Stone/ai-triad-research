@@ -243,13 +243,13 @@ export function moderatorInterventionPrompt(
   resolution?: string,
   resolutionClauses?: string[],
   /** t/784: earlier COMMITs in this concluding phase (whole text, at most 2 sentences each), not to be repeated. */
-  priorCommitOpenings?: string[],
+  priorCommits?: string[],
   /** t/784: the COMMIT target's own most recent turn, so the request presses a point that is theirs. */
   targetRecentTurn?: string,
 ): string {
   const moveSpecificInstructions = getMoveSpecificInstructions(move, targetDebater, sourceClaim);
   const { avoidRepeat, targetTurn } = move === 'COMMIT'
-    ? commitBlocks(targetDebater, priorCommitOpenings, targetRecentTurn)
+    ? commitBlocks(targetDebater, priorCommits, targetRecentTurn)
     : { avoidRepeat: '', targetTurn: '' };
 
   const sourceAnchor = sourceDocumentSummary
@@ -291,10 +291,10 @@ Respond ONLY with a JSON object (no markdown, no code fences):
 }`;
 }
 
-/** t/784: the COMMIT-only prompt blocks: earlier openings not to reuse, and the target's own latest turn. */
-function commitBlocks(target: string, priorOpenings?: string[], targetRecentTurn?: string): { avoidRepeat: string; targetTurn: string } {
-  const avoidRepeat = priorOpenings?.length
-    ? `\nThe moderator already made these earlier final-position requests. Do NOT reuse or paraphrase any sentence of them, and do not reuse their wording or phrasing:\n${priorOpenings.map(o => `- "${o}"`).join('\n')}\n`
+/** t/784: the COMMIT-only prompt blocks: earlier COMMITs not to reuse, and the target's own latest turn. */
+function commitBlocks(target: string, priorCommits?: string[], targetRecentTurn?: string): { avoidRepeat: string; targetTurn: string } {
+  const avoidRepeat = priorCommits?.length
+    ? `\nThe moderator already made these earlier final-position requests. Do NOT reuse or paraphrase any sentence of them, and do not reuse their wording or phrasing:\n${priorCommits.map(o => `- "${o}"`).join('\n')}\n`
     : '';
   const targetTurn = targetRecentTurn ? `\n=== ${target.toUpperCase()}'S MOST RECENT TURN ===\n${targetRecentTurn}\n` : '';
   return { avoidRepeat, targetTurn };

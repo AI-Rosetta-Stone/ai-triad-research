@@ -4,25 +4,25 @@
 // t/784: concluding-phase COMMITs must not repeat one shared debate recap.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { priorCommitOpenings, latestTurnOf, sharedWordRun, commitRepeat, warnOnCommitRepeat } from './commitOpenings.js';
+import { priorCommitTexts, latestTurnOf, sharedWordRun, commitRepeat, warnOnCommitRepeat } from './commitOpenings.js';
 import { moderatorInterventionPrompt } from './prompts.js';
 import { setGlobalRecorder, clearGlobalRecorder, type FlightRecorder, type RecordInput } from '../flight-recorder/index.js';
 
 const RECAP = 'This debate has focused on how artificial intelligence safety rules affect market fairness and public safety.';
 
-describe('priorCommitOpenings', () => {
-  it('returns the first sentence of each earlier COMMIT intervention, in order', () => {
+describe('priorCommitTexts', () => {
+  it('returns each earlier COMMIT intervention whole, in order, and nothing else', () => {
     const t = [
       { type: 'statement', content: 'A statement.' },
       { type: 'intervention', content: `${RECAP} The Safetyist conceded X.`, intervention_metadata: { move: 'COMMIT' } },
       { type: 'intervention', content: 'Skeptic, please probe this. More.', intervention_metadata: { move: 'PROBE' } },
-      { type: 'intervention', content: 'Accelerationist, commit now! Then more.', intervention_metadata: { move: 'COMMIT' } },
+      { type: 'intervention', content: '  Accelerationist, commit now! Then more.  ', intervention_metadata: { move: 'COMMIT' } },
     ];
-    expect(priorCommitOpenings(t)).toEqual([RECAP, 'Accelerationist, commit now!']);
+    expect(priorCommitTexts(t)).toEqual([`${RECAP} The Safetyist conceded X.`, 'Accelerationist, commit now! Then more.']);
   });
 
-  it('is empty when no COMMIT has been given yet', () => {
-    expect(priorCommitOpenings([{ type: 'intervention', content: 'x', intervention_metadata: { move: 'PIN' } }])).toEqual([]);
+  it('is empty when no COMMIT has been given yet (other moves do not count)', () => {
+    expect(priorCommitTexts([{ type: 'intervention', content: 'x', intervention_metadata: { move: 'PIN' } }])).toEqual([]);
   });
 });
 
@@ -67,6 +67,19 @@ describe('latestTurnOf (t/784)', () => {
     expect(latestTurnOf(t, 'safetyist')).toBe('S latest');
     expect(latestTurnOf(t, 'accelerationist')).toBeUndefined();
   });
+
+  it("returns the opening when it is the speaker's only turn", () => {
+    const t = [
+      { type: 'opening', speaker: 'skeptic', content: 'K opening' },
+      { type: 'statement', speaker: 'safetyist', content: 'S latest' },
+    ];
+    expect(latestTurnOf(t, 'skeptic')).toBe('K opening');
+  });
+
+  it('caps the turn at 1,500 characters by default', () => {
+    const long = 'x'.repeat(2000);
+    expect(latestTurnOf([{ type: 'statement', speaker: 'skeptic', content: long }], 'skeptic')).toBe('x'.repeat(1500));
+  });
 });
 
 describe("Design's 6-word repetition check (t/784)", () => {
@@ -78,6 +91,7 @@ describe("Design's 6-word repetition check (t/784)", () => {
     expect(sharedWordRun(A, B)).toBe('you must state your final position');
     expect(sharedWordRun(A, C)).toBeUndefined();
     expect(sharedWordRun('one two three four five', 'one two three four five')).toBeUndefined();
+    expect(sharedWordRun('YOU MUST STATE YOUR FINAL POSITION now', 'so you must state your final position')).toBe('you must state your final position');
   });
 
   it('commitRepeat compares against every earlier COMMIT', () => {

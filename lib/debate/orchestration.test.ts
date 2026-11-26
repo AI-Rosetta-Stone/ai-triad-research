@@ -13,6 +13,7 @@ import type { TranscriptEntry, TurnPipelineResult, TaxonomyRef } from './types.j
 import type { TurnPipelineInput } from './turnPipeline.js';
 import type { PoverResponseMeta } from './helpers.js';
 import * as moderatorModule from './moderator.js';
+import { setGlobalRecorder, clearGlobalRecorder, type FlightRecorder, type RecordInput } from '../flight-recorder/index.js';
 const { initModeratorState } = moderatorModule;
 
 // ── Shared helpers ──────────────────────────────────────
@@ -855,5 +856,26 @@ describe('runModeratorSelection concluding COMMIT (t/784)', () => {
     expect(commitPrompt).toContain(`- "${RECAP} The Accelerationist conceded X."`);
     // t/784 tweak: the target's own latest turn is passed in (the 4-entry window often lacks it).
     expect(commitPrompt).toContain("=== ACCELERATIONIST'S MOST RECENT TURN ===\nTest statement content about AI governance.");
+  });
+
+  it('records a WARN when the generated COMMIT shares a 6-word run with an earlier COMMIT', async () => {
+    const EARLIER = 'Safetyist, you must state your final position on the pause.';
+    const transcript = [
+      makeTranscriptEntry({ speaker: 'accelerationist', type: 'statement' }),
+      makeTranscriptEntry({ speaker: 'moderator', type: 'intervention', content: EARLIER, intervention_metadata: { move: 'COMMIT' } as never }),
+    ];
+    const record = vi.fn<(e: RecordInput) => void>();
+    setGlobalRecorder({ record } as unknown as FlightRecorder);
+    try {
+      const input = makeBaseModeratorInput({ phase: 'concluding', round: 15, transcript });
+      const callbacks = makeBaseModeratorCallbacks(JSON.stringify({ text: 'Accelerationist, you must state your final position on open weights.' }));
+      await runModeratorSelection(input, callbacks);
+    } finally {
+      clearGlobalRecorder();
+    }
+    const warns = record.mock.calls.map(c => c[0]).filter(e => e.level === 'warn' && /shares a 6-word run/.test(String(e.message)));
+    expect(warns).toHaveLength(1);
+    expect(warns[0].message).toContain('round 15');
+    expect(warns[0].message).toContain('you must state your final position');
   });
 });
