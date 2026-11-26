@@ -77,8 +77,9 @@
   cursor: default;
 }
 
-/* §8: a collapsed turn is one row: caret, speaker, kind, claim. The claim takes the rest of
-   the row and is cut at two lines. The whole row opens the turn. */
+/* §8 (amended by t/761): a collapsed turn is two lines. Line 1 is caret, symbol, speaker and
+   kind, never cut. Line 2 is the claim, full width, aligned with the speaker name and cut at
+   two lines. The whole block opens the turn. */
 .debate-statement-collapsed {
   padding-top: var(--sp-2);
   padding-bottom: var(--sp-2);
@@ -86,12 +87,26 @@
 
 .debate-statement-collapsed .debate-statement-header {
   margin-bottom: 0;
-  align-items: baseline;
+  align-items: flex-start;
   cursor: pointer;
 }
 
-.debate-statement-collapsed-claim {
+.debate-statement-collapsed-body {
   flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.debate-statement-collapsed-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.debate-statement-collapsed-claim {
   min-width: 0;
   font-family: var(--font-prose);
   font-size: var(--text-md);
@@ -103,14 +118,16 @@
   overflow: hidden;
 }
 
+/* The camp glyph is 16px wide plus the line's gap; the claim lines up with the speaker name. */
+.debate-statement-collapsed-claim.has-glyph {
+  padding-left: calc(16px + var(--sp-2));
+}
+
 /* Narrow screens: the header wraps, so the labelled tabs (§4) stay whole instead of being cut
-   off, and a collapsed claim drops under the speaker and kind instead of squeezing beside them. */
+   off, (the collapsed claim already sits on its own line, t/761). */
 @media (max-width: 480px) {
   .debate-statement-header {
     flex-wrap: wrap;
     row-gap: var(--sp-1);
-  }
-  .debate-statement-collapsed-claim {
-    flex-basis: 100%;
   }
 }

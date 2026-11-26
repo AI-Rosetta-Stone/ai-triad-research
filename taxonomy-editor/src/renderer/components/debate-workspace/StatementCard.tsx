@@ -364,13 +364,7 @@ function StatementCardHeader({
   // row for a plain "SYNTHESIS" eyebrow. The statement id anchor is preserved (still
   // used by cross-references and diagnostics) by moving it onto the eyebrow itself.
   const isConcluding = entry.type === 'concluding';
-  return (
-    // A collapsed row opens on a click anywhere in it. Keyboard users have the caret button.
-    <div className="debate-statement-header" onClick={collapsed ? (e) => { e.stopPropagation(); onToggleCollapse(); } : undefined}>
-      {collapsible && (
-        <StatementCollapseToggle collapsed={collapsed} onToggle={onToggleCollapse} entryId={entry.id} />
-      )}
-      {isConcluding ? (
+  const identity = (isConcluding ? (
         <span className="concluding-eyebrow" id={statementId ? `stmt-${statementId}` : undefined}>
           Synthesis
         </span>
@@ -393,11 +387,22 @@ function StatementCardHeader({
             <span aria-hidden="true">· </span>{kindLabel(entry.type)}
           </span>
         </>
+      ));
+  return (
+    // A collapsed row opens on a click anywhere in it. Keyboard users have the caret button.
+    <div className="debate-statement-header" onClick={collapsed ? (e) => { e.stopPropagation(); onToggleCollapse(); } : undefined}>
+      {collapsible && (
+        <StatementCollapseToggle collapsed={collapsed} onToggle={onToggleCollapse} entryId={entry.id} />
       )}
       {collapsed ? (
-        <span className="debate-statement-collapsed-claim">{collapsedClaim}</span>
+        <div className="debate-statement-collapsed-body">
+          <div className="debate-statement-collapsed-line">{identity}</div>
+          <span className={`debate-statement-collapsed-claim${camp && !isConcluding ? ' has-glyph' : ''}`}>{collapsedClaim}</span>
+        </div>
       ) : (
-        <StatementCardHeaderDetail
+        <>
+          {identity}
+          <StatementCardHeaderDetail
           entry={entry}
           activeDebate={activeDebate}
           anNodeId={anNodeId}
@@ -416,7 +421,8 @@ function StatementCardHeader({
           setDeleteConfirm={setDeleteConfirm}
           turnSymbols={turnSymbols}
           whySourceCount={whySourceCount}
-        />
+          />
+        </>
       )}
     </div>
   );
