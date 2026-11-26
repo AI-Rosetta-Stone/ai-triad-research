@@ -67,3 +67,24 @@ export function communityItemOwnerKey(item: unknown, id?: string): string | null
   }
   return null;
 }
+
+/**
+ * t/856, t/693: `community_metadata` as it is served to any reader (lists, items, the cached listing indexes).
+ * A copy; the stored file is not changed.
+ * - `original_id` (the pre-share private UUID) and `owner_storage_id` (the storage id) are removed.
+ * - An item published before t/693 has no `owner_storage_id`, and its `submitted_by_display` IS the storage
+ *   id. It is replaced at read by the same pseudonym the one-off rewrite will store, so those items stop
+ *   showing the storage id as soon as this code is deployed, with no data write. Every item written since
+ *   t/693 carries `owner_storage_id` and a display that is already a pseudonym, which is left as it is.
+ */
+export function publicCommunityMetadata(meta: unknown): unknown {
+  if (!meta || typeof meta !== 'object') return meta;
+  const rest = { ...(meta as Record<string, unknown>) };
+  const publishedBeforeT693 = typeof rest.owner_storage_id !== 'string' || rest.owner_storage_id === '';
+  if (publishedBeforeT693 && 'submitted_by_display' in rest) {
+    rest.submitted_by_display = communityPseudonym(typeof rest.submitted_by_display === 'string' ? rest.submitted_by_display : '');
+  }
+  delete rest.original_id;
+  delete rest.owner_storage_id;
+  return rest;
+}

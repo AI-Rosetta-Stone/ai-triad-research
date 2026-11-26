@@ -195,6 +195,71 @@ describe('the op-ed share owner (t/693)', () => {
   });
 });
 
+describe('items published before t/693 are masked at read (no data write)', () => {
+  const LEGACY: Record<SubType, Record<string, unknown>> = {
+    chat: { id: 'old', title: 'Old chat', mode: 'chat' },
+    debate: { id: 'old', title: 'Old debate', phase: 'complete' },
+    oped: { id: 'old', topic: 'Old', opeds: [{ pov: 'acc', headline: 'h', status: 'complete', body: 'text' }] },
+    inquiry: { id: 'old', request: { question: 'Old?' } },
+  };
+  const legacyPath = (type: SubType) => normalize(`/data/community/${PLURAL[type]}/${PREFIX[type]}old.json`);
+  const seedLegacy = (type: SubType) => {
+    const stored = JSON.stringify({ ...LEGACY[type], community_metadata: { submitted_by_display: EMAIL_ID, submitted_at: 's', approved_at: 'a', original_id: 'private' } });
+    files.set(legacyPath(type), stored);
+    return stored;
+  };
+  const types: SubType[] = ['chat', 'debate', 'oped', 'inquiry'];
+  const LISTS = { chat: listCommunityChats, debate: listCommunityDebates, oped: listCommunityOpEds, inquiry: listCommunityInquiries };
+
+  it.each(types)('%s: list and item show the pseudonym, not the storage id, and the stored file is untouched', async (type) => {
+    const stored = seedLegacy(type);
+    const list = await LISTS[type]();
+    expect(list).toHaveLength(1);
+    expectNoStorageId(list);
+    const item = await loadCommunityItem(PLURAL[type], 'old') as { community_metadata: Record<string, unknown> };
+    expectNoStorageId(item);
+    for (const meta of [(list[0] as typeof item).community_metadata, item.community_metadata]) {
+      expect(meta.submitted_by_display).toBe(communityPseudonym(EMAIL_ID));
+      expect(meta.submitted_at).toBe('s');
+      expect(meta.original_id).toBeUndefined();
+    }
+    expect(files.get(legacyPath(type))).toBe(stored);
+  });
+
+  it('a listing index cached by the previous version (with the storage id in it) is not served', async () => {
+    seedLegacy('chat');
+    files.set(normalize('/data/community/chats/_index.json'), JSON.stringify({
+      version: 'chat-v3',
+      entries: [{ id: 'old', title: 'Old chat', created_at: '', updated_at: '', mode: 'chat', community_metadata: { submitted_by_display: EMAIL_ID } }],
+    }));
+    const list = await listCommunityChats();
+    expect(list).toHaveLength(1);
+    expectNoStorageId(list);
+  });
+
+  it('with no secret a legacy item shows the fixed word, never the storage id', async () => {
+    clearAnonSessionSecret();
+    seedLegacy('debate');
+    const list = await listCommunityDebates() as { community_metadata: { submitted_by_display: string } }[];
+    expect(list[0].community_metadata.submitted_by_display).toBe(PSEUDONYM_FALLBACK);
+    expectNoStorageId(await loadCommunityItem('debates', 'old'));
+  });
+
+  it('the owner key of a legacy item is still its stored display (the mask is read-side only)', async () => {
+    seedLegacy('oped');
+    const result = await mintAndProjectCommunityOpEd('old', '');
+    expect(result.outcome).toBe('minted');
+    expect((await getCommunityOpedShareEntry('old'))!.submittedBy).toBe(EMAIL_ID);
+  });
+
+  it('an item written since t/693 keeps its stored display as it is', async () => {
+    files.set(legacyPath('chat'), JSON.stringify({ ...LEGACY.chat, community_metadata: { submitted_by_display: 'Contributor-0a1b2c3d', owner_storage_id: EMAIL_ID } }));
+    const item = await loadCommunityItem('chats', 'old') as { community_metadata: Record<string, unknown> };
+    expect(item.community_metadata.submitted_by_display).toBe('Contributor-0a1b2c3d');
+    expectNoStorageId(item);
+  });
+});
+
 describe('communityItemOwnerKey (t/693)', () => {
   it('prefers owner_storage_id, falls back to the display of a pre-t/693 item, else null', () => {
     expect(communityItemOwnerKey({ community_metadata: { owner_storage_id: 'o', submitted_by_display: 'Contributor-00000000' } })).toBe('o');

@@ -13,7 +13,7 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import path from 'path';
 import { getConfig } from '../runtimeConfig.js';
 import { mintCommunityOpedShare, getCommunityOpedShareEntry, revokeCommunityOpedShare } from './communityOpedShares.js';
-import { communityPseudonym, communityItemOwnerKey } from './submitterPseudonym.js';
+import { communityPseudonym, communityItemOwnerKey, publicCommunityMetadata } from './submitterPseudonym.js';
 import { projectArgumentNetwork, projectTopic } from './argumentNetworkProjection.js';
 import { writePublicCommunityOpEd, deletePublicCommunityOpEd, type CommunityOpEdItem } from '../storage/communityOpedShareStore.js';
 import {
@@ -179,10 +179,10 @@ export function pruneUnknownNodeRefs(result: InquiryResult, known: ReadonlySet<s
 const COMMUNITY_INDEX_FILE = '_index.json';
 
 // Bump when toEntry shape changes so stale caches are replaced on next list.
-const CHAT_INDEX_VERSION = 'chat-v3'; // v2: added model (t/2779); v3: added pover (t/4721)
-const DEBATE_INDEX_VERSION = 'debate-v2'; // v2: added model + turn_count (t/2362/t/2384)
-const OPED_INDEX_VERSION = 'oped-v3'; // v2: added outlet (t/2993); v3: added tag (t/3991)
-const INQUIRY_INDEX_VERSION = 'inquiry-v1'; // t/3621
+const CHAT_INDEX_VERSION = 'chat-v4'; // v2: added model (t/2779); v3: added pover (t/4721); v4: pseudonym display (t/693)
+const DEBATE_INDEX_VERSION = 'debate-v3'; // v2: added model + turn_count (t/2362/t/2384); v3: pseudonym display (t/693)
+const OPED_INDEX_VERSION = 'oped-v4'; // v2: added outlet (t/2993); v3: added tag (t/3991); v4: pseudonym display (t/693)
+const INQUIRY_INDEX_VERSION = 'inquiry-v2'; // t/3621; v2: pseudonym display (t/693)
 
 interface ListingIndexSpec<T> {
   dir: string;
@@ -736,14 +736,10 @@ export function stripSensitiveKeys(obj: unknown): unknown {
   return stripSensitiveKeysCore(obj, sanitizeUserText);
 }
 
-/** t/856, t/693: drop the server-only keys before community_metadata is served to any reader: the pre-share
- *  private UUID and the submitter's storage id (an email address for Google/Entra). Both stay in the stored file. */
+/** t/856, t/693: community_metadata as served to any reader: no pre-share private UUID, no storage id, and a
+ *  pseudonym for an item published before t/693. The stored file is not changed. */
 function stripOriginalId(meta: unknown): unknown {
-  if (!meta || typeof meta !== 'object') return meta;
-  const rest = { ...(meta as Record<string, unknown>) };
-  delete rest.original_id;
-  delete rest.owner_storage_id;
-  return rest;
+  return publicCommunityMetadata(meta);
 }
 
 /**
