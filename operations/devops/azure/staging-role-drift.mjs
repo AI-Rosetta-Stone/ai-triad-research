@@ -11,9 +11,17 @@
 // It makes no Azure call. Anything it cannot resolve is reported as `unresolved` and fails the
 // verdict; it never guesses a scope and never treats "could not tell" as "declared".
 //
-// CLI (for a by-hand check; the scheduled wiring is a separate T2 change):
+// A live assignment matches a declaration only on the same role AND the same full resource path:
+// the storage account (or vault) as well as the container. Matching the last segment alone would
+// let a grant on a same-named container in another account pass as declared (SO, t/707#14).
+// A name the template computes at deploy time cannot be worked out here: the storage account is
+// 'staitriad${uniqueSuffix}', and uniqueSuffix is uniqueString(resourceGroup().id). The caller
+// supplies such a value with --param; without it the grant is `unresolved` and the check fails.
+//
+// CLI (for a by-hand check; health-monitor.yml runs the same command daily):
 //   az role assignment list --assignee <staging principal id> --all > live.json
-//   node operations/devops/azure/staging-role-drift.mjs live.json deploy/azure/main.bicep deploy/azure/staging-keyvault.bicep
+//   node operations/devops/azure/staging-role-drift.mjs --param uniqueSuffix=<suffix> live.json \
+//     deploy/azure/main.bicep deploy/azure/staging-keyvault.bicep
 
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -26,12 +34,15 @@ export const STAGING_PRINCIPAL_EXPRESSIONS = Object.freeze([
 
 const ROLE_ASSIGNMENT_TYPE = 'microsoft.authorization/roleassignments';
 
-/** ARM scope segment for each resource type a staging grant may be scoped to. */
-const SCOPE_SEGMENT_BY_TYPE = Object.freeze({
-  'microsoft.storage/storageaccounts/blobservices/containers': 'containers',
-  'microsoft.storage/storageaccounts': 'storageaccounts',
-  'microsoft.keyvault/vaults': 'vaults',
-});
+/** Resource types a staging grant may be scoped to. Any other type is `unresolved`. */
+const SCOPE_TYPES = Object.freeze([
+  'microsoft.storage/storageaccounts/blobservices/containers',
+  'microsoft.storage/storageaccounts',
+  'microsoft.keyvault/vaults',
+]);
+
+/** A live scope: subscription, resource group, then the resource path this check compares. */
+const LIVE_SCOPE = /^\/subscriptions\/[^/]+\/resourcegroups\/[^/]+(\/providers\/.+)$/;
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -72,23 +83,71 @@ function stringBindings(text) {
   return bindings;
 }
 
-/** Resolve a Bicep name expression to a literal: a quoted string, or an identifier bound to one. */
+/**
+ * Resolve a Bicep name expression to a literal: a quoted string, an identifier bound to one, or a
+ * quoted string whose every `${identifier}` is bound. Anything else (a function call, an unbound
+ * identifier) is null: the caller reports it, it is never guessed.
+ */
 function literal(expression, bindings) {
   if (expression === null) return null;
-  const quoted = /^'([^'$]*)'$/.exec(expression);
-  if (quoted) return quoted[1];
-  if (/^\w+$/.test(expression) && bindings.has(expression)) return bindings.get(expression);
-  return null;
+  if (/^\w+$/.test(expression)) return bindings.get(expression) ?? null;
+  const quoted = /^'([^']*)'$/.exec(expression);
+  if (!quoted) return null;
+  let resolved = true;
+  const value = quoted[1].replace(/\$\{([^}]*)\}/g, (_, inner) => {
+    const name = inner.trim();
+    if (/^\w+$/.test(name) && bindings.has(name)) return bindings.get(name);
+    resolved = false;
+    return '';
+  });
+  return resolved && !value.includes('$') ? value : null;
+}
+
+/**
+ * The resource path of a declared resource below its resource group, lower-cased, for example
+ * /providers/microsoft.storage/storageaccounts/<account>/blobservices/default/containers/<name>.
+ * Walks the `parent:` chain, so every ancestor's name is part of the path.
+ * @returns {{path: string} | {problem: string}}
+ */
+function resourcePath(block, bySymbol, bindings) {
+  const names = [];
+  const seen = new Set();
+  for (let current = block; current; ) {
+    if (seen.has(current.symbol)) return { problem: `'${block.symbol}' has a parent cycle` };
+    seen.add(current.symbol);
+    const name = literal(property(current.body, 'name'), bindings);
+    if (name === null || name === '') {
+      return {
+        problem:
+          `the name of '${current.symbol}' is not a string literal, a bound parameter, or a string ` +
+          'whose parameters were all supplied with --param',
+      };
+    }
+    names.unshift(...name.split('/'));
+    const parent = property(current.body, 'parent');
+    if (parent === null) break;
+    current = bySymbol.get(parent);
+    if (!current) return { problem: `parent '${parent}' is not a resource declared in this file` };
+  }
+  const [namespace, ...types] = block.type.split('/');
+  if (names.length !== types.length) {
+    return { problem: `'${block.symbol}' resolves to ${names.length} name segment(s) for type '${block.type}'` };
+  }
+  const path = types.map((type, index) => `/${type}/${names[index]}`).join('');
+  return { path: `/providers/${namespace}${path}`.toLowerCase() };
 }
 
 /**
  * The role assignments one Bicep file declares for the staging identity.
  * @param {string} text Bicep source.
  * @param {string} [file] Name used in messages.
- * @returns {{declared: Array<{roleId: string, scopeSuffix: string, symbol: string, file: string, line: number}>, unresolved: string[]}}
+ * @param {Record<string, string>} [params] Values for parameters the template computes at deploy
+ *   time (for example `uniqueSuffix`). They take precedence over a literal default in the file.
+ * @returns {{declared: Array<{roleId: string, scopePath: string, symbol: string, file: string, line: number}>, unresolved: string[]}}
  */
-export function declaredStagingRoles(text, file = '<bicep>') {
+export function declaredStagingRoles(text, file = '<bicep>', params = {}) {
   const bindings = stringBindings(text);
+  for (const [name, value] of Object.entries(params)) bindings.set(name, String(value));
   const blocks = resourceBlocks(text);
   const bySymbol = new Map(blocks.map((b) => [b.symbol, b]));
   const declared = [];
@@ -119,19 +178,18 @@ export function declaredStagingRoles(text, file = '<bicep>') {
       unresolved.push(`${at}: scope '${scopeSymbol}' is not a resource declared in this file`);
       continue;
     }
-    const segment = SCOPE_SEGMENT_BY_TYPE[target.type];
-    if (!segment) {
+    if (!SCOPE_TYPES.includes(target.type)) {
       unresolved.push(`${at}: scope '${scopeSymbol}' has type '${target.type}', which this check cannot map to a scope`);
       continue;
     }
-    const name = literal(property(target.body, 'name'), bindings);
-    if (name === null) {
-      unresolved.push(`${at}: the name of scope '${scopeSymbol}' is not a string literal or a parameter with a literal default`);
+    const resolved = resourcePath(target, bySymbol, bindings);
+    if ('problem' in resolved) {
+      unresolved.push(`${at}: scope '${scopeSymbol}' cannot be resolved to a full resource path: ${resolved.problem}`);
       continue;
     }
     declared.push({
       roleId: roleId.toLowerCase(),
-      scopeSuffix: `/${segment}/${name}`.toLowerCase(),
+      scopePath: resolved.path,
       symbol: block.symbol,
       file,
       line: block.line,
@@ -168,7 +226,14 @@ export function roleDriftVerdict({ declared, unresolved = [], live }) {
       problems.push(`live assignment '${assignment?.name ?? '?'}' has no usable scope or roleDefinitionId`);
       continue;
     }
-    const hit = declared.findIndex((d) => d.roleId === roleId && scope.endsWith(d.scopeSuffix));
+    // The whole path below the resource group must be equal: same account or vault, same
+    // container. Storage account and vault names are unique across Azure, so the path identifies
+    // the resource whichever resource group it is read from. One declaration covers one live
+    // assignment: a second live assignment on the same role and path is reported, not absorbed.
+    const livePath = LIVE_SCOPE.exec(scope)?.[1];
+    const hit = declared.findIndex(
+      (d, index) => !matched.has(index) && d.roleId === roleId && livePath !== undefined && livePath === d.scopePath,
+    );
     if (hit === -1) {
       undeclared.push({
         name: String(assignment.name ?? '?'),
@@ -181,7 +246,7 @@ export function roleDriftVerdict({ declared, unresolved = [], live }) {
   }
   const missing = declared
     .filter((_, index) => !matched.has(index))
-    .map((d) => `${d.symbol} (role ${d.roleId} on …${d.scopeSuffix})`);
+    .map((d) => `${d.symbol} (role ${d.roleId} on …${d.scopePath})`);
   return verdict(undeclared, missing, problems);
 }
 
@@ -203,14 +268,31 @@ function verdict(undeclared, missing, unresolved) {
 }
 
 function main(argv) {
-  const [livePath, ...bicepPaths] = argv;
+  const usage =
+    'Location: operations/devops/azure/staging-role-drift.mjs\n' +
+    'Next steps: node staging-role-drift.mjs [--param <name>=<value> …] <live.json> <file.bicep> [<file.bicep> …]';
+  const params = {};
+  const positional = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] !== '--param') {
+      positional.push(argv[i]);
+      continue;
+    }
+    const pair = /^(\w+)=(.+)$/.exec(argv[i + 1] ?? '');
+    if (!pair) {
+      console.error(
+        'Goal: check the staging identity for undeclared role assignments.\n' +
+          `Problem: --param needs <name>=<value>, got '${argv[i + 1] ?? ''}'.\n` +
+          usage,
+      );
+      return 2;
+    }
+    params[pair[1]] = pair[2];
+    i += 1;
+  }
+  const [livePath, ...bicepPaths] = positional;
   if (!livePath || bicepPaths.length === 0) {
-    console.error(
-      'Goal: check the staging identity for undeclared role assignments.\n' +
-        'Problem: missing arguments.\n' +
-        'Location: operations/devops/azure/staging-role-drift.mjs\n' +
-        'Next steps: node staging-role-drift.mjs <live.json> <file.bicep> [<file.bicep> …]',
-    );
+    console.error('Goal: check the staging identity for undeclared role assignments.\nProblem: missing arguments.\n' + usage);
     return 2;
   }
   let live;
@@ -228,7 +310,7 @@ function main(argv) {
   const declared = [];
   const unresolved = [];
   for (const path of bicepPaths) {
-    const result = declaredStagingRoles(readFileSync(path, 'utf8'), path);
+    const result = declaredStagingRoles(readFileSync(path, 'utf8'), path, params);
     declared.push(...result.declared);
     unresolved.push(...result.unresolved);
   }
