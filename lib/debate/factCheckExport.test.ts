@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { factCheckExportView, factCheckExportLines, factCheckSummaryText, FACT_VERDICT_LABEL } from './factCheckExport.js';
-import { debateToText, debateToMarkdown, type ExportableDebateSession } from './debateExport.js';
+import { debateToText, debateToMarkdown, debateToHtml, type ExportableDebateSession } from './debateExport.js';
 import { formatDebateMarkdown } from './formatters.js';
 import type { DebateSession } from './types.js';
 
@@ -72,6 +72,24 @@ describe('factCheckExportLines', () => {
     expect(factCheckExportLines(engineEntry, 'text')).toEqual([engineEntry.content]);
   });
 
+  it('legacy app entry with no stored verdict: label from the title line, title stripped, verdict once (Quality, #5600)', () => {
+    const legacy = { content: '**Fact Check: Disputed**\n\n*"X is Y."*\n\nSources conflict.', metadata: {} };
+    const s = factCheckSummaryText(legacy);
+    expect(s.label).toBe('Disputed');
+    expect(s.text).toBe('*"X is Y."*\n\nSources conflict.');
+    expect(count(`${s.label}: ${s.text}`, 'Disputed')).toBe(1);
+  });
+
+  it('caps the summary body at 240 characters by default', () => {
+    const long = { content: 'x', metadata: { fact_check: { verdict: 'supported', explanation: 'y'.repeat(300) } } };
+    expect(factCheckSummaryText(long).text).toHaveLength(240);
+    expect(factCheckSummaryText(long, 50).text).toHaveLength(50);
+  });
+
+  it("falls back to the engine entry's claim_text for Checked", () => {
+    expect(factCheckExportView(engineEntry).checked).toBe('X rose.');
+  });
+
   it('summary text never repeats the verdict', () => {
     expect(factCheckSummaryText(oldEntry)).toEqual({ label: 'Supported', text: 'Confirmed by the report.' });
     expect(factCheckSummaryText(engineEntry)).toEqual({ label: 'False', text: 'Claim AN-3: The report says the opposite.' });
@@ -92,6 +110,10 @@ describe('exports carry the verdict once (t/771 regression)', () => {
   it('debateToText and debateToMarkdown: a new entry has its verdict', () => {
     expect(debateToText(exportable([newEntry]))).toContain('Fact check: Partly accurate');
     expect(debateToMarkdown(exportable([newEntry]))).toContain('**Fact check: Partly accurate**');
+  });
+
+  it('debateToHtml (what the PDF export prints) has the verdict', () => {
+    expect(debateToHtml(exportable([newEntry]))).toMatch(/<strong>Fact check: Partly accurate<\/strong>/);
   });
 
   it('debateToText and debateToMarkdown: an old entry and an engine entry have it exactly once', () => {

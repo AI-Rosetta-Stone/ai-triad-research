@@ -2,8 +2,9 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 /**
- * How a fact-check transcript entry reads outside the card: in the text, Markdown and PDF exports
- * and in formatDebateMarkdown (t/771). Since t/766 an app fact check's `content` holds only the
+ * How a fact-check transcript entry reads outside the card: in the text and Markdown exports, in the
+ * PDF export (Electron prints debateToHtml, which is built from debateToMarkdown) and in
+ * formatDebateMarkdown (t/771). Since t/766 an app fact check's `content` holds only the
  * checked claim and the explanation; the verdict lives in `metadata.fact_check`. Exports that print
  * `content` therefore lost the verdict. Everything here reads the stored fields instead, and prints
  * the verdict exactly once, whichever shape the entry has:
@@ -31,6 +32,8 @@ const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
 /** An old app entry's first line: `**Fact Check: Supported**`. */
 const LEGACY_TITLE = /^\s*\*\*Fact Check:\s*[^*\n]+\*\*\s*(?:\n|$)/i;
+/** The label inside that title line. */
+const LEGACY_TITLE_LABEL = /^\s*\*\*Fact Check:\s*([^*\n]+)\*\*/i;
 /** An engine (CLI) entry's content: `Claim AN-3 — supported: ...`. */
 const ENGINE_CONTENT = /^\s*Claim \S+ — [a-z_]+:/i;
 
@@ -59,9 +62,13 @@ function citationTitles(fc: Meta, meta: Meta): string[] {
   return Array.isArray(list) ? [...new Set((list as Meta[]).map(c => str(c?.title)).filter(Boolean))] : [];
 }
 
-function verdictOf(fc: Meta, meta: Meta): { verdict: string; label: string } {
+function verdictOf(fc: Meta, meta: Meta, content: string): { verdict: string; label: string } {
   const raw = str(fc.verdict) || str(meta.verdict);
-  if (!raw) return { verdict: '', label: 'Unknown' };
+  if (!raw) {
+    // An old app entry with no stored verdict still names it in its title line; keep that label (Quality, #5600).
+    const title = LEGACY_TITLE_LABEL.exec(content)?.[1]?.trim();
+    return title ? { verdict: '', label: title } : { verdict: '', label: 'Unknown' };
+  }
   const verdict = normalizeVerdict(raw);
   return { verdict, label: (FACT_VERDICT_LABEL as Record<string, string>)[verdict] ?? raw };
 }
@@ -70,7 +77,7 @@ export function factCheckExportView(entry: FactCheckEntryLike): FactCheckExportV
   const meta = (entry.metadata ?? {}) as Meta;
   const fc = (meta.fact_check && typeof meta.fact_check === 'object' ? meta.fact_check : {}) as Meta;
   return {
-    ...verdictOf(fc, meta),
+    ...verdictOf(fc, meta, entry.content),
     contentCarriesVerdict: LEGACY_TITLE.test(entry.content) || ENGINE_CONTENT.test(entry.content),
     checked: optional(fc.checked_text) ?? optional(meta.claim_text),
     finding: optional(fc.finding),
