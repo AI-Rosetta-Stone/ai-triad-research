@@ -853,3 +853,62 @@
   color: var(--text-secondary);
   font-style: italic;
 }
+
+/* t/778: the debate's compact Why panel. */
+.debate-why-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--sp-1);
+}
+.debate-why-expand-all {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--focus-ring);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.debate-why-row {
+  padding: 3px 0 3px 8px;
+}
+/* The caret, star and id keep their width; the label takes the rest and wraps under itself.
+   When it cannot fit beside the id it drops to its own line, indented past the caret. */
+.debate-why-row-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+}
+.debate-why-row-line > .debate-reasoning-caret,
+.debate-why-row-line > .debate-reasoning-primary,
+.debate-why-row-line > .debate-reasoning-node {
+  flex: 0 0 auto;
+}
+.debate-why-row-line > .debate-reasoning-node {
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.debate-why-row-label {
+  flex: 1 1 14ch;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.debate-why-row-label:hover { text-decoration: underline; }
+.debate-why-row-text {
+  margin: 2px 0 0 1.4em;
+  font-size: var(--text-md);
+  line-height: 1.4;
+  font-style: italic;
+  color: var(--text-secondary);
+}
