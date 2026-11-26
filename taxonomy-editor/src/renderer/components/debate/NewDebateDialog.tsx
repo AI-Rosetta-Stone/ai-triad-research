@@ -26,6 +26,7 @@ import { useSettingsDialog } from '../../hooks/useSettingsDialog';
 import { GeminiOnboardingModal } from '../settings/GeminiOnboardingModal';
 import { buildDebateOptions } from './newDebateOptions';
 import { SettingsToggleRow } from './SettingsToggleRow';
+import { AnonPresetNote, AnonCustomiseNote, anonLockedProps, isAnonLockedPreset, ANON_PRESET_LOCKED_TIME } from './NewDebateAnon';
 import { SeatTagPicker, seatTagLabel, seatTagRefusal, seatTagIssueMessage, registryOrNull } from './SeatTagPicker';
 
 // t/4773: matches ModelPicker's own "Default 0.8." hint, so the slider's stated default is true.
@@ -188,10 +189,12 @@ function AutoGrowTextarea({
   return <textarea ref={ref} value={value} {...props} />;
 }
 
-function PresetCards({ basePreset, isCustom, onSelect }: {
-  basePreset: BuiltInPresetId; isCustom: boolean; onSelect: (id: BuiltInPresetId) => void;
+function PresetCards({ basePreset, isCustom, isAnonymous, onSelect: selectPreset }: {
+  basePreset: BuiltInPresetId; isCustom: boolean; isAnonymous: boolean; onSelect: (id: BuiltInPresetId) => void;
 }) {
   const activeId: PresetId = isCustom ? 'custom' : basePreset;
+  // t/725: an anonymous visitor can't pick Deep dive or Socratic; the cards stay visible, aria-disabled and focusable.
+  const onSelect = (id: BuiltInPresetId) => { if (!isAnonLockedPreset(isAnonymous, id)) selectPreset(id); };
   const handleKeyDown = (e: React.KeyboardEvent, idx: number) => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault();
@@ -208,8 +211,9 @@ function PresetCards({ basePreset, isCustom, onSelect }: {
         return (
           <div
             key={p.id}
-            className={`ndd-preset-card${isSelected && !isCustom ? ' ndd-preset-card--selected' : ''}`}
+            className={`ndd-preset-card${isSelected && !isCustom ? ' ndd-preset-card--selected' : ''}${isAnonLockedPreset(isAnonymous, p.id) ? ' ndd-preset-card--locked' : ''}`}
             role="radio"
+            aria-disabled={isAnonLockedPreset(isAnonymous, p.id) || undefined}
             aria-checked={isSelected && !isCustom}
             tabIndex={isSelected && !isCustom ? 0 : -1}
             onClick={() => onSelect(p.id)}
@@ -220,9 +224,9 @@ function PresetCards({ basePreset, isCustom, onSelect }: {
               <span className="ndd-preset-label">{p.label}</span>
             </div>
             <span className="ndd-preset-summary">{p.summary}</span>
-            {p.estimatedMinutes !== undefined && (
-              <span className="ndd-preset-time">~{p.estimatedMinutes} min</span>
-            )}
+            {isAnonLockedPreset(isAnonymous, p.id)
+              ? <span className="ndd-preset-time">{ANON_PRESET_LOCKED_TIME}</span>
+              : p.estimatedMinutes !== undefined && <span className="ndd-preset-time">~{p.estimatedMinutes} min</span>}
           </div>
         );
       })}
@@ -287,6 +291,7 @@ interface SettingsApply {
 
 interface DebateSettingsProps {
   initialSection?: SettingsSection;
+  isAnonymous: boolean;
   basePreset: BuiltInPresetId;
   // Voices & audience
   selected: Set<SpeakerId>;
@@ -386,6 +391,8 @@ function SaveAsPresetModal({
 // ── Section panel sub-components for DebateSettingsDialog (local/complexity-budget t/3821) ──
 
 interface FormatPacingProps {
+  /** t/725: rounds, protocol and step mode are fixed for an anonymous visitor. */
+  isAnonymous: boolean;
   localProtocolId: string; setLocalProtocolId: (v: string) => void;
   localStyle: DialecticalStyle; setLocalStyle: (v: DialecticalStyle) => void;
   localConfrontation: number; setLocalConfrontation: (v: number) => void;
@@ -394,13 +401,14 @@ interface FormatPacingProps {
   localStepMode: boolean; setLocalStepMode: (v: boolean) => void;
   localNarrativeVoicing: boolean; setLocalNarrativeVoicing: (v: boolean) => void;
 }
-function FormatPacingSection({ localProtocolId, setLocalProtocolId, localStyle, setLocalStyle, localConfrontation, setLocalConfrontation, localArgumentation, setLocalArgumentation, localConcluding, setLocalConcluding, localStepMode, setLocalStepMode, localNarrativeVoicing, setLocalNarrativeVoicing }: FormatPacingProps) {
+function FormatPacingSection({ isAnonymous, localProtocolId, setLocalProtocolId, localStyle, setLocalStyle, localConfrontation, setLocalConfrontation, localArgumentation, setLocalArgumentation, localConcluding, setLocalConcluding, localStepMode, setLocalStepMode, localNarrativeVoicing, setLocalNarrativeVoicing }: FormatPacingProps) {
   return (
     <>
       <h3 className="ndd-settings-section-title">Format &amp; pacing</h3>
+      {isAnonymous && <AnonCustomiseNote />}
       <div className="ndd-settings-field">
         <label className="ndd-field-label" htmlFor="ndd-s-protocol">Protocol</label>
-        <select id="ndd-s-protocol" className="ndd-input" value={localProtocolId} onChange={e => setLocalProtocolId(e.target.value)}>
+        <select id="ndd-s-protocol" className="ndd-input" value={localProtocolId} {...anonLockedProps(isAnonymous)} onChange={e => { if (!isAnonymous) setLocalProtocolId(e.target.value); }}>
           {DEBATE_PROTOCOLS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
         <p className="ndd-settings-field-hint">{DEBATE_PROTOCOLS.find(p => p.id === localProtocolId)?.description}</p>
@@ -427,13 +435,13 @@ function FormatPacingSection({ localProtocolId, setLocalProtocolId, localStyle, 
           ] as const).map(r => (
             <div key={r.label} className="ndd-rounds-field">
               <label className="ndd-rounds-label">{r.label}</label>
-              <input type="number" className="ndd-input ndd-rounds-input" min={r.min} max={r.max} value={r.value}
-                onChange={e => r.set(Math.min(r.max, Math.max(r.min, parseInt(e.target.value, 10) || r.min)))} />
+              <input type="number" className="ndd-input ndd-rounds-input" min={r.min} max={r.max} value={r.value} readOnly={isAnonymous} {...anonLockedProps(isAnonymous)}
+                onChange={e => !isAnonymous && r.set(Math.min(r.max, Math.max(r.min, parseInt(e.target.value, 10) || r.min)))} />
             </div>
           ))}
         </div>
       </div>
-      <SettingsToggleRow checked={localStepMode} onChange={setLocalStepMode}
+      <SettingsToggleRow checked={localStepMode} onChange={v => { if (!isAnonymous) setLocalStepMode(v); }} locked={isAnonymous}
         name="Pause between phases" help="Wait for your input before each new debate phase" />
       <SettingsToggleRow checked={localNarrativeVoicing} onChange={setLocalNarrativeVoicing}
         name="Moderator voices each camp's story"
@@ -573,6 +581,7 @@ function renderSettingsSection({ activeSection, formatProps, voicesProps, modelP
 
 function DebateSettingsDialog({
   initialSection = 'format',
+  isAnonymous,
   basePreset,
   selected: initSelected,
   userIsPover: initUserIsPover,
@@ -743,7 +752,7 @@ function DebateSettingsDialog({
             )}
             {renderSettingsSection({
               activeSection,
-              formatProps: { localProtocolId, setLocalProtocolId, localStyle, setLocalStyle, localConfrontation, setLocalConfrontation, localArgumentation, setLocalArgumentation, localConcluding, setLocalConcluding, localStepMode, setLocalStepMode, localNarrativeVoicing, setLocalNarrativeVoicing },
+              formatProps: { isAnonymous, localProtocolId, setLocalProtocolId, localStyle, setLocalStyle, localConfrontation, setLocalConfrontation, localArgumentation, setLocalArgumentation, localConcluding, setLocalConcluding, localStepMode, setLocalStepMode, localNarrativeVoicing, setLocalNarrativeVoicing },
               voicesProps: { isSocratic, localSelected, setLocalSelected, toggleDebater, localSeatTags, setLocalSeatTags, povTagRegistry, localUserIsPover, setLocalUserIsPover, localAudience, setLocalAudience, localSeatTagIssue },
               modelProps: { localCustomFamily, setLocalCustomFamily, localCustomModel, setLocalCustomModel, localTemperature, setLocalTemperature, globalModel },
               sourcingProps: { localExcludeGreatestHits, setLocalExcludeGreatestHits },
@@ -884,7 +893,8 @@ function DebateBodyContent({ topic, setTopic, activeAdder, setActiveAdder, sourc
         </>
       )}
 
-      <PresetCards basePreset={basePreset} isCustom={isCustom} onSelect={handlePresetSelect} />
+      <PresetCards basePreset={basePreset} isCustom={isCustom} isAnonymous={isAnonymous} onSelect={handlePresetSelect} />
+      {isAnonymous && <AnonPresetNote />}
 
       <div className="ndd-field-row">
         <label className="ndd-field-label ndd-audience-label" htmlFor="ndd-audience">Written for</label>
@@ -1065,6 +1075,10 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
     setStepMode(p.stepMode);
     if (id === 'socratic') { setSelected(new Set([AI_POVERS[0]])); setUserIsPover(false); }
   };
+
+  // t/725: an anonymous visitor runs Quick take only (the server refuses the rest). A session that turns out to be
+  // anonymous after the dialog opened (or a saved preset) puts the settings back to Quick take.
+  useEffect(() => { if (isAnonymous && (isCustom || basePreset !== 'quick')) handlePresetSelect('quick'); }, [isAnonymous]);
 
   const handleAudienceChange = (val: DebateAudience) => {
     setAudience(val);
@@ -1295,6 +1309,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
       {showSettings && (
         <DebateSettingsDialog
           initialSection={settingsSection}
+          isAnonymous={isAnonymous}
           basePreset={basePreset}
           selected={selected} seatTags={seatTags}
           userIsPover={userIsPover}
