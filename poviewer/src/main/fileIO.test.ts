@@ -126,3 +126,11 @@ describe('t/2534 happy paths unchanged', () => {
     expect((thrown as Error).message).toContain('Taxonomy directory not found');
   });
 });
+
+describe('t/781 retired Gemini ids in saved AI settings', () => {
+  it('maps gemini-2.5-flash and gemini-2.5-pro to their successors and leaves other ids alone', () => {
+    expect(fileIO.migrateRetiredModel({ model: 'gemini-2.5-flash', temperature: 0.2 })).toEqual({ model: 'gemini-3.5-flash-lite', temperature: 0.2 });
+    expect(fileIO.migrateRetiredModel({ model: 'gemini-2.5-pro', temperature: 0.1 }).model).toBe('gemini-3.8-flash');
+    expect(fileIO.migrateRetiredModel({ model: 'gemini-3.5-flash-lite', temperature: 0.1 }).model).toBe('gemini-3.5-flash-lite');
+  });
+});

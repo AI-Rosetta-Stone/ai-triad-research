@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { ActionableError } from '../../../lib/debate/errors.js';
+import { DEFAULT_MODEL } from '../../../lib/ai-client/index.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.poviewer');
 const KEY_PATH = path.join(CONFIG_DIR, 'apikey.enc');
@@ -137,7 +138,7 @@ export async function validateApiKey(key: string): Promise<{ valid: boolean; err
     const ai = new GoogleGenAI({ apiKey: key });
     // Lightweight validation: generate minimal content to verify key
     await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: DEFAULT_MODEL,
       contents: 'Say "ok"',
       config: { maxOutputTokens: 5 },
     });

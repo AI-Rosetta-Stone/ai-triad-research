@@ -337,7 +337,7 @@ export async function analyzeExcerpt(
   });
 
   const settings = loadAiSettings();
-  const model = settings.model || 'gemini-2.5-flash';
+  const model = settings.model || DEFAULT_MODEL;
 
   const prompt = EXCERPT_PROMPT
     .replace('{{excerpt}}', excerptText)

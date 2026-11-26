@@ -396,10 +396,21 @@ function ensureConfigDir(): void {
   }
 }
 
+// Google shuts these ids down on 2026-12-01 (t/781); a saved choice maps to its designated successor.
+const RETIRED_MODEL_SUCCESSORS: Record<string, string> = {
+  'gemini-2.5-flash': 'gemini-3.5-flash-lite',
+  'gemini-2.5-pro': 'gemini-3.8-flash',
+};
+
+export function migrateRetiredModel(settings: AiSettings): AiSettings {
+  const successor = RETIRED_MODEL_SUCCESSORS[settings.model];
+  return successor ? { ...settings, model: successor } : settings;
+}
+
 export function loadAiSettings(): AiSettings {
   if (fs.existsSync(AI_SETTINGS_PATH)) {
     const raw = fs.readFileSync(AI_SETTINGS_PATH, 'utf-8');
-    return JSON.parse(raw);
+    return migrateRetiredModel(JSON.parse(raw) as AiSettings);
   }
   return { model: DEFAULT_MODEL, temperature: 0.1 };
 }
