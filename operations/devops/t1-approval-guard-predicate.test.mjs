@@ -419,14 +419,15 @@ test('BLOCKS: an unparseable App changes-request latches; a later approval by so
   assert.deepEqual(r.blockers.map((b) => b.role), ['(unparseable)']);
 });
 
-test('UNBLOCKS: Changes requested (Design), then the SAME role re-approves at the same head -> pass', () => {
+// t/739: the role here was Design until Design stopped being a T1 approver; the same-role clearing rule is unchanged.
+test('UNBLOCKS: Changes requested (Security), then the SAME role re-approves at the same head -> pass', () => {
   const r = guard({ reviews: [
-    appReview('Changes requested (Design): fix the layout', T_1, { state: 'CHANGES_REQUESTED' }),
-    appReview('Approved (Design): fixed, thanks', T_2, { state: 'APPROVED' }),
+    appReview('Changes requested (Security): fix the scope', T_1, { state: 'CHANGES_REQUESTED' }),
+    appReview('Approved (Security): fixed, thanks', T_2, { state: 'APPROVED' }),
   ] });
   assert.equal(r.pass, true);
   assert.equal(r.reason, 'approved-after-push');
-  assert.equal(r.approver.role, 'Design');
+  assert.equal(r.approver.role, 'Security');
   assert.deepEqual(mergeGroup(r), { pass: true, failingNumbers: [] });
 });
 
@@ -471,13 +472,14 @@ test('TL #1 BLOCKS (comment): a pre-push App changes-request comment survives th
   assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
 });
 
-test('TL #2 UNBLOCKS: request changes (Design), push, the SAME role approves at the new head', () => {
+// t/739: was Design; see the note on the test above.
+test('TL #2 UNBLOCKS: request changes (Security), push, the SAME role approves at the new head', () => {
   const r = guard({ reviews: [
-    appReview('Changes requested (Design): fix', BEFORE_PUSH, { commitId: OLD_HEAD, state: 'CHANGES_REQUESTED' }),
-    appReview('Approved (Design): fixed', T_1, { state: 'APPROVED' }),
+    appReview('Changes requested (Security): fix', BEFORE_PUSH, { commitId: OLD_HEAD, state: 'CHANGES_REQUESTED' }),
+    appReview('Approved (Security): fixed', T_1, { state: 'APPROVED' }),
   ] });
   assert.equal(r.pass, true);
-  assert.equal(r.approver.role, 'Design');
+  assert.equal(r.approver.role, 'Security');
   assert.deepEqual(mergeGroup(r), { pass: true, failingNumbers: [] });
 });
 
@@ -610,7 +612,13 @@ test('CLEAR (App state-only, role named in the body): it is that role block, so 
   const other = guard({ reviews: [request, appReview('Approved (Quality): fine', T_2)] });
   assert.equal(other.pass, false);
   assert.deepEqual(other.blockers.map((b) => b.role), ['Design']);
-  assert.equal(guard({ reviews: [request, appReview('Approved (Design): fixed', T_2)] }).pass, true);
+  // t/739: Design re-approving clears Design's own block, but Design is not a T1 reviewer, so the
+  // PR still needs one; with Quality's approval as well it passes.
+  const cleared = guard({ reviews: [request, appReview('Approved (Design): fixed', T_2)] });
+  assert.equal(cleared.pass, false);
+  assert.equal(cleared.reason, 'no-post-push-approval');
+  assert.deepEqual(cleared.rejected.map((x) => [x.role, x.why]), [['Design', 'not_a_t1_reviewer_role']]);
+  assert.equal(guard({ reviews: [request, appReview('Approved (Design): fixed', T_2), appReview('Approved (Quality): fine', T_2)] }).pass, true);
 });
 
 test('dismissing ONE role-less latch does not clear a DIFFERENT role-less latch', () => {
