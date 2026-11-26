@@ -21,10 +21,15 @@ export interface ParsedEntrySummaries {
   summaries?: EntrySummaries;
   /** Why the structured Brief was dropped, when it was. The caller logs it as a WARN. */
   structuredDropped?: string;
+  /** A soft problem with a structured Brief that was kept (Design, t/700#5). The caller logs it as a WARN. */
+  structuredWarning?: string;
 }
 
 /** Per-point word cap from the spec ("about 25 words or fewer"), with slack so a 27-word point isn't thrown away. */
 export const BRIEF_POINT_MAX_WORDS = 40;
+
+/** Soft cap on the claim (Design, t/700#5): the prompt asks for 15 words; over this the Brief is kept with a WARN. */
+export const BRIEF_CLAIM_WARN_WORDS = 20;
 
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 const words = (s: string) => s.trim().split(/\s+/).length;
@@ -57,5 +62,7 @@ export function parseEntrySummaries(raw: string): ParsedEntrySummaries {
 
   summaries.brief_claim = (parsed.brief_claim as string).trim();
   summaries.brief_points = (parsed.brief_points as string[]).map(p => p.trim());
+  const claimWords = words(summaries.brief_claim);
+  if (claimWords > BRIEF_CLAIM_WARN_WORDS) return { summaries, structuredWarning: `brief_claim has ${claimWords} words (soft cap ${BRIEF_CLAIM_WARN_WORDS})` };
   return { summaries };
 }

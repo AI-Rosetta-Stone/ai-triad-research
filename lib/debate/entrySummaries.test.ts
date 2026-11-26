@@ -42,6 +42,19 @@ describe('parseEntrySummaries', () => {
     expect(r.structuredDropped).toMatch(reason);
   });
 
+  it('keeps a long claim but warns past 20 words (Design, t/700#5)', () => {
+    const claim = Array(22).fill('w').join(' ');
+    const r = parseEntrySummaries(JSON.stringify({ ...strings, brief_claim: claim, brief_points: ['a', 'b'] }));
+    expect(r.summaries?.brief_claim).toBe(claim);
+    expect(r.structuredDropped).toBeUndefined();
+    expect(r.structuredWarning).toMatch(/22 words/);
+  });
+
+  it('does not warn on a claim of 20 words or fewer', () => {
+    const r = parseEntrySummaries(JSON.stringify({ ...strings, brief_claim: Array(20).fill('w').join(' '), brief_points: ['a', 'b'] }));
+    expect(r.structuredWarning).toBeUndefined();
+  });
+
   it('returns no summaries when brief or medium is missing', () => {
     expect(parseEntrySummaries(JSON.stringify({ brief: 'x' }))).toEqual({});
     expect(parseEntrySummaries(JSON.stringify({ medium: 'x', brief_claim: 'c', brief_points: ['a', 'b'] }))).toEqual({});
@@ -65,5 +78,13 @@ describe('entrySummarizationPrompt (t/700)', () => {
     expect(p).not.toMatch(/catchy|one-liner|punchy/i);
     expect(p).not.toMatch(/\+ tagline/i);
     expect(p).toContain('no "Tagline:" line');
+  });
+
+  it("carries Design's tightening (t/700#5): claim length, total, no ids, neutral verbs", () => {
+    expect(p).toMatch(/15 words or fewer, one main clause/);
+    expect(p).toMatch(/not the reasons/);
+    expect(p).toMatch(/70 words or fewer/);
+    expect(p).toMatch(/Never write a raw document id/);
+    expect(p).toMatch(/intensifiers/);
   });
 });

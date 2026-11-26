@@ -1384,11 +1384,15 @@ export class DebateEngine {
       this.apiCallCount++;
 
       // t/700: brief + medium required; brief_claim/brief_points kept only when well formed.
-      const { summaries, structuredDropped } = parseEntrySummaries(raw);
+      const { summaries, structuredDropped, structuredWarning } = parseEntrySummaries(raw);
       if (summaries) entry.summaries = summaries;
       if (summaries && structuredDropped) {
         getGlobalRecorder()?.record({ type: 'ai.fallback', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: `Structured Brief dropped for entry ${entry.id} (${structuredDropped}); the brief paragraph is kept`, data: { entry_id: entry.id, reason: structuredDropped } });
         console.warn(`[debate] WARN summarizeEntry: structured Brief dropped for ${entry.id} (${structuredDropped}); brief paragraph kept (t/700)`);
+      }
+      if (summaries && structuredWarning) {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: `Structured Brief kept with a warning for entry ${entry.id}: ${structuredWarning}`, data: { entry_id: entry.id, reason: structuredWarning } });
+        console.warn(`[debate] WARN summarizeEntry: ${entry.id} ${structuredWarning} (t/700)`);
       }
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'ai.error', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: 'Entry summarization failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });

@@ -696,9 +696,13 @@ ${statementText}
 
 BRIEF (2-3 sentences): The core claim and strongest piece of reasoning or evidence, in ${speaker}'s own voice. Omit secondary points, assumptions, and steelman content. Plain prose: no labels, no "Tagline:" line, no slogan.
 
-BRIEF CLAIM (one sentence): ${speaker}'s position in this statement, in their own voice.
+BRIEF CLAIM (one sentence, 15 words or fewer, one main clause): ${speaker}'s position in this statement, in their own voice. State the position only, not the reasons for it.
 
-BRIEF POINTS (2 or 3 items, each 25 words or fewer): the support for that claim, each one of: a study with its year, a concrete fact, or the inference that ties the support to the claim. One idea per item. No item repeats the claim.
+BRIEF POINTS (2 or 3 items, each 25 words or fewer): the support for that claim, each one of: a study with its year, a concrete fact, or the inference that ties the support to the claim. One idea per item. No item repeats the claim. The claim and the points together are 70 words or fewer.
+
+RULES FOR THE CLAIM AND POINTS:
+- Never write a raw document id, file name or node id (such as 2601.11699v4 or acc-beliefs-012). Name the source by its title or publisher, or leave the attribution out.
+- Use neutral wording. Do not add intensifiers the speaker did not use (write "dismantle", not "violently dismantle").
 
 MEDIUM (1-2 paragraphs): The main argument with key supporting evidence, in ${speaker}'s own voice. Include the steelman if present. Omit rhetorical flourishes and minor supporting points.
 
