@@ -297,7 +297,6 @@ const CLAUDE_CANDIDATES: { apiModelId: string; label: string }[] = [
   { apiModelId: 'claude-3-5-haiku-20241022',      label: 'Haiku 3.5' },
   { apiModelId: 'claude-3-5-sonnet-20241022',     label: 'Sonnet 3.5 v2 (Oct 2024)' },
   { apiModelId: 'claude-3-5-sonnet-20240620',     label: 'Sonnet 3.5 (Jun 2024)' },
-  { apiModelId: 'claude-sonnet-4-5',              label: 'Sonnet 4.5 (alias)' },
   { apiModelId: 'claude-sonnet-4-6',              label: 'Sonnet 4.6 (alias)' },
   { apiModelId: 'claude-opus-4-6',                label: 'Opus 4.6 (alias)' },
 ];

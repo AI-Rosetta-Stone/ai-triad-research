@@ -66,6 +66,7 @@ export default function SettingsDialog({ onClose }: SettingsDialogProps) {
     try {
       const result = await window.electronAPI.refreshAIModels() as RefreshResult;
       await initAIModels();
+      useStore.getState().revalidateAIModel();
       setRefreshResult(result);
       forceUpdate(n => n + 1);
     } catch (err) {

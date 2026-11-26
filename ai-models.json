@@ -348,12 +348,6 @@
       }
     },
     {
-      "id": "claude-sonnet-4-5",
-      "apiModelId": "claude-sonnet-4-5-20250929",
-      "label": "Claude Sonnet 4.5",
-      "backend": "claude"
-    },
-    {
       "id": "groq-qwen-qwen3.6-27b",
       "apiModelId": "qwen/qwen3.6-27b",
       "label": "Qwen/Qwen3.6 27b",
@@ -1369,11 +1363,6 @@
       "cachedInputPer1M": 0.2
     },
     "claude-sonnet-4-6": {
-      "inputPer1M": 3,
-      "outputPer1M": 15,
-      "cachedInputPer1M": 0.3
-    },
-    "claude-sonnet-4-5": {
       "inputPer1M": 3,
       "outputPer1M": 15,
       "cachedInputPer1M": 0.3

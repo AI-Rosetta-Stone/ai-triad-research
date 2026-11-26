@@ -80,6 +80,7 @@ import { applyEngineFloor, checkModeratorDormancy, recordEnginePin } from './mod
 import { inferBackend } from '../ai-client/registry.js';
 import { DEFAULT_TEMPERATURE } from '../ai-client/defaults.js';
 import { runPropositionalGate } from './revoiceGate.js';
+import { priorCommitTexts, latestTurnOf, warnOnCommitRepeat } from './commitOpenings.js';
 
 const SLOW_BACKEND_TIMEOUT_MS = 180_000;
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -450,6 +451,8 @@ export async function runModeratorSelection(
           sourceDocSummary,
           resolution,
           resolutionClauses,
+          priorCommitTexts(transcript as TranscriptEntry[]),
+          latestTurnOf(transcript as TranscriptEntry[], concludingTarget),
         );
         const stage2Text = await callbacks.generate(
           stage2Prompt, model, { temperature: DEFAULT_TEMPERATURE, timeoutMs: moderatorTimeoutMs(model) },
@@ -458,6 +461,7 @@ export async function runModeratorSelection(
 
         const stage2Parsed = parseJsonRobust(stage2Text) as Record<string, unknown>;
         const interventionText = typeof stage2Parsed.text === 'string' ? stage2Parsed.text : String(stage2Parsed.text ?? '');
+        warnOnCommitRepeat(interventionText, transcript as TranscriptEntry[], round);
 
         if (interventionText && interventionText.trim().length > 0) {
           activeIntervention = buildIntervention(

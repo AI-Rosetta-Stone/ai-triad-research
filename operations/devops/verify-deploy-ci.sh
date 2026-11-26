@@ -29,6 +29,8 @@ set -uo pipefail
 : "${DEPLOY_SHA:?DEPLOY_SHA is required}"
 : "${GH_REPO:?GH_REPO is required}"
 RL_MAX_WAIT_S="${RL_MAX_WAIT_S:-600}"
+# t/754: container.yml's ci-gate runs this script too. Its messages say what to re-run.
+RERUN_WHAT="${VERIFY_RERUN_WHAT:-the deploy}"
 _sleep() { ${RL_SLEEP:-sleep} "$1"; }
 _now() { if [ -n "${RL_NOW:-}" ]; then echo "$RL_NOW"; else date +%s; fi; }
 _iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "epoch $1"; }
@@ -48,7 +50,7 @@ api() {
     err=$(head -c 300 "$ERRF" 2>/dev/null | tr '\n' ' ')
     if grep -qiE 'rate limit|HTTP 403|HTTP 429' "$ERRF" 2>/dev/null; then
       if ! rl=$(gh api rate_limit --jq '.resources.core | "\(.remaining) \(.reset)"' 2>/dev/null) || ! [[ "$rl" =~ ^[0-9]+\ [0-9]+$ ]]; then
-        block "cannot verify CI (an API read failed: ${err}; and the rate_limit probe was unreadable, so a wait cannot be bounded). This is not a CI failure; re-run the deploy."
+        block "cannot verify CI (an API read failed: ${err}; and the rate_limit probe was unreadable, so a wait cannot be bounded). This is not a CI failure; re-run ${RERUN_WHAT}."
       fi
       remaining="${rl% *}"; reset="${rl#* }"
       if [ "$remaining" -eq 0 ]; then
@@ -57,7 +59,7 @@ api() {
           echo >&2 "::warning::WARN verify-deploy-ci: GitHub API rate limit exhausted (resets $(_iso "$reset")); waiting ${wait_s}s for the rate-limit reset, then retrying once (t/591)."
           _sleep "$wait_s"; WAITED=1; continue
         fi
-        block "cannot verify CI (rate limit, resets at $(_iso "$reset")). This is not a CI failure; re-run the deploy after the reset."
+        block "cannot verify CI (rate limit, resets at $(_iso "$reset")). This is not a CI failure; re-run ${RERUN_WHAT} after the reset."
       fi
       if ! grep -qiE 'rate limit|HTTP 429' "$ERRF" 2>/dev/null; then
         block "cannot verify CI (the API refused a read with quota left: ${err}). This is not a CI failure."
@@ -65,7 +67,7 @@ api() {
     fi
     attempt=$((attempt + 1))
     if [ "$attempt" -ge 3 ]; then
-      block "cannot verify CI (API error after 3 attempts: ${err}). This is not a CI failure; re-run the deploy."
+      block "cannot verify CI (API error after 3 attempts: ${err}). This is not a CI failure; re-run ${RERUN_WHAT}."
     fi
     echo >&2 "::warning::verify-deploy-ci: API read attempt ${attempt}/3 failed (${err}); retrying in $((attempt * 3))s."
     _sleep $((attempt * 3))
@@ -120,6 +122,17 @@ ignored_by_ci() { # path
 # GitHub's compare API lists at most 300 files; at the cap the list may be cut short.
 COMPARE_FILE_CAP=300
 
+# t/754: container.yml passes a dispatch input, which may be a short SHA (the runs API's head_sha
+# filter needs all 40 characters). The expansion goes through api(), so a rate limit here is
+# "cannot verify CI" too, not "cannot resolve the SHA".
+[[ "$DEPLOY_SHA" =~ ^[0-9a-fA-F]{7,40}$ ]] || block "'${DEPLOY_SHA}' is not a commit SHA (7 to 40 hex characters)."
+if [ "${#DEPLOY_SHA}" -lt 40 ]; then
+  FULL_SHA=$(api "repos/${GH_REPO}/commits/${DEPLOY_SHA}" --jq '.sha') || exit 1
+  [[ "$FULL_SHA" =~ ^[0-9a-f]{40}$ ]] || block "cannot verify CI (expanding the short SHA '${DEPLOY_SHA}' returned '${FULL_SHA:0:60}', not a commit SHA). This is not a CI failure."
+  echo "Expanded short SHA ${DEPLOY_SHA} to ${FULL_SHA}"
+  DEPLOY_SHA="$FULL_SHA"
+fi
+
 echo "Checking CI status for ${DEPLOY_SHA}..."
 # Docs-only pushes to main are skipped by ci.yml paths-ignore, so the commit may have no CI run. Walk
 # back up to 10 commits to the first one that HAS CI runs (docs-only commits cannot change the image).
@@ -141,7 +154,7 @@ if [ "$JUDGED" != "$DEPLOY_SHA" ]; then
   NFILES=$(printf '%s\n' "$CMP" | head -n 1)
   [[ "$NFILES" =~ ^[0-9]+$ ]] || block "cannot verify CI (the compare of ${JUDGED}...${DEPLOY_SHA} returned no file count). This is not a CI failure."
   if [ "$NFILES" -ge "$COMPARE_FILE_CAP" ]; then
-    block "cannot verify CI (the compare of ${JUDGED}...${DEPLOY_SHA} lists ${NFILES} files, GitHub's cap, so it may be cut short and cannot prove the commits are docs-only). Dispatch ci.yml on a branch whose head is ${DEPLOY_SHA}, then re-run the deploy."
+    block "cannot verify CI (the compare of ${JUDGED}...${DEPLOY_SHA} lists ${NFILES} files, GitHub's cap, so it may be cut short and cannot prove the commits are docs-only). Dispatch ci.yml on a branch whose head is ${DEPLOY_SHA}, then re-run ${RERUN_WHAT}."
   fi
   CODE=""
   while IFS= read -r f; do
@@ -149,7 +162,7 @@ if [ "$JUDGED" != "$DEPLOY_SHA" ]; then
     ignored_by_ci "$f" || CODE="${CODE} ${f}"
   done < <(printf '%s\n' "$CMP" | tail -n +2)
   if [ -n "$CODE" ]; then
-    block "no CI on ${DEPLOY_SHA}: the commits since ${JUDGED} (which has CI) change files CI does not ignore:$(printf '%s' "$CODE" | cut -c1-300). Dispatch ci.yml on a branch whose head is ${DEPLOY_SHA}, then re-run the deploy."
+    block "no CI on ${DEPLOY_SHA}: the commits since ${JUDGED} (which has CI) change files CI does not ignore:$(printf '%s' "$CODE" | cut -c1-300). Dispatch ci.yml on a branch whose head is ${DEPLOY_SHA}, then re-run ${RERUN_WHAT}."
   fi
   echo "Commit ${DEPLOY_SHA} has no CI run, and the ${NFILES} file(s) changed since ${JUDGED} are all ignored by ci.yml (docs-only). Judging ancestor ${JUDGED}."
 fi
@@ -187,4 +200,4 @@ if [ -n "$WAIT_ID" ]; then
   block "CI run ${WAIT_ID} (${WAIT_EVENT}${WAIT_BRANCH:+ on ${WAIT_BRANCH}}) finished with test-container '${st:-not found}'$( [ "$st" = "skipped" ] && echo ", and only a push to main's skip counts (t/599)" ). Container-relevant CI must pass before deploying."
 fi
 
-block "No completed green CI run (test-container success from a trusted event: push to main or epic/**, merge_group, workflow_dispatch; or skipped from a push to main) on ${JUDGED}. Runs seen:${SEEN}. Pull-request runs never count. Fix: dispatch ci.yml on a branch whose head is ${JUDGED} (or fix the failing run), then re-run the deploy."
+block "No completed green CI run (test-container success from a trusted event: push to main or epic/**, merge_group, workflow_dispatch; or skipped from a push to main) on ${JUDGED}. Runs seen:${SEEN}. Pull-request runs never count. Fix: dispatch ci.yml on a branch whose head is ${JUDGED} (or fix the failing run), then re-run ${RERUN_WHAT}."

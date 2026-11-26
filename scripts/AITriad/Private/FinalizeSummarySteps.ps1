@@ -135,15 +135,125 @@ function ConvertTo-NumericGroundingKey {
     $d.ToString('G29', [cultureinfo]::InvariantCulture)
 }
 
+# t/384: four tightenings of the numeric guard, each behind a flag so it can be measured on its own
+# against the corpus (CL's rule: a tightening that mostly adds false drops isn't worth adopting).
+#   Percent:    a claim's "5%" must appear in percent form in the source ("5%", "5 percent", "5 per cent").
+#   Scale:      "75K", "2.3 billion" and "1.2 trillion" are their full values, which a claim "75,000" can match.
+#   LeadingDot: ".5" is 0.5, not 5, unless it follows a word's final full stop (a footnote marker).
+#   Superscript: "10^26" is grounded by the concatenation "1026", which is how the PDF text reads.
+# With every flag off, the keys are the t/375 keys.
+$script:NumericGroundingFeatures = @{ Percent = $false; Scale = $false; LeadingDot = $false; Superscript = $false }
+$script:NumericScaleWords = @{ 'k' = 1e3; 'thousand' = 1e3; 'm' = 1e6; 'million' = 1e6; 'bn' = 1e9; 'b' = 1e9; 'billion' = 1e9; 'trillion' = 1e12; 'tn' = 1e12 }
+
+# Number words the Percent rule reads before "percent" in a source (t/384#16). Longest first within Units,
+# so "fourteen" is not read as "four".
+$script:NumericWordUnits = [ordered]@{
+    'seventeen' = 17; 'thirteen' = 13; 'fourteen' = 14; 'eighteen' = 18; 'nineteen' = 19; 'fifteen' = 15; 'sixteen' = 16
+    'eleven' = 11; 'twelve' = 12; 'seven' = 7; 'eight' = 8; 'three' = 3; 'zero' = 0; 'four' = 4; 'five' = 5; 'nine' = 9
+    'one' = 1; 'two' = 2; 'six' = 6; 'ten' = 10
+}
+$script:NumericWordTens = [ordered]@{ 'twenty' = 20; 'thirty' = 30; 'forty' = 40; 'fifty' = 50; 'sixty' = 60; 'seventy' = 70; 'eighty' = 80; 'ninety' = 90 }
+
 function Get-NumericGroundingKeys {
     # Every number in $Text as a comparison key. A range ("0.5-0.7", "0.5–0.7") yields both endpoints,
     # because the regex matches each number on its own.
-    param([string]$Text)
+    param([string]$Text, [switch]$AsClaim)
     $keys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     if ([string]::IsNullOrEmpty($Text)) { return , $keys }
-    foreach ($m in [regex]::Matches($Text, '\d+(?:,\d{3})*(?:\.\d+)?%?')) {
-        $k = ConvertTo-NumericGroundingKey -Token $m.Value
-        if ($null -ne $k) { [void]$keys.Add($k) }
+    $F = $script:NumericGroundingFeatures
+    if (-not ($F.Percent -or $F.Scale -or $F.LeadingDot -or $F.Superscript)) {
+        foreach ($m in [regex]::Matches($Text, '\d+(?:,\d{3})*(?:\.\d+)?%?')) {
+            $k = ConvertTo-NumericGroundingKey -Token $m.Value
+            if ($null -ne $k) { [void]$keys.Add($k) }
+        }
+        return , $keys
+    }
+    # With a flag on, a number that the flag's rule does not touch must key exactly as the merged guard
+    # keys it (t/384#10): no word-boundary test before a number (PDF text glues "across1,000"), ".5" is
+    # "5" unless LeadingDot is on, and "10^26" is "10" and "26" unless Superscript is on.
+    # Percent, source side only (CL t/384#14): how a snapshot prints a percent figure. A claim is read as written.
+    #   - a percent sign or a dash the converter damaged: "108 ù in legal" is 108%, "54û67%" and the three-
+    #     character form of an en or em dash between two numbers are a range. Only next to a digit, because
+    #     ù and û are also letters;
+    #   - the sign up to three white-space characters after its number, a line break included ("5" / "%");
+    #   - a range gives both ends the percent form: "9 to 14%", "54-67%", and "9to14%" as PDF text glues it.
+    $SourcePercent = $F.Percent -and -not $AsClaim
+    if ($SourcePercent) {
+        $Text = [regex]::Replace($Text, '(?<=\d)[ \t]?ù(?!\p{L})', '%')
+        $Text = [regex]::Replace($Text, '(?<=\d)(?:û|ΓÇ[ôö])(?=\d)', '-')
+    }
+    #   - the word "percent" up to three white-space characters after its number ("16" / "percent");
+    #   - a whole number from zero to one hundred written as a word before "percent" ("twenty-five percent"),
+    #     CL t/384#16. Only before the word or the sign: a number word anywhere else grounds nothing.
+    $PercentSign = if ($SourcePercent) { '(\s{0,3}%)' } else { '(%)' }
+    $PercentWord = if ($SourcePercent) { '\s{0,3}(percent|per\s?cent)\b' } else { '\s?(percent|per\s?cent)\b' }
+    $Pattern = '(\d+(?:,\d{3})*(?:\.\d+)?|(?<!\d)\.\d+)(?:' + $PercentSign + '|' + $PercentWord + '|(?<=\d)(k|m|bn|b|tn)\b|\s(thousand|million|billion|trillion)\b|\^(\d+))?'
+    if ($SourcePercent) {
+        $Units = $script:NumericWordUnits; $Tens = $script:NumericWordTens
+        $WordNumber = "\b(?:(?<h>(?:one|a)\s+hundred)|(?<t>$($Tens.Keys -join '|'))(?:[-\s](?<u>one|two|three|four|five|six|seven|eight|nine))?|(?<s>$($Units.Keys -join '|')))\s{0,3}(?:%|percent\b|per\s?cent\b)"
+        foreach ($m in [regex]::Matches($Text, $WordNumber, 'IgnoreCase')) {
+            $Value = if ($m.Groups['h'].Success) { 100 }
+            elseif ($m.Groups['t'].Success) { $Tens[$m.Groups['t'].Value.ToLowerInvariant()] + $(if ($m.Groups['u'].Success) { $Units[$m.Groups['u'].Value.ToLowerInvariant()] } else { 0 }) }
+            else { $Units[$m.Groups['s'].Value.ToLowerInvariant()] }
+            [void]$keys.Add("$Value%")
+        }
+        $Number = '\d+(?:,\d{3})*(?:\.\d+)?'
+        foreach ($m in [regex]::Matches($Text, "(?<![\d.])($Number)\s?(?:[-–—]|to)\s?$Number(?:\s{0,3}%|\s?(?:percent|per\s?cent)\b)", 'IgnoreCase')) {
+            $First = ConvertTo-NumericGroundingKey -Token $m.Groups[1].Value
+            if ($null -ne $First) { [void]$keys.Add("$First%") }
+        }
+    }
+    # Superscript (CL t/384#21): a snapshot also prints the exponent as "10(^25)"; read it as "10^25".
+    if ($F.Superscript) { $Text = [regex]::Replace($Text, '(?<=\d)\(\^(\d+)\)', '^$1') }
+    foreach ($m in [regex]::Matches($Text, $Pattern, 'IgnoreCase')) {
+        $Num = $m.Groups[1].Value
+        # LeadingDot (CL t/384#21): digits after a word's final full stop are a footnote marker, not a decimal
+        # ("intentionality.5", "race.43,44", "measure).14"), so they key as the merged guard keys them. They are
+        # a figure only when a letter or a percent sign follows at once, as PDF text glues it ("achieves.74AUC").
+        $IsDecimal = $F.LeadingDot -and $Num.StartsWith('.')
+        if ($IsDecimal -and $m.Index -gt 0 -and $Text[$m.Index - 1] -match '[\p{L}\)\]"'']') {
+            $After = $m.Groups[1].Index + $m.Groups[1].Length
+            $IsDecimal = $After -lt $Text.Length -and $Text[$After] -match '[\p{L}%]'
+        }
+        $Base = ConvertTo-NumericGroundingKey -Token $(if (-not $Num.StartsWith('.')) { $Num } elseif ($IsDecimal) { '0' + $Num } else { $Num.Substring(1) })
+        if ($null -eq $Base) { continue }
+        $Pct = $m.Groups[2].Success -or $m.Groups[3].Success
+        $Suffix = if ($m.Groups[4].Success) { $m.Groups[4].Value } elseif ($m.Groups[5].Success) { $m.Groups[5].Value } else { $null }
+        $Exp = if ($m.Groups[6].Success) { $m.Groups[6].Value } else { $null }
+        if ($Pct) {
+            if ($F.Percent) {
+                # A percent claim is keyed "5%" and grounded only by the percent form. A plain source "5" still grounds a plain claim.
+                [void]$keys.Add("$Base%")
+                if (-not $AsClaim) { [void]$keys.Add($Base) }
+            } else { [void]$keys.Add($Base) }
+            continue
+        }
+        if ($Suffix -and $F.Scale) {
+            $Scale = $script:NumericScaleWords[$Suffix.ToLowerInvariant()]
+            $Full = [decimal]::Parse($Num.Replace(',', ''), [cultureinfo]::InvariantCulture) * [decimal]$Scale
+            $FullKey = $Full.ToString('G29', [cultureinfo]::InvariantCulture)
+            if ($AsClaim) {
+                # A claim "75K" is grounded by the source's full value or its plain number, either one.
+                [void]$keys.Add("$FullKey|$Base")
+            } else {
+                # A source "75K" carries both its full value and its plain number.
+                [void]$keys.Add($FullKey); [void]$keys.Add($Base)
+            }
+            continue
+        }
+        if ($Exp -and $F.Superscript) {
+            $Concat = ConvertTo-NumericGroundingKey -Token (($Num.Replace(',', '')) + $Exp)
+            if ($null -ne $Concat) { [void]$keys.Add($Concat) }
+            # A claim "10^26" is grounded by "1026" alone; the source also keeps its parts.
+            if (-not $AsClaim) { [void]$keys.Add($Base); [void]$keys.Add((ConvertTo-NumericGroundingKey -Token $Exp)) }
+            continue
+        }
+        [void]$keys.Add($Base)
+        if ($Exp) {
+            # Superscript off: the exponent is a number of its own, as in the merged guard.
+            $ExpKey = ConvertTo-NumericGroundingKey -Token $Exp
+            if ($null -ne $ExpKey) { [void]$keys.Add($ExpKey) }
+        }
     }
     , $keys
 }
@@ -167,8 +277,12 @@ function Remove-NumericallyUngroundedClaims {
         $text = ''
         if ($null -ne $c -and (Test-SummaryField $c 'claim')) { $text = [string](Get-SummaryField $c 'claim') }
         # Assign first: the function returns `, $keys`, so piping its call would pass the whole set as one item.
-        $claimKeys = Get-NumericGroundingKeys -Text $text
-        $missing = @($claimKeys | Where-Object { -not $grounded.Contains($_) })
+        $claimKeys = Get-NumericGroundingKeys -Text $text -AsClaim
+        # A key "a|b" is grounded by either alternative (t/384 scale suffixes); every other key must be present.
+        $missing = @($claimKeys | Where-Object {
+            if ($_.Contains('|')) { -not (@($_.Split('|')) | Where-Object { $grounded.Contains($_) }) }
+            else { -not $grounded.Contains($_) }
+        })
         if ($missing.Count -gt 0) {
             $dropped++
             $preview = if ($text.Length -gt 100) { $text.Substring(0, 100) + '…' } else { $text }

@@ -139,7 +139,6 @@ if ($script:ModelRegistry.Count -eq 0) {
         'gemini-flash-lite-latest' = @{ Backend = 'gemini';  ApiModelId = 'gemini-flash-lite-latest' }
         'gemini-2.5-flash-lite' = @{ Backend = 'gemini';  ApiModelId = 'gemini-2.5-flash-lite' }
         'claude-opus-4'         = @{ Backend = 'claude';  ApiModelId = 'claude-opus-4-20250514' }
-        'claude-sonnet-4-5'     = @{ Backend = 'claude';  ApiModelId = 'claude-sonnet-4-5-20250514' }
         'claude-haiku-3.5'      = @{ Backend = 'claude';  ApiModelId = 'claude-3-5-haiku-20241022' }
         'groq-openai-gpt-oss-120b' = @{ Backend = 'groq'; ApiModelId = 'openai/gpt-oss-120b' }   # t/4165: llama-3.3-70b and llama-4-scout are retired
     }
@@ -1619,7 +1618,7 @@ function ConvertFrom-AIResponseEnvelope {
     The prompt text to send to the AI model.
 .PARAMETER Model
     Model identifier from ai-models.json (e.g., 'gemini-3.5-flash-lite',
-    'claude-sonnet-4-5', 'groq-openai-gpt-oss-120b').  Defaults to 'gemini-3.5-flash-lite'.
+    'claude-sonnet-4-6', 'groq-openai-gpt-oss-120b').  Defaults to 'gemini-3.5-flash-lite'.
 .PARAMETER ApiKey
     Optional explicit API key.  If empty, resolved via Resolve-AIApiKey.
 .PARAMETER Temperature
@@ -1652,7 +1651,7 @@ function ConvertFrom-AIResponseEnvelope {
     $Result.Text  # The generated summary
 
 .EXAMPLE
-    $Result = Invoke-AIApi -Prompt $Prompt -Model 'claude-sonnet-4-5' -JsonMode -MaxTokens 4096
+    $Result = Invoke-AIApi -Prompt $Prompt -Model 'claude-sonnet-4-6' -JsonMode -MaxTokens 4096
     $Parsed = $Result.Text | ConvertFrom-Json
 
     Requests JSON output from Claude and parses it.

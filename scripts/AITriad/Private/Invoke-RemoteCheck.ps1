@@ -166,6 +166,7 @@ function New-RemoteCheckErrorResult {
     $StatusCode = 0
     $ContentType = ''
     $RawBody = ''
+    $AuthReason = ''
     if ($ErrorRecord.Exception.PSObject.Properties['Response'] -and $ErrorRecord.Exception.Response) {
         $StatusCode = [int]$ErrorRecord.Exception.Response.StatusCode
         # Best-effort content-type extraction from the error-response headers
@@ -183,6 +184,14 @@ function New-RemoteCheckErrorResult {
                 $RawBody = if ($ErrText.Length -gt 400) { $ErrText.Substring(0, 400) } else { $ErrText }
             }
         } catch { }
+        # t/737: the server names why it refused a request in X-Auth-Reason (authGates.ts:
+        # anon_route_blocked, no_session, ...). Best-effort, like the fields above.
+        try {
+            $Values = $null
+            if ($ErrorRecord.Exception.Response.Headers.TryGetValues('X-Auth-Reason', [ref]$Values)) {
+                $AuthReason = [string](@($Values)[0])
+            }
+        } catch { }
     }
     [PSCustomObject]@{
         Success     = $false
@@ -192,6 +201,7 @@ function New-RemoteCheckErrorResult {
         ContentType = $ContentType
         RawBody     = $RawBody
         Error       = $ErrorRecord.Exception.Message
+        AuthReason  = $AuthReason
     }
 }
 
@@ -275,6 +285,7 @@ function Invoke-RemoteCheck {
             ContentType = $ContentType
             RawBody     = $RawBody
             Error       = $null
+            AuthReason  = ''
         }
     }
     catch {

@@ -90,7 +90,7 @@ function Register-AIBackend {
     $Models = @(
         @{ id = 'gemini-3.5-flash-lite';          label = 'Gemini 3.5 Flash Lite (default)'; backend = 'gemini' }
         @{ id = 'claude-opus-4-8';                label = 'Claude Opus 4.8';                 backend = 'claude' }
-        @{ id = 'claude-sonnet-4-5';              label = 'Claude Sonnet 4.5';               backend = 'claude' }
+        @{ id = 'claude-sonnet-4-6';              label = 'Claude Sonnet 4.6';               backend = 'claude' }
         @{ id = 'claude-haiku-4-5';               label = 'Claude Haiku 4.5';                backend = 'claude' }
         @{ id = 'groq-openai-gpt-oss-120b';       label = 'Groq GPT-OSS 120B';               backend = 'groq' }
         @{ id = 'openai-gpt-5.5';                 label = 'OpenAI GPT-5.5';                  backend = 'openai' }
