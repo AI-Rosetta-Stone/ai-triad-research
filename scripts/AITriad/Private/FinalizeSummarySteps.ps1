@@ -230,8 +230,20 @@ function Get-NumericGroundingKeys {
         }
         if ($Suffix -and $F.Scale) {
             $Scale = $script:NumericScaleWords[$Suffix.ToLowerInvariant()]
-            $Full = [decimal]::Parse($Num.Replace(',', ''), [cultureinfo]::InvariantCulture) * [decimal]$Scale
-            $FullKey = $Full.ToString('G29', [cultureinfo]::InvariantCulture)
+            $FullKey = $null
+            try {
+                $Full = [decimal]::Parse($Num.Replace(',', ''), [cultureinfo]::InvariantCulture) * [decimal]$Scale
+                $FullKey = $Full.ToString('G29', [cultureinfo]::InvariantCulture)
+            }
+            catch {
+                # t/780: a scaled figure too large for a decimal is not grounded; it never throws out of the guard.
+                Write-Warning "Finalize-Summary: numeric grounding could not scale '$($m.Value)' ($($_.Exception.Message)); the figure is treated as not grounded (t/780)"
+            }
+            if ($null -eq $FullKey) {
+                # A claim keeps a key no source has, so the claim is not grounded; a source gets its plain number only.
+                if ($AsClaim) { [void]$keys.Add("unscalable:$($m.Value)") } else { [void]$keys.Add($Base) }
+                continue
+            }
             if ($AsClaim) {
                 # A claim "75K" is grounded by the source's full value or its plain number, either one.
                 [void]$keys.Add("$FullKey|$Base")

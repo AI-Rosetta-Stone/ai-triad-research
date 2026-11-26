@@ -106,6 +106,16 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
         It 'drops a scaled claim whose full value the source lacks' {
             Invoke-NumericDrop 'About 75K workers were retrained.' 'About 7,500 workers were retrained.' @{ Scale = $true } | Should -Be 1
         }
+        It 'a scaled claim that overflows a decimal is dropped, never thrown (t/780)' {
+            $Big = '99999999999999999999999999 billion'
+            { Invoke-NumericDrop "It cost $Big dollars." "It cost $Big dollars." @{ Scale = $true } } | Should -Not -Throw
+            Invoke-NumericDrop "It cost $Big dollars." "It cost $Big dollars." @{ Scale = $true } | Should -Be 1
+        }
+        It 'a scaled source figure that overflows a decimal does not throw and grounds only its plain number (t/780)' {
+            $Big = '99999999999999999999999999 billion'
+            { Invoke-NumericDrop 'It cost 5 dollars.' "It cost $Big dollars and 5 more." @{ Scale = $true } } | Should -Not -Throw
+            Invoke-NumericDrop 'It cost 5 dollars.' "It cost $Big dollars and 5 more." @{ Scale = $true } | Should -Be 0
+        }
     }
 
     Context 'Leading-dot decimals' {
@@ -150,6 +160,35 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
         }
         It 'the bracketed exponent grounds only its own power' {
             Invoke-NumericDrop 'The threshold is 10^26 floating point operations.' 'computation exceeds 10(^25) floating point operations' @{ Superscript = $true } | Should -Be 1
+        }
+    }
+
+    # t/780 (Quality's six surviving behaviours, t/384#25). Each test fails when its behaviour is removed.
+    Context 'Surviving behaviours pinned (t/780)' {
+        It 'a source percent figure also keeps its plain number: 5 percent grounds a plain claim 5' {
+            Invoke-NumericDrop 'There were 5 workers.' 'Automation reached 5 percent of tasks.' @{ Percent = $true } | Should -Be 0
+        }
+        It 'a source scaled figure also keeps its plain number: 75K grounds a plain claim 75' {
+            Invoke-NumericDrop 'There were 75 workers.' 'About 75K workers were retrained.' @{ Scale = $true } | Should -Be 0
+        }
+        It 'a source exponent keeps its parts: 10^26 grounds a claim 10 and a claim 26, and not 11' {
+            $Src = 'Runs reach 10^26 operations.'
+            Invoke-NumericDrop 'It used 10 units.' $Src @{ Superscript = $true } | Should -Be 0
+            Invoke-NumericDrop 'It used 26 units.' $Src @{ Superscript = $true } | Should -Be 0
+            Invoke-NumericDrop 'It used 11 units.' $Src @{ Superscript = $true } | Should -Be 1
+        }
+        It 'a damaged percent sign counts only when no letter follows it' {
+            $Src = "In 2020 108 $([char]0xF9)ber cars sold."
+            Invoke-NumericDrop 'Sales grew 108%.' $Src @{ Percent = $true } | Should -Be 1
+        }
+        It 'the percent sign and the word percent may follow their number after up to three white-space characters, not four' {
+            Invoke-NumericDrop 'Exposure is 16%.' 'exposure of 16   percent of wages' @{ Percent = $true } | Should -Be 0
+            Invoke-NumericDrop 'Exposure is 16%.' 'exposure of 16    percent of wages' @{ Percent = $true } | Should -Be 1
+            Invoke-NumericDrop 'Exposure is 16%.' 'exposure of 16   % of wages' @{ Percent = $true } | Should -Be 0
+            Invoke-NumericDrop 'Exposure is 16%.' 'exposure of 16    % of wages' @{ Percent = $true } | Should -Be 1
+        }
+        It 'a hundred percent is 100%' {
+            Invoke-NumericDrop 'The share was 100%.' 'a hundred percent of firms agreed.' @{ Percent = $true } | Should -Be 0
         }
     }
 
