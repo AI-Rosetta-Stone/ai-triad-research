@@ -55,14 +55,14 @@ After completing your analysis, review every free-text field before writing the 
 - "point" and "question" fields must read as neutral descriptions of the issue, not as advocacy for either side
 - Attributed fields ("stance", "if_yes", "if_no") may retain position-specific language since they describe which debater must concede, but strip emotional amplification (e.g., "argues X is dangerous" → "argues X poses risks")
 
-ORDER: list areas_of_agreement, areas_of_disagreement and cruxes by importance to the debate question, most important first. Readers see only the first three of each list. Set "answers_question": true on an agreement only when it directly answers or decides the debate question; false otherwise.
+ORDER: list areas_of_agreement, areas_of_disagreement and cruxes by importance to the debate question, most important first. Readers see only the first three of each list. Set "answers_question": true on an agreement only when it directly answers or decides the debate question; false otherwise. Set "decisive": true on exactly one disagreement and exactly one crux: the one whose resolution would most change the answer to the debate question; false on all others.
 
 Respond ONLY with a JSON object (no markdown, no code fences):
 {
   "areas_of_agreement": [{"point": "...", "povers": ["accelerationist", "safetyist"], "answers_question": false, "converged": false, "conceded_by": null, "original_disagreement": null}],
-  "areas_of_disagreement": [{"point": "...", "type": "EMPIRICAL or VALUES or DEFINITIONAL", "bdi_layer": "belief or desire or intention", "resolvability": "resolvable_by_evidence or negotiable_via_tradeoffs or requires_term_clarification", "positions": [{"pover": "accelerationist", "stance": "..."}, {"pover": "safetyist", "stance": "..."}]}],
+  "areas_of_disagreement": [{"point": "...", "decisive": false, "type": "EMPIRICAL or VALUES or DEFINITIONAL", "bdi_layer": "belief or desire or intention", "resolvability": "resolvable_by_evidence or negotiable_via_tradeoffs or requires_term_clarification", "positions": [{"pover": "accelerationist", "stance": "..."}, {"pover": "safetyist", "stance": "..."}]}],
   "cruxes": [
-    {"question": "the factual or value question that would change minds", "if_yes": "which debater's position weakens — who must concede or revise, and what they must give up", "if_no": "which debater's position weakens — who must concede or revise, and what they must give up", "type": "EMPIRICAL or VALUES", "counterfactual_type": "interventional, backtracking, normative, or none if the crux is not counterfactual in form", "resolution_status": "resolved or irreducible or active or undecided", "resolution_evidence": "what resolved it, if applicable"}
+    {"question": "the factual or value question that would change minds", "decisive": false, "if_yes": "which debater's position weakens — who must concede or revise, and what they must give up", "if_no": "which debater's position weakens — who must concede or revise, and what they must give up", "type": "EMPIRICAL or VALUES", "counterfactual_type": "interventional, backtracking, normative, or none if the crux is not counterfactual in form", "resolution_status": "resolved or irreducible or active or undecided", "resolution_evidence": "what resolved it, if applicable"}
   ],
   "unresolved_questions": ["..."]
 }`;
@@ -283,14 +283,14 @@ Identify:
    If genuinely undecidable, say so and explain what evidence would tip the balance.${documentAnalysis}
 9. Policy implications: For each significant disagreement, identify what concrete policy actions would differ depending on which position prevails.${policyContext ? ` Reference pol-NNN IDs from the policy registry when applicable.${policyContext}` : ' Describe implied policy directions based on the debaters\' positions.'}
 
-ORDER: list areas_of_agreement, areas_of_disagreement and cruxes by importance to the debate question, most important first. Readers see only the first three of each list. Set "answers_question": true on an agreement only when it directly answers or decides the debate question; false otherwise.
+ORDER: list areas_of_agreement, areas_of_disagreement and cruxes by importance to the debate question, most important first. Readers see only the first three of each list. Set "answers_question": true on an agreement only when it directly answers or decides the debate question; false otherwise. Set "decisive": true on exactly one disagreement and exactly one crux: the one whose resolution would most change the answer to the debate question; false on all others.
 
 Respond ONLY with a JSON object (no markdown, no code fences):
 {
   "areas_of_agreement": [{"point": "...", "povers": ["accelerationist", "safetyist"], "answers_question": false, "converged": false, "conceded_by": null, "original_disagreement": null}],
-  "areas_of_disagreement": [{"point": "...", "type": "EMPIRICAL or VALUES or DEFINITIONAL", "bdi_layer": "belief or desire or intention", "resolvability": "resolvable_by_evidence or negotiable_via_tradeoffs or requires_term_clarification", "positions": [{"pover": "accelerationist", "stance": "..."}, {"pover": "safetyist", "stance": "..."}]}],
+  "areas_of_disagreement": [{"point": "...", "decisive": false, "type": "EMPIRICAL or VALUES or DEFINITIONAL", "bdi_layer": "belief or desire or intention", "resolvability": "resolvable_by_evidence or negotiable_via_tradeoffs or requires_term_clarification", "positions": [{"pover": "accelerationist", "stance": "..."}, {"pover": "safetyist", "stance": "..."}]}],
   "cruxes": [
-    {"question": "the factual or value question that would change minds", "if_yes": "which debater's position weakens — who must concede or revise, and what they must give up", "if_no": "which debater's position weakens — who must concede or revise, and what they must give up", "type": "EMPIRICAL or VALUES", "counterfactual_type": "interventional, backtracking, normative, or none if the crux is not counterfactual in form"}
+    {"question": "the factual or value question that would change minds", "decisive": false, "if_yes": "which debater's position weakens — who must concede or revise, and what they must give up", "if_no": "which debater's position weakens — who must concede or revise, and what they must give up", "type": "EMPIRICAL or VALUES", "counterfactual_type": "interventional, backtracking, normative, or none if the crux is not counterfactual in form"}
   ],
   "unresolved_questions": ["..."],
   "taxonomy_coverage": [{"node_id": "<a real node_id from transcript context>", "how_used": "brief description"}],
