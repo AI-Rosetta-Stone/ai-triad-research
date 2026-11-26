@@ -139,7 +139,7 @@ function ConvertTo-NumericGroundingKey {
 # against the corpus (CL's rule: a tightening that mostly adds false drops isn't worth adopting).
 #   Percent:    a claim's "5%" must appear in percent form in the source ("5%", "5 percent", "5 per cent").
 #   Scale:      "75K", "2.3 billion" and "1.2 trillion" are their full values, which a claim "75,000" can match.
-#   LeadingDot: ".5" is 0.5, not 5.
+#   LeadingDot: ".5" is 0.5, not 5, unless it follows a word's final full stop (a footnote marker).
 #   Superscript: "10^26" is grounded by the concatenation "1026", which is how the PDF text reads.
 # With every flag off, the keys are the t/375 keys.
 $script:NumericGroundingFeatures = @{ Percent = $false; Scale = $false; LeadingDot = $false; Superscript = $false }
@@ -203,9 +203,19 @@ function Get-NumericGroundingKeys {
             if ($null -ne $First) { [void]$keys.Add("$First%") }
         }
     }
+    # Superscript (CL t/384#21): a snapshot also prints the exponent as "10(^25)"; read it as "10^25".
+    if ($F.Superscript) { $Text = [regex]::Replace($Text, '(?<=\d)\(\^(\d+)\)', '^$1') }
     foreach ($m in [regex]::Matches($Text, $Pattern, 'IgnoreCase')) {
         $Num = $m.Groups[1].Value
-        $Base = ConvertTo-NumericGroundingKey -Token $(if (-not $Num.StartsWith('.')) { $Num } elseif ($F.LeadingDot) { '0' + $Num } else { $Num.Substring(1) })
+        # LeadingDot (CL t/384#21): digits after a word's final full stop are a footnote marker, not a decimal
+        # ("intentionality.5", "race.43,44", "measure).14"), so they key as the merged guard keys them. They are
+        # a figure only when a letter or a percent sign follows at once, as PDF text glues it ("achieves.74AUC").
+        $IsDecimal = $F.LeadingDot -and $Num.StartsWith('.')
+        if ($IsDecimal -and $m.Index -gt 0 -and $Text[$m.Index - 1] -match '[\p{L}\)\]"'']') {
+            $After = $m.Groups[1].Index + $m.Groups[1].Length
+            $IsDecimal = $After -lt $Text.Length -and $Text[$After] -match '[\p{L}%]'
+        }
+        $Base = ConvertTo-NumericGroundingKey -Token $(if (-not $Num.StartsWith('.')) { $Num } elseif ($IsDecimal) { '0' + $Num } else { $Num.Substring(1) })
         if ($null -eq $Base) { continue }
         $Pct = $m.Groups[2].Success -or $m.Groups[3].Success
         $Suffix = if ($m.Groups[4].Success) { $m.Groups[4].Value } elseif ($m.Groups[5].Success) { $m.Groups[5].Value } else { $null }
