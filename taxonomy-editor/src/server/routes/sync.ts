@@ -478,7 +478,7 @@ export function registerSyncRoutes(r: Router, ctx: ServerCtx): void {
       const { message } = (body || {}) as { message?: string };
       // Capture pending entries before commitOverlay() clears them — needed for the
       // taxonomy-updated broadcast below (t/652).
-      const pending = githubBackend.getOverlayEntries(userId);
+      const pending = await githubBackend.getOverlayEntriesForBroadcast(userId); // t/691: the store in shared mode; null on a store failure skips the broadcast
       const result = await githubBackend.commitOverlay(userId, message);
       if (!result) {
         json(res, { ok: true, commitSha: null, filesCommitted: 0, message: 'No pending changes' });

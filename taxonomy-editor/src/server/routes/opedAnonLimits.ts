@@ -33,22 +33,24 @@ export function anonOpEdWorstCaseBytes(voices: number, words: number): number {
   return voices * (words * ANON_OPED_BYTES_PER_WORD + ANON_OPED_METADATA_BYTES_PER_VOICE);
 }
 
-/** Refuse (400, before any spend) an anonymous request over the admission shape or the byte cap. True when written. */
+/** Refuse (400, before any spend) an anonymous request over the admission shape or the byte cap. True when written.
+ *  Each refusal carries a stable `code` (anon_oped_too_many_voices, anon_oped_too_many_words, anon_oped_too_large), so
+ *  the client never matches on the sentence (Rosetta Stone p/74#36). */
 export function refuseAnonOpEdShape(res: ServerResponse, voices: number, wordCount: number, outlet: string | undefined): boolean {
   const s = getConfig().sessions;
   const words = effectiveWords(wordCount, outlet);
   if (voices > s.anonOpEdMaxVoices) {
-    error(res, `Anonymous op-eds allow at most ${s.anonOpEdMaxVoices} voices. Sign in for more.`, 400);
+    error(res, `Anonymous op-eds allow at most ${s.anonOpEdMaxVoices} voices. Sign in for more.`, 400, undefined, { code: 'anon_oped_too_many_voices', limit: s.anonOpEdMaxVoices });
     return true;
   }
   if (words > s.anonOpEdMaxWords) {
-    error(res, `Anonymous op-eds allow at most ${s.anonOpEdMaxWords} words per voice. Sign in for longer op-eds.`, 400);
+    error(res, `Anonymous op-eds allow at most ${s.anonOpEdMaxWords} words per voice. Sign in for longer op-eds.`, 400, undefined, { code: 'anon_oped_too_many_words', limit: s.anonOpEdMaxWords });
     return true;
   }
   const worst = anonOpEdWorstCaseBytes(voices, words);
   if (worst > s.anonOpEdByteCap) {
     log.server.warn({ component: 'oped', voices, words, worst, cap: s.anonOpEdByteCap }, 'Anonymous op-ed refused at admission: worst-case size exceeds the byte cap (t/500)');
-    error(res, 'This op-ed would be too large to keep for an anonymous visitor. Choose fewer voices or words, or sign in.', 400);
+    error(res, 'This op-ed would be too large to keep for an anonymous visitor. Choose fewer voices or words, or sign in.', 400, undefined, { code: 'anon_oped_too_large' });
     return true;
   }
   return false;

@@ -19,10 +19,10 @@ vi.mock('../runtimeConfig.js', async (importOriginal) => {
 
 import { refuseAnonOpEdShape, warnIfNearAnonByteCap, anonOpEdWorstCaseBytes } from '../routes/opedAnonLimits.js';
 
-function fakeRes(): ServerResponse & { status: number } {
-  const r = { status: 200, headersSent: false, writableEnded: false, setHeader() {}, getHeader() { return undefined; },
-    writeHead(s: number) { r.status = s; return r; }, end() { r.writableEnded = true; } };
-  return r as unknown as ServerResponse & { status: number };
+function fakeRes(): ServerResponse & { status: number; body: string } {
+  const r = { status: 200, body: '', headersSent: false, writableEnded: false, setHeader() {}, getHeader() { return undefined; },
+    writeHead(s: number) { r.status = s; return r; }, end(b?: string) { r.body = b ?? ''; r.writableEnded = true; } };
+  return r as unknown as ServerResponse & { status: number; body: string };
 }
 
 beforeEach(() => { h.warn.mockClear(); h.anon = true; h.cap = 106_496; });
@@ -38,6 +38,24 @@ describe('t/500: anonymous op-ed byte cap', () => {
     const res = fakeRes();
     expect(refuseAnonOpEdShape(res, 3, 1500, undefined)).toBe(true);
     expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toMatchObject({ code: 'anon_oped_too_large' });
+  });
+
+  // Rosetta Stone p/74#36: the client maps on a stable code, never on the sentence.
+  it('the voice and word refusals carry a stable code and the limit', () => {
+    const voices = fakeRes();
+    expect(refuseAnonOpEdShape(voices, 4, 800, undefined)).toBe(true);
+    expect(voices.status).toBe(400);
+    expect(JSON.parse(voices.body)).toMatchObject({ code: 'anon_oped_too_many_voices', limit: 3 });
+    const words = fakeRes();
+    expect(refuseAnonOpEdShape(words, 1, 1501, undefined)).toBe(true);
+    expect(words.status).toBe(400);
+    expect(JSON.parse(words.body)).toMatchObject({ code: 'anon_oped_too_many_words', limit: 1500 });
+  });
+
+  it('the default outlet with no word count is not refused (its target is the 1,500 cap, not above it)', () => {
+    expect(refuseAnonOpEdShape(fakeRes(), 1, 0, undefined)).toBe(false);
+    expect(refuseAnonOpEdShape(fakeRes(), 3, 0, 'TechPolicyPress')).toBe(false);
   });
 
   it('a saved set over two thirds of the cap logs a WARN with size and voice count, no content', () => {

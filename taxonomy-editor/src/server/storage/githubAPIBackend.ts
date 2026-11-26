@@ -4685,9 +4685,11 @@ export class GitHubAPIBackend implements StorageBackend {
     beforeRefUpdate: () => Promise<void>,
   ): Promise<{ commitSha: string; filesCommitted: number; conflictedPaths?: string[] } | null> {
     const listed = await store.listEntries(userId);
+    // t/503 B1, t/689 (TL t/503#26): local copies of paths the store no longer holds are stale (another replica
+    // committed or discarded them). Prune them on every batch, not only an empty one, so they stop counting toward the
+    // 413 cap and the shutdown 'will be lost' log.
+    this.pruneLocalOverlayToShared(userId, new Set(listed.map(e => e.repoPath)));
     if (listed.length === 0) {
-      // t/503 B1: another replica committed (or discarded) everything; this replica's local copies are stale.
-      this.pruneLocalOverlayToShared(userId, new Map());
       this.sessionOverlayConflicts.delete(userId);
       this.sharedOverlayReadCache.delete(userId);
       return null;
@@ -5185,6 +5187,24 @@ export class GitHubAPIBackend implements StorageBackend {
     return writes.length > 0 || deletes.length > 0 ? { writes, deletes } : null;
   }
 
+  /**
+   * t/690 (TL t/503#26 item 3): the pending entries for the taxonomy-updated broadcast, in getOverlayEntries' shape.
+   * With shared state active they come from the store (the batch the commit will take), never this replica's local map,
+   * which can hold another replica's already-committed edits. A store failure WARNs and returns null, so the caller
+   * skips its best-effort broadcast. With shared state off, this is getOverlayEntries.
+   */
+  async getOverlayEntriesForBroadcast(userId: string): Promise<{ writes: { path: string; content: string }[]; deletes: string[] } | null> {
+    if (!this.sharedSavesActive(userId)) return this.getOverlayEntries(userId);
+    try {
+      const listed = await this.sharedOverlayStore!.listEntries(userId);
+      const entries = splitOverlayEntries(listed);
+      return entries.writes.length > 0 || entries.deletes.length > 0 ? entries : null;
+    } catch (err) {
+      log.storage.warn({ userId, err: String(err) }, 'broadcast entries: the shared store could not be listed; the taxonomy-updated broadcast is skipped (t/690)');
+      return null;
+    }
+  }
+
   getSessionOverlay(userId: string): Map<string, string> | undefined {
     return this.sessionOverlays.get(userId);
   }
@@ -5288,7 +5308,7 @@ export class GitHubAPIBackend implements StorageBackend {
    * list from the store lacks a path (another replica committed or discarded it), the local copy is stale: drop it,
    * so it no longer counts toward the 413 cap or shows up as 'will be lost' at shutdown.
    */
-  private pruneLocalOverlayToShared(userId: string, shared: ReadonlyMap<string, unknown>): void {
+  private pruneLocalOverlayToShared(userId: string, shared: { has(path: string): boolean }): void {
     const overlay = this.sessionOverlays.get(userId);
     if (!overlay) return;
     const bases = this.sessionOverlayBaseShas.get(userId);
