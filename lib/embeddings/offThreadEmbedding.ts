@@ -27,8 +27,9 @@
 
 import { Worker } from 'node:worker_threads';
 import { availableParallelism } from 'node:os';
-import { ActionableError } from '../debate/errors.js';
+import { ActionableError, errorMessage } from '../debate/errors.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { assertEmbeddingTexts } from './embeddingInput.js';
 
 // ── Tunable constants — Gate Co-Location (each states what it trades off; TL-accepted t/3181#2) ──
 
@@ -244,6 +245,15 @@ export function computeEmbeddingsOffThread(
   opts?: { requester?: string },
 ): Promise<Float32Array[]> {
   const requester = opts?.requester ?? 'unknown';
+
+  // t/716: a non-string text would throw inside the worker's tokenizer and surface as an opaque compute
+  // failure. Refuse it here, before the queue, naming the element. Not a shed and not a worker fault.
+  try {
+    assertEmbeddingTexts(texts, 'lib/embeddings/offThreadEmbedding.ts:computeEmbeddingsOffThread');
+  } catch (err) {
+    warn('embedding request refused — texts is not an array of strings', { requester, error: errorMessage(err) });
+    return Promise.reject(err);
+  }
 
   if (texts.length === 0) return Promise.resolve([]); // trivial — no worker round-trip
 
