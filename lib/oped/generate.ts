@@ -67,7 +67,7 @@ export type OpEdProgressEvent =
   | { type: 'grounding_failed'; error: string }
   | { type: 'voice_start'; pov: PovKey }
   | { type: 'voice_complete'; pov: PovKey; member: OpEdMember }
-  | { type: 'voice_failed'; pov: PovKey; error: string }
+  | { type: 'voice_failed'; pov: PovKey; error: string; code?: string }
   | { type: 'voice_cancelled'; pov: PovKey }
   | { type: 'complete'; set: OpEdSet };
 
@@ -1178,7 +1178,9 @@ export async function* generateOpEdSet(
         if (cancelled) {
           enqueue({ type: 'voice_cancelled', pov });
         } else {
-          enqueue({ type: 'voice_failed', pov, error: String(err) });
+          // t/668: the error's stable code (e.g. FREE_POOL_EXHAUSTED) so the client maps on a code, not text.
+          const code = (err as { code?: unknown } | null)?.code;
+          enqueue({ type: 'voice_failed', pov, error: String(err), ...(typeof code === 'string' && { code }) });
         }
       }
     }
