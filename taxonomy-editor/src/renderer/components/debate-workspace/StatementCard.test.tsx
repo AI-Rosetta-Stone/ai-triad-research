@@ -3,7 +3,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { PhaseTransitionCard, PhaseHairline, ConvergenceInlineCard, HighlightedText, EntryCommentBadge } from './StatementCard';
+import { PhaseTransitionCard, PhaseHairline, HighlightedText, EntryCommentBadge } from './StatementCard';
 
 // ── Mocks ────────────────────────────────────────────────────
 
@@ -105,15 +105,6 @@ describe('PhaseHairline', () => {
     const { container } = render(<PhaseHairline label="Cross-Examination" />);
     expect(container.querySelector('.phase-hairline')).toBeTruthy();
     expect(container.querySelector('.phase-hairline-label')).toBeTruthy();
-  });
-});
-
-// ── ConvergenceInlineCard ───────────────────────────────────
-
-describe('ConvergenceInlineCard', () => {
-  it('renders "no convergence data" when signal is undefined', () => {
-    render(<ConvergenceInlineCard signal={undefined} />);
-    expect(screen.getByText('No convergence data for this turn.')).toBeInTheDocument();
   });
 });
 

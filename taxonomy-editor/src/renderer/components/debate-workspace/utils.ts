@@ -216,7 +216,27 @@ export function renderedOffsetOf(container: HTMLElement, node: Node, offset: num
  *  the active "mode" (Text vs Analysis) without a second store field. 'why' (t/4625) is
  *  deliberately NOT in this set — it gets its own render branch and its own mode, not the
  *  Plan/Claims/etc. sub-tier machinery this set otherwise drives. */
-export const META_TIERS = new Set(['reasoning', 'lineage', 'claims', 'convergence']);
+export const META_TIERS = new Set(['reasoning', 'lineage', 'claims']);
+
+/** t/697: the Convergence view was removed (PI decision). Old saves and preferences can still carry
+ *  the 'convergence' tier, so it stays readable but is never shown: it opens on Reasoning. Nothing on
+ *  disk is rewritten. The fallback is logged once per session, not once per statement. */
+let warnedRetiredTier = false;
+export function shownTier<T extends string>(tier: T): Exclude<T, 'convergence'> | 'reasoning' {
+  if (tier !== 'convergence') return tier as Exclude<T, 'convergence'>;
+  if (!warnedRetiredTier) {
+    warnedRetiredTier = true;
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'debate-workspace',
+      level: 'warn',
+      message: "Display tier 'convergence' is saved on a statement or as the default, but the Convergence view was removed (t/697); showing Reasoning instead",
+    });
+  }
+  return 'reasoning';
+}
+/** Test hook: lets a test observe the once-per-session WARN again. */
+export function resetRetiredTierWarning(): void { warnedRetiredTier = false; }
 
 /** Why-mode tiers: 'why' is the BDI tab, 'terms' the Vocabulary tab. 'terms' moved here from
  *  How, keeping its id so a saved per-entry 'terms' override opens on Why → Vocabulary. */
@@ -227,7 +247,7 @@ export const WHY_TIERS = new Set(['why', 'terms']);
  *  duplicated maps; labels updated: Med→Medium, Detail→Detailed per t/2172). */
 export const TIER_LABELS: Record<string, string> = {
   brief: 'Brief', medium: 'Medium', detailed: 'Detailed', reasoning: 'Plan',
-  claims: 'Claims', terms: 'Vocabulary', lineage: 'Lineage', convergence: 'Conv', why: 'BDI',
+  claims: 'Claims', terms: 'Vocabulary', lineage: 'Lineage', why: 'BDI',
 };
 
 /** The three-way mode a display tier belongs to (t/4625: Text | Why | How — "How" is the

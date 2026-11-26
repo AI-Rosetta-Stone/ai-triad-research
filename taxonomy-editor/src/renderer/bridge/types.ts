@@ -51,6 +51,8 @@ export interface SourceDocumentResolution {
   type: 'pdf' | 'markdown' | null;
   content?: string;
   path?: string;
+  /** t/678: the server withholds full text from anonymous callers (no content, no path); show the sign-in prompt. */
+  signInRequired?: boolean;
 }
 
 export interface GroundingCitation {
@@ -477,7 +479,7 @@ export interface AppAPI {
   // --- Summaries & Sources ---
   discoverSources: () => Promise<unknown[]>;
   loadSummary: (docId: string) => Promise<unknown | null>;
-  loadSnapshot: (sourceId: string) => Promise<{ content: string } | null>;
+  loadSnapshot: (sourceId: string) => Promise<{ content: string; signInRequired?: boolean } | null>; // t/678
   resolveSourceDocument: (docId: string) => Promise<SourceDocumentResolution>;
 
   // --- Data management ---

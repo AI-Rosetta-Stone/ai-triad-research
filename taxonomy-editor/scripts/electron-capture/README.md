@@ -5,8 +5,17 @@ itself with Playwright's Electron mode, runs a scenario, and writes PNGs to a fo
 
 ## Rules
 
-- **It only drives an app it launched.** It never attaches to a running app or a debugging port. That
-  is why it was chosen over electron-mcp (TL, t/644).
+- **It only drives an app it launched.** It never attaches to an app that is already running, which
+  is why it was chosen over electron-mcp (TL, t/644). Playwright drives the app it launches over a
+  debugging port bound to localhost, which closes when the app does.
+- **The app gets an allowlisted environment** (system paths, temp and profile folders, locale), never
+  this shell's. AI keys, GitHub tokens and other credentials are withheld (Security, t/644).
+- **The app runs on a throwaway profile:** a fresh `--user-data-dir` in the temp folder, deleted after
+  the run. The harness checks that the app really uses it and stops if it doesn't.
+- **`--data-root` is required and must be a scratch copy.** It is refused if it overlaps the real data
+  tree (`.aitriad.json` `data_root` or your `AI_TRIAD_DATA_ROOT`) or sits inside any git checkout,
+  because the full-tree push publishes the data tree.
+- **`--out` must be outside any git checkout**, so shots never land in a commit.
 - **Stubs stay in the harness.** A scenario may stub `dialog.showOpenDialog` or override an `ipcMain`
   handler at run time (`h.stubOpenDialog`, `h.overrideHandler`). Nothing is added to the product, and
   every shot is labelled with what was stubbed.
@@ -20,18 +29,20 @@ From `taxonomy-editor/`:
 
 ```sh
 env -u NoDefaultCurrentDirectoryInExePath npm run pack      # builds release/win-unpacked
-CAPTURE_FIXTURES=/path/to/fixtures \
+mkdir -p /c/tmp/capture-data      # a scratch copy of the data, outside any repo (no .git)
+cp -r ../../ai-triad-data/taxonomy ../../ai-triad-data/dictionary /c/tmp/capture-data/
+CAPTURE_FIXTURES=/c/tmp/capture-fixtures \
   node scripts/electron-capture/capture.mjs \
     --scenario scripts/electron-capture/scenarios/oped-document.mjs \
-    --out /path/to/shots --data-root /path/to/ai-triad-data
+    --out /c/tmp/capture-shots --data-root /c/tmp/capture-data
 ```
 
 - `--exe <path>`: launch a specific packed exe. The default is `release/win-unpacked/*.exe`.
 - `--dev`: launch the dev build (`electron .`). It loads http://localhost:5173, so run
   `npm run dev:vite` in the same worktree and make sure nothing else holds that port.
-- `--data-root`: the app won't start without a readable data root (`AI_TRIAD_DATA_ROOT`).
+- `--data-root` (required): the scratch copy. The app won't start without `taxonomy/` and `dictionary/` in it.
 
-Exit 0 means the scenario finished. On failure, `--out` holds `harness.log` and `error.png`.
+Exit 0 means the scenario finished; exit 2 means the arguments were refused (the reason is printed). On failure, `--out` holds `harness.log` and `error.png`.
 
 ## Write a scenario
 

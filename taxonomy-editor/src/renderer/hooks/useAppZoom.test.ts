@@ -13,8 +13,10 @@ const { mockApi, electron } = vi.hoisted(() => {
   return { mockApi, electron };
 });
 vi.mock('@bridge', () => ({ api: mockApi, isElectronMode: () => electron.on }));
+const record = vi.hoisted(() => vi.fn());
+vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record }) }));
 
-import { useAppZoom, BASE_FONT_PCT } from './useAppZoom';
+import { useAppZoom, BASE_FONT_PCT, __resetZoomWarnForTests } from './useAppZoom';
 
 const handlers = () => ({ zoomIn: vi.fn(), zoomOut: vi.fn(), zoomReset: vi.fn() });
 const press = (key: string) => window.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: true, cancelable: true }));
@@ -52,19 +54,33 @@ describe('useAppZoom (t/163)', () => {
     });
   });
 
-  describe('web: root font-size fallback', () => {
-    it('scales the root font-size with zoomLevel when there is no page zoom', () => {
+  describe('web: the browser zooms (TL p/10#53, Design t/163#6)', () => {
+    beforeEach(() => { __resetZoomWarnForTests(); record.mockClear(); });
+
+    it('keeps the root font at the baseline whatever level is stored', () => {
       const h = handlers();
       renderHook(() => useAppZoom(150, h.zoomIn, h.zoomOut, h.zoomReset));
       expect(mockApi.setZoomFactor).toHaveBeenCalledWith(1.5);
-      expect(document.documentElement.style.fontSize).toBe(`${(BASE_FONT_PCT * 150) / 100}%`);
+      expect(document.documentElement.style.fontSize).toBe(`${BASE_FONT_PCT}%`);
     });
 
-    it('handles the keyboard shortcuts itself', () => {
+    it('leaves Ctrl+= / Ctrl+- / Ctrl+0 to the browser (not prevented, store untouched)', () => {
       const h = handlers();
       renderHook(() => useAppZoom(100, h.zoomIn, h.zoomOut, h.zoomReset));
-      press('='); press('-'); press('0');
-      expect([h.zoomIn, h.zoomOut, h.zoomReset].map((f) => f.mock.calls.length)).toEqual([1, 1, 1]);
+      const events = ['=', '-', '0'].map((key) => new KeyboardEvent('keydown', { key, ctrlKey: true, cancelable: true }));
+      events.forEach((e) => window.dispatchEvent(e));
+      expect(events.map((e) => e.defaultPrevented)).toEqual([false, false, false]);
+      expect([h.zoomIn, h.zoomOut, h.zoomReset].map((f) => f.mock.calls.length)).toEqual([0, 0, 0]);
+    });
+
+    it('WARNs once when a stored non-default level is ignored, and not at 100%', () => {
+      const h = handlers();
+      const { rerender } = renderHook(({ z }) => useAppZoom(z, h.zoomIn, h.zoomOut, h.zoomReset), { initialProps: { z: 100 } });
+      expect(record).not.toHaveBeenCalled();
+      rerender({ z: 150 });
+      rerender({ z: 60 });
+      expect(record).toHaveBeenCalledTimes(1);
+      expect(record.mock.calls[0][0]).toMatchObject({ level: 'warn', component: 'app-zoom' });
     });
   });
 });

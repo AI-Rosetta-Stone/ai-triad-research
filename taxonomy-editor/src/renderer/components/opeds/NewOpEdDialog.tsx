@@ -28,6 +28,8 @@ import { OpEdTagPicker, opEdTagBlocksStart, opEdTagSelection, type OpEdTagChoice
 import { registryOrNull } from '../debate/SeatTagPicker';
 import type { PovNode } from '@lib/debate/taxonomyTypes';
 import './NewOpEdDialog.css';
+import { freePoolRefusalOf } from '../../bridge/opedFreePool';
+import { ANON_MAX_WORDS, ANON_RETENTION_LINE, ANON_WORD_CAP_NOTE, anonBand, partialStateFor, refusalLine } from './anonOpEdCopy';
 import {
   SOURCE_MODES, SourceSelector, DocumentField, hasSourceFor, sourceStartReason, useDocumentSource, useDocumentExtractionAvailable,
   type SourceMode, type DocumentState, type DocumentChoice,
@@ -167,11 +169,26 @@ function sectionHasDiff(section: SettingsSection, s: OpEdSettingsValues, globalM
   }
 }
 
+/** t/467 (Design p/25#196 a): the outlet's band line, ending at the anonymous cap when the user isn't signed in,
+ *  with the note that says so when the cap changed it. */
+function OutletBandHint({ outlet, isAnonymous }: { outlet: string; isAnonymous: boolean }) {
+  const raw = OUTLETS.find(o => o.value === outlet)?.band ?? '';
+  const shown = isAnonymous ? anonBand(raw) : { band: raw, clamped: false };
+  return (
+    <>
+      <p className="oped-field-hint">{shown.band}</p>
+      {shown.clamped && <p className="oped-signin-note">{ANON_WORD_CAP_NOTE}</p>}
+    </>
+  );
+}
+
 function OpEdSettingsDrawer({
-  initial, globalModel, onApply, onClose,
+  initial, globalModel, isAnonymous, onApply, onClose,
 }: {
   initial: OpEdSettingsValues;
   globalModel: string;
+  /** t/467: an anonymous user's word count stops at ANON_MAX_WORDS. */
+  isAnonymous: boolean;
   onApply: (v: OpEdSettingsValues) => void;
   onClose: () => void;
 }) {
@@ -207,14 +224,15 @@ function OpEdSettingsDrawer({
 
   // While typing, keep the raw parsed value (no clamp) so intermediate digits — e.g. "80" on the
   // way to "800" — aren't collapsed to the 300 floor, which made only 300/2000 reachable (t/2685).
-  // Clamp to [300,2000] on blur; empty ⇒ null ⇒ use the outlet band.
+  // Clamp to [300,maxWords] on blur; empty ⇒ null ⇒ use the outlet band.
+  const maxWords = isAnonymous ? ANON_MAX_WORDS : 2000;
   const parseWordCount = (raw: string): number | null => {
     if (raw.trim() === '') return null;
     const n = parseInt(raw, 10);
     return Number.isNaN(n) ? null : n;
   };
   const clampWordCountOnBlur = () => {
-    setWordCount(prev => (prev == null ? null : Math.min(2000, Math.max(300, prev))));
+    setWordCount(prev => (prev == null ? null : Math.min(maxWords, Math.max(300, prev))));
   };
 
   return (
@@ -256,7 +274,7 @@ function OpEdSettingsDrawer({
                   <select id="oped-s-outlet" className="oped-select" value={outlet} onChange={e => setOutlet(e.target.value)}>
                     {OUTLETS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
-                  <p className="oped-field-hint">{OUTLETS.find(o => o.value === outlet)?.band}</p>
+                  <OutletBandHint outlet={outlet} isAnonymous={isAnonymous} />
                 </div>
                 <div className="oped-settings-field">
                   <label className="oped-field-label" htmlFor="oped-s-wordcount">Word count override</label>
@@ -265,13 +283,13 @@ function OpEdSettingsDrawer({
                     type="number"
                     className="oped-input"
                     min={300}
-                    max={2000}
+                    max={maxWords}
                     placeholder="Use outlet band"
                     value={wordCount ?? ''}
                     onChange={e => setWordCount(parseWordCount(e.target.value))}
                     onBlur={clampWordCountOnBlur}
                   />
-                  <p className="oped-field-hint">300–2000. Overrides the outlet's target length.</p>
+                  <p className="oped-field-hint">300–{maxWords}. Overrides the outlet's target length.</p>
                 </div>
               </>
             )}
@@ -480,6 +498,7 @@ interface CreateFormProps {
   topicLooksLikeUrl: boolean;
   /** Move the URL-shaped topic value into the URL field and switch to web-page mode. */
   onMigrateTopicToUrl: () => void;
+  /** t/467: anonymous users may use topic and URL sources; the Document zone still needs sign-in. */
   isAnonymous: boolean;
   voices: Set<PovKey>;
   toggleVoice: (pov: PovKey) => void;
@@ -510,6 +529,7 @@ function OpEdCreateForm(p: CreateFormProps) {
           setSourceMode={p.setSourceMode}
           modes={SOURCE_MODES.filter(m => (m !== 'web' || p.allowUrlSource) && (m !== 'document' || p.allowDocumentSource))}
         />
+        {p.isAnonymous && <p className="oped-signin-note">{ANON_RETENTION_LINE}</p>}
 
         {p.sourceMode === 'topic' && (
           <div>
@@ -551,10 +571,8 @@ function OpEdCreateForm(p: CreateFormProps) {
               value={p.url}
               onChange={e => p.setUrl(e.target.value)}
               placeholder="https://…"
-              disabled={p.isAnonymous}
               autoFocus
             />
-            {p.isAnonymous && <p className="oped-signin-note">Sign in to use URL sources.</p>}
           </div>
         )}
 
@@ -605,7 +623,7 @@ function OpEdCreateForm(p: CreateFormProps) {
           <select id="oped-outlet" className="oped-select" value={p.outlet} onChange={e => p.setOutlet(e.target.value)}>
             {OUTLETS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <p className="oped-field-hint">{OUTLETS.find(o => o.value === p.outlet)?.band}</p>
+          <OutletBandHint outlet={p.outlet} isAnonymous={p.isAnonymous} />
         </div>
 
         {/* News hook */}
@@ -785,7 +803,7 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
   const hasSource = hasSourceFor(sourceMode, topic, url, docState, docFile);
   // t/3992: a tag below its minimum refuses at setup (TL t/3957#7 B(a)), never mid-generation.
   const canStart = hasSource && orderedVoices.length >= 1 && modelHasKey && !opEdTagBlocksStart(tagChoice, orderedVoices, nodesFor);
-  const startReason = sourceStartReason(sourceMode, docState, hasSource, orderedVoices.length, modelHasKey);
+  const startReason = sourceStartReason(sourceMode, docState, hasSource, orderedVoices.length, modelHasKey, docError);
 
   // A URL pasted into the topic box → FromTopic → no source brief → no claims, silently (t/2899).
   // Detect it so we can steer the user to the web-page path (desktop only; web has no URL path).
@@ -832,7 +850,8 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
       temperature,
     };
     if (fromWebPage && url.trim()) params.url = url.trim();
-    if (wordCount != null) params.wordCount = wordCount;
+    // t/467: a count set before the user turned out to be anonymous still goes out inside the cap.
+    if (wordCount != null) params.wordCount = isAnonymous ? Math.min(wordCount, ANON_MAX_WORDS) : wordCount;
     if (!ground) params.voiceOnly = true;
     else { params.maxGroundingNodes = maxGroundingNodes; params.maxSituations = maxSituations; }
     const tagSelection = opEdTagSelection(tagChoice, orderedVoices); // t/3992
@@ -853,9 +872,10 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
 
   const handleDraft = async () => {
     if (!canStart || creating) return;
-    if ((fromWebPage || sourceMode === 'document') && isAnonymous) {
-      const what = sourceMode === 'document' ? 'Document sources' : 'URL sources';
-      setStartError({ problem: `${what} require sign-in.`, nextSteps: ['Sign in with GitHub or Google', 'Or switch to a topic instead'] });
+    // t/467: URL sources are open to anonymous users; a document still needs sign-in (the extract route refuses
+    // anonymous callers, and Design's t/276 condition keeps the zone disabled with a sign-in note).
+    if (sourceMode === 'document' && isAnonymous) {
+      setStartError({ problem: 'Document sources require sign-in.', nextSteps: ['Sign in with GitHub or Google', 'Or switch to a topic instead'] });
       return;
     }
     setCreating(true);
@@ -879,7 +899,11 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
       onClose();
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'oped-new-dialog', level: 'error', message: 'Failed to create op-ed set', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      setStartError(toActionable(err));
+      // t/467: a free-pool or anonymous-limit refusal gets Design's line; after a stop partway through, the set
+      // is checked first so the line says what was really saved (t/467#77).
+      const refusal = freePoolRefusalOf(err);
+      const partial = refusal?.midStream ? await partialStateFor(refusal.setId, api.loadOpEdSet) : 'unknown';
+      setStartError(refusal ? { problem: refusalLine(refusal, isAnonymous, partial), nextSteps: [] } : toActionable(err));
       setCreating(false);
     } finally {
       unsub();
@@ -953,6 +977,7 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
         <OpEdSettingsDrawer
           initial={{ outlet, wordCount, thesis, authorBio, ground, maxGroundingNodes, maxSituations, model, temperature }}
           globalModel={globalModel}
+          isAnonymous={isAnonymous}
           onApply={handleApplySettings}
           onClose={() => setShowSettings(false)}
         />

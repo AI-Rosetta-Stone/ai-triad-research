@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
-import { documentPickErrorLine } from './documentPickError';
+import { documentPickErrorLine, isAppFaultLine } from './documentPickError';
 
 /** One source is active at a time (Design t/272#1). Each mode keeps its value until the dialog closes. */
 export type SourceMode = 'topic' | 'web' | 'document';
@@ -38,12 +38,14 @@ export function hasSourceFor(mode: SourceMode, topic: string, url: string, docSt
  * The visible Start reason (Design t/272#7). Checked in order: the source, then voices, then the key.
  * Undefined when Start is on.
  */
-export function sourceStartReason(mode: SourceMode, docState: DocumentState, hasSource: boolean, voiceCount: number, modelHasKey: boolean): string | undefined {
+export function sourceStartReason(mode: SourceMode, docState: DocumentState, hasSource: boolean, voiceCount: number, modelHasKey: boolean, docError?: string | null): string | undefined {
   if (!hasSource) {
     if (mode === 'topic') return 'Enter a topic';
     if (mode === 'web') return 'Enter a web page URL';
     if (docState === 'reading') return 'Reading the document…';
-    return docState === 'error' ? 'Choose a readable document' : 'Choose a document';
+    // An app fault isn't the file's doing, so the reason points at the other sources, like the error line (t/632#4).
+    if (docState === 'error') return isAppFaultLine(docError) ? 'Start from a topic or web page' : 'Choose a readable document';
+    return 'Choose a document';
   }
   if (voiceCount < 1) return 'Select at least one voice';
   if (!modelHasKey) return 'No API key configured for the selected model';

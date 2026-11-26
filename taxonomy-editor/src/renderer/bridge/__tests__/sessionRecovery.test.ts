@@ -121,6 +121,27 @@ describe('session recovery (t/1476)', () => {
     expect(mockGlobalFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('t/467: when the server cannot start a session (503 anon_session_unavailable), the caller gets that refusal, not the 401, and there is no retry', async () => {
+    mockResilientFetch.mockResolvedValue(mockResponse(401, { error: 'Anonymous session required', reason: 'no_session' }));
+    mockGlobalFetch.mockResolvedValue(mockResponse(503, { error: 'anon_session_unavailable', message: 'Anonymous sessions are temporarily unavailable.' }));
+
+    const { fetchWithSessionRecovery } = await import('../web-bridge');
+    const res = await fetchWithSessionRecovery('/api/oped-sets', { method: 'POST' }, { timeoutMs: 1000, maxRetries: 0, critical: true, category: 'data' } as never);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'anon_session_unavailable' });
+    expect(mockResilientFetch).toHaveBeenCalledTimes(1);
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn', message: expect.stringContaining('anon_session_unavailable') }));
+  });
+
+  it('t/467: any other failed mint still returns the original 401', async () => {
+    mockResilientFetch.mockResolvedValue(mockResponse(401, { error: 'Anonymous session required', reason: 'no_session' }));
+    mockGlobalFetch.mockResolvedValue(mockResponse(503, { error: 'something_else' }));
+
+    const { fetchWithSessionRecovery } = await import('../web-bridge');
+    const res = await fetchWithSessionRecovery('/api/health', {}, { timeoutMs: 1000, maxRetries: 0, critical: true, category: 'data' } as never);
+    expect(res.status).toBe(401);
+  });
+
   it('does not attempt recovery for non-401 errors', async () => {
     mockResilientFetch.mockResolvedValue(mockResponse(500, { error: 'Internal server error' }));
 

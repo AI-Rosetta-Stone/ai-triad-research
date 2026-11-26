@@ -19,9 +19,16 @@ import {
   getNodeLabel,
   getNodeWeight,
   modeOfTier,
+  shownTier,
+  resetRetiredTierWarning,
+  META_TIERS,
+  TIER_LABELS,
 } from './utils';
 
 // ── Mocks ────────────────────────────────────────────────────
+
+const { mockRecord } = vi.hoisted(() => ({ mockRecord: vi.fn() }));
+vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: mockRecord }) }));
 
 vi.mock('@lib/debate/nodeIdUtils', () => ({
   nodePovFromId: (id: string) => {
@@ -330,7 +337,12 @@ describe('modeOfTier', () => {
     expect(modeOfTier('reasoning')).toBe('analysis');
     expect(modeOfTier('lineage')).toBe('analysis');
     expect(modeOfTier('claims')).toBe('analysis');
-    expect(modeOfTier('convergence')).toBe('analysis');
+  });
+
+  it('t/697: convergence is no longer a tier with a view or a label', () => {
+    expect(META_TIERS.has('convergence')).toBe(false);
+    expect(TIER_LABELS.convergence).toBeUndefined();
+    expect(Object.values(TIER_LABELS)).not.toContain('Conv');
   });
 
   it('classifies why as its own mode, not analysis', () => {
@@ -351,5 +363,25 @@ describe('modeOfTier', () => {
   it('defaults an unrecognized tier (e.g. undefined display_tier, or a future value this build predates) to text', () => {
     expect(modeOfTier('not-a-real-tier')).toBe('text');
     expect(modeOfTier('')).toBe('text');
+  });
+});
+
+// ── shownTier (t/697) ──────────────────────────────────────────
+describe('shownTier', () => {
+  it('passes every live tier through unchanged', () => {
+    for (const tier of ['brief', 'medium', 'detailed', 'reasoning', 'lineage', 'claims', 'why', 'terms']) {
+      expect(shownTier(tier)).toBe(tier);
+    }
+  });
+
+  it("maps a saved 'convergence' tier to reasoning and logs one WARN for the session, not one per call", () => {
+    resetRetiredTierWarning();
+    mockRecord.mockClear();
+    expect(shownTier('convergence')).toBe('reasoning');
+    expect(shownTier('convergence')).toBe('reasoning');
+    expect(shownTier('convergence')).toBe('reasoning');
+    const warns = mockRecord.mock.calls.filter(c => c[0]?.level === 'warn' && /convergence/i.test(c[0]?.message ?? ''));
+    expect(warns).toHaveLength(1);
+    expect(warns[0][0]).toMatchObject({ type: 'system.error', component: 'debate-workspace' });
   });
 });

@@ -264,6 +264,13 @@ export function showDumpPendingToast(): () => void {
  * Show an error toast when a flight recorder dump fails to persist.
  * Offers a retry button and (web-only) a client-side blob download fallback.
  */
+/** The failure toast's line. Web sends the report to the server and offers Save locally; desktop writes it to disk. */
+export function dumpFailedLine(isWeb: boolean): string {
+  return isWeb
+    ? "Couldn't send the diagnostic report. Try again, or save it locally."
+    : "Couldn't save the diagnostic report. Try again.";
+}
+
 export function showDumpErrorToast(opts: {
   errorMessage: string;
   isWeb: boolean;
@@ -291,7 +298,7 @@ export function showDumpErrorToast(opts: {
   });
 
   const title = document.createElement('div');
-  title.textContent = 'Flight recorder dump failed';
+  title.textContent = 'Diagnostic report failed'; // t/673 (Design p/25#190)
   Object.assign(title.style, {
     fontWeight: '600',
     marginBottom: '4px',
@@ -300,7 +307,9 @@ export function showDumpErrorToast(opts: {
   toast.appendChild(title);
 
   const msg = document.createElement('div');
-  msg.textContent = opts.errorMessage.slice(0, 200);
+  // t/673 (Design p/25#188): a plain line, never the raw ActionableError; the detail goes to the console.
+  msg.textContent = dumpFailedLine(opts.isWeb);
+  console.warn('WARN: flight recorder dump failed; the toast shows a plain line, detail here:', opts.errorMessage);
   Object.assign(msg.style, { opacity: '0.7', marginBottom: '8px', wordBreak: 'break-all' });
   toast.appendChild(msg);
 

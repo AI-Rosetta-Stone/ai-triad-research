@@ -18,6 +18,7 @@ const h = vi.hoisted(() => {
     anonymous: false,
     hasApiKey: vi.fn().mockResolvedValue(true),
     createOpEdSet: vi.fn(),
+    loadOpEdSet: vi.fn(),
     pickDocumentFile: vi.fn(),
     documentExtractionAvailable: vi.fn().mockResolvedValue(true),
     cancelOpEdSet: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('@bridge', () => ({
   api: {
     hasApiKey: h.hasApiKey,
     createOpEdSet: h.createOpEdSet,
+    loadOpEdSet: h.loadOpEdSet,
     pickDocumentFile: h.pickDocumentFile,
     documentExtractionAvailable: h.documentExtractionAvailable,
     cancelOpEdSet: h.cancelOpEdSet,
@@ -297,6 +299,16 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
     expect(screen.getByText('Choose a readable document')).toBeTruthy();
   });
 
+  it('t/632#4: an app fault points Start at a topic or web page, not at the file', async () => {
+    pickDocumentFile.mockRejectedValue(new Error("Error invoking remote method 'pick-document-file': ActionableError: Goal: read Inner error: Cannot find module 'pdfjs-dist' Resolve: reinstall"));
+    open();
+    await selectDocument();
+    chooseFile();
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/problem in the app, not the file/));
+    expect(screen.getByText('Start from a topic or web page')).toBeTruthy();
+    expect(screen.queryByText('Choose a readable document')).toBeNull();
+  });
+
   it('shows a picker or extraction error and keeps the zone for another pick', async () => {
     pickDocumentFile.mockRejectedValue(new Error('“big.pdf” is 14.8 MB. The limit is 10 MB.'));
     open();
@@ -345,6 +357,27 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
     h.documentExtractionAvailable.mockResolvedValue(true);
     open();
     expect(await screen.findByRole('radio', { name: 'Document' })).toBeTruthy();
+  });
+
+  it('t/467: the retention line shows for anonymous users only', () => {
+    h.anonymous = true;
+    const { unmount } = open();
+    expect(screen.getByText(/each one is removed 24 hours after you last open it/)).toBeTruthy();
+    unmount();
+    h.anonymous = false;
+    open();
+    expect(screen.queryByText(/each one is removed 24 hours after you last open it/)).toBeNull();
+  });
+
+  it('t/467: anonymous users can enter a web page URL (no sign-in gate on URL sources)', () => {
+    h.anonymous = true;
+    open();
+    fireEvent.click(screen.getByRole('radio', { name: 'Web page' }));
+    const urlInput = screen.getByLabelText(/Web page URL/) as HTMLInputElement;
+    expect(urlInput.disabled).toBe(false);
+    expect(screen.queryByText('Sign in to use URL sources.')).toBeNull();
+    fireEvent.change(urlInput, { target: { value: 'https://example.com/post' } });
+    expect(urlInput.value).toBe('https://example.com/post');
   });
 
   it('Remove moves focus to Choose a file', async () => {
@@ -411,6 +444,33 @@ describe('NewOpEdDialog — settings drawer', () => {
     fireEvent.blur(input);
     expect(input.value).toBe('');
   });
+
+  it('t/467: an anonymous user gets the default outlet band ending at 1,500, with the note; signed in, neither', () => {
+    h.anonymous = true;
+    const { unmount } = open();
+    expect(screen.getByText('1200–1500 words, analytical and evidence-grounded')).toBeTruthy();
+    expect(screen.getByText('Without signing in, op-eds are up to 1,500 words.')).toBeTruthy();
+    // An outlet inside the cap shows its own band and no note.
+    fireEvent.change(screen.getByLabelText('Outlet'), { target: { value: 'Politico' } });
+    expect(screen.queryByText('Without signing in, op-eds are up to 1,500 words.')).toBeNull();
+    unmount();
+    h.anonymous = false;
+    open();
+    expect(screen.getByText('1200–2000 words, analytical and evidence-grounded')).toBeTruthy();
+    expect(screen.queryByText('Without signing in, op-eds are up to 1,500 words.')).toBeNull();
+  });
+
+  it('t/467: an anonymous word count override stops at 1,500 and is sent inside the cap', async () => {
+    h.anonymous = true;
+    open();
+    fireEvent.click(screen.getByRole('button', { name: /More options/ }));
+    const input = screen.getByLabelText('Word count override') as HTMLInputElement;
+    expect(input.max).toBe('1500');
+    fireEvent.change(input, { target: { value: '2000' } });
+    fireEvent.blur(input);
+    expect(input.value).toBe('1500');
+    expect(screen.getByText(/^300–1500\. Overrides/)).toBeTruthy();
+  });
 });
 
 describe('NewOpEdDialog — draft + progress + cancel', () => {
@@ -472,6 +532,54 @@ describe('NewOpEdDialog — draft + progress + cancel', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     expect(screen.getByText('The generator could not be reached.')).toBeTruthy();
     expect(screen.getByText('Check that PowerShell is installed')).toBeTruthy();
+  });
+
+  // t/467: free-pool refusals show Design's line (t/467#72, #74, #77), never the server's text.
+  const refuse = (freePool: Record<string, unknown>) =>
+    createOpEdSet.mockRejectedValue(Object.assign(new Error('raw server text'), { problem: 'raw server text', nextSteps: ['raw step'], freePool }));
+  const draft = () => {
+    fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'Mandatory audits' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Draft/ }));
+  };
+
+  it('t/467: a pre-stream refusal shows the anonymous line, with no server text', async () => {
+    h.anonymous = true;
+    refuse({ code: 'free_pool_region', midStream: false });
+    open();
+    draft();
+    await waitFor(() => expect(screen.getByText("Free op-eds aren't available in your region. To continue, sign in and add your own API key for this model in Settings > API Keys.")).toBeTruthy());
+    expect(screen.queryByText('raw server text')).toBeNull();
+    expect(h.loadOpEdSet).not.toHaveBeenCalled();
+  });
+
+  it('t/467: a session that could not be started, and the word-cap guard, show their own lines', async () => {
+    h.anonymous = true;
+    refuse({ code: 'anon_session_unavailable', midStream: false });
+    const { unmount } = open();
+    draft();
+    await waitFor(() => expect(screen.getByText("Couldn't start creating op-eds without signing in. Try again in a minute.")).toBeTruthy());
+    unmount();
+    refuse({ code: 'anon_word_cap', midStream: false });
+    open();
+    draft();
+    await waitFor(() => expect(screen.getByText('Without signing in, op-eds can be up to 1,500 words. Choose a shorter length, or sign in.')).toBeTruthy());
+  });
+
+  it('t/467: a signed-in user without a key gets the remedy without sign-in', async () => {
+    refuse({ code: 'free_pool_exhausted', midStream: false });
+    open();
+    draft();
+    await waitFor(() => expect(screen.getByText('Free op-eds have run out for now. Try again later, or add your own API key for this model in Settings > API Keys.')).toBeTruthy());
+  });
+
+  it('t/467: a stop partway through checks the set, then says the finished voices are saved', async () => {
+    h.anonymous = true;
+    h.loadOpEdSet.mockResolvedValue({ opeds: [{ status: 'complete' }, { status: 'failed' }] });
+    refuse({ code: 'run_cost_ceiling', midStream: true, setId: 'set-7' });
+    open();
+    draft();
+    await waitFor(() => expect(screen.getByText('This op-ed was stopped because it reached the spending limit for one free run. The voices that finished are saved. Open them from the My tab. Choosing fewer voices or a shorter length uses less.')).toBeTruthy());
+    expect(h.loadOpEdSet).toHaveBeenCalledWith('set-7');
   });
 });
 

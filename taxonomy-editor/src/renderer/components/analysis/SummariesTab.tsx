@@ -10,6 +10,7 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import type { Pov, Category } from '../../types/taxonomy';
 import { SearchWithHistory } from '../shared/SearchWithHistory';
+import { SourceSignInPrompt } from '../shared/SourceSignInPrompt'; // t/678
 import './SummariesTab.css';
 
 // ── Types ──
@@ -242,12 +243,13 @@ interface SummaryContentViewProps {
   summariesFlag: boolean;
   snapshot: string | null;
   snapshotLoading: boolean;
+  snapshotSignIn: boolean;
   getLabelForId: GetLabelForId;
   handleNodeClick: (nodeId: string) => void;
   addUnmappedToTaxonomy: (uc: UnmappedConcept) => void;
 }
 
-function SummaryContentView({ viewMode, keyPoints, summary, summariesFlag, snapshot, snapshotLoading, getLabelForId, handleNodeClick, addUnmappedToTaxonomy }: SummaryContentViewProps) {
+export function SummaryContentView({ viewMode, keyPoints, summary, summariesFlag, snapshot, snapshotLoading, snapshotSignIn, getLabelForId, handleNodeClick, addUnmappedToTaxonomy }: SummaryContentViewProps) {
   return (
     <div className="sumt-content">
       {viewMode === 'key-points' && (
@@ -369,6 +371,8 @@ function SummaryContentView({ viewMode, keyPoints, summary, summariesFlag, snaps
         <div>
           {snapshotLoading ? (
             <div className="panel-empty">Loading document...</div>
+          ) : snapshotSignIn ? (
+            <SourceSignInPrompt />
           ) : !snapshot ? (
             !summariesFlag ? (
               <div className="panel-empty sumt-doc-fallback">
@@ -409,6 +413,7 @@ export function SummariesTab() {
   // Document
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [snapshotSignIn, setSnapshotSignIn] = useState(false); // t/678
 
   // View
   const [viewMode, setViewMode] = useState<ViewMode>('key-points');
@@ -456,10 +461,10 @@ export function SummariesTab() {
 
   // Load snapshot lazily when document view is shown
   useEffect(() => {
-    if (viewMode !== 'document' || !selectedSourceId || snapshot) return;
+    if (viewMode !== 'document' || !selectedSourceId || snapshot || snapshotSignIn) return;
     setSnapshotLoading(true);
     api.loadSnapshot(selectedSourceId)
-      .then(data => setSnapshot(data?.content ?? null))
+      .then(data => { setSnapshotSignIn(data?.signInRequired === true); setSnapshot(data?.signInRequired ? null : data?.content ?? null); })
       .catch(err => {
         getGlobalRecorder()?.record({
           type: 'system.error',
@@ -471,10 +476,10 @@ export function SummariesTab() {
         setSnapshot(null);
       })
       .finally(() => setSnapshotLoading(false));
-  }, [viewMode, selectedSourceId, snapshot]);
+  }, [viewMode, selectedSourceId, snapshot, snapshotSignIn]);
 
   // Reset snapshot when source changes
-  useEffect(() => { setSnapshot(null); }, [selectedSourceId]);
+  useEffect(() => { setSnapshot(null); setSnapshotSignIn(false); }, [selectedSourceId]);
 
   // Filtered and sorted sources
   const filteredSources = useMemo(() => {
@@ -630,6 +635,7 @@ export function SummariesTab() {
               summary={summary}
               summariesFlag={summariesFlag}
               snapshot={snapshot}
+              snapshotSignIn={snapshotSignIn}
               snapshotLoading={snapshotLoading}
               getLabelForId={getLabelForId}
               handleNodeClick={handleNodeClick}

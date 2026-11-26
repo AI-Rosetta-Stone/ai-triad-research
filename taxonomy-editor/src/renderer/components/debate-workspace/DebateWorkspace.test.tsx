@@ -388,6 +388,24 @@ describe('toolbar', () => {
     expect(mockStore.setDefaultDisplayTier).toHaveBeenCalledWith('reasoning');
   });
 
+  it('t/697: the global How control offers Plan and Claims only, with no Convergence', () => {
+    mockStore.defaultDisplayTier = 'reasoning';
+    const { container } = render(<DebateWorkspace />);
+    const select = container.querySelector('select.debate-value-dropdown') as HTMLSelectElement;
+    expect(Array.from(select.querySelectorAll('option')).map((o) => o.textContent)).toEqual(['Plan', 'Claims']);
+    mockStore.defaultDisplayTier = undefined;
+  });
+
+  it('t/697: a saved global default of convergence shows How on Plan, not a blank or Convergence value', () => {
+    mockStore.defaultDisplayTier = 'convergence';
+    const { container } = render(<DebateWorkspace />);
+    const activeSegs = container.querySelectorAll('.debate-mode-seg-active');
+    expect(activeSegs[0].textContent).toBe('How');
+    const select = container.querySelector('select.debate-value-dropdown') as HTMLSelectElement;
+    expect(select.value).toBe('reasoning');
+    mockStore.defaultDisplayTier = undefined;
+  });
+
   it('does not render Export button when onExport prop is not provided', () => {
     render(<DebateWorkspace />);
     expect(screen.queryByTitle('Export debate')).toBeNull();

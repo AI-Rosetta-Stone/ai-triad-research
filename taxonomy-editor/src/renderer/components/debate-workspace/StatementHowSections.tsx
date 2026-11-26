@@ -1,5 +1,5 @@
 // t/469: the vocabulary and lineage sections of the per-statement HOW. Each hides when empty.
-// Convergence is not in the HOW body, and is no longer a per-statement How option (t/643, docs/ux/debate-statement-how.md).
+// There is no Convergence view: not in the HOW body, not per statement (t/643) and not in the global control (t/697).
 
 import type { TranscriptEntry } from '../../types/debate';
 import type { VocabResolution } from '../../utils/vocabularyAnnotations';

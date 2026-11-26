@@ -29,6 +29,7 @@ import { ActionableError } from '@lib/debate/errors';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { categorizeEndpoint, type ResilientFetchOptions } from './resilience';
 import type { CreateOpEdPayload, OpEdProgressEvent } from './types';
+import { preStreamFreePoolCode, midStreamFreePoolCode, freePoolError, type FreePoolCode } from './opedFreePool';
 
 type OpEdProgressCb = (event: OpEdProgressEvent) => void;
 const progressCbs = new Set<OpEdProgressCb>();
@@ -100,26 +101,60 @@ export function documentSourceProblem(serverMessage: string): string | null {
   return null;
 }
 
+/** t/467: the anonymous ceilings and URL-fetch limit answer with their own server text. Those are shown as
+ *  sent, not as the plan-limit copy, which would mislabel a spend pause as a plan limit. */
+function anonLimitError(goal: string, data: Record<string, unknown>): ActionableError {
+  const problem = (data.message as string) || 'Too many requests. Try again later.';
+  // The spend-ceiling text already ends with the sign-in advice, so the next step says only to wait.
+  const nextSteps = data.error === 'spend_ceiling'
+    ? ['Try again later']
+    : ['Try again later', 'Use a topic instead of a web page'];
+  return new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps });
+}
+
+/** The user's next step for a refused create. An unpriced model (403, t/467) needs a different model, not sign-in. */
+function createNextSteps(status: number, problem: string): string[] {
+  if (status !== 403) return ['Check your topic and selected voices, then try again'];
+  if (/no price on file/.test(problem)) return ['Choose a different model in Settings'];
+  if (/anonymous session/.test(problem)) return ['Reload the page, or sign in with GitHub or Google'];
+  return ['Sign in with GitHub or Google to create op-eds'];
+}
+
+/** A refused create that is not a rate limit (400, 403, other). Split out of buildHttpError to keep it
+ *  inside the complexity budget. */
+function refusedCreateError(goal: string, data: Record<string, unknown>, status: number, isDocument: boolean): ActionableError {
+  const serverProblem = (typeof data.error === 'string' && data.error) || (typeof data.message === 'string' && data.message) || `Create failed with HTTP ${status}`;
+  // t/276: a document-source 400 gets Design's plain-language copy; anything else keeps the server's text.
+  const problem = (isDocument && status === 400 && documentSourceProblem(serverProblem)) || serverProblem;
+  // t/475: the auth gate's refusal carries its own user text in `detail`; show it instead of the bare error.
+  const detail = data.reason === 'anon_route_blocked' && typeof data.detail === 'string' ? data.detail : undefined;
+  return new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps: detail ? [detail] : createNextSteps(status, problem) });
+}
+
 /** Build a user-readable ActionableError from a non-200 create response (JSON error emitted
  *  before the SSE headers: 403 anon, 400 bad request, 403 entitlement, 429 quota/concurrency).
  *  `isDocument` is set for a document-source create, so its 400s get the plain-language copy. */
 async function buildHttpError(res: Response, isDocument: boolean): Promise<ActionableError> {
   const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+  // t/467: free-pool and anonymous-limit refusals carry a code the dialog maps to Design's copy.
+  const pool = preStreamFreePoolCode(res.status, data);
+  if (pool) return freePoolError({ code: pool, midStream: false }, { status: res.status, body: data });
   const goal = 'Op-Ed Studio: create an op-ed';
-  if (res.status === 429) {
-    const problem = data.error === 'concurrency_limit'
-      ? (data.message as string) || 'You already have an op-ed generating — wait for it to finish.'
-      : 'You have reached your op-ed limit. Delete an op-ed or try again later.';
-    const err = new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps: data.error === 'concurrency_limit' ? ['Wait for the current op-ed to finish, then try again'] : ['Delete an existing op-ed to free a slot', 'Try again later'] });
-    (err as ActionableError & { httpStatus: number }).httpStatus = 429;
-    return err;
+  const anonLimit = res.status === 429 && (data.error === 'spend_ceiling' || data.error === 'rate_limited');
+  let err: ActionableError;
+  if (anonLimit) {
+    err = anonLimitError(goal, data);
+  } else if (res.status === 429) {
+    const concurrency = data.error === 'concurrency_limit';
+    err = new ActionableError({
+      goal,
+      problem: concurrency ? (data.message as string) || 'You already have an op-ed generating — wait for it to finish.' : 'You have reached your op-ed limit. Delete an op-ed or try again later.',
+      location: 'opedStream.runOpEdCreate',
+      nextSteps: concurrency ? ['Wait for the current op-ed to finish, then try again'] : ['Delete an existing op-ed to free a slot', 'Try again later'],
+    });
+  } else {
+    err = refusedCreateError(goal, data, res.status, isDocument);
   }
-  const serverProblem = (typeof data.error === 'string' && data.error) || (typeof data.message === 'string' && data.message) || `Create failed with HTTP ${res.status}`;
-  const problem = (isDocument && res.status === 400 && documentSourceProblem(serverProblem)) || serverProblem;
-  const nextSteps = res.status === 403
-    ? ['Sign in with GitHub or Google to create op-eds']
-    : ['Check your topic and selected voices, then try again'];
-  const err = new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps });
   (err as ActionableError & { httpStatus: number }).httpStatus = res.status;
   return err;
 }
@@ -132,10 +167,28 @@ function toProgress(event: Record<string, unknown>): OpEdProgressEvent | null {
   switch (event.type) {
     case 'voice_start': return { set_id: '', voice: pov, stage: 'generating' };
     case 'voice_complete': return { set_id: '', voice: pov, stage: 'complete' };
-    case 'voice_failed': return { set_id: '', voice: pov, stage: 'failed', error: typeof event.error === 'string' ? event.error : undefined };
+    // t/467: a pool refusal's raw text isn't shown; the dialog says why once the run ends.
+    case 'voice_failed': return { set_id: '', voice: pov, stage: 'failed', error: typeof event.error === 'string' && !midStreamFreePoolCode(event.code) ? event.error : undefined };
     case 'voice_cancelled': return { set_id: '', voice: pov, stage: 'cancelled' };
     default: return null; // grounding_done/failed (set-level) + run_started/complete
   }
+}
+
+/** The run's 'error' frame as a create error: a free-pool code (t/467) or the frame's own text. `setId` is the
+ *  one run_started gave (t/703; optional until that server change is deployed), so the dialog can check the set. */
+function streamErrorFor(event: Record<string, unknown>, setId: string | undefined): ActionableError {
+  const pool = midStreamFreePoolCode(event.code);
+  if (pool) return freePoolError({ code: pool, midStream: true, ...(setId ? { setId } : {}) }, event);
+  const evtProblem = typeof event.problem === 'string' ? event.problem : (typeof event.message === 'string' ? event.message : 'Op-ed generation failed on the server.');
+  return new ActionableError({ goal: 'Op-Ed Studio: create an op-ed', problem: evtProblem, location: 'opedStream.runOpEdCreate', nextSteps: ['Try creating it again', 'Check My Op-Eds — a partial op-ed may have been saved'] });
+}
+
+/** A finished stream's outcome: the run's error, a pool stop (t/467: the core completed with whatever finished, and
+ *  the dialog checks the set and says so), or the created set. Null when the stream gave no answer. */
+function settleRun(streamError: ActionableError | null, stoppedBy: FreePoolCode | null, setId: string | null): { set_id: string } | null {
+  if (streamError) throw streamError;
+  if (stoppedBy && setId) throw freePoolError({ code: stoppedBy, midStream: true, setId }, { setId });
+  return setId ? { set_id: setId } : null;
 }
 
 /** The web bridge's session-recovering fetch (injected to avoid a circular import). */
@@ -183,23 +236,26 @@ export async function runOpEdCreate(fetchFn: OpEdFetch, payload: CreateOpEdPaylo
   if (!res.ok) { activeAbort = null; throw await buildHttpError(res, !!payload.documentSource); }
 
   let runId = '';
+  let startedSetId: string | undefined;
   let resolvedSetId: string | null = null;
   let streamError: ActionableError | null = null;
+  let poolCode: FreePoolCode | null = null;
   try {
     await consumeSse(res, (frame) => {
       const event = (frame.event ?? frame) as Record<string, unknown>; // frames wrap: {runId, seq, event}
       if (typeof frame.runId === 'string' && frame.runId) runId = frame.runId;
-      if (event.type === 'run_started') { if (typeof event.runId === 'string') runId = event.runId; return; }
+      if (event.type === 'run_started') {
+        if (typeof event.runId === 'string') runId = event.runId;
+        if (typeof event.setId === 'string' && event.setId) startedSetId = event.setId;
+        return;
+      }
       if (event.type === 'complete') {
         const set = event.set as { set_id?: unknown } | undefined;
         if (set && typeof set.set_id === 'string') resolvedSetId = set.set_id;
         return;
       }
-      if (event.type === 'error') {
-        const evtProblem = typeof event.problem === 'string' ? event.problem : (typeof event.message === 'string' ? event.message : 'Op-ed generation failed on the server.');
-        streamError = new ActionableError({ goal: 'Op-Ed Studio: create an op-ed', problem: evtProblem, location: 'opedStream.runOpEdCreate', nextSteps: ['Try creating it again', 'Check My Op-Eds — a partial op-ed may have been saved'] });
-        return;
-      }
+      if (event.type === 'error') { streamError = streamErrorFor(event, startedSetId); return; }
+      if (event.type === 'voice_failed') poolCode ??= midStreamFreePoolCode(event.code); // t/467 (t/668's code)
       const progress = toProgress(event);
       if (progress) emitProgress(progress);
     });
@@ -213,8 +269,9 @@ export async function runOpEdCreate(fetchFn: OpEdFetch, payload: CreateOpEdPaylo
   }
 
   activeAbort = null;
-  if (streamError) throw streamError as ActionableError;
-  if (resolvedSetId) return { set_id: resolvedSetId };
+  // Assigned inside the SSE callback, so TS can't see them change; widen explicitly.
+  const settled = settleRun(streamError as ActionableError | null, poolCode as FreePoolCode | null, resolvedSetId as string | null);
+  if (settled) return settled;
   // Stream ended cleanly but with no 'complete' frame (rare) — recover the terminal state.
   if (runId) return recoverFromRunStatus(fetchFn, runId);
   throw new ActionableError({ goal: 'Op-Ed Studio: create an op-ed', problem: 'The op-ed finished but no result was returned.', location: 'opedStream.runOpEdCreate', nextSteps: ['Check My Op-Eds — it may have been saved', 'Try creating it again'] });
