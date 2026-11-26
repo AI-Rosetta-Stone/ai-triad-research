@@ -414,6 +414,7 @@ function Invoke-SmokeEmbeddingLatencyPhase {
     $Status = 'ok'
     $Ms     = 0
     $Reason = ''
+    $Summary = ''
     # An anonymous session, as the Analytics and DataPresence phases use (t/621). Without it the
     # compute route answers 401 in the CI container, and in prod it answered 200 with no vectors,
     # so the probe timed a request that looked nothing up and reported PASS.
@@ -431,29 +432,46 @@ function Invoke-SmokeEmbeddingLatencyPhase {
         # t/737 (DevOps Lead, p/233#226): the server lets an anonymous caller reach the compute route
         # only while the free-tier key is set (authGates.ts). Where it is not set (the CI container),
         # the probe cannot run, which is not a degradation. Skipped ONLY for 403 with that exact
-        # reason; any other 403 and every other failure stays degraded.
+        # reason; any other 403 and every other refusal is a failed probe.
         if ($Perf.Status -ne 'ok' -and $Perf.HttpStatus -eq 403 -and $AuthReason -eq 'anon_route_blocked') {
             $Status = 'skipped'
             $Reason = 'free tier off (anon embeddings need the free-tier key)'
+            $Summary = "skipped: $Reason"
             Write-Host "  [SKIPPED] embeddings.compute — skipped: $Reason ($($Perf.DurationMs)ms, http 403, auth reason anon_route_blocked)" -ForegroundColor DarkYellow
+        } elseif ($Perf.Status -eq 'failed') {
+            # t/747 (TL ruling on t/716): a probe whose request fails measured no latency. It must say
+            # so, apart from 'slow': the probe answered 500 on every deploy since deploy-63c11e7 and
+            # read like a slow response.
+            $Why = "http $($Perf.HttpStatus)"
+            if ($AuthReason) { $Why += ", auth reason $AuthReason" }
+            $Summary = "probe failed, no latency measured ($Why)"
+            Write-Host "  [FAILED] embeddings.compute — $Summary" -ForegroundColor Red
         } else {
             $PerfIcon  = if ($Perf.Status -eq 'ok') { '[PASS]' } else { '[DEGRADED]' }
             $PerfColor = if ($Perf.Status -eq 'ok') { 'Green' } else { 'Yellow' }
             $PerfWhy   = if ($Perf.Status -ne 'ok' -and $Perf.Count -eq 0 -and $Perf.HttpStatus -eq 200) { '; no vectors returned, latency not measured' } else { '' }
             if ($Perf.Status -ne 'ok' -and $AuthReason) { $PerfWhy += ", auth reason $AuthReason" }
             Write-Host "  $PerfIcon embeddings.compute — $($Perf.DurationMs)ms (ceiling $($CeilingSec)s, $($Perf.Count) vectors, http $($Perf.HttpStatus)$PerfWhy)" -ForegroundColor $PerfColor
+            $Summary = if ($Perf.Status -eq 'ok') { "ok, $($Perf.DurationMs)ms (ceiling $($CeilingSec)s)" }
+            elseif ($Perf.Count -eq 0) { 'no vectors returned, latency not measured (http 200)' }
+            else { "slow: $($Perf.DurationMs)ms against a ceiling of $($CeilingSec)s" }
         }
     } catch {
-        # New-ActionableError from an unreachable server — report degraded, do NOT crash the smoke.
+        # New-ActionableError from an unreachable server — reported, does NOT crash the smoke.
         $Status = 'unreachable'
-        Write-Host "  [DEGRADED] embeddings.compute — unreachable: $($_.Exception.Message)" -ForegroundColor Yellow
+        $Summary = 'probe failed, no latency measured (server unreachable)'
+        Write-Host "  [FAILED] embeddings.compute — unreachable: $($_.Exception.Message)" -ForegroundColor Red
     }
-    if ($Status -notin 'ok', 'skipped') {
+    if ($Status -in 'failed', 'unreachable') {
+        Write-Host "::warning::Embedding probe failed — $Summary. The request did not succeed, so this says nothing about embedding latency (t/747; monitoring signal, does not block the gate)."
+    } elseif ($Status -notin 'ok', 'skipped') {
         Write-Host "::warning::Embedding latency $Status — ${Ms}ms vs ${CeilingSec}s ceiling (perf-regression probe t/3088; monitoring signal, does not block the gate). A sustained breach is the t/3085 cache-miss class."
     }
     Write-Host ''
+    # Status: ok | degraded (slow, or a 200 with no vectors) | failed (a non-200 answer) | unreachable | skipped.
     # Reason (t/737): why the probe was skipped; '' for every other status.
-    return [pscustomobject]@{ Status = $Status; Ms = $Ms; Reason = $Reason }
+    # Summary (t/747): the one line the smoke summary prints for the probe.
+    return [pscustomobject]@{ Status = $Status; Ms = $Ms; Reason = $Reason; Summary = $Summary }
 }
 
 function Invoke-SmokeCachePresencePhase {
@@ -568,7 +586,8 @@ function Get-SmokeResponseStatistic {
 }
 
 function Write-SmokeSummary {
-    param([bool]$OverallPass, [bool]$HealthOk, [bool]$AzureOk, [bool]$GitHubOk, [int]$Passed, [int]$Total, $Stats, $Duration, [bool]$Detailed, $CategorySummary)
+    param([bool]$OverallPass, [bool]$HealthOk, [bool]$AzureOk, [bool]$GitHubOk, [int]$Passed, [int]$Total, $Stats, $Duration, [bool]$Detailed, $CategorySummary,
+        [string]$EmbeddingStatus, [string]$EmbeddingSummary)
     $HealthWord = @{ $true = 'Healthy'; $false = 'Unhealthy' }
     Write-Host '=== Summary ===' -ForegroundColor Cyan
     $SummaryColor = if ($OverallPass) { 'Green' } else { 'Red' }
@@ -577,6 +596,15 @@ function Write-SmokeSummary {
     Write-Host "  Azure:   $($HealthWord[$AzureOk])"
     Write-Host "  GitHub:  $($HealthWord[$GitHubOk])"
     Write-Host "  Endpoints: $Passed/$Total passed"
+    if ($EmbeddingSummary) {
+        # t/747: the probe's outcome is in the summary, so a failed probe is not only a line far above.
+        $EmbColor = if ($EmbeddingStatus -eq 'ok') { 'Gray' } elseif ($EmbeddingStatus -in 'failed', 'unreachable') { 'Red' } else { 'Yellow' }
+        Write-Host "  Embedding probe: $EmbeddingSummary" -ForegroundColor $EmbColor
+        if ($EmbeddingStatus -in 'failed', 'unreachable' -and $env:GITHUB_STEP_SUMMARY) {
+            try { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Embedding probe: $EmbeddingSummary (warning; does not block the gate)" -ErrorAction Stop }
+            catch { Write-Warning "Smoke summary: could not write the embedding probe line to the job summary ($($_.Exception.Message)); it is in the log above." }
+        }
+    }
     if ($Stats.Any) {
         Write-Host "  Response: avg=$([math]::Round($Stats.RawAvg, 0))ms min=$($Stats.Min)ms max=$($Stats.Max)ms"
     }

@@ -251,8 +251,10 @@ Describe 'Invoke-TaxEditorSmokeTest characterization (t/3910)' -Tag 'health' {
             $result.EmbeddingStatus | Should -Be 'unreachable'
             $result.EmbeddingLatencyMs | Should -Be 0
             $result.OverallPass | Should -BeTrue
-            $hostText | Should -Match ([regex]::Escape('[DEGRADED] embeddings.compute — unreachable: embed server unreachable'))
-            $hostText | Should -Match ([regex]::Escape('::warning::Embedding latency unreachable — 0ms vs 2s ceiling'))
+            # t/747: an unreachable server is a failed probe, said as such, never as a latency figure.
+            $hostText | Should -Match ([regex]::Escape('[FAILED] embeddings.compute — unreachable: embed server unreachable'))
+            $hostText | Should -Match ([regex]::Escape('::warning::Embedding probe failed — probe failed, no latency measured (server unreachable)'))
+            $hostText | Should -Match ([regex]::Escape('Embedding probe: probe failed, no latency measured (server unreachable)'))
         }
 
         It '-DeployedSha is passed to Test-GitHubHealth only when given' {

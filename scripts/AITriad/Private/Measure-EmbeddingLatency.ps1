@@ -37,7 +37,7 @@ function Measure-EmbeddingLatency {
         Optional anonymous WebRequestSession (the endpoint is anon-allowed but AUTH_OPTIONAL
         serves a Sign-In interstitial to a cookie-less request — pass a session to avoid it).
     .OUTPUTS
-        [PSCustomObject] { DurationMs; Status ('ok'|'degraded'); Count; HttpStatus; CeilingSec; NodeIds; Error; AuthReason }
+        [PSCustomObject] { DurationMs; Status ('ok'|'degraded'|'failed'); Count; HttpStatus; CeilingSec; NodeIds; Error; AuthReason }
         AuthReason is the X-Auth-Reason header of a non-2xx answer ('' when the server gave none).
     #>
     [CmdletBinding()]
@@ -77,8 +77,11 @@ function Measure-EmbeddingLatency {
     # requires `texts` to be an array (413 otherwise), so force arrays past ConvertTo-Json's
     # single-element unwrap.
     $texts = @($ids | ForEach-Object { "smoke-probe:$_" })
-    $bodyJson = '{"texts":' + (ConvertTo-Json @($texts) -Compress -AsArray) +
-                ',"ids":' + (ConvertTo-Json @($ids) -Compress -AsArray) + '}'
+    # t/747: -InputObject with an array already writes a JSON array, one element included. Adding
+    # -AsArray wrapped it again ('[["a","b"]]'), so the server saw one text that was an array and
+    # answered 500 on every deploy since the probe got a session.
+    $bodyJson = '{"texts":' + (ConvertTo-Json -InputObject @($texts) -Compress) +
+                ',"ids":' + (ConvertTo-Json -InputObject @($ids) -Compress) + '}'
 
     $params = @{
         BaseUrl               = $BaseUrl
@@ -116,7 +119,9 @@ function Measure-EmbeddingLatency {
     # the latency of a response that looked nothing up measures nothing).
     # ok = 200, at least one vector, within the ceiling.
     $problem = $check.Error
-    $status = if (-not $check.Success) { 'degraded' }
+    # failed (t/747) = the request did not succeed (a completed 503/500/403). Nothing was measured,
+    # so it is not 'degraded': a failed probe must not read like a slow one.
+    $status = if (-not $check.Success) { 'failed' }
     elseif ($count -eq 0) { $problem = 'no vectors returned; latency not measured'; 'degraded' }
     elseif ($ms -gt ($CeilingSec * 1000)) { 'degraded' }
     else { 'ok' }
