@@ -2,7 +2,7 @@
   "scenario": "bug-display-merge-without-suggested-id",
   "host": [
     "[Cyan] \n▶  Validating environment",
-    "[Green]    ✓  Model       : gemini-2.5-flash",
+    "[Green]    ✓  Model       : gemini-3.6-flash",
     "[Green]    ✓  Temperature : 0.3",
     "[Cyan] \n▶  Preparing health data",
     "[Green]    ✓  Using pre-computed health data (42 summaries)",
@@ -13,7 +13,7 @@
     "[Green]    ✓  High-variance nodes : 1",
     "[Yellow]    ⚠  Dictionary not found at <ROOT>/dictionary — vocabulary constraints will be omitted",
     "[Green]    ✓  Prompt assembled: 4217 chars (~1054 tokens est.)",
-    "[Cyan] \n▶  Calling AI API (gemini-2.5-flash)",
+    "[Cyan] \n▶  Calling AI API (gemini-3.6-flash)",
     "[Gray]    →  Sending request...",
     "[Green]    ✓  Response received from mock-backend in 0s",
     "[Cyan] \n▶  Parsing AI response",
@@ -23,7 +23,7 @@
     "[Green]    ✓  Proposal written to: <ROOT>/taxonomy/proposals/proposal-20260102-030405.json",
     "[Cyan] \n════════════════════════════════════════════════════════════════════════",
     "[White]   TAXONOMY PROPOSALS",
-    "[Gray]   Model: gemini-2.5-flash  |  Taxonomy v9.9.9  |  1 proposal(s)",
+    "[Gray]   Model: gemini-3.6-flash  |  Taxonomy v9.9.9  |  1 proposal(s)",
     "[Cyan] ════════════════════════════════════════════════════════════════════════",
     "[Yellow] \n  [MERGE] (1)",
     "[White]      Merge",
@@ -56,7 +56,7 @@
     },
     {
       "call": "ai",
-      "model": "gemini-2.5-flash",
+      "model": "gemini-3.6-flash",
       "apiKey": "",
       "temperature": 0.3,
       "maxTokens": 65536,
@@ -71,6 +71,6 @@
   "tree": {
     "taxonomy/": "(dir)",
     "taxonomy/proposals/": "(dir)",
-    "taxonomy/proposals/proposal-20260102-030405.json": "{\n  \"generated_at\": \"2026-01-02T03:04:05Z\",\n  \"model\": \"gemini-2.5-flash\",\n  \"taxonomy_version\": \"9.9.9\",\n  \"summary_count\": 42,\n  \"proposals\": [\n    {\n      \"action\": \"MERGE\",\n      \"label\": \"Merge\",\n      \"pov\": \"skeptic\",\n      \"category\": \"Beliefs\",\n      \"rationale\": \"r\",\n      \"merge_node_ids\": [\n        \"skp-b-1\",\n        \"skp-b-2\"\n      ],\n      \"surviving_node_id\": \"skp-b-1\"\n    }\n  ]\n}\n"
+    "taxonomy/proposals/proposal-20260102-030405.json": "{\n  \"generated_at\": \"2026-01-02T03:04:05Z\",\n  \"model\": \"gemini-3.6-flash\",\n  \"taxonomy_version\": \"9.9.9\",\n  \"summary_count\": 42,\n  \"proposals\": [\n    {\n      \"action\": \"MERGE\",\n      \"label\": \"Merge\",\n      \"pov\": \"skeptic\",\n      \"category\": \"Beliefs\",\n      \"rationale\": \"r\",\n      \"merge_node_ids\": [\n        \"skp-b-1\",\n        \"skp-b-2\"\n      ],\n      \"surviving_node_id\": \"skp-b-1\"\n    }\n  ]\n}\n"
   }
 }

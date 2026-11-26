@@ -137,9 +137,7 @@ else {
 if ($script:ModelRegistry.Count -eq 0) {
     $script:ModelRegistry = @{
         'gemini-flash-lite-latest' = @{ Backend = 'gemini';  ApiModelId = 'gemini-flash-lite-latest' }
-        'gemini-2.5-flash'      = @{ Backend = 'gemini';  ApiModelId = 'gemini-2.5-flash' }
         'gemini-2.5-flash-lite' = @{ Backend = 'gemini';  ApiModelId = 'gemini-2.5-flash-lite' }
-        'gemini-2.5-pro'        = @{ Backend = 'gemini';  ApiModelId = 'gemini-2.5-pro' }
         'claude-opus-4'         = @{ Backend = 'claude';  ApiModelId = 'claude-opus-4-20250514' }
         'claude-haiku-3.5'      = @{ Backend = 'claude';  ApiModelId = 'claude-3-5-haiku-20241022' }
         'groq-openai-gpt-oss-120b' = @{ Backend = 'groq'; ApiModelId = 'openai/gpt-oss-120b' }   # t/4165: llama-3.3-70b and llama-4-scout are retired
@@ -485,7 +483,7 @@ function Measure-PromptTokens {
         try {
             # Key travels in the x-goog-api-key header, not the URL — a ?key= query
             # param leaks via proxy logs and PS5.1 error-record URIs (t/2530 L1).
-            $CountUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:countTokens'
+            $CountUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:countTokens'
             $CountBody = @{
                 contents = @(@{ parts = @(@{ text = $Text }) })
             } | ConvertTo-Json -Depth 5
@@ -1619,8 +1617,8 @@ function ConvertFrom-AIResponseEnvelope {
 .PARAMETER Prompt
     The prompt text to send to the AI model.
 .PARAMETER Model
-    Model identifier from ai-models.json (e.g., 'gemini-2.5-flash',
-    'claude-sonnet-4-6', 'groq-openai-gpt-oss-120b').  Defaults to 'gemini-2.5-flash'.
+    Model identifier from ai-models.json (e.g., 'gemini-3.5-flash-lite',
+    'claude-sonnet-4-6', 'groq-openai-gpt-oss-120b').  Defaults to 'gemini-3.5-flash-lite'.
 .PARAMETER ApiKey
     Optional explicit API key.  If empty, resolved via Resolve-AIApiKey.
 .PARAMETER Temperature
@@ -1649,7 +1647,7 @@ function ConvertFrom-AIResponseEnvelope {
     Skip the pre-flight token count check that warns when a prompt exceeds
     80% of the model's context window.
 .EXAMPLE
-    $Result = Invoke-AIApi -Prompt 'Summarize this document...' -Model 'gemini-2.5-flash'
+    $Result = Invoke-AIApi -Prompt 'Summarize this document...' -Model 'gemini-3.5-flash-lite'
     $Result.Text  # The generated summary
 
 .EXAMPLE
@@ -1662,7 +1660,7 @@ function ConvertFrom-AIResponseEnvelope {
 
     Calls the Groq backend with higher creativity.
 .EXAMPLE
-    Invoke-AIApi -Prompt $P -Model 'gemini-2.5-flash' -FallbackModels @('groq-openai-gpt-oss-120b')
+    Invoke-AIApi -Prompt $P -Model 'gemini-3.5-flash-lite' -FallbackModels @('groq-openai-gpt-oss-120b')
 
     Falls back to Groq if Gemini fails.
 #>
@@ -1672,7 +1670,7 @@ function Invoke-AIApi {
         [Parameter(Mandatory)][string]$Prompt,
         [string]$SystemInstruction = '',
         [ArgumentCompleter({ param($cmd, $param, $word) $script:ModelRegistry.Keys | Where-Object { $_ -like "$word*" } | Sort-Object })]
-        [string]$Model       = 'gemini-2.5-flash',
+        [string]$Model       = 'gemini-3.5-flash-lite',
         [string]$ApiKey      = '',
         [double]$Temperature = 0.1,
         [int]   $MaxTokens   = 1024,
@@ -2023,7 +2021,7 @@ function Get-PovClassificationSampleLocal {
     Write-Host "Title: $($Meta.title), POVs: $($Meta.pov_tags -join ', ')"
 
 .EXAMPLE
-    $Meta = Get-AIMetadata -MarkdownText $md -FallbackTitle 'Unknown Paper' -Model 'gemini-2.5-flash'
+    $Meta = Get-AIMetadata -MarkdownText $md -FallbackTitle 'Unknown Paper' -Model 'gemini-3.5-flash-lite'
 
     Uses a faster model with a fallback title.
 #>

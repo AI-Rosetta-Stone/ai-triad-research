@@ -19,7 +19,7 @@ function getArg(name: string, fallback: string): string {
 }
 
 const COUNT = Math.min(parseInt(getArg('count', '10'), 10), DEBATE_TOPICS.length);
-const MODEL = getArg('model', 'gemini-2.5-flash');
+const MODEL = getArg('model', 'gemini-3.5-flash-lite');
 const OUTDIR = 'debates/flat-t0';
 
 fs.mkdirSync(OUTDIR, { recursive: true });

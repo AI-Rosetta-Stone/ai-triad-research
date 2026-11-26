@@ -425,7 +425,7 @@ async function main(): Promise<void> {
     : undefined;
 
   const adapter = createCLIAdapter(repoRoot, config.apiKey);
-  const model = config.model ?? process.env.AI_MODEL ?? 'gemini-2.5-flash';
+  const model = config.model ?? process.env.AI_MODEL ?? 'gemini-3.5-flash-lite';
   log(`Model: ${model}`);
 
   const moderatorMode = config.moderatorMode ?? 'standard';

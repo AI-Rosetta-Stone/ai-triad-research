@@ -32,7 +32,7 @@
 
 BeforeDiscovery {
     $script:Scenarios = @(
-        @{ Name = 'rich'; Data = 'rich'; Params = @{ Model = 'gemini-2.5-flash' }; OutputFile = 'out/candidates.json'; Ai = 'rich' }
+        @{ Name = 'rich'; Data = 'rich'; Params = @{ Model = 'gemini-3.6-flash' }; OutputFile = 'out/candidates.json'; Ai = 'rich' }
         @{ Name = 'shared-only'; Data = 'rich'; Params = @{ ShowSharedOnly = $true; TopN = 2; NoAI = $true } }
         @{ Name = 'debates-only'; Data = 'rich'; Params = @{ ShowDebatesOnly = $true; TopN = 2; NoAI = $true } }
         @{ Name = 'topn-8-debate-sparse'; Data = 'rich'; Params = @{ TopN = 8; NoAI = $true } }
@@ -47,7 +47,7 @@ BeforeDiscovery {
         @{ Name = 'default-model-tier'; Data = 'rich'; Ai = 'nofence'; Params = @{ TopN = 1 } }
         @{ Name = 'default-model-env'; Data = 'rich'; Ai = 'nofence'; EnvModel = 'claude-haiku-4-5'; Params = @{ TopN = 1 } }
         @{ Name = 'oversized-debate'; Data = 'oversized'; Params = @{ ShowDebatesOnly = $true; TopN = 30; NoAI = $true } }
-        @{ Name = 'none-above-threshold'; Data = 'rich'; Params = @{ MinSimilarity = 0.95; Model = 'gemini-2.5-flash' } }
+        @{ Name = 'none-above-threshold'; Data = 'rich'; Params = @{ MinSimilarity = 0.95; Model = 'gemini-3.6-flash' } }
         @{ Name = 'outputfile-write-fails'; Data = 'rich'; OutputFile = 'out/denied.json'; DenyWrite = $true; Params = @{ NoAI = $true; TopN = 1 } }
         @{ Name = 'err-mutually-exclusive'; Data = 'rich'; Params = @{ ShowSharedOnly = $true; ShowDebatesOnly = $true } }
         @{ Name = 'err-no-embeddings'; Data = 'rich'; NoEmbeddings = $true; Params = @{ NoAI = $true } }
@@ -329,7 +329,7 @@ BeforeAll {
         Mock Get-TaxonomyDir -ModuleName AITriad { $script:FscTaxDir }
         Mock Get-AITierModel -ModuleName AITriad {
             $global:FscCalls.Add([ordered]@{ call = 'tierModel'; tier = $Tier })
-            'gemini-2.5-flash'
+            'gemini-3.6-flash'
         }
         Mock Resolve-AIApiKey -ModuleName AITriad {
             $global:FscCalls.Add([ordered]@{ call = 'resolveKey'; explicitKey = $ExplicitKey; backend = $Backend })

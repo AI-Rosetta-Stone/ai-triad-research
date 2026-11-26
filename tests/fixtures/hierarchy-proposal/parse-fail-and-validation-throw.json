@@ -13,13 +13,13 @@
     "[Gray]    →  safetyist / Beliefs: 2 nodes",
     "[Cyan] \n▶  Bucket 1/2: accelerationist / Beliefs (2 nodes)",
     "[Green]    ✓  Clustering produced 2 clusters",
-    "[Gray]    →  Calling gemini-2.5-flash ...",
+    "[Gray]    →  Calling gemini-3.6-flash ...",
     "[Green]    ✓  Response in <elapsed>s",
     "[Yellow]    ⚠  JSON parse failed, attempting repair...",
     "[Red]    ✗  Could not parse response for accelerationist/Beliefs",
     "[Cyan] \n▶  Bucket 2/2: safetyist / Beliefs (2 nodes)",
     "[Green]    ✓  Clustering produced 2 clusters",
-    "[Gray]    →  Calling gemini-2.5-flash ...",
+    "[Gray]    →  Calling gemini-3.6-flash ...",
     "[Green]    ✓  Response in <elapsed>s",
     "[Yellow]    ⚠  Validation failed for safetyist/Beliefs: The property 'node_id' cannot be found on this object. Verify that the property exists. at <location> — skipping bucket",
     "[Yellow]    ⚠  No proposals generated"
@@ -45,7 +45,7 @@
     {
       "call": "ai",
       "bucket": "accelerationist/Beliefs",
-      "model": "gemini-2.5-flash",
+      "model": "gemini-3.6-flash",
       "apiKey": "",
       "temperature": 0.3,
       "maxTokens": 65536,
@@ -56,7 +56,7 @@
     {
       "call": "ai",
       "bucket": "safetyist/Beliefs",
-      "model": "gemini-2.5-flash",
+      "model": "gemini-3.6-flash",
       "apiKey": "",
       "temperature": 0.3,
       "maxTokens": 65536,

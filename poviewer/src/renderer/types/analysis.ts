@@ -77,7 +77,7 @@ export interface SourceAnalysisState {
 
 // === AI Settings ===
 export interface AiSettings {
-  model: 'gemini-2.5-flash' | 'gemini-2.5-pro';
+  model: string;
   temperature: number;
   customPromptStage1: string | null;
   customPromptStage2: string | null;

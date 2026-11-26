@@ -6,8 +6,8 @@ import path from 'path';
 import os from 'os';
 import type { AiSettings, PromptOverrides } from './analysisTypes.js';
 import { ActionableError } from '../../../lib/debate/errors.js';
+import { DEFAULT_MODEL, loadModelRegistry } from '../../../lib/ai-client/index.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
-import { DEFAULT_MODEL } from '../../../lib/ai-client/index.js';
 import { app } from 'electron';
 import { resolveRepoRootForApp } from '../../../lib/electron-shared/resolveRepoRootForApp.js';
 import { assertSafeId, assertContainedIn } from '../../../lib/electron-shared/safeId.js';
@@ -396,10 +396,52 @@ function ensureConfigDir(): void {
   }
 }
 
+// Google shuts these ids down on 2026-12-01 (t/781); a saved choice maps to its designated successor.
+const RETIRED_MODEL_SUCCESSORS: Record<string, string> = {
+  'gemini-2.5-flash': 'gemini-3.5-flash-lite',
+  'gemini-2.5-pro': 'gemini-3.8-flash',
+};
+
+/**
+ * Map a saved model that Google has retired to its successor. An id that is neither retired nor in
+ * `knownModelIds` is left as the user saved it, with a WARN (it may be a typo or a model removed from
+ * the registry). `knownModelIds` null means the registry could not be read, so the check is skipped.
+ */
+export function migrateRetiredModel(
+  settings: AiSettings,
+  knownModelIds: ReadonlySet<string> | null = null,
+  warn: (message: string) => void = (m) => console.warn(m),
+): AiSettings {
+  const successor = RETIRED_MODEL_SUCCESSORS[settings.model];
+  if (successor) {
+    warn(`WARN: saved AI model '${settings.model}' is retired; using '${successor}' (t/781)`);
+    return { ...settings, model: successor };
+  }
+  if (knownModelIds && !knownModelIds.has(settings.model)) {
+    warn(`WARN: saved AI model '${settings.model}' is not in ai-models.json; leaving it unchanged (t/781)`);
+  }
+  return settings;
+}
+
+function knownRegistryModelIds(): ReadonlySet<string> | null {
+  try {
+    return new Set(loadModelRegistry(PROJECT_ROOT).models.map((m) => m.id));
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'poviewer-settings',
+      level: 'warn',
+      message: 'WARN: could not read ai-models.json to check the saved AI model; skipping the unknown-id check (t/781)',
+      error: { name: (err as Error).name ?? 'Error', message: String(err) },
+    });
+    return null;
+  }
+}
+
 export function loadAiSettings(): AiSettings {
   if (fs.existsSync(AI_SETTINGS_PATH)) {
     const raw = fs.readFileSync(AI_SETTINGS_PATH, 'utf-8');
-    return JSON.parse(raw);
+    return migrateRetiredModel(JSON.parse(raw) as AiSettings, knownRegistryModelIds());
   }
   return { model: DEFAULT_MODEL, temperature: 0.1 };
 }

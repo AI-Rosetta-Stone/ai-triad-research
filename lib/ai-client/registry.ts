@@ -260,7 +260,7 @@ export function parseVersionedModelId(id: string): { family: string; version: nu
  * object, so mutating through one mutates the other.
  *
  * **Alias `.id` field**: for a synthesized `*-latest` alias, `entry.id` is the *concrete* model id
- * (e.g. `gemini-flash-latest` → `.id === 'gemini-2.5-flash'`), not the alias key.
+ * (e.g. `gemini-flash-latest` → `.id === 'gemini-3.5-flash-lite'`), not the alias key.
  *
  * Migration: `buildModelIdMap(r)[id]` → `buildModelEntryMap(r)[id]?.apiModelId`
  */

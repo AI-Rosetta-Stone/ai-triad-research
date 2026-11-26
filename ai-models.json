@@ -224,30 +224,6 @@
       }
     },
     {
-      "id": "gemini-2.5-pro",
-      "apiModelId": "gemini-2.5-pro",
-      "label": "Gemini 2.5 Pro",
-      "backend": "gemini",
-      "minTimeoutMs": 300000,
-      "picker": {
-        "label": "2.5 Pro",
-        "order": 90
-      },
-      "thinks_by_default": true
-    },
-    {
-      "id": "gemini-2.5-flash",
-      "minTimeoutMs": 0,
-      "apiModelId": "gemini-2.5-flash",
-      "label": "Gemini 2.5 Flash",
-      "backend": "gemini",
-      "picker": {
-        "label": "2.5 Flash",
-        "order": 70
-      },
-      "thinks_by_default": true
-    },
-    {
       "id": "gemini-2.5-flash-lite",
       "minTimeoutMs": 0,
       "apiModelId": "gemini-2.5-flash-lite",
@@ -1330,16 +1306,6 @@
       "inputPer1M": 0.25,
       "outputPer1M": 1.5,
       "cachedInputPer1M": 0.025
-    },
-    "gemini-2.5-pro": {
-      "inputPer1M": 1.25,
-      "outputPer1M": 10,
-      "cachedInputPer1M": 0.3125
-    },
-    "gemini-2.5-flash": {
-      "inputPer1M": 0.3,
-      "outputPer1M": 2.5,
-      "cachedInputPer1M": 0.075
     },
     "gemini-2.5-flash-lite": {
       "inputPer1M": 0.1,
