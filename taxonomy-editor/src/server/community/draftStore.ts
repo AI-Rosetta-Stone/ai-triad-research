@@ -93,6 +93,22 @@ function logDraftId(draftId: DraftId): string {
   return draftId.slice(0, 8);
 }
 
+// A record path contains the whole drf_<32hex> id, which is the capability to read and finalize that
+// draft. Logs carry only the short form (t/756).
+function logRecordPath(recordPath: string): string {
+  return recordPath.replace(/drf_[0-9a-f]{8,}/g, (id) => logDraftId(id as DraftId));
+}
+
+// A corrupt or bad-expiry record is deleted only after it has been seen, with identical content, by two
+// sweeps at least this far apart. A torn write finishes in far less (t/756).
+const CORRUPT_MIN_AGE_MS = 10 * 60 * 1000;
+
+// Only an ISO-like string is a date. null, true, or a small number would otherwise become a valid Date
+// (epoch, 1 ms) and classify the record as expired (t/756).
+function parseExpiry(v: unknown): number {
+  return typeof v === 'string' ? new Date(v).getTime() : NaN;
+}
+
 /**
  * Wrapper around stripSensitiveKeysCore that applies the server's sanitizeUserText
  */
@@ -210,7 +226,7 @@ class DraftStoreImpl implements DraftStore {
           rec = JSON.parse(data);
         } catch (err) {
           // A corrupt record has no readable client id, so it cannot be charged to this client (t/507 item 3).
-          log.server.warn(`countClientPendingDrafts: unparseable draft record ${path}: ${(err as any)?.message} (not attributable to a client)`);
+          log.server.warn(`countClientPendingDrafts: unparseable draft record ${logRecordPath(path)} (parse error kind ${(err as Error)?.name ?? 'unknown'}; not attributable to a client)`);
           continue;
         }
         // Expired drafts do not count: they are dead content awaiting sweep (TL t/185#44, blocker 1).
@@ -666,7 +682,7 @@ class DraftStoreImpl implements DraftStore {
       /* telemetry — silent by design (the caller logs what it does with a corrupt record) */
       return 'corrupt';
     }
-    const expiry = new Date((rec as { expiresAt?: unknown } | null)?.expiresAt as string).getTime();
+    const expiry = parseExpiry((rec as { expiresAt?: unknown } | null)?.expiresAt);
     if (Number.isNaN(expiry)) return 'bad_expiry';
     return expiry < this.now() ? 'expired' : 'live';
   }
@@ -679,30 +695,52 @@ class DraftStoreImpl implements DraftStore {
   //   a second read returns the identical content (one truncated or torn read must not delete a live
   //   record), and every such delete is logged with its path and reason (t/507 SO follow-up; t/738, Security).
   private async sweepRecord(recordPath: string, kind: 'draft' | 'claim marker'): Promise<boolean> {
+    const shown = logRecordPath(recordPath);
     try {
       const data = await this.backend.readFile(recordPath);
-      if (data === null) return false;
+      if (data === null) {
+        this.corruptSeen.delete(recordPath);
+        return false;
+      }
       const verdict = this.classifyRecord(data);
-      if (verdict === 'live') return false;
+      if (verdict === 'live') {
+        this.corruptSeen.delete(recordPath);
+        return false;
+      }
       if (verdict === 'empty') {
-        log.server.warn(`sweepExpiredDrafts: ${kind} ${recordPath} read as empty (kept; an empty read is not proof the record is dead)`);
+        log.server.warn(`sweepExpiredDrafts: ${kind} ${shown} read as empty (kept; an empty read is not proof the record is dead)`);
         return false;
       }
       if (verdict !== 'expired') {
         const again = await this.backend.readFile(recordPath);
         if (again !== data) {
-          log.server.warn(`sweepExpiredDrafts: ${kind} ${recordPath} read as ${verdict}, but a second read differed (kept; retried on next sweep)`);
+          log.server.warn(`sweepExpiredDrafts: ${kind} ${shown} read as ${verdict}, but a second read differed (kept; retried on next sweep)`);
           return false;
         }
-        log.server.warn(`sweepExpiredDrafts: deleting ${kind} ${recordPath} on sight, reason ${verdict} (two identical reads, ${data.length} chars)`);
+        // Minimum age: the backend gives no mtime, so the store remembers when it first saw this exact content.
+        const seen = this.corruptSeen.get(recordPath);
+        if (!seen || seen.content !== data) {
+          this.corruptSeen.set(recordPath, { content: data, firstSeen: this.now() });
+          log.server.warn(`sweepExpiredDrafts: ${kind} ${shown} read as ${verdict} (kept; first sighting, deleted only if unchanged after ${CORRUPT_MIN_AGE_MS / 60000} min)`);
+          return false;
+        }
+        if (this.now() - seen.firstSeen < CORRUPT_MIN_AGE_MS) {
+          log.server.warn(`sweepExpiredDrafts: ${kind} ${shown} read as ${verdict} (kept; below the minimum age)`);
+          return false;
+        }
+        log.server.warn(`sweepExpiredDrafts: deleting ${kind} ${shown} on sight, reason ${verdict} (unchanged since first seen, ${data.length} chars)`);
       }
       await this.backend.deleteFile(recordPath);
+      this.corruptSeen.delete(recordPath);
       return true;
     } catch (err) {
-      log.server.warn(`sweepExpiredDrafts: could not sweep ${kind} ${recordPath}: ${(err as any)?.message} (skipped; retried on next sweep)`);
+      log.server.warn(`sweepExpiredDrafts: could not sweep ${kind} ${shown}: ${(err as any)?.message} (skipped; retried on next sweep)`);
       return false;
     }
   }
+
+  // path -> content first seen as corrupt and when; in memory, so a restart only delays a delete.
+  private readonly corruptSeen = new Map<string, { content: string; firstSeen: number }>();
 
   private async sweepExpiredClaimMarkers(addDeleted: (n: number) => void): Promise<void> {
     let files: string[];
@@ -732,7 +770,7 @@ class DraftStoreImpl implements DraftStore {
           rec = JSON.parse(data);
         } catch (err) {
           // One corrupt record must not block every create. Count it conservatively: it may still be live.
-          log.server.warn(`countPendingDrafts: unparseable draft record ${path}: ${(err as any)?.message} (counted as pending)`);
+          log.server.warn(`countPendingDrafts: unparseable draft record ${logRecordPath(path)} (parse error kind ${(err as Error)?.name ?? 'unknown'}; counted as pending)`);
           count++;
           continue;
         }

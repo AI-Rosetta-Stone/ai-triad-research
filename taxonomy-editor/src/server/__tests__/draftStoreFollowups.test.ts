@@ -61,6 +61,7 @@ const FIXTURE_NODES = new Map<string, { label: string; camp?: 'acc' | 'saf' | 's
 ]);
 const basePayload = { result: communityResult(), note: '' } as unknown as InquiryPayload;
 
+const AGE = 11 * 60 * 1000; // past the store's corrupt-record minimum age (t/756)
 const warnedWith = (text: string) => vi.mocked(log.server.warn).mock.calls.some(c => String(c[0]).includes(text));
 
 describe('DraftStore follow-ups (t/507)', () => {
@@ -94,32 +95,46 @@ describe('DraftStore follow-ups (t/507)', () => {
   });
 
   it('item 3: one corrupt draft record does not block creating a draft, and is logged', async () => {
-    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    let t = 1_000_000;
+    const store = createDraftStore({ backend: mockBackend, now: () => t });
     files.set(normalize('community/_drafts/drf_corrupt.json'), '{not json');
     const result = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-corrupt' });
     expect(result.ok).toBe(true);
+    // First sighting: kept (minimum age). It is deleted by a later create once it has aged.
+    expect([...files.keys()].some(k => k.includes('drf_corrupt'))).toBe(true);
+    t += AGE;
+    expect((await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-corrupt' })).ok).toBe(true);
     expect([...files.keys()].some(k => k.includes('drf_corrupt'))).toBe(false);
   });
 
   it('item 3: corrupt draft records are swept before counting, so they do not hold cap slots', async () => {
-    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    let t = 1_000_000;
+    const store = createDraftStore({ backend: mockBackend, now: () => t });
     for (let i = 0; i < 50; i++) files.set(normalize(`community/_drafts/drf_bad${i}.json`), '{bad');
-    // The pre-count sweep removes the 50 corrupt records, so the cap is not exhausted by them.
+    await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'c-b' }); // first sighting of the 50
+    t += AGE;
+    // The pre-count sweep removes the aged corrupt records, so the cap is not exhausted by them.
     expect((await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'c-b' })).ok).toBe(true);
     expect([...files.keys()].some(k => k.includes('drf_bad'))).toBe(false);
   });
 
   it('SO follow-up: a corrupt draft record is deleted by the sweep and logged', async () => {
-    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    let t = 1_000_000;
+    const store = createDraftStore({ backend: mockBackend, now: () => t });
     files.set(normalize('community/_drafts/drf_corrupt.json'), '{bad');
+    expect((await store.sweepExpiredDrafts()).deleted).toBe(0);
+    t += AGE;
     const { deleted } = await store.sweepExpiredDrafts();
     expect(deleted).toBe(1);
     expect(files.has(normalize('community/_drafts/drf_corrupt.json'))).toBe(false);
   });
 
   it('SO follow-up: a claim marker with a bad expiresAt is deleted by the sweep', async () => {
-    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    let t = 1_000_000;
+    const store = createDraftStore({ backend: mockBackend, now: () => t });
     files.set(normalize('community/_drafts/claims/drf_badexp.json'), JSON.stringify({ draftId: 'drf_badexp', expiresAt: 'not-a-date' }));
+    await store.sweepExpiredDrafts();
+    t += AGE;
     const { deleted } = await store.sweepExpiredDrafts();
     expect(deleted).toBe(1);
     expect(files.has(normalize('community/_drafts/claims/drf_badexp.json'))).toBe(false);
@@ -166,17 +181,22 @@ describe('DraftStore follow-ups (t/507)', () => {
   });
 
   it('t/738: a corrupt draft is deleted only after two identical reads, and the delete is logged with path and reason', async () => {
-    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    let t = 1_000_000;
+    const store = createDraftStore({ backend: mockBackend, now: () => t });
     files.set(DRAFT, '{bad');
+    expect((await store.sweepExpiredDrafts()).deleted).toBe(0); // first sighting
+    t += AGE;
     expect((await store.sweepExpiredDrafts()).deleted).toBe(1);
     expect(files.has(DRAFT)).toBe(false);
-    expect(vi.mocked(mockBackend.readFile).mock.calls.filter(c => normalize(String(c[0])) === DRAFT)).toHaveLength(2);
     expect(warned('deleting draft community/_drafts/drf_x.json on sight, reason corrupt')).toBe(true);
   });
 
   it('t/738: a claim marker with a bad expiresAt is deleted after two identical reads, logged with path and reason', async () => {
-    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    let t = 1_000_000;
+    const store = createDraftStore({ backend: mockBackend, now: () => t });
     files.set(CLAIM, JSON.stringify({ draftId: 'drf_x', expiresAt: 'not-a-date' }));
+    await store.sweepExpiredDrafts();
+    t += AGE;
     expect((await store.sweepExpiredDrafts()).deleted).toBe(1);
     expect(warned('deleting claim marker community/_drafts/claims/drf_x.json on sight, reason bad_expiry')).toBe(true);
   });
@@ -197,6 +217,75 @@ describe('DraftStore follow-ups (t/507)', () => {
     await store.sweepExpiredDrafts();
     expect(warned('secret-payload-marker')).toBe(false);
   });
+
+  // ── t/756 ──
+  const FULL = 'drf_0123456789abcdef0123456789abcdef';
+  const FULL_PATH = normalize(`community/_drafts/${FULL}.json`);
+  const allLogged = () => [log.server.warn, log.server.error, log.server.info]
+    .flatMap(f => vi.mocked(f).mock.calls.map(c => c.map(String).join(' '))).join('\n');
+
+  it('t/756: no sweep log line carries the full draft id, and the corrupt text is never logged', async () => {
+    let t = 1_000_000;
+    const store = createDraftStore({ backend: mockBackend, now: () => t });
+    files.set(FULL_PATH, '{"secret-payload-marker": ');
+    await store.sweepExpiredDrafts(); // first sighting
+    t += 60_000;
+    await store.sweepExpiredDrafts(); // below the minimum age
+    files.set(FULL_PATH, '');
+    await store.sweepExpiredDrafts(); // empty
+    files.set(normalize(`community/_drafts/claims/${FULL}.json`), '{"a":1,"expiresAt":"x"}');
+    t += AGE;
+    await store.sweepExpiredDrafts();
+    const logged = allLogged();
+    expect(logged).toContain('drf_0123'); // the short form is present
+    expect(logged).not.toContain(FULL);
+    expect(logged).not.toContain('0123456789abcdef0123456789abcdef');
+    expect(logged).not.toContain('secret-payload-marker');
+  });
+
+  it('t/756: the count paths log a fixed kind for a corrupt record: no full id, no parse message', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    files.set(FULL_PATH, '{"secret-payload-marker": ');
+    await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'c-count' });
+    expect(warnedWith('countPendingDrafts: unparseable draft record')).toBe(true);
+    expect(warnedWith('countClientPendingDrafts: unparseable draft record')).toBe(true);
+    const logged = allLogged();
+    expect(logged).not.toContain(FULL);
+    expect(logged).not.toContain('secret-payload-marker');
+    expect(logged).not.toMatch(/Unexpected|JSON at position|Expected property/);
+  });
+
+  it('t/756: a corrupt record is kept below the minimum age, even across repeated sweeps', async () => {
+    let t = 1_000_000;
+    const store = createDraftStore({ backend: mockBackend, now: () => t });
+    files.set(DRAFT, '{bad');
+    for (let i = 0; i < 5; i++) { t += 60_000; expect((await store.sweepExpiredDrafts()).deleted).toBe(0); }
+    expect(files.has(DRAFT)).toBe(true);
+    t += AGE;
+    expect((await store.sweepExpiredDrafts()).deleted).toBe(1);
+  });
+
+  it('t/756: a corrupt record whose content changes restarts its age', async () => {
+    let t = 1_000_000;
+    const store = createDraftStore({ backend: mockBackend, now: () => t });
+    files.set(DRAFT, '{bad');
+    await store.sweepExpiredDrafts();
+    t += AGE;
+    files.set(DRAFT, '{still bad');
+    expect((await store.sweepExpiredDrafts()).deleted).toBe(0);
+    expect(files.has(DRAFT)).toBe(true);
+  });
+
+  it.each([['null', null], ['true', true], ['a small number', 5], ['an object', {}]])(
+    't/756: expiresAt %s is a corrupt expiry, not an expired record: kept on one read, with a WARN',
+    async (_label, bad) => {
+      const store = createDraftStore({ backend: mockBackend, now: () => 5_000_000 });
+      files.set(DRAFT, JSON.stringify({ draftId: 'drf_x', expiresAt: bad }));
+      expect((await store.sweepExpiredDrafts()).deleted).toBe(0);
+      expect(files.has(DRAFT)).toBe(true);
+      expect(warned('on sight')).toBe(false);
+      expect(warned('read as bad_expiry (kept; first sighting')).toBe(true);
+    });
 
   it('item 4: a failed draft read carries the original error as innerError', async () => {
     const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
