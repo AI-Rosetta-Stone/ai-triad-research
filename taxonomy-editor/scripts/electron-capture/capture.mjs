@@ -19,6 +19,7 @@
 //     --dev        launch the dev build instead (`electron .`; needs `npm run dev:vite` on :5173)
 //     --data-root  AI_TRIAD_DATA_ROOT for the app: a scratch copy of the data, required
 //   Exit 0 when the scenario finishes; 1 with harness.log and error.png in --out otherwise; 2 on bad arguments.
+import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -51,15 +52,34 @@ export function isWithin(child, parent) {
 
 const real = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
 
-/** The real data trees a capture must never run against: .aitriad.json's data_root and this shell's AI_TRIAD_DATA_ROOT. */
-export function protectedDataRoots(root = repoRoot, env = process.env) {
-  const roots = [];
+/** The main checkout that owns `root`: in a worktree `git rev-parse --git-common-dir` is `<main>/.git`, so its
+ *  parent is the main checkout. `root` itself when it is the main checkout or git can't say (t/743). */
+export function mainCheckoutOf(root = repoRoot) {
   try {
-    const cfg = JSON.parse(readFileSync(join(root, '.aitriad.json'), 'utf8'));
-    if (cfg.data_root) roots.push(resolve(root, cfg.data_root));
-  } catch { /* no .aitriad.json: nothing configured to protect beyond the env var */ }
+    const common = execFileSync('git', ['-C', root, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return common ? dirname(common) : root;
+  } catch { return root; }
+}
+
+/** The real data trees a capture must never run against: .aitriad.json's data_root and this shell's AI_TRIAD_DATA_ROOT.
+ *  `.aitriad.json`'s data_root is relative ("../ai-triad-data"), so from a worktree it is resolved against both the
+ *  worktree and the main checkout; protecting both is the safe side, and the main checkout's is the real one (t/743).
+ *  WARNs through `warn` when the configured data_root exists in neither place, so a guard that protects nothing is visible. */
+export function protectedDataRoots(root = repoRoot, env = process.env, warn = console.warn, mainRoot = mainCheckoutOf(root)) {
+  const roots = [];
+  let cfgFound = false;
+  for (const base of new Set([root, mainRoot])) {
+    try {
+      const cfg = JSON.parse(readFileSync(join(base, '.aitriad.json'), 'utf8'));
+      cfgFound = true;
+      if (cfg.data_root) roots.push(resolve(base, cfg.data_root));
+    } catch { /* no .aitriad.json here: nothing configured to protect beyond the env var */ }
+  }
+  if (cfgFound && roots.length > 0 && !roots.some((r) => existsSync(r))) {
+    warn(`WARN electron-capture: .aitriad.json data_root resolves to ${roots.join(' and ')}, which does not exist; the data-root guard protects nothing from it`);
+  }
   if (env.AI_TRIAD_DATA_ROOT) roots.push(resolve(env.AI_TRIAD_DATA_ROOT));
-  return roots.map(real);
+  return [...new Set(roots.map(real))];
 }
 
 /** The nearest ancestor of `p` (or `p` itself) that is a git checkout (has a .git dir or file), or null. */

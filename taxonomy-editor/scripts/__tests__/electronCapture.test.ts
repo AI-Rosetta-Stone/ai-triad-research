@@ -5,11 +5,11 @@
 // refused and one that must pass, so a guard can't pass vacuously.
 
 import { describe, it, expect, afterAll } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // @ts-expect-error -- plain .mjs script without types
-import { allowlistedEnv, dataRootProblem, enclosingRepo, isWithin } from '../electron-capture/capture.mjs';
+import { allowlistedEnv, dataRootProblem, enclosingRepo, isWithin, protectedDataRoots } from '../electron-capture/capture.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'capture-guard-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -50,5 +50,58 @@ describe('electron-capture guards (t/644)', () => {
   it('isWithin is path-aware, not a string prefix', () => {
     expect(isWithin(join(scratch, 'data2'), join(scratch, 'data'))).toBe(false);
     expect(isWithin(join(scratch, 'data', 'x'), join(scratch, 'data'))).toBe(true);
+  });
+});
+
+// t/743: .aitriad.json's data_root is relative, so a worktree resolved it to a path that does not exist.
+describe('protectedDataRoots from a worktree (t/743)', () => {
+  const layout = (name: string) => {
+    const base = join(scratch, name);
+    const main = join(base, 'repo');
+    const wt = join(main, '.worktrees', 'wt');
+    const data = join(base, 'ai-triad-data');
+    mkdirSync(wt, { recursive: true });
+    mkdirSync(data, { recursive: true });
+    writeFileSync(join(main, '.aitriad.json'), JSON.stringify({ data_root: '../ai-triad-data' }));
+    return { main, wt, data };
+  };
+
+  it('main checkout: protects data_root resolved against it, no warning', () => {
+    const { main, data } = layout('main-layout');
+    const warns: string[] = [];
+    const roots = protectedDataRoots(main, {}, (m: string) => warns.push(m), main);
+    expect(roots).toContain(realpathSync(data));
+    expect(warns).toEqual([]);
+  });
+
+  it("worktree: the main checkout's data_root is protected, and the worktree-relative miss is not the only entry", () => {
+    const { main, wt, data } = layout('wt-layout');
+    writeFileSync(join(wt, '.aitriad.json'), JSON.stringify({ data_root: '../ai-triad-data' }));
+    const warns: string[] = [];
+    const roots = protectedDataRoots(wt, {}, (m: string) => warns.push(m), main);
+    expect(roots).toContain(realpathSync(data));
+    expect(warns).toEqual([]); // one of the candidates exists, so the guard protects something
+  });
+
+  it("worktree with no .aitriad.json of its own: falls back to the main checkout's", () => {
+    const { main, wt, data } = layout('wt-nocfg');
+    expect(protectedDataRoots(wt, {}, () => {}, main)).toContain(realpathSync(data));
+  });
+
+  it('env override is protected too', () => {
+    const { main } = layout('env-layout');
+    const envRoot = join(scratch, 'env-data');
+    mkdirSync(envRoot, { recursive: true });
+    expect(protectedDataRoots(main, { AI_TRIAD_DATA_ROOT: envRoot }, () => {}, main)).toContain(realpathSync(envRoot));
+  });
+
+  it('WARNs when the configured data_root exists nowhere', () => {
+    const base = join(scratch, 'missing-layout');
+    mkdirSync(base, { recursive: true });
+    writeFileSync(join(base, '.aitriad.json'), JSON.stringify({ data_root: '../no-such-data' }));
+    const warns: string[] = [];
+    protectedDataRoots(base, {}, (m: string) => warns.push(m), base);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toMatch(/does not exist/);
   });
 });
