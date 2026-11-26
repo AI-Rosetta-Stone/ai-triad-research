@@ -1,0 +1,96 @@
+/* t/764 (docs/ux/debate-fact-check-card.md): the redesigned fact-check card. Tokens only. */
+
+/* §3: card left border by verdict. */
+.debate-type-fact-check { border-left: 3px solid var(--text-muted); background: var(--bg-secondary); }
+.debate-type-fact-check.debate-fact-check-supported { border-left-color: var(--success); }
+.debate-type-fact-check.debate-fact-check-partially_accurate { border-left-color: var(--warning); }
+.debate-type-fact-check.debate-fact-check-disputed,
+.debate-type-fact-check.debate-fact-check-false { border-left-color: var(--danger); }
+.debate-type-fact-check.debate-fact-check-unverifiable { border-left-color: var(--text-muted); }
+
+/* §3: verdict pills. Each text/background pair is an existing AA tint pair. */
+.debate-fact-check-verdict {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  white-space: nowrap;
+}
+.debate-fact-check-verdict.debate-fact-check-supported { color: var(--success-text); background: var(--success-bg); }
+.debate-fact-check-verdict.debate-fact-check-partially_accurate { color: var(--warning-text); background: var(--warning-bg); }
+.debate-fact-check-verdict.debate-fact-check-disputed,
+.debate-fact-check-verdict.debate-fact-check-false { color: var(--error-text); background: var(--error-bg); }
+
+/* §1.1: header. The target is on the right. */
+.debate-fact-check-header-label { font-weight: 700; color: var(--text-primary); }
+.debate-fact-check-target {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+}
+.debate-fact-check-target-link { cursor: pointer; color: var(--focus-ring); text-decoration: underline; }
+.debate-fact-check-target-link:hover { text-decoration: none; }
+.debate-fact-check-target-flash { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* §1.2 Checked, §1.3 finding, §1.4 points. */
+.debate-fact-check-checked { margin: var(--sp-2) 0 var(--sp-1); font-size: var(--text-md); color: var(--text-secondary); }
+.debate-fact-check-checked-text { font-family: var(--font-prose); font-style: italic; color: var(--text-primary); }
+.debate-fact-check-finding {
+  margin: var(--sp-2) 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.debate-fact-check-points { margin: 0 0 var(--sp-2); padding-left: var(--sp-5, 20px); font-family: var(--font-prose); font-size: var(--text-md); color: var(--text-primary); }
+.debate-fact-check-points li + li { margin-top: var(--sp-1); }
+.debate-fact-check-limit-label {
+  font-family: var(--font-sans, inherit);
+  font-variant: small-caps;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--warning-text);
+}
+
+/* §1.5: Claimed / Source says. */
+.debate-fact-check-pair {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--sp-1) var(--sp-3);
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--warning);
+  background: var(--warning-bg);
+  font-size: var(--text-md);
+}
+.debate-fact-check-pair.debate-fact-check-severity-major { border-left-color: var(--danger); background: var(--error-bg); }
+.debate-fact-check-pair dt { font-weight: 700; color: var(--text-secondary); }
+.debate-fact-check-pair dd { margin: 0; color: var(--text-primary); }
+
+/* §1.6 sources row, §1.7 details toggle. */
+.debate-fact-check-sources-row { margin: 0 0 var(--sp-2); font-size: var(--text-sm); color: var(--text-secondary); }
+.debate-fact-check-sources-row-label { font-weight: 600; }
+.debate-fact-check-source-link { color: var(--focus-ring); }
+.debate-fact-check-source-link-plain { color: var(--text-secondary); }
+.debate-fact-check-details-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--focus-ring);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* §2: details panel. */
+.debate-fact-check-details { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
+.debate-fact-check-details-heading { margin: 0 0 var(--sp-1); font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); }
+.debate-fact-check-details-searched { margin: var(--sp-2) 0; font-size: var(--text-sm); color: var(--text-secondary); }

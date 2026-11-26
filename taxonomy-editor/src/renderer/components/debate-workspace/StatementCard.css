@@ -611,64 +611,7 @@ a.lineage-link,
   .debate-statement-body { transition: none; }
 }
 
-/* Fact-check `partially_accurate` verdict (t/1716) — a distinct amber-orange so it
-   reads as "supported with a caveat", NOT the green clean-pass and NOT the amber
-   `disputed`. styles.css is frozen, so the new verdict + discrepancy styles live here. */
-.debate-type-fact-check.debate-fact-check-partially_accurate {
-  border-left-color: #d97706;
-}
-.debate-fact-check-verdict.debate-fact-check-partially_accurate {
-  color: #d97706;
-}
-
-/* Discrepancy caveat surface — sits directly under the verdict so a
-   `partially_accurate` never reads as a clean pass. Severity drives the accent. */
-.debate-fact-check-discrepancy {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-2, 6px);
-  margin: 4px 0 6px;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm, 4px);
-  border-left: 3px solid #d97706;
-  background: rgba(217, 119, 6, 0.08);
-  font-size: var(--text-2xs, 0.7rem);
-  line-height: 1.4;
-}
-.debate-fact-check-discrepancy-severity {
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: #d97706;
-}
-.debate-fact-check-discrepancy-dimension {
-  padding: 0 6px;
-  border-radius: 8px;
-  background: rgba(217, 119, 6, 0.15);
-  color: var(--text-secondary, var(--text-muted));
-  font-weight: 600;
-}
-.debate-fact-check-discrepancy-claimed {
-  text-decoration: line-through;
-  color: var(--text-muted);
-}
-.debate-fact-check-discrepancy-actual {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-/* `major` reads as a real caveat (red), `minor` stays softer (amber). AC#3. */
-.debate-fact-check-discrepancy.debate-fact-check-severity-major {
-  border-left-color: #ef4444;
-  background: rgba(239, 68, 68, 0.10);
-}
-.debate-fact-check-severity-major .debate-fact-check-discrepancy-severity {
-  color: #ef4444;
-}
-.debate-fact-check-severity-major .debate-fact-check-discrepancy-dimension {
-  background: rgba(239, 68, 68, 0.15);
-}
+/* Fact-check verdict pills, borders and the Claimed / Source says pair: FactCheckCard.css (t/764). */
 
 /* ── Per-turn collapse (t/2241, DEBATE_CHAT_REDESIGN) ── */
 
