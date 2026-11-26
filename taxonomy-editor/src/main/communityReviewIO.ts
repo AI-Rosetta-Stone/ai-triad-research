@@ -204,10 +204,35 @@ export function stripSensitiveKeys(obj: unknown): unknown {
   return stripSensitiveKeysShared(obj, (v) => sanitizeText(v, onSanitizeWarn));
 }
 
+/** t/713 (t/693): what anonymous visitors see as the author of a desktop-approved item. The
+ *  server's fixed fallback word; the desktop never holds the pseudonym key, so Community's
+ *  in-server rewrite gives these items their per-contributor pseudonym later. */
+export const COMMUNITY_DISPLAY_FALLBACK = 'Contributor';
+
+/** t/713: the owner of a published item, the same rule as the server's communityItemOwnerKey:
+ *  `owner_storage_id` first, the display only as the pre-t/693 fallback, else null. Taking the
+ *  fallback logs a WARN naming the item id only, never the value (it may be an email address). */
+export function communityItemOwnerKey(item: unknown, itemId?: string): string | null {
+  const meta = asRecord(asRecord(item).community_metadata as unknown);
+  const owner = meta.owner_storage_id;
+  if (typeof owner === 'string' && owner.length > 0) return owner;
+  const display = meta.submitted_by_display;
+  if (typeof display === 'string' && display.length > 0) {
+    const message = `community item ${itemId ?? '(unknown id)'} has no owner_storage_id; owner taken from submitted_by_display (pre-t/693 item)`;
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'communityReviewIO', level: 'warn', message });
+    console.warn(`[communityReviewIO] WARN ${message}`);
+    return display;
+  }
+  return null;
+}
+
 function sanitizeForCommunity(data: unknown, submittedBy: string): Record<string, unknown> {
   const d = stripSensitiveKeys(JSON.parse(JSON.stringify(data))) as Record<string, unknown>;
   d.community_metadata = {
-    submitted_by_display: submittedBy,
+    // t/713: the storage id is a full email address for Google/Entra sign-ins. It goes only in
+    // owner_storage_id, which the server strips from every read; the display is a fixed word.
+    submitted_by_display: COMMUNITY_DISPLAY_FALLBACK,
+    owner_storage_id: submittedBy,
     submitted_at: new Date().toISOString(),
     approved_at: new Date().toISOString(),
     original_id: d.id,
@@ -408,7 +433,7 @@ class CommunityReviewClient {
       id,
       type: safeType,
       title: titleOf(itemData),
-      submitted_by: (asRecord(itemData.community_metadata as unknown).submitted_by_display as string) ?? 'unknown',
+      submitted_by: communityItemOwnerKey(itemData, id) ?? 'unknown', // t/713: owner key first
       removed_by: desktopAdminActor(),
       removed_at: new Date().toISOString(),
       reason: reason ?? null,
