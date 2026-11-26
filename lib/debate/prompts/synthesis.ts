@@ -365,9 +365,17 @@ export function factCheckPrompt(
   taxonomyNodes: string,
   conflictData: string,
   audience?: DebateAudience,
+  /** Whether a web search ran for this check (t/763, Design ruling 3). Hosts should pass it; when
+   *  omitted it is read from the WEB SEARCH RESULTS block the renderer appends to conflictData. */
+  webSearchRan?: boolean,
 ): string {
+  const ranWeb = webSearchRan ?? /=== WEB SEARCH RESULTS ===/.test(conflictData);
+  const webLine = ranWeb
+    ? 'WEB SEARCH: a web search ran for this check; its results are in the section above.'
+    : 'WEB SEARCH: none ran for this check. Do not mention web search, web results or online searches anywhere in your answer.';
   return `You are a fact-checker analyzing a claim made during a structured AI policy debate.
 ${getReadingLevel(audience)}
+${webLine}
 
 === CLAIM TO CHECK ===
 "${selectedText}"
@@ -408,7 +416,11 @@ Also write the reader-facing finding:
 - "finding": ONE sentence of 25 words or fewer that opens with the plain verdict word for your verdict, then states what the evidence shows. Verdict words: supported → "Accurate."; partially_accurate → "Partly accurate." (or "Overstated." when the speaker over-claimed a number or scope); disputed → "Disputed."; false → "False."; unverifiable → "Can't be verified.".
 - "finding_points": 1 to 3 items, each 25 words or fewer, each one concrete piece of evidence behind the finding.
 - "limit": OPTIONAL, 25 words or fewer. Include it only for a real caveat (for example, the evidence is old, narrow, or from one source). Omit it otherwise.
-Rules for the finding, points and limit: name sources by title, publisher or author, never by a raw document id, node id, conflict id or URL. Use neutral summary verbs and add no intensifiers.
+Rules for the finding, points and limit:
+- Name sources by title, publisher or author, never by a raw document id, node id, conflict id or URL. Never name the internal stores this check reads ("conflict data", "taxonomy", "nodes", "conflict logs"); name the outside source behind them, or leave the attribution out. Never invent a source.
+- If the speaker cited a bad or unknown identifier, you may quote it in a point, attributed to them (e.g. "The statement cites '<id>', which doesn't match a known paper."). Never put it in the finding.
+- For "Can't be verified.", describe what was checked (e.g. "No source checked here reports ...") and do not claim it is absent from all public data.
+- Use neutral summary verbs and add no intensifiers.
 
 Respond ONLY with a JSON object (no markdown, no code fences):
 {

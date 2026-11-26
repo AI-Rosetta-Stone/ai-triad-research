@@ -26,6 +26,9 @@ export const FINDING_VERDICT_WORDS: Readonly<Record<FactVerdict, readonly string
 /** Hard cap per text, with slack over the spec's ~25 words so a 27-word line isn't thrown away. */
 export const FINDING_MAX_WORDS = 40;
 
+/** Raw identifiers that must not appear in a finding: arXiv-style ids, POV node ids, conflict ids, URLs. */
+export const RAW_ID = /\b\d{4}\.\d{4,5}(?:v\d+)?\b|\b(?:acc|saf|skp|cc)-[a-z]+-\d{3}\b|\bconflict-[a-z0-9-]{6,}|https?:\/\/\S+/i;
+
 /** A finding must say something after the verdict word (a bare "Can't be verified." repeats the pill). */
 export const FINDING_MIN_WORDS_AFTER_VERDICT = 4;
 
@@ -58,6 +61,9 @@ function findingProblem(finding: unknown, verdict: FactVerdict): string | undefi
   if (!rest || words(rest) < FINDING_MIN_WORDS_AFTER_VERDICT) {
     return `finding has no statement after the verdict word (want ${FINDING_MIN_WORDS_AFTER_VERDICT}+ words)`;
   }
+  // Design ruling (t/763): a raw id may appear in a point, as the speaker's, but never in the finding.
+  const id = RAW_ID.exec(text);
+  if (id) return `finding contains a raw identifier ('${id[0]}')`;
   return undefined;
 }
 

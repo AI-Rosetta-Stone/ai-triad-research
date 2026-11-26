@@ -37,6 +37,9 @@ describe('parseFactCheckFinding', () => {
   it.each([
     ['empty finding', { finding: ' ', finding_points: ['a'] }, 'supported', /finding missing/],
     ['bare verdict word', { finding: "Can't be verified.", finding_points: ['a'] }, 'unverifiable', /no statement after the verdict word/],
+    ['raw arXiv id in the finding', { finding: "Can't be verified. No source checked here reports '2601.11699v4' at all.", finding_points: ['a'] }, 'unverifiable', /raw identifier \('2601\.11699v4'/],
+    ['node id in the finding', { finding: 'Accurate. The claim matches acc-beliefs-012 closely enough.', finding_points: ['a'] }, 'supported', /raw identifier/],
+    ['url in the finding', { finding: 'Accurate. Confirmed by https://example.org/report on the figure.', finding_points: ['a'] }, 'supported', /raw identifier/],
     ['wrong verdict word', { finding: 'Disputed. Something.', finding_points: ['a'] }, 'supported', /verdict word for 'supported'/],
     ['Overstated on a supported verdict', { finding: 'Overstated. The figure was 10, not 12.', finding_points: ['a'] }, 'supported', /verdict word/],
     ['points not an array', { finding: 'Accurate. The report confirms it.', finding_points: 'a' }, 'supported', /not an array/],
@@ -48,6 +51,13 @@ describe('parseFactCheckFinding', () => {
     const r = parseFactCheckFinding(raw, verdict);
     expect(r.value).toBeUndefined();
     expect(r.dropped).toMatch(reason);
+  });
+});
+
+describe('raw ids in points (t/763 ruling 1)', () => {
+  it("allows the speaker's bad id in a point", () => {
+    const r = parseFactCheckFinding({ finding: "Can't be verified. No source checked here reports the cited figure.", finding_points: ["The statement cites '2601.11699v4', which doesn't match a known paper."] }, 'unverifiable');
+    expect(r.dropped).toBeUndefined();
   });
 });
 
@@ -81,8 +91,19 @@ describe('validateFactCheckResult carries the finding (t/763)', () => {
 describe('factCheckPrompt (t/763)', () => {
   const p = factCheckPrompt('claim', 'context', 'nodes', 'conflicts');
   it('asks for finding, finding_points and an optional limit, with the verdict words and the id rule', () => {
-    for (const s of ['"finding"', '"finding_points"', '"limit"', 'Accurate.', 'Partly accurate.', 'Overstated.', "Can't be verified.", 'never by a raw document id', 'no intensifiers']) {
+    for (const s of ['Never put it in the finding', 'No source checked here reports', 'Never name the internal stores', 'Never invent a source', '"finding"', '"finding_points"', '"limit"', 'Accurate.', 'Partly accurate.', 'Overstated.', "Can't be verified.", 'never by a raw document id', 'no intensifiers']) {
       expect(p).toContain(s);
     }
+  });
+});
+
+describe('factCheckPrompt web-search line (t/763 ruling 3)', () => {
+  it('says no web search ran, and forbids mentioning it, when none ran', () => {
+    expect(factCheckPrompt('c', 'ctx', 'n', 'conflicts only')).toContain('WEB SEARCH: none ran for this check. Do not mention web search');
+    expect(factCheckPrompt('c', 'ctx', 'n', 'x', undefined, false)).toContain('none ran');
+  });
+  it('says a web search ran when the host says so, or when the results block is present', () => {
+    expect(factCheckPrompt('c', 'ctx', 'n', 'x', undefined, true)).toContain('a web search ran for this check');
+    expect(factCheckPrompt('c', 'ctx', 'n', 'x\n\n=== WEB SEARCH RESULTS ===\nr')).toContain('a web search ran for this check');
   });
 });
