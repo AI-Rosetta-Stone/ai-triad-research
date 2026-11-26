@@ -72,7 +72,7 @@
 }
 
 .debate-turn-symbol {
-  font-size: var(--text-base);
+  font-size: var(--text-md);
   line-height: 1;
   cursor: default;
 }
