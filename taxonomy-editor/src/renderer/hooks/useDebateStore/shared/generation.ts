@@ -6,6 +6,7 @@ import { useDebateStore } from '../store';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { parseAIJson } from '@lib/debate/helpers';
+import { parseEntrySummaries } from '@lib/debate/entrySummaries';
 import { entrySummarizationPrompt } from '../../../prompts/debate';
 import { findNodeMetaInStore } from './taxonomyContext';
 import { _abortController, isCancellationError } from './guards';
@@ -81,6 +82,18 @@ export async function generateTextWithProgress(
   }
 }
 
+/** t/782: WARN (flight recorder + console) when a structured Brief was dropped or kept with a soft problem. */
+function warnStructuredBrief(entryId: string, debateId: string | undefined, dropped?: string, soft?: string): void {
+  if (dropped) {
+    getGlobalRecorder()?.record({ type: 'ai.fallback', component: 'debate-store', level: 'warn', debate_id: debateId, message: `Structured Brief dropped for entry ${entryId} (${dropped}); the brief paragraph is kept`, data: { entry_id: entryId, reason: dropped } });
+    console.warn(`[debate] WARN summarizeEntry: structured Brief dropped for ${entryId} (${dropped}); brief paragraph kept (t/782)`);
+  }
+  if (soft) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-store', level: 'warn', debate_id: debateId, message: `Structured Brief kept with a warning for entry ${entryId}: ${soft}`, data: { entry_id: entryId, reason: soft } });
+    console.warn(`[debate] WARN summarizeEntry: ${entryId} ${soft} (t/782)`);
+  }
+}
+
 /** Post-turn summarization (DT-2): generate brief + medium summaries for a transcript entry. */
 export async function summarizeTranscriptEntry(
   entryId: string,
@@ -95,21 +108,21 @@ export async function summarizeTranscriptEntry(
     try {
       const prompt = entrySummarizationPrompt(content, speaker);
       const { text } = await api.generateText(prompt, model);
-      const parsed = parseAIJson<{ brief?: string; medium?: string }>(text);
-      if (!parsed) {
-        console.warn(`[debate] summarizeEntry: parseAIJson returned null (attempt ${attempt + 1}/${MAX_RETRIES}). Raw response:`, text.slice(0, 500));
+      // t/782: the same parser the engine path uses (t/700), so the two can't diverge. brief and medium are
+      // required; brief_claim/brief_points are kept only when well formed. Unparseable JSON throws into the
+      // catch below, which retries.
+      const { summaries, structuredDropped, structuredWarning } = parseEntrySummaries(text);
+      if (!summaries) {
+        console.warn(`[debate] summarizeEntry: missing brief/medium (attempt ${attempt + 1}/${MAX_RETRIES}). Raw response:`, text.slice(0, 500));
         continue;
       }
-      if (!parsed.brief || !parsed.medium) {
-        console.warn(`[debate] summarizeEntry: missing brief/medium (attempt ${attempt + 1}/${MAX_RETRIES}). Parsed:`, parsed);
-        continue;
-      }
+      warnStructuredBrief(entryId, get().activeDebate?.id, structuredDropped, structuredWarning);
       // Re-read current state to avoid clobbering phase changes from concurrent tasks
       const debate = get().activeDebate;
       if (!debate) return;
       const entry = debate.transcript.find(e => e.id === entryId);
       if (entry) {
-        entry.summaries = { brief: parsed.brief, medium: parsed.medium };
+        entry.summaries = summaries;
         set({ activeDebate: { ...debate } });
       }
       return; // success

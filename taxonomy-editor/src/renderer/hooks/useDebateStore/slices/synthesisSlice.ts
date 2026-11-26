@@ -22,7 +22,7 @@ import { finalizeUndecidedCruxes } from '@lib/debate/cruxResolution';
 import { formatTaxonomyContext } from '../../../utils/taxonomyContext';
 import { formatCommitments, formatEstablishedPoints, formatConcessionCandidatesHint } from '../../../prompts/argumentNetwork';
 import { formatVocabularyContext } from '@lib/debate/vocabularyContext';
-import { concludingPrompt, entrySummarizationPrompt, missingArgumentsPrompt, taxonomyRefinementPrompt, crossCuttingNodePrompt } from '../../../prompts/debate';
+import { concludingPrompt, missingArgumentsPrompt, taxonomyRefinementPrompt, crossCuttingNodePrompt } from '../../../prompts/debate';
 import { computeQbafStrengths } from '@lib/debate/qbaf';
 import type { QbafNode, QbafEdge } from '@lib/debate/qbaf';
 import { factCheckToBaseStrength } from '@lib/debate/argumentNetwork';
