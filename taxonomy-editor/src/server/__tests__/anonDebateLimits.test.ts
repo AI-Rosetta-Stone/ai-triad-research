@@ -233,6 +233,25 @@ describe('t/724 check B: a debate AI call belongs to the caller\'s own saved Qui
   });
 });
 
+describe('Security p/93#142: moderator mode and dialectical diagnostics', () => {
+  it.each(['talmudic', 'socratic', 'anything'])('check A refuses protocol structured with moderator_mode %s', (mode) => {
+    expect(anonDebateShapeViolation(quick({ moderator_mode: mode }))).toMatchObject({ code: 'anon_debate_kind', detail: 'moderator_mode' });
+  });
+  it('accepts moderator_mode absent or standard', () => {
+    expect(anonDebateShapeViolation(quick({ moderator_mode: 'standard' }))).toBeNull();
+    expect(anonDebateShapeViolation(quick())).toBeNull();
+  });
+  it('strips dialectical_diagnostics from a PUT, a PATCH meta and a PATCH changedFields', () => {
+    const dd = [{ round: 1, response: { card_id: 'c', limiting_difference: 'PROSE' } }];
+    const put = { id: 'd', dialectical_diagnostics: dd };
+    expect(as(ANON, () => stripAnonDiagnostics(put, 'PUT /api/debates'))).toBe(Buffer.byteLength(JSON.stringify(dd)));
+    expect(put).toEqual({ id: 'd' });
+    const d = { debateId: 'd', baseVersion: 1, meta: { dialectical_diagnostics: dd }, changedFields: { dialectical_diagnostics: dd } };
+    as(ANON, () => stripAnonDiagnostics(d, 'PATCH /api/debates/:id'));
+    expect(d).toEqual({ debateId: 'd', baseVersion: 1, meta: {}, changedFields: {} });
+  });
+});
+
 describe('TL p/16#466: an anonymous save keeps no diagnostics', () => {
   const diag = { entries: { e1: { prompt: 'SECRET-PROMPT', raw_response: 'SECRET-RESPONSE' } }, enabled: true };
   it('strips diagnostics from a PUT body, a PATCH meta and a PATCH changedFields, and reports the bytes', () => {

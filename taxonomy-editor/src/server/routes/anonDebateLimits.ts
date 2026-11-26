@@ -118,6 +118,9 @@ export function anonDebateShapeViolation(session: unknown): AnonDebateViolation 
   if (!session || typeof session !== 'object') return kind('not_object');
   const s = session as Record<string, unknown>;
   if (s.protocol_id !== ANON_DEBATE_PROTOCOL) return kind('protocol');
+  // Security p/93#142: the Talmudic and Socratic moderators are a moderator MODE, not a protocol, so a client could pair
+  // protocol 'structured' with moderator_mode 'talmudic'. The renderer writes 'standard' (debateEngine.ts:974) or nothing.
+  if (s.moderator_mode !== undefined && s.moderator_mode !== 'standard') return kind('moderator_mode');
   const debaters = debatersOf(s);
   if (!debaters) return kind('debaters');
   return roundsViolation(s) ?? transcriptViolation(s, debaters);
@@ -149,16 +152,20 @@ export function stripAnonDiagnostics(payload: unknown, route: string): number {
   if (!isHostedAnonymousRequest() || !payload || typeof payload !== 'object') return 0;
   const p = payload as Record<string, unknown>;
   let bytes = 0;
-  const drop = (holder: unknown): void => {
+  const dropKey = (holder: unknown, key: string): void => {
     if (!holder || typeof holder !== 'object') return;
     const h = holder as Record<string, unknown>;
-    if (!Object.prototype.hasOwnProperty.call(h, 'diagnostics')) return;
-    bytes += Buffer.byteLength(JSON.stringify(h.diagnostics ?? null));
-    delete h.diagnostics;
+    if (!Object.prototype.hasOwnProperty.call(h, key)) return;
+    bytes += Buffer.byteLength(JSON.stringify(h[key] ?? null));
+    delete h[key];
   };
+  const drop = (holder: unknown): void => dropKey(holder, 'diagnostics');
   drop(p);
   drop(p.meta);
   drop(p.changedFields);
+  dropKey(p, 'dialectical_diagnostics'); // Security p/93#142: Talmudic per-round records (model prose); a hostile client could send them
+  dropKey(p.meta, 'dialectical_diagnostics');
+  dropKey(p.changedFields, 'dialectical_diagnostics');
   if (bytes > 0) log.api.debug({ component: 'anon-limits', route, stripped_bytes: bytes }, 'Anonymous debate save: diagnostics stripped (t/723)');
   return bytes;
 }
