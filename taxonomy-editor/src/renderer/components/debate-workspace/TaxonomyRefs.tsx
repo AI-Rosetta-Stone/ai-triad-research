@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { TaxonomyRef, TranscriptEntry } from '../../types/debate';
@@ -736,6 +736,17 @@ function CompactRow(p: CompactRowProps) {
   );
 }
 
+/** A group heading line: the label on the left and, on the first line of the panel, the
+ *  Expand all / Collapse all control on the right (t/778, Design p/14#134). */
+function WhyHeading({ label, control }: { label: string; control?: ReactNode }) {
+  return (
+    <div className="debate-why-head">
+      <span className="taxrefs-bdi-group-label">{label}</span>
+      {control}
+    </div>
+  );
+}
+
 interface CompactListProps {
   selectedBdiNodeId: string | null;
   toggleBdiNode: (nodeId: string) => void;
@@ -755,10 +766,10 @@ function CompactBdiRef({ taxRef, selectedBdiNodeId, toggleBdiNode, expl }: Compa
   );
 }
 
-function CompactPolicyRefs({ polRefs, selectedBdiNodeId, toggleBdiNode, expl }: CompactListProps & { polRefs: PolicyRefEntry[] }) {
+function CompactPolicyRefs({ polRefs, selectedBdiNodeId, toggleBdiNode, expl, control }: CompactListProps & { polRefs: PolicyRefEntry[]; control?: ReactNode }) {
   return (
     <div className="taxrefs-policy-refs" role="group" aria-label={`Policy actions, ${polRefs.length} ${polRefs.length === 1 ? 'action' : 'actions'}`}>
-      <div className="taxrefs-bdi-group-label">Policy actions ({polRefs.length})</div>
+      <WhyHeading label={`Policy actions (${polRefs.length})`} control={control} />
       {polRefs.map((polRef, i) => {
         const { id, relevance } = resolvePolRef(polRef);
         return (
@@ -775,11 +786,13 @@ function CompactPolicyRefs({ polRefs, selectedBdiNodeId, toggleBdiNode, expl }: 
 
 /** t/778 §1: Desires, Intentions and Beliefs run as one list with no group headings (the id
  *  carries the category). Situations and policy actions keep theirs, as they are not BDI. */
-function CompactBdiBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode, expl, listId }: CompactListProps & {
+function CompactBdiBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode, expl, listId, control }: CompactListProps & {
   refs: TaxonomyRef[];
   polRefs: PolicyRefEntry[];
   setSelectedBdiNodeId: React.Dispatch<React.SetStateAction<string | null>>;
   listId: string;
+  /** The Expand all / Collapse all link: on the BDI eyebrow, or on the first heading when there are no BDI rows. */
+  control: ReactNode;
 }) {
   const groups = useMemo(() => groupRefsByBdi(refs), [refs]);
   const bdiRefs = groups.filter(g => g.key !== 'situations').flatMap(g => g.refs);
@@ -789,14 +802,24 @@ function CompactBdiBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId
   );
   return (
     <div className="debate-reasoning-section-body" id={listId}>
-      {bdiRefs.length > 0 && <div className="taxrefs-bdi-group" role="group" aria-label="BDI nodes">{bdiRefs.map(row)}</div>}
+      {bdiRefs.length > 0 && (
+        <div className="taxrefs-bdi-group" role="group" aria-label="BDI nodes">
+          <WhyHeading label="BDI" control={control} />
+          {bdiRefs.map(row)}
+        </div>
+      )}
       {sitRefs.length > 0 && (
         <div className="taxrefs-bdi-group" role="group" aria-label={`Situations, ${sitRefs.length} node${sitRefs.length === 1 ? '' : 's'}`}>
-          <div className="taxrefs-bdi-group-label">Situations ({sitRefs.length})</div>
+          <WhyHeading label={`Situations (${sitRefs.length})`} control={bdiRefs.length === 0 ? control : undefined} />
           {sitRefs.map(row)}
         </div>
       )}
-      {polRefs.length > 0 && <CompactPolicyRefs polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} expl={expl} />}
+      {polRefs.length > 0 && (
+        <CompactPolicyRefs
+          polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} expl={expl}
+          control={bdiRefs.length === 0 && sitRefs.length === 0 ? control : undefined}
+        />
+      )}
       {selectedBdiNodeId && <TaxNodeDetail nodeId={selectedBdiNodeId} onClose={() => setSelectedBdiNodeId(null)} />}
     </div>
   );
@@ -827,18 +850,16 @@ export function BdiGroundingView({ refs, policyRefs, metaPolicyRefs, emptyText =
   if (refs.length === 0 && polRefs.length === 0) {
     return <p className="taxrefs-why-empty">{emptyText}</p>;
   }
+  const control = (
+    <button type="button" className="debate-why-expand-all" aria-controls={listId} onClick={() => expl.setAll(!expl.allOpen)}>
+      {expl.allOpen ? 'Collapse all' : 'Expand all'}
+    </button>
+  );
   return (
-    <>
-      <div className="debate-why-toolbar">
-        <button type="button" className="debate-why-expand-all" aria-controls={listId} onClick={() => expl.setAll(!expl.allOpen)}>
-          {expl.allOpen ? 'Collapse all' : 'Expand all'}
-        </button>
-      </div>
-      <CompactBdiBody
-        refs={refs} polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} setSelectedBdiNodeId={setSelectedBdiNodeId}
-        toggleBdiNode={toggleBdiNode} expl={expl} listId={listId}
-      />
-    </>
+    <CompactBdiBody
+      refs={refs} polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} setSelectedBdiNodeId={setSelectedBdiNodeId}
+      toggleBdiNode={toggleBdiNode} expl={expl} listId={listId} control={control}
+    />
   );
 }
 
