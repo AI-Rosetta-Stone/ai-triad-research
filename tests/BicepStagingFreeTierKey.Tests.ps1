@@ -3,8 +3,8 @@
 
 # t/4732 (PI decision 2026-11-10): staging gets its own Gemini free-tier key, secret
 # free-tier-gemini-key-staging, so it stops drawing on prod's pool. The staging app alone may
-# hold or reference that secret; prod stays on the shared free-tier-gemini-key. An empty staging
-# param falls back to the shared key. Static parse of the real main.bicep, same approach as
+# hold or reference that secret; prod stays on its own free-tier-gemini-key. An empty staging
+# param leaves staging with no free-tier key (t/654: no fallback to prod's key). Static parse of the real main.bicep, same approach as
 # BicepAllowedOrigins.Tests.ps1.
 
 BeforeAll {
