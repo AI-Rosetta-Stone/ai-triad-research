@@ -27,6 +27,7 @@ import { computeExtractionCoverage } from './calibrationLogger.js';
 import { runNeutralEvaluation, buildSpeakerMapping, resolveEvaluatorModel } from './neutralEvaluator.js';
 import { buildMediumTierSummary, buildDistantTierSummary } from './tieredCompression.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { unreadableListLines } from './synthesisOrder.js';
 import { computeNodeEngagement, type EngagementTranscriptEntry } from './reflectionScope.js';
 import { POV_PREFIXES } from './nodeIdUtils.js';
 
@@ -113,7 +114,7 @@ export class SynthesisPipeline {
         lines.push(`- ${a.point} (${povers})`);
       }
       lines.push('');
-    }
+    } else lines.push(...unreadableListLines(concludingData, 'areas_of_agreement', '**Areas of Agreement:**'));
     if (disagreements?.length) {
       lines.push('**Areas of Disagreement:**');
       lines.push('');
@@ -131,7 +132,7 @@ export class SynthesisPipeline {
         }
       }
       lines.push('');
-    }
+    } else lines.push(...unreadableListLines(concludingData, 'areas_of_disagreement', '**Areas of Disagreement:**'));
     if (cruxes?.length) {
       lines.push('**Cruxes:**');
       lines.push('');
@@ -142,7 +143,7 @@ export class SynthesisPipeline {
         if (crux.if_no) lines.push(`    - If no, weakens: ${crux.if_no}`);
       }
       lines.push('');
-    }
+    } else lines.push(...unreadableListLines(concludingData, 'cruxes', '**Cruxes:**'));
 
     const unresolvedQuestions = concludingData.unresolved_questions as string[] | undefined;
     if (unresolvedQuestions?.length) {

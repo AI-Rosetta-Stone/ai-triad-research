@@ -11,6 +11,7 @@ import { POVER_INFO } from './types.js';
 import type { Pov, Category, GraphAttributes } from './taxonomyTypes.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
 import { ActionableError } from './errors.js';
+import { salvageJsonArray } from './partialJsonSalvage.js';
 
 export function generateId(): string {
   return crypto.randomUUID();
@@ -583,29 +584,11 @@ export function parseJsonRobust(text: string): unknown {
 
 // ── Partial JSON salvage ─────────────────────────────────
 
-/** Extract a single complete JSON array from a (possibly truncated) JSON string */
+/** Extract a JSON array from a (possibly truncated or partly malformed) JSON string. Element-wise
+ *  since t/774: one bad element no longer loses the whole list. Callers that must report what was
+ *  dropped use salvageJsonArray directly. */
 function extractArrayFromJson(json: string, key: string): unknown[] {
-  const search1 = `"${key}": [`;
-  const search2 = `"${key}":[`;
-  let idx = json.indexOf(search1);
-  if (idx < 0) idx = json.indexOf(search2);
-  if (idx < 0) return [];
-
-  const bracketStart = json.indexOf('[', idx);
-  if (bracketStart < 0) return [];
-
-  let depth = 0;
-  for (let i = bracketStart; i < json.length; i++) {
-    if (json[i] === '[') depth++;
-    else if (json[i] === ']') {
-      depth--;
-      if (depth === 0) {
-        try { return JSON.parse(json.slice(bracketStart, i + 1)); }
-        catch { return []; }
-      }
-    }
-  }
-  return [];
+  return salvageJsonArray(json, key).items;
 }
 
 /** Extract all known synthesis arrays from a truncated JSON response.

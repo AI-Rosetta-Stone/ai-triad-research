@@ -13,7 +13,9 @@ import {
   synthEvaluatePrompt,
 } from './prompts.js';
 import { formatCruxResolutionContext } from './cruxResolution.js';
-import { parseJsonRobust, stripCodeFences, extractArraysFromPartialJson } from './helpers.js';
+import { parseJsonRobust, stripCodeFences } from './helpers.js';
+import { salvageJsonArray } from './partialJsonSalvage.js';
+import { getGlobalRecorder } from '../flight-recorder/index.js';
 import { prepareSynthesisLists } from './synthesisOrder.js';
 import type { UsageCallDeps } from '../ai-client/usageRegistry.js';
 import { callByUsage } from '../ai-client/usageRegistry.js';
@@ -93,19 +95,55 @@ function mergePhaseData(
   for (const key of phaseKeys) {
     if (key in source) target[key] = source[key];
   }
+  // t/774: lists whose every item was malformed; readers see "couldn't be read", not "none".
+  const unreadable = Array.isArray(source.unreadable_lists) ? (source.unreadable_lists as string[]).filter(k => phaseKeys.includes(k)) : [];
+  if (unreadable.length) target.unreadable_lists = [...((target.unreadable_lists as string[] | undefined) ?? []), ...unreadable];
 }
 
 // ── Phase runner ─────────────────────────────────────────
 
+/**
+ * t/774: salvage each of the phase's lists element by element. A malformed item is dropped with a
+ * WARN naming its index and reason; the rest are kept. A list with every item malformed is named in
+ * `unreadable_lists`. The raw response's head and tail are recorded so the loss can be inspected.
+ */
+function salvagePhase(text: string, phaseName: string, phaseKeys: readonly string[], warn?: SynthesisWarnFn): Record<string, unknown> {
+  const fallback: Record<string, unknown> = {};
+  const unreadable: string[] = [];
+  const report: Record<string, unknown> = {};
+  for (const key of phaseKeys) {
+    const s = salvageJsonArray(text, key);
+    if (!s.found) continue;
+    fallback[key] = s.items;
+    report[key] = { kept: s.items.length, dropped: s.dropped, repaired: s.repaired };
+    if (s.repaired.length) warn?.(`Synthesis ${phaseName} parse`, `${key}: repaired malformed item(s) ${s.repaired.map(i => `#${i}`).join(', ')} (a property name missing its opening quote)`, 'The items are kept');
+    if (s.dropped.length === 0) continue;
+    if (s.items.length === 0) unreadable.push(key);
+    warn?.(
+      `Synthesis ${phaseName} parse`,
+      `${key}: dropped malformed item(s) ${s.dropped.map(d => `#${d.index} (${d.reason})`).join(', ')}; kept ${s.items.length}`,
+      s.items.length ? 'The remaining items are kept' : 'The list is shown as unreadable',
+    );
+  }
+  if (unreadable.length) fallback.unreadable_lists = unreadable;
+  getGlobalRecorder()?.record({
+    type: 'ai.fallback', component: 'synthesis-phases', level: 'warn',
+    message: `Synthesis ${phaseName}: whole-response JSON parse failed; salvaged lists element by element`,
+    data: { phase: phaseName, report, unreadable_lists: unreadable, raw_head: text.slice(0, 400), raw_tail: text.slice(-300) },
+  });
+  return fallback;
+}
+
 function parsePhaseResponse(
   raw: string,
   phaseName: string,
+  phaseKeys: readonly string[],
   warn?: SynthesisWarnFn,
 ): Record<string, unknown> {
   try {
     return parseJsonRobust(raw) as Record<string, unknown>;
   } catch {
-    const fallback = extractArraysFromPartialJson(stripCodeFences(raw));
+    const fallback = salvagePhase(stripCodeFences(raw), phaseName, phaseKeys, warn);
     if (Object.keys(fallback).length === 0) {
       warn?.(
         `Synthesis ${phaseName} parse`,
@@ -169,7 +207,7 @@ export async function runSynthesisPhases(
     synthExtractPrompt(input.topic, input.transcript, input.audience, cruxContext),
     'Synthesis Phase 1: Extract',
   );
-  const extractData = parsePhaseResponse(extractRaw, 'Phase 1', warn);
+  const extractData = parsePhaseResponse(extractRaw, 'Phase 1', PHASE_KEYS.extract, warn);
   if (Object.keys(extractData).length === 0) {
     warn?.('Synthesis Phase 1', 'AI returned empty or unparseable output — synthesis data will be incomplete', 'Proceeding with partial synthesis');
   }
@@ -194,7 +232,7 @@ export async function runSynthesisPhases(
     synthMapPrompt(input.topic, input.transcript, disagreementsSummary, input.hasSourceDoc ?? false, input.audience),
     'Synthesis Phase 2: Map',
   );
-  let mapData = parsePhaseResponse(mapRaw, 'Phase 2', warn);
+  let mapData = parsePhaseResponse(mapRaw, 'Phase 2', PHASE_KEYS.map, warn);
   if (Object.keys(mapData).length === 0) {
     warn?.('Synthesis Phase 2', 'AI returned empty or unparseable output — argument map will be incomplete', 'Proceeding with partial synthesis');
   }
@@ -207,7 +245,7 @@ export async function runSynthesisPhases(
       synthMapPrompt(input.topic, input.transcript, disagreementsSummary, input.hasSourceDoc ?? false, input.audience),
       'Synthesis Phase 2: Map (retry)',
     );
-    const retryData = parsePhaseResponse(retryRaw, 'Phase 2 retry', warn);
+    const retryData = parsePhaseResponse(retryRaw, 'Phase 2 retry', PHASE_KEYS.map, warn);
     const retryArr = retryData.argument_map;
     if (Array.isArray(retryArr) && retryArr.length > 0) {
       mapData = retryData;
@@ -236,7 +274,7 @@ export async function runSynthesisPhases(
     synthEvaluatePrompt(input.topic, disagreementsSummary, argMapSummary, policyContext, input.audience),
     'Synthesis Phase 3: Evaluate',
   );
-  let evalData = parsePhaseResponse(evalRaw, 'Phase 3', warn);
+  let evalData = parsePhaseResponse(evalRaw, 'Phase 3', PHASE_KEYS.evaluate, warn);
   if (Object.keys(evalData).length === 0) {
     warn?.('Synthesis Phase 3', 'AI returned empty or unparseable output — evaluation data will be incomplete', 'Proceeding with partial synthesis');
   }
@@ -249,7 +287,7 @@ export async function runSynthesisPhases(
       synthEvaluatePrompt(input.topic, disagreementsSummary, argMapSummary, policyContext, input.audience),
       'Synthesis Phase 3: Evaluate (retry)',
     );
-    const retryData = parsePhaseResponse(retryRaw, 'Phase 3 retry', warn);
+    const retryData = parsePhaseResponse(retryRaw, 'Phase 3 retry', PHASE_KEYS.evaluate, warn);
     const retryPrefs = retryData.preferences;
     if (Array.isArray(retryPrefs) && retryPrefs.length > 0) {
       evalData = retryData;
