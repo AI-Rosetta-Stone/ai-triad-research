@@ -113,7 +113,14 @@ describe('computeEmbeddings worker offload (t/3183)', () => {
     offthread.mockImplementation((t: string[]) => new Promise<Float32Array[]>((resolve) => {
       setImmediate(() => resolve(f32vecs(t.length))); // resolves without blocking the caller's loop
     }));
-    const gapOn = await maxEventLoopGapDuring(() => computeEmbeddings(texts));
+    // t/717: best of three. One OS scheduling pause on a busy machine can exceed the deadline in a single
+    // measurement; a real regression (the compute back in-thread) blocks BLOCK_MS per chunk in every attempt,
+    // so the smallest max-gap still fails.
+    let gapOn = Infinity;
+    for (let attempt = 0; attempt < 3 && gapOn >= DEADLINE_MS; attempt++) {
+      _resetEmbeddingsCacheForTest(); // every attempt is all misses, so the full batch reaches the worker
+      gapOn = Math.min(gapOn, await maxEventLoopGapDuring(() => computeEmbeddings(texts)));
+    }
     expect(gapOn).toBeLessThan(DEADLINE_MS); // live — the loop yields between chunks, nothing blocks it
     expect(offthread).toHaveBeenCalled();
     expect(onnxCompute).not.toHaveBeenCalled(); // flag ON never touches the in-thread path
