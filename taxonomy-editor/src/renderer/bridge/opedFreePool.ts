@@ -16,7 +16,7 @@ import { ANON_SESSION_UNAVAILABLE } from './anonSession';
 
 export type FreePoolCode =
   | 'anon_oped_limit' | 'free_pool_exhausted' | 'free_pool_unavailable' | 'free_pool_region'
-  | 'free_pool_oped_limit' | 'run_cost_ceiling' | 'anon_word_cap' | 'anon_session_unavailable';
+  | 'free_pool_oped_limit' | 'run_cost_ceiling' | 'anon_word_cap' | 'anon_session_unavailable' | 'anon_oped_voices';
 
 export interface FreePoolRefusal {
   code: FreePoolCode;
@@ -26,8 +26,17 @@ export interface FreePoolRefusal {
   setId?: string;
 }
 
+/** t/725 (server contract t/724#4): more than one voice without signing in. Mapped on reason + code, not the sentence. */
+function isAnonOpEdVoicesRefusal(status: number, data: Record<string, unknown>): boolean {
+  return status === 403 && data.reason === 'anon_limit' && data.code === 'anon_oped_voices';
+}
+
 /** A refusal before the stream opened, from the HTTP status and the JSON body's `error`. */
 export function preStreamFreePoolCode(status: number, data: Record<string, unknown>): FreePoolCode | null {
+  return isAnonOpEdVoicesRefusal(status, data) ? 'anon_oped_voices' : poolRefusalCode(status, data);
+}
+
+function poolRefusalCode(status: number, data: Record<string, unknown>): FreePoolCode | null {
   const error = data.error;
   if (status === 403 && error === 'free_pool_region') return 'free_pool_region';
   if (status === 503 && error === ANON_SESSION_UNAVAILABLE) return 'anon_session_unavailable';

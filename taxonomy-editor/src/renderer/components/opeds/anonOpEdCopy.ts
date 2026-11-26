@@ -8,6 +8,9 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 /** (1) Shown to anonymous users under the Source selector. */
 export const ANON_RETENTION_LINE = "You're not signed in. Only this browser can open the op-eds you create, and each one is removed 24 hours after you last open it. Sign in to keep them.";
 
+/** Under the voice chips for an anonymous visitor (Design t/725#3). */
+export const ANON_ONE_VOICE_LINE = 'Without signing in, you can create one voice at a time. Sign in to create all three side by side.';
+
 /** The server's words-per-voice cap for anonymous creates (sessions.anonOpEdMaxWords, 1,500). The dialog keeps
  *  anonymous choices inside it so the create isn't refused (Design p/25#196 a). */
 export const ANON_MAX_WORDS = 1500;
@@ -39,6 +42,7 @@ export function freePoolLine(code: FreePoolCode, anonymous: boolean): string {
     case 'run_cost_ceiling': return 'This op-ed was stopped because it reached the spending limit for one free run.';
     case 'anon_word_cap': return 'Without signing in, op-eds can be up to 1,500 words. Choose a shorter length, or sign in.';
     case 'anon_session_unavailable': return "Couldn't start creating op-eds without signing in. Try again in a minute.";
+    case 'anon_oped_voices': return 'Sign in to create more than one voice at a time.';
   }
 }
 

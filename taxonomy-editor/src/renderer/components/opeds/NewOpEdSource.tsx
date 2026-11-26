@@ -38,7 +38,7 @@ export function hasSourceFor(mode: SourceMode, topic: string, url: string, docSt
  * The visible Start reason (Design t/272#7). Checked in order: the source, then voices, then the key.
  * Undefined when Start is on.
  */
-export function sourceStartReason(mode: SourceMode, docState: DocumentState, hasSource: boolean, voiceCount: number, modelHasKey: boolean, docError?: string | null): string | undefined {
+export function sourceStartReason(mode: SourceMode, docState: DocumentState, hasSource: boolean, voiceCount: number, modelHasKey: boolean, docError?: string | null, singleVoice = false): string | undefined {
   if (!hasSource) {
     if (mode === 'topic') return 'Enter a topic';
     if (mode === 'web') return 'Enter a web page URL';
@@ -47,7 +47,8 @@ export function sourceStartReason(mode: SourceMode, docState: DocumentState, has
     if (docState === 'error') return isAppFaultLine(docError) ? 'Start from a topic or web page' : 'Choose a readable document';
     return 'Choose a document';
   }
-  if (voiceCount < 1) return 'Select at least one voice';
+  // t/725 (Design): an anonymous visitor picks one voice and none is preselected, so the reason is a choice.
+  if (voiceCount < 1) return singleVoice ? 'Choose a voice' : 'Select at least one voice';
   if (!modelHasKey) return 'No API key configured for the selected model';
   return undefined;
 }

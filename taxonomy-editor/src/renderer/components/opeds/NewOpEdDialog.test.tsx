@@ -387,6 +387,8 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
     open({ onCreated });
     fireEvent.click(screen.getByRole('radio', { name: 'Web page' }));
     fireEvent.change(screen.getByLabelText(/Web page URL/), { target: { value: 'https://example.com/post' } });
+    // t/725: an anonymous visitor's voices are one single choice with none preselected.
+    fireEvent.click(screen.getByRole('radio', { name: 'Safetyist' }));
     fireEvent.click(screen.getByRole('button', { name: /^Draft/ }));
     await waitFor(() => expect(createOpEdSet).toHaveBeenCalledTimes(1));
     const sent = createOpEdSet.mock.calls[0][0] as { url?: string; params: { url?: string } };
@@ -409,6 +411,8 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
     h.anonymous = true;
     view.rerender(<NewOpEdDialog open onClose={vi.fn()} onCreated={vi.fn()} />);
     fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'Mandatory audits' } });
+    // t/725: an anonymous visitor's voices are one single choice with none preselected.
+    fireEvent.click(screen.getByRole('radio', { name: 'Safetyist' }));
     fireEvent.click(screen.getByRole('button', { name: /^Draft/ }));
     await waitFor(() => expect(createOpEdSet).toHaveBeenCalledTimes(1));
     expect((createOpEdSet.mock.calls[0][0] as { params: { wordCount?: number } }).params.wordCount).toBe(1500);
@@ -587,6 +591,9 @@ describe('NewOpEdDialog — draft + progress + cancel', () => {
     createOpEdSet.mockRejectedValue(Object.assign(new Error('raw server text'), { problem: 'raw server text', nextSteps: ['raw step'], freePool }));
   const draft = () => {
     fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'Mandatory audits' } });
+    // t/725: an anonymous visitor picks one voice (none is preselected); signed-in users have all three.
+    const voice = screen.queryByRole('radio', { name: 'Safetyist' });
+    if (voice) fireEvent.click(voice);
     fireEvent.click(screen.getByRole('button', { name: /^Draft/ }));
   };
 
@@ -682,5 +689,75 @@ describe('NewOpEdDialog — POV tag (t/3992)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Draft/ }));
     await waitFor(() => expect(createOpEdSet).toHaveBeenCalledTimes(1));
     expect(createOpEdSet.mock.calls[0][0].params).not.toHaveProperty('tagSelection');
+  });
+});
+
+// t/725 (t/723; Design t/725#3, p/25#221): an anonymous visitor creates one voice at a time.
+describe('NewOpEdDialog — anonymous visitors pick one voice (t/725)', () => {
+  it('shows a radio group with no voice selected, the one-voice line, and the reason "Choose a voice"', () => {
+    h.anonymous = true;
+    open();
+    const group = screen.getByRole('radiogroup', { name: /^Voice/ });
+    expect(group).toBeTruthy();
+    for (const name of ['Accelerationist', 'Safetyist', 'Skeptic']) {
+      expect((screen.getByRole('radio', { name }) as HTMLElement).getAttribute('aria-checked')).toBe('false');
+    }
+    expect(screen.getByText('Without signing in, you can create one voice at a time. Sign in to create all three side by side.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'Mandatory audits' } });
+    expect(screen.getByText('Choose a voice')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Draft/ }).getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('choosing a second voice replaces the first, and the count line names the one voice', () => {
+    h.anonymous = true;
+    open();
+    fireEvent.click(screen.getByRole('radio', { name: 'Safetyist' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Skeptic' }));
+    expect(screen.getByRole('radio', { name: 'Safetyist' }).getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByRole('radio', { name: 'Skeptic' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByText('Will create 1 op-ed — Skeptic.')).toBeTruthy();
+  });
+
+  it('arrow keys move the choice, and only the checked chip (or the first, when none) is in the tab order', () => {
+    h.anonymous = true;
+    open();
+    const radios = () => ['Accelerationist', 'Safetyist', 'Skeptic'].map(n => screen.getByRole('radio', { name: n }));
+    expect(radios().map(r => r.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
+    fireEvent.keyDown(screen.getByRole('radiogroup', { name: /^Voice/ }), { key: 'ArrowRight' });
+    expect(radios().map(r => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+    fireEvent.keyDown(screen.getByRole('radiogroup', { name: /^Voice/ }), { key: 'ArrowRight' });
+    expect(radios().map(r => r.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false']);
+    expect(radios().map(r => r.getAttribute('tabindex'))).toEqual(['-1', '0', '-1']);
+    fireEvent.keyDown(screen.getByRole('radiogroup', { name: /^Voice/ }), { key: 'ArrowLeft' });
+    expect(radios().map(r => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+  });
+
+  it('a late-resolving anonymous session clears the three-voice default; a single choice already made stays', () => {
+    const view = open();
+    expect(screen.getByText('Will create 3 op-eds on the same topic', { exact: false })).toBeTruthy();
+    h.anonymous = true;
+    view.rerender(<NewOpEdDialog open onClose={vi.fn()} onCreated={vi.fn()} />);
+    expect(screen.getByRole('radio', { name: 'Safetyist' }).getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(screen.getByRole('radio', { name: 'Safetyist' }));
+    view.rerender(<NewOpEdDialog open onClose={vi.fn()} onCreated={vi.fn()} />);
+    expect(screen.getByRole('radio', { name: 'Safetyist' }).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('signed-in users keep the multi-select chips and the three-voice default', () => {
+    open();
+    expect(screen.queryByRole('radiogroup', { name: /^Voice/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Safetyist' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByText(/create one voice at a time/)).toBeNull();
+  });
+
+  it("a 403 anon_oped_voices shows Design's line and never the server text", async () => {
+    h.anonymous = true;
+    createOpEdSet.mockRejectedValue(Object.assign(new Error('raw server text'), { problem: 'raw server text', nextSteps: [], freePool: { code: 'anon_oped_voices', midStream: false } }));
+    open();
+    fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'Mandatory audits' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Safetyist' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Draft/ }));
+    await waitFor(() => expect(screen.getByText('Sign in to create more than one voice at a time.')).toBeTruthy());
+    expect(screen.queryByText('raw server text')).toBeNull();
   });
 });
