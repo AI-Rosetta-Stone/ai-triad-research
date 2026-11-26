@@ -499,3 +499,6 @@
 .oped-start-reason { font-size: var(--text-xs); color: var(--text-secondary); margin: 0; align-self: center; }
 
 /* Reduced-motion: no animated spinner is used; the panel is static text updates. */
+
+/* t/725: the one-voice line under an anonymous visitor's voice choice (Design t/725#3). */
+.oped-voice-note { margin: 6px 0 0; font-size: 0.85rem; line-height: 1.4; color: var(--text-secondary); }

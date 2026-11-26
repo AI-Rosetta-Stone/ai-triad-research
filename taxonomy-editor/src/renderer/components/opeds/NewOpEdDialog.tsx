@@ -9,7 +9,7 @@
 // cancelOpEdSet / onOpEdProgress) is Electron-only; web keeps the disabled affordance.
 
 import { useState, useMemo, useEffect, useRef, useLayoutEffect, useId } from 'react';
-import type { TextareaHTMLAttributes, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { TextareaHTMLAttributes } from 'react';
 import { useDialog, useFocusTrap } from '../shared/useDialog'; // t/4909
 import { api } from '@bridge';
 import type { CreateOpEdParams, CreateOpEdPayload, OpEdProgressEvent } from '../../bridge/types';
@@ -28,6 +28,7 @@ import { OpEdTagPicker, opEdTagBlocksStart, opEdTagSelection, type OpEdTagChoice
 import { registryOrNull } from '../debate/SeatTagPicker';
 import type { PovNode } from '@lib/debate/taxonomyTypes';
 import './NewOpEdDialog.css';
+import { OpEdVoiceChips } from './OpEdVoiceChips';
 import { freePoolRefusalOf } from '../../bridge/opedFreePool';
 import { ANON_MAX_WORDS, ANON_RETENTION_LINE, ANON_WORD_CAP_NOTE, anonBand, partialStateFor, refusalLine } from './anonOpEdCopy';
 import {
@@ -98,16 +99,6 @@ function computeActiveModel(freeTier: boolean, tierInfo: TierInfo | null, model:
 function computeModelHasKey(hasApiKey: Record<string, boolean>, backend: string, freeTier: boolean, tierInfo: TierInfo | null): boolean {
   if (OPED_EXCLUDED_BACKENDS.has(backend)) return false;
   return hasApiKey[backend] !== false || (freeTier && !!tierInfo && tierInfo.allowedBackends.includes(backend));
-}
-
-function voiceLabels(voices: PovKey[]): string {
-  return voices.map(v => POV_META[v].label).join(', ');
-}
-
-function voiceCountLine(voices: PovKey[]): string {
-  if (voices.length === 0) return 'Select at least one voice.';
-  if (voices.length === 1) return `Will create 1 op-ed — ${voiceLabels(voices)}.`;
-  return `Will create ${voices.length} op-eds on the same topic — ${voiceLabels(voices)} — shown in tabs.`;
 }
 
 /** Normalize a thrown error to the ActionableError shape (Goal/Problem/Location/Next Steps). */
@@ -587,33 +578,8 @@ function OpEdCreateForm(p: CreateFormProps) {
           />
         )}
 
-        {/* Voices — multi-select camp chips */}
-        <div>
-          <label className="oped-field-label" id="oped-voices-label">
-            Voices — one op-ed each <span className="oped-required-mark" aria-hidden="true">*</span>
-          </label>
-          <div className="oped-voice-chips" role="group" aria-labelledby="oped-voices-label">
-            {POV_KEYS.map(pov => {
-              const camp = povToCamp(pov);
-              const selected = p.voices.has(pov);
-              return (
-                <button
-                  key={pov}
-                  type="button"
-                  className="oped-voice-chip"
-                  aria-pressed={selected}
-                  // eslint-disable-next-line local/no-inline-style -- dynamic: camp accent when selected (theme-aware)
-                  style={selected ? { color: `var(${POV_META[pov].cssVar})` } : undefined}
-                  onClick={() => p.toggleVoice(pov)}
-                >
-                  {camp && <span className="oped-voice-chip-glyph" aria-hidden="true"><CampGlyph camp={camp} size={13} /></span>}
-                  {POV_META[pov].label}
-                </button>
-              );
-            })}
-          </div>
-          <p className="oped-voice-count" aria-live="polite">{voiceCountLine(p.orderedVoices)}</p>
-        </div>
+        {/* Voices — multi-select camp chips for a signed-in user, one single choice for an anonymous visitor (t/725) */}
+        <OpEdVoiceChips voices={p.voices} orderedVoices={p.orderedVoices} isAnonymous={p.isAnonymous} toggleVoice={p.toggleVoice} />
 
         {p.tagPicker}
 
@@ -740,6 +706,9 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
   const freeTier = isFreeTier(tierInfo);
   const auth = useAuthStatus();
   const isAnonymous = auth?.anonymous === true;
+  // t/725: the three-voice default is for signed-in users. Once the visitor turns out to be anonymous the voices
+  // clear (no voice is preselected, so no camp is the house default); a single choice already made stays.
+  useEffect(() => { if (isAnonymous) setVoices(prev => (prev.size > 1 ? new Set<PovKey>() : prev)); }, [isAnonymous]);
 
   // UI
   const [showSettings, setShowSettings] = useState(false);
@@ -803,7 +772,7 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
   const hasSource = hasSourceFor(sourceMode, topic, url, docState, docFile);
   // t/3992: a tag below its minimum refuses at setup (TL t/3957#7 B(a)), never mid-generation.
   const canStart = hasSource && orderedVoices.length >= 1 && modelHasKey && !opEdTagBlocksStart(tagChoice, orderedVoices, nodesFor);
-  const startReason = sourceStartReason(sourceMode, docState, hasSource, orderedVoices.length, modelHasKey, docError);
+  const startReason = sourceStartReason(sourceMode, docState, hasSource, orderedVoices.length, modelHasKey, docError, isAnonymous);
 
   // A URL pasted into the topic box → FromTopic → no source brief → no claims, silently (t/2899).
   // Detect it so we can steer the user to the web-page path (desktop only; web has no URL path).
@@ -821,6 +790,8 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
 
   const toggleVoice = (pov: PovKey) => {
     setVoices(prev => {
+      // t/725: an anonymous visitor's voices are a single choice.
+      if (isAnonymous) return new Set<PovKey>([pov]);
       const next = new Set(prev);
       if (next.has(pov)) next.delete(pov); else next.add(pov);
       return next;
