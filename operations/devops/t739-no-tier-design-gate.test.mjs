@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEPENDABOT_COMMIT_AUTHORS, dependabotExemption, evaluateT1ApprovalGuard,
+  DEPENDABOT_COMMIT_AUTHORS, dependabotExemption, evaluateT1ApprovalGuard, isVersionSpec, packageJsonPatchOk,
 } from './t1-approval-guard-predicate.mjs';
 import { evaluateGroup, evaluatePullRequest, ruleDesignGate, ruleT1Approval } from './merge-approval-verdict.mjs';
 import { designGateVerdict } from './design-gate.mjs';
@@ -571,4 +571,48 @@ test('t/776 package.json: no patch, a non-modified status, or a non-pair line fa
   assert.equal(exemptWith(pkg('package.json', BUMP_PATCH, { status: 'added' })).exempt, false);
   assert.equal(exemptWith(pkg('package.json', BUMP_PATCH, { status: 'renamed' })).exempt, false);
   assert.equal(exemptWith(pkg('package.json', patchOf(['"a": {'], ['"a": {', '"evil": "1.0.0"']))).exempt, false);
+});
+
+// ── t/776 (CodeQL js/redos on the first VERSION_SPEC): the check is linear, and a forged patch cannot stall the guard ──
+
+test('t/776 isVersionSpec: the accepted and refused shapes', () => {
+  for (const ok of ['^1.2.3', '~1.2', '>=1 <2', '>=1.0.0 <2.0.0', '1.2.3-beta.1', '1.2.3 - 2.0.0', '1.x || 2.x', '^1.0.0 || ^2.0.0', 'v1.2.3', '0.0.0-0']) {
+    assert.equal(isVersionSpec(ok), true, ok);
+  }
+  for (const bad of ['', ' ', 'tsc', 'node evil.js', 'file:../x', 'https://x/y.tgz', 'git+ssh://x', '^', '||', '1 ||', '|| 1', 'latest', '*']) {
+    assert.equal(isVersionSpec(bad), false, JSON.stringify(bad));
+  }
+  assert.equal(isVersionSpec(undefined), false);
+  assert.equal(isVersionSpec('1'.repeat(201)), false, 'over the length cap');
+  assert.equal(isVersionSpec('1'.repeat(200)), true, 'at the length cap');
+});
+
+test('t/776 isVersionSpec: 5000-char adversarial strings (the CodeQL shapes) return in under 50 ms, refused by the length cap', () => {
+  const shapes = ['0' + '-0'.repeat(2500), '0 <0' + '-0 <0'.repeat(1000), '0' + ' -0'.repeat(1700), '0' + '||0'.repeat(1700), ' '.repeat(5000) + '0', '0' + '-'.repeat(5000) + '!'];
+  for (const s of shapes) {
+    const t0 = process.hrtime.bigint();
+    const r = isVersionSpec(s);
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.equal(r, false, `${s.slice(0, 20)}... (${s.length} chars) is refused`);
+    assert.ok(ms < 50, `${s.slice(0, 20)}... took ${ms} ms`);
+  }
+});
+
+test('t/776 isVersionSpec: adversarial strings just under the cap are linear too', () => {
+  for (const s of ['0' + '-0'.repeat(99), '0 <0' + '-0 <0'.repeat(39) + '!', '0' + '-'.repeat(190) + '!']) {
+    const t0 = process.hrtime.bigint();
+    isVersionSpec(s);
+    assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 50, s.slice(0, 20));
+  }
+});
+
+test('t/776 packageJsonPatchOk: adversarial patch lines are decided in under 50 ms (long version values and a trailing run refused; a long indentation is just indentation)', () => {
+  const lines = ['  "x": "' + '0' + '-0'.repeat(2500) + '",', '  "x": "' + '0 <0' + '-0 <0'.repeat(1000) + '",', ' '.repeat(5000) + '"x": "1.0.0"', '  "x": "1.0.0"' + ' '.repeat(5000) + '!'];
+  for (const l of lines) {
+    const t0 = process.hrtime.bigint();
+    const r = packageJsonPatchOk({ status: 'modified', patch: `@@ -1 +1 @@\n-${l}\n+${l}` });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.equal(r.ok, l.startsWith(' '.repeat(5000)), `${l.slice(0, 20)}...`);
+    assert.ok(ms < 50, `${l.slice(0, 20)}... took ${ms} ms`);
+  }
 });

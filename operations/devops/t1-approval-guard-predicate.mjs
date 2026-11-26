@@ -396,8 +396,23 @@ export function isDependabotBumpPath(path) {
   return base === 'pnpm-lock.yaml' || /^requirements[A-Za-z0-9._-]*\.txt$/.test(base);
 }
 export const DEPENDABOT_PACKAGE_JSON_PATHS = Object.freeze(['package.json', 'taxonomy-editor/package.json']);
-// A dependency version spec: ^1.2.3, ~1.2, >=1 <2, 1.2.3-beta.1, 1.x || 2.x. Not a script body or a URL.
-const VERSION_SPEC = /^[\^~<>=v ]*\d[\w.\-+]*( *(\|\||-|<|>|=)[\^~<>=v ]*\d[\w.\-+]*| +[<>=^~]+ *\d[\w.\-+]*)*$/;
+// A dependency version spec: ^1.2.3, ~1.2, >=1 <2, 1.2.3-beta.1, 1.2.3 - 2.0.0, 1.x || 2.x. Not a script body or a
+// URL. LINEAR on purpose (CodeQL js/redos on an earlier nested-quantifier regex): this runs in the required guard
+// on patch lines a forged commit controls. Split on `||`, then on whitespace, and test each token against one
+// anchored, non-nested pattern; the whole value is length-capped first.
+const VERSION_SPEC_MAX = 200;
+const VERSION_TOKEN = /^[\^~<>=v]*\d[\w.+-]*$/;
+export function isVersionSpec(value) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > VERSION_SPEC_MAX) return false;
+  for (const alt of value.split('||')) {
+    const tokens = alt.trim().split(/\s+/);
+    if (tokens.length === 1 && tokens[0] === '') return false;
+    for (const t of tokens) {
+      if (t !== '-' && !VERSION_TOKEN.test(t)) return false;
+    }
+  }
+  return true;
+}
 const KV_LINE = /^\s*"([^"\\]+)":\s*"([^"\\]*)",?\s*$/;
 /**
  * t/776 (Security p/131#99): a package.json in a Dependabot PR may change only version strings of keys that
@@ -418,7 +433,7 @@ export function packageJsonPatchOk(file) {
     if (sign !== '+' && sign !== '-') return bad('its patch has an unreadable line');
     const m = KV_LINE.exec(line.slice(1));
     if (!m) return bad(`it changes a line that is not a "key": "version" pair: ${line.slice(0, 60)}`);
-    if (m[1] === 'scripts' || !VERSION_SPEC.test(m[2])) return bad(`it changes "${m[1]}" to a value that is not a version spec`);
+    if (m[1] === 'scripts' || !isVersionSpec(m[2])) return bad(`it changes "${m[1]}" to a value that is not a version spec`);
     (sign === '-' ? removed : added).push(m[1]);
   }
   if (removed.length === 0 || removed.length !== added.length || [...removed].sort().join('\n') !== [...added].sort().join('\n')) {
