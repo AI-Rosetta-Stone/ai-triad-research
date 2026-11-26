@@ -1020,7 +1020,7 @@ const rawApi: AppAPI = {
   // Inquiry (t/3582) — client of routes/inquiry.ts (t/3581); idempotency key rides a header, never the body.
   startInquiry: (request: StartInquiryRequest, idempotencyKey?: string) => post<{ jobId: string }>('/api/inquiry', request, undefined, idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined),
   getInquiry: (jobId: string) => get<InquiryStatusResponse>(`/api/inquiry/${encodeURIComponent(jobId)}`),
-  listInquiries: async () => (await isAnonymous()) ? [] : get<InquiryResultSummary[]>('/api/inquiry'), // t/719: an anonymous visitor has none, and the route answers 401
+  listInquiries: () => get<InquiryResultSummary[]>('/api/inquiry').catch(async (err: unknown) => { if ((err as { httpStatus?: number }).httpStatus === 401 && await isAnonymous()) return []; throw err; }), // t/719: the route answers an anonymous visitor 401; they have no questions. The server decides, since isAnonymous() is also true after a failed auth check (Quality p/57#103)
   exportInquiryToFile: (result: InquiryResult, title: string, format: 'json' | 'markdown' | 'pdf') => exportInquiryToFileWeb(result, title, format),
   shareInquiry: (jobId) => post<{ shareId: string; url: string }>(`/api/inquiry/${encodeURIComponent(jobId)}/share`, {}),
   unshareInquiry: (jobId) => del<{ ok: boolean }>(`/api/inquiry/${encodeURIComponent(jobId)}/share`),

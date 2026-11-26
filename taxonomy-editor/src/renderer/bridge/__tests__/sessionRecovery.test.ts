@@ -172,13 +172,36 @@ describe('session recovery (t/1476)', () => {
     expect(mockGlobalFetch).not.toHaveBeenCalled();
   });
 
-  it('t/719: an anonymous visitor has no questions of their own, so listInquiries answers [] without calling the server', async () => {
+  it("t/719: the route's 401 for an anonymous visitor means no questions of their own: listInquiries answers []", async () => {
     vi.resetModules();
     mockGlobalFetch.mockResolvedValue(mockResponse(200, { user: 'anon:1', anonymous: true }));
+    mockResilientFetch.mockResolvedValue(mockResponse(401, { error: 'Sign in required' }));
 
     const { api } = await import('../web-bridge');
     await expect(api.listInquiries()).resolves.toEqual([]);
-    expect(mockResilientFetch).not.toHaveBeenCalled();
+  });
+
+  it('t/719: a signed-in user whose auth check failed still gets their questions, not an empty list (Quality p/57#103)', async () => {
+    vi.resetModules();
+    mockGlobalFetch.mockRejectedValue(new Error('auth check down')); // isAnonymous() then answers true
+    mockResilientFetch.mockResolvedValue(mockResponse(200, [{ jobId: 'j1' }]));
+
+    const { api } = await import('../web-bridge');
+    await expect(api.listInquiries()).resolves.toEqual([{ jobId: 'j1' }]);
+  });
+
+  it('t/719: a 401 for a signed-in user, and any other failure, still reject', async () => {
+    vi.resetModules();
+    mockGlobalFetch.mockResolvedValue(mockResponse(200, { user: 'u', anonymous: false }));
+    mockResilientFetch.mockResolvedValue(mockResponse(401, { error: 'Unauthorized' }));
+    const signedIn = await import('../web-bridge');
+    await expect(signedIn.api.listInquiries()).rejects.toThrow();
+
+    vi.resetModules();
+    mockGlobalFetch.mockResolvedValue(mockResponse(200, { user: 'anon:1', anonymous: true }));
+    mockResilientFetch.mockResolvedValue(mockResponse(500, { error: 'Internal server error' }));
+    const anonymous = await import('../web-bridge');
+    await expect(anonymous.api.listInquiries()).rejects.toThrow();
   });
 
   it('t/719: a signed-in user still gets their questions from the server', async () => {
