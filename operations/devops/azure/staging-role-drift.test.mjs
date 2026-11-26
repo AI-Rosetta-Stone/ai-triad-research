@@ -148,6 +148,13 @@ test('fails closed: a live list that is not an array', () => {
   }
 });
 
+test('fails closed: zero assignments read is an error, not clean (TL t/707#5 condition 5)', () => {
+  const v = roleDriftVerdict({ ...declaredStagingRoles(BICEP), live: [] });
+  assert.equal(v.ok, false);
+  assert.deepEqual(v.undeclared, []);
+  assert.match(v.summary, /zero role assignments.*failed read, not a clean result/);
+});
+
 test('fails closed: a live assignment with no scope or role id', () => {
   const v = roleDriftVerdict({ ...declaredStagingRoles(BICEP), live: [{ name: 'broken' }] });
   assert.equal(v.ok, false);
