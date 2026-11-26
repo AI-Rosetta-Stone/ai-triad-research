@@ -137,7 +137,10 @@ param azureUserContentContainerStaging string = 'staging-user-content'
 ])
 param anonOpEdLifecyclePrefix string = 'anon-oped/'
 @description('Apply the anonymous op-ed delete rule to staging-user-content. Staging first.')
-param anonOpEdLifecycleStagingEnabled bool = false
+// ARMED (t/671, 2026-11-26): the dry listing after a real anonymous op-ed on staging showed both
+// blobs under staging-user-content/anon-oped/<session id>/ and nothing of that run elsewhere (t/671#12).
+// It takes effect on the next main.bicep apply (deploy-azure.yml; the staging auto-deploy applies no Bicep).
+param anonOpEdLifecycleStagingEnabled bool = true
 @description('Apply the anonymous op-ed delete rule to user-content (prod). Only after staging has run clean and the PI is told.')
 param anonOpEdLifecycleProdEnabled bool = false
 @description('Age in days after last modification before an anonymous op-ed blob is deleted. Two days: the stamp rewrites at most hourly, and the policy runs daily.')
