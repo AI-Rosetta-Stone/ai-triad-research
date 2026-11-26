@@ -621,3 +621,27 @@ describe('generateOpEdSet — non-JSON voice response finalizes as failed, not g
     expect(members.find(m => m.pov === 'skeptic')?.status).toBe('complete');
   });
 });
+
+// ── voice_failed carries the thrown error's stable code (t/668) ──────────────
+// The client maps refusals (e.g. FREE_POOL_EXHAUSTED) on this code, not on message text.
+describe('generateOpEdSet — voice_failed carries the error code (t/668)', () => {
+  it('a voice whose adapter throws an error with a code emits voice_failed with that code', async () => {
+    const adapter = {
+      generateText: async (prompt: string) => {
+        if (prompt === 'refl') return JSON.stringify({ grounding_usage: [] });
+        throw Object.assign(new Error('pool exhausted'), { code: 'FREE_POOL_EXHAUSTED' });
+      },
+    };
+    const req = {
+      set_id: 's-code', topic: 'AI policy',
+      params: { model: 'gemini-flash', wordCount: 800, outlet: 'nyt', newsHook: '', thesis: '' } as never,
+      povs: ['accelerationist'] as PovKey[],
+    };
+    const deps = { adapter: adapter as never, promptsDir: join(REPO_ROOT, 'lib', 'oped', 'prompts'), repoRoot: REPO_ROOT };
+    const failed: { pov: PovKey; code?: string }[] = [];
+    for await (const ev of generateOpEdSet(req, deps) as AsyncGenerator<OpEdProgressEvent>) {
+      if (ev.type === 'voice_failed') failed.push({ pov: ev.pov, code: ev.code });
+    }
+    expect(failed).toEqual([{ pov: 'accelerationist', code: 'FREE_POOL_EXHAUSTED' }]);
+  });
+});

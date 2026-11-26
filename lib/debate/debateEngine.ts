@@ -158,6 +158,7 @@ import { runModeratorSelection, executeTurnWithRetry } from './orchestration.js'
 import type { ModeratorSelectionCallbacks, ModeratorSelectionInput, TurnRetryCallbacks, TurnRetryInput } from './orchestration.js';
 import { pruneSessionData, pruneModeratorState } from './sessionPruning.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { parseEntrySummaries } from './entrySummaries.js';
 import { computeModelFingerprint } from './debateEngine/modelFingerprint.js';
 import { resolveBackground } from './debateEngine/backgroundIngestion.js';
 import { callByUsage } from '../ai-client/usageRegistry.js';
@@ -1382,11 +1383,16 @@ export class DebateEngine {
       });
       this.apiCallCount++;
 
-      // Parse JSON response
-      const cleaned = raw.replace(/```json?\s*/g, '').replace(/```\s*/g, '').trim();
-      const parsed = JSON.parse(cleaned) as { brief?: string; medium?: string };
-      if (parsed.brief && parsed.medium) {
-        entry.summaries = { brief: parsed.brief, medium: parsed.medium };
+      // t/700: brief + medium required; brief_claim/brief_points kept only when well formed.
+      const { summaries, structuredDropped, structuredWarning } = parseEntrySummaries(raw);
+      if (summaries) entry.summaries = summaries;
+      if (summaries && structuredDropped) {
+        getGlobalRecorder()?.record({ type: 'ai.fallback', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: `Structured Brief dropped for entry ${entry.id} (${structuredDropped}); the brief paragraph is kept`, data: { entry_id: entry.id, reason: structuredDropped } });
+        console.warn(`[debate] WARN summarizeEntry: structured Brief dropped for ${entry.id} (${structuredDropped}); brief paragraph kept (t/700)`);
+      }
+      if (summaries && structuredWarning) {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: `Structured Brief kept with a warning for entry ${entry.id}: ${structuredWarning}`, data: { entry_id: entry.id, reason: structuredWarning } });
+        console.warn(`[debate] WARN summarizeEntry: ${entry.id} ${structuredWarning} (t/700)`);
       }
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'ai.error', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: 'Entry summarization failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
