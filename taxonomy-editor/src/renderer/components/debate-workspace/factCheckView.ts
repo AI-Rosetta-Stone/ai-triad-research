@@ -6,14 +6,16 @@
 // checked statement. No React, so each rule is testable on its own.
 
 import type { FactVerdict } from '@lib/debate/types';
+import { FACT_VERDICT_LABEL } from '@lib/debate/factCheckExport';
 
-/** §3: the pill text. The word is always shown, so colour is never the only signal. */
+/** §3: the pill text, derived from the one label source the exports use (t/772), so the card and the
+ *  exports can't drift. The word is always shown, so colour is never the only signal. */
 export const FACT_PILL_TEXT: Record<FactVerdict | 'pending', string> = {
-  supported: 'SUPPORTED',
-  partially_accurate: 'PARTLY ACCURATE',
-  disputed: 'DISPUTED',
-  false: 'FALSE',
-  unverifiable: "CAN'T VERIFY",
+  supported: FACT_VERDICT_LABEL.supported.toUpperCase(),
+  partially_accurate: FACT_VERDICT_LABEL.partially_accurate.toUpperCase(),
+  disputed: FACT_VERDICT_LABEL.disputed.toUpperCase(),
+  false: FACT_VERDICT_LABEL.false.toUpperCase(),
+  unverifiable: FACT_VERDICT_LABEL.unverifiable.toUpperCase(),
   pending: 'CHECKING…',
 };
 
