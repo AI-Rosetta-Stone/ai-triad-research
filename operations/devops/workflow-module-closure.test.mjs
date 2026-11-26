@@ -51,6 +51,13 @@ for (const [workflow, predicate] of [['tier-check.yml', 'tier-check-predicate.mj
     // Files the workflow writes beside the predicate: path.join(tmpDir, '<file>').
     const written = new Set([...yml.matchAll(/path\.join\(tmpDir, '([^']+\.mjs)'\)/g)].map((m) => `operations/devops/${m[1]}`));
     assert.ok(written.has(`operations/devops/${predicate}`), `${workflow} does not write ${predicate} into tmpDir`);
+    // t/674 item 4: tier-check.yml walks the predicate's local import closure from the base tip at run time
+    // (every module it finds is written to tmpDir), so no list can go stale. Pin that the walk is there.
+    if (/const closure = new Map\(\[\['tier-check-predicate\.mjs'/.test(yml)) {
+      assert.match(yml, /matchAll\(\/\(\?:from\|import\)\\s\*\['"\]\\\.\\\/\(\[A-Za-z0-9\._-\]\+\\\.mjs\)/, 'the walk follows ./x.mjs imports');
+      assert.match(yml, /for \(const \[name, text\] of closure\) fs\.writeFileSync\(path\.join\(tmpDir, name\), text\)/, 'every module found is written to tmpDir');
+      return;
+    }
     const missing = [...closure([`operations/devops/${predicate}`])].filter((f) => !written.has(f));
     assert.deepEqual(missing, [], `${workflow} does not copy into tmpDir: ${missing.join(', ')}`);
   });

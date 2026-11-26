@@ -305,3 +305,24 @@ test('the review relay echo is a block scalar, and its shell line runs (exit 0) 
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /review submitted on PR #7 at abc/);
 });
+
+// t/776 (Lead p/233#272): every call site of evaluateT1ApprovalGuard must give the Dependabot exemption the
+// changed files, or it reads 'changed-file list is empty' there and the three paths disagree.
+test('t/776: ci.yml merge_group arm and t1-approval-guard.yml list the PR files and pass files and filesTotal, like merge-approval-run.mjs and t1-approval-at-head.mjs', () => {
+  const sources = {
+    'ci.yml': readFileSync(path.join(root, '.github', 'workflows', 'ci.yml'), 'utf8'),
+    't1-approval-guard.yml': readFileSync(path.join(root, '.github', 'workflows', 't1-approval-guard.yml'), 'utf8'),
+  };
+  for (const [name, text] of Object.entries(sources)) {
+    const calls = text.match(/dependabot: \{ authorLogin[^\n]*\}/g) ?? [];
+    assert.equal(calls.length, 1, `${name}: exactly one dependabot facts object, found ${calls.length}`);
+    assert.match(calls[0], /commitsTotal: pr\.commits, files: changedFiles, filesTotal: pr\.changed_files \}/, `${name} passes files and filesTotal`);
+    assert.match(text, /changedFiles = \(await withRetry\([^\n]*github\.rest\.pulls\.listFiles/, `${name} lists the PR files through the retry wrapper`);
+    assert.match(text, /changedFiles = [^\n]*status: f\.status, patch: f\.patch/, `${name} keeps status and patch (the package.json content check reads them)`);
+  }
+  for (const f of ['merge-approval-run.mjs', 't1-approval-at-head.mjs']) {
+    const text = readFileSync(path.join(here, f), 'utf8');
+    assert.match(text, /status: f\.status, patch: f\.patch/, `${f} keeps status and patch`);
+    assert.match(text, /filesTotal: pr\.changed_files/, `${f} passes filesTotal`);
+  }
+});
