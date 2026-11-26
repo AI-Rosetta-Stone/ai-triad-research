@@ -7,6 +7,7 @@
 // see none of this.
 
 import { SignInNotice } from '../shared/SignInNotice';
+import { anonRefusalLine, refusalOffersSignIn, type AnonRefusal } from '../../bridge/anonLimit';
 
 export const ANON_PRESET_LINE = 'Without signing in, you can run Quick take debates.';
 export const ANON_CUSTOMISE_LINE = 'Without signing in, debates are Quick take only, so rounds and protocol are fixed.';
@@ -31,4 +32,11 @@ export function AnonCustomiseNote() {
 /** Props that make a Customise control read-only but still focusable (aria-disabled, never `disabled`). */
 export function anonLockedProps(isAnonymous: boolean): { 'aria-disabled'?: true; 'aria-describedby'?: string } {
   return isAnonymous ? { 'aria-disabled': true, 'aria-describedby': 'ndd-anon-customise-note' } : {};
+}
+
+/** The server refused a start as an anonymous visitor's limit (t/724#4). Design's line, with the sign-in links when
+ *  signing in is the remedy; plain text for a debate that simply wasn't saved. Never the server's sentence. */
+export function AnonStartRefusal({ refusal }: { refusal: AnonRefusal }) {
+  const line = anonRefusalLine(refusal);
+  return refusalOffersSignIn(refusal) ? <SignInNotice line={line} role="alert" /> : <p className="ndd-start-error" role="alert">{line}</p>;
 }

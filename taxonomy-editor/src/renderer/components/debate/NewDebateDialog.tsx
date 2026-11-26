@@ -26,7 +26,8 @@ import { useSettingsDialog } from '../../hooks/useSettingsDialog';
 import { GeminiOnboardingModal } from '../settings/GeminiOnboardingModal';
 import { buildDebateOptions } from './newDebateOptions';
 import { SettingsToggleRow } from './SettingsToggleRow';
-import { AnonPresetNote, AnonCustomiseNote, anonLockedProps, isAnonLockedPreset, ANON_PRESET_LOCKED_TIME } from './NewDebateAnon';
+import { AnonPresetNote, AnonCustomiseNote, AnonStartRefusal, anonLockedProps, isAnonLockedPreset, ANON_PRESET_LOCKED_TIME } from './NewDebateAnon';
+import { anonRefusalOf, type AnonRefusal } from '../../bridge/anonLimit';
 import { SeatTagPicker, seatTagLabel, seatTagRefusal, seatTagIssueMessage, registryOrNull } from './SeatTagPicker';
 
 // t/4773: matches ModelPicker's own "Default 0.8." hint, so the slider's stated default is true.
@@ -1018,6 +1019,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
   // UI state
   const [creating, setCreating] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [startRefusal, setStartRefusal] = useState<AnonRefusal | null>(null); // t/725
   const [titleAnnouncement, setTitleAnnouncement] = useState('');
   const [showOverflow, setShowOverflow] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -1166,6 +1168,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
     await checkGeminiOnboarding({ freeTier, geminiAllowlisted: userProfile?.geminiAllowlisted });
     setCreating(true);
     setStartError(null);
+    setStartRefusal(null);
 
     try {
       const { finalTopic, finalContent } = await resolveFinalTopic(activeAdder, sourceType, sourceRef, fileName, sourceContent, topic);
@@ -1200,7 +1203,10 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
       onClose();
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'new-debate-dialog', level: 'error', message: 'Failed to create debate', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      setStartError(err instanceof Error ? err.message : 'Failed to start debate. Please try again.');
+      // t/725: an anonymous-limit refusal shows Design's line (with the sign-in links), never the server's text.
+      const refusal = anonRefusalOf(err);
+      if (refusal) setStartRefusal(refusal);
+      else setStartError(err instanceof Error ? err.message : 'Failed to start debate. Please try again.');
       setCreating(false);
     }
   };
@@ -1245,7 +1251,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
               {startError}
               <button type="button" className="ndd-retry-link" onClick={handleStart}>Retry</button>
             </div>
-          )}{renderSeatTagIssueBanner(startError, seatTagIssue, 'ndd-start-error')}
+          )}{startRefusal && <AnonStartRefusal refusal={startRefusal} />}{renderSeatTagIssueBanner(startError, seatTagIssue, 'ndd-start-error')}
           <div className="ndd-footer-actions">
             <button
               type="button"

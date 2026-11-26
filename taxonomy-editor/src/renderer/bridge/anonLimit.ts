@@ -76,3 +76,10 @@ export const RETRYABLE_FAILURE_LINE = 'Something went wrong on our side. Try aga
 export function isRetryableFailure(status: number | undefined, body: unknown): boolean {
   return status === 503 && !!body && typeof body === 'object' && (body as { retryable?: unknown }).retryable === true;
 }
+
+/** True when a bridge error is a 503 whose body says retryable (the anonymous counter store is down). */
+export function isRetryableFailureOf(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { httpStatus?: number; problem?: unknown; message?: unknown };
+  return isRetryableFailure(e.httpStatus, bodyFromProblem(`${String(e.problem ?? '')} ${String(e.message ?? '')}`));
+}
