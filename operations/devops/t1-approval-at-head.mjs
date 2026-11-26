@@ -78,7 +78,7 @@ export function fetchApprovalInputs(repo, prNumber, expectedHeadSha, ghFn = gh) 
       throw new Error(`the commit list may be cut short (listed ${commits.length}, the PR reports ${pr.commits}, API cap ${PR_COMMITS_API_CAP})`);
     }
     // t/776: the Dependabot exemption also reads the changed paths (a count mismatch is caught there).
-    const files = pages(`repos/${repo}/pulls/${prNumber}/files?per_page=100`).map((f) => ({ filename: f.filename, previous_filename: f.previous_filename }));
+    const files = pages(`repos/${repo}/pulls/${prNumber}/files?per_page=100`).map((f) => ({ filename: f.filename, previous_filename: f.previous_filename, status: f.status, patch: f.patch }));
     const comments = pages(`repos/${repo}/issues/${prNumber}/comments?per_page=100`);
     const reviews = pages(`repos/${repo}/pulls/${prNumber}/reviews?per_page=100`);
     return { pr, commits, files, comments, reviews, error: null };

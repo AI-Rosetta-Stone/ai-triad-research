@@ -39,7 +39,9 @@ const healCommit = () => ({
   commit: { author: { name: 'dependabot-heal[bot]' }, verification: { verified: false, reason: 'unsigned' } },
 });
 const humanCommit = (over = {}) => botCommit({ sha: 'e'.repeat(40), author: { login: 'jpsnover' }, committer: { login: 'jpsnover' }, ...over });
-const BUMP_FILES = [{ filename: 'taxonomy-editor/package.json' }, { filename: 'pnpm-lock.yaml' }];
+const BUMP_PATCH = '@@ -5,3 +5,3 @@\n   "dependencies": {\n-    "left-pad": "^1.0.0",\n+    "left-pad": "^1.0.1",\n   }';
+const pkg = (filename, patch = BUMP_PATCH, over = {}) => ({ filename, status: 'modified', patch, ...over });
+const BUMP_FILES = [pkg('taxonomy-editor/package.json'), { filename: 'pnpm-lock.yaml' }];
 const depFacts = (commits, over = {}) => ({
   authorLogin: 'dependabot[bot]', headRepo: FULL, baseRepo: FULL, commits, commitsTotal: commits?.length, files: BUMP_FILES, filesTotal: BUMP_FILES.length, ...over,
 });
@@ -377,7 +379,7 @@ function enqueueFake({ body, files, reviews = [], comments = [], commits = [huma
     const joined = args.join(' ');
     const last = args[args.length - 1];
     if (joined.includes('{changed_files}')) return JSON.stringify({ changed_files: files.length });
-    if (joined.includes('/files?per_page=100') && args.includes('--slurp')) return JSON.stringify([files.map((x) => ({ filename: x }))]); // t/776
+    if (joined.includes('/files?per_page=100') && args.includes('--slurp')) return JSON.stringify([files.map((x) => (x === 'package.json' ? pkg(x) : { filename: x }))]); // t/776
     if (joined.includes('/files?per_page=100')) return files.map((f) => JSON.stringify([f, ''])).join('\n');
     if (joined.includes('pr view') && joined.includes('headRefOid,body,isDraft')) return JSON.stringify({ headRefOid: HEAD, body, isDraft: false, labels: [] });
     if (args.includes('--slurp')) {
@@ -496,7 +498,7 @@ test('t/739 attributionComment: null without --by, one line with it', () => {
 // ── t/776: the exemption also needs every changed path to be a manifest or lockfile ──
 
 test('t/776 exemption: a forged-author verified commit that touches source is not exempt', () => {
-  const r = dependabotExemption(depFacts([botCommit()], { files: [{ filename: 'package.json' }, { filename: 'taxonomy-editor/src/server/authGates.ts' }], filesTotal: 2 }));
+  const r = dependabotExemption(depFacts([botCommit()], { files: [pkg('package.json'), { filename: 'taxonomy-editor/src/server/authGates.ts' }], filesTotal: 2 }));
   assert.equal(r.exempt, false);
   assert.match(r.reason, /authGates.ts.*not a package manifest or lockfile/);
 });
@@ -511,7 +513,7 @@ test('t/776 exemption: a Dockerfile, a workflow, a rename out of a manifest, or 
   for (const files of [
     [{ filename: 'taxonomy-editor/Dockerfile' }],
     [{ filename: '.github/workflows/ci.yml' }],
-    [{ filename: 'package.json', previous_filename: 'lib/evil.mjs' }],
+    [pkg('package.json', BUMP_PATCH, { previous_filename: 'lib/evil.mjs' })],
     [{ filename: '../package.json' }],
     [{ filename: '/package.json' }],
     [{ filename: 'package.json.bak' }],
@@ -527,4 +529,46 @@ test('t/776 exemption: an unreadable, empty or cut-short file list fails closed'
   assert.equal(dependabotExemption(depFacts([botCommit()], { filesTotal: undefined })).exempt, false);
   const many = Array.from({ length: 3000 }, (_, i) => ({ filename: `p${i}/package.json` }));
   assert.equal(dependabotExemption(depFacts([botCommit()], { files: many, filesTotal: 3000 })).exempt, false);
+});
+
+// ── t/776 (Security p/131#99): package.json content check ──
+
+const patchOf = (removed, added) => ['@@ -5,3 +5,3 @@', ...removed.map((l) => `-    ${l}`), ...added.map((l) => `+    ${l}`)].join('\n');
+const exemptWith = (file) => dependabotExemption(depFacts([botCommit()], { files: [file], filesTotal: 1 }));
+
+test('t/776 package.json: version-only changes pass (caret, tilde, range, prerelease), at the root and taxonomy-editor', () => {
+  for (const [a, b] of [['"x": "^1.0.0",', '"x": "^1.0.1",'], ['"x": "~2.3.4"', '"x": "~2.3.5"'], ['"x": ">=1 <2"', '"x": ">=1 <3"'], ['"x": "1.2.3-beta.1"', '"x": "1.2.3"'], ['"version": "1.0.0",', '"version": "1.0.1",']]) {
+    for (const path of ['package.json', 'taxonomy-editor/package.json']) {
+      assert.equal(exemptWith(pkg(path, patchOf([a], [b]))).exempt, true, `${path} ${a}`);
+    }
+  }
+});
+
+test('t/776 package.json: a scripts edit is refused (a script body is not a version spec)', () => {
+  const r = exemptWith(pkg('package.json', patchOf(['"build": "tsc",'], ['"build": "node evil.js",'])));
+  assert.equal(r.exempt, false);
+  assert.match(r.reason, /not a version spec/);
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"postinstall": "1.0.0"'], ['"postinstall": "1.0.1"']))).exempt, true, 'a version-shaped value is harmless whatever the key');
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"scripts": "1.0.0"'], ['"scripts": "1.0.1"']))).exempt, false, 'the scripts key itself');
+});
+
+test('t/776 package.json: an added dependency (or script) is refused; so is a removed one or a changed key name', () => {
+  assert.match(exemptWith(pkg('package.json', patchOf([], ['"evil-pkg": "^1.0.0",']))).reason, /adds or removes a key/);
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"x": "^1.0.0",'], []))).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"x": "^1.0.0",'], ['"evil": "^1.0.0",']))).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"x": "^1.0.0"'], ['"x": "^1.0.1",', '"y": "^1.0.0"']))).exempt, false);
+});
+
+test('t/776 package.json: a nested package.json outside the root and taxonomy-editor is refused, even with a clean patch', () => {
+  for (const path of ['operations/devops/package.json', '.github/package.json', 'lib/debate/package.json', 'taxonomy-editor/src/package.json']) {
+    assert.equal(exemptWith(pkg(path)).exempt, false, path);
+  }
+});
+
+test('t/776 package.json: no patch, a non-modified status, or a non-pair line fails closed', () => {
+  assert.equal(exemptWith(pkg('package.json', undefined, { patch: undefined })).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', '')).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', BUMP_PATCH, { status: 'added' })).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', BUMP_PATCH, { status: 'renamed' })).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"a": {'], ['"a": {', '"evil": "1.0.0"']))).exempt, false);
 });

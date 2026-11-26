@@ -390,7 +390,41 @@ export const PR_FILES_LIST_CAP = 3000;
 export function isDependabotBumpPath(path) {
   if (typeof path !== 'string' || !path || path.startsWith('/') || path.split('/').includes('..')) return false;
   const base = path.slice(path.lastIndexOf('/') + 1);
-  return base === 'package.json' || base === 'pnpm-lock.yaml' || /^requirements[A-Za-z0-9._-]*\.txt$/.test(base);
+  // package.json only at the two roots Dependabot's npm bumps are accepted from (Security p/131#99);
+  // any other package.json (operations/devops, .github, a nested one) needs T1 review.
+  if (base === 'package.json') return DEPENDABOT_PACKAGE_JSON_PATHS.includes(path);
+  return base === 'pnpm-lock.yaml' || /^requirements[A-Za-z0-9._-]*\.txt$/.test(base);
+}
+export const DEPENDABOT_PACKAGE_JSON_PATHS = Object.freeze(['package.json', 'taxonomy-editor/package.json']);
+// A dependency version spec: ^1.2.3, ~1.2, >=1 <2, 1.2.3-beta.1, 1.x || 2.x. Not a script body or a URL.
+const VERSION_SPEC = /^[\^~<>=v ]*\d[\w.\-+]*( *(\|\||-|<|>|=)[\^~<>=v ]*\d[\w.\-+]*| +[<>=^~]+ *\d[\w.\-+]*)*$/;
+const KV_LINE = /^\s*"([^"\\]+)":\s*"([^"\\]*)",?\s*$/;
+/**
+ * t/776 (Security p/131#99): a package.json in a Dependabot PR may change only version strings of keys that
+ * already exist. From the file's patch: every changed line is a `"key": "<version spec>"` line, the removed
+ * and added lines carry the same keys (nothing added or removed, so no new dependency name), and no key is
+ * `scripts`. A script body ("build": "tsc") is not a version spec, so editing a script fails. Returns
+ * { ok, why }. Unreadable (no patch) fails closed.
+ */
+export function packageJsonPatchOk(file) {
+  const bad = (why) => ({ ok: false, why });
+  if (!file || typeof file.patch !== 'string' || file.patch === '') return bad('its patch was not readable');
+  if (file.status !== 'modified') return bad(`its status is ${file.status ?? 'unknown'}, not modified`);
+  const removed = [];
+  const added = [];
+  for (const line of file.patch.split('\n')) {
+    if (line.startsWith('@@') || line.startsWith('\\') || line === '' || line.startsWith(' ')) continue;
+    const sign = line[0];
+    if (sign !== '+' && sign !== '-') return bad('its patch has an unreadable line');
+    const m = KV_LINE.exec(line.slice(1));
+    if (!m) return bad(`it changes a line that is not a "key": "version" pair: ${line.slice(0, 60)}`);
+    if (m[1] === 'scripts' || !VERSION_SPEC.test(m[2])) return bad(`it changes "${m[1]}" to a value that is not a version spec`);
+    (sign === '-' ? removed : added).push(m[1]);
+  }
+  if (removed.length === 0 || removed.length !== added.length || [...removed].sort().join('\n') !== [...added].sort().join('\n')) {
+    return bad('it adds or removes a key (a new dependency or script), not only changes versions');
+  }
+  return { ok: true, why: '' };
 }
 export function dependabotExemption(input) {
   const no = (reason) => ({ exempt: false, reason, commitCount: 0 });
@@ -421,6 +455,10 @@ export function dependabotExemption(input) {
   for (const f of files) {
     for (const p of [f?.filename, ...(f?.previous_filename ? [f.previous_filename] : [])]) {
       if (!isDependabotBumpPath(p)) return no(`the PR changes \`${String(p).slice(0, 80)}\`, which is not a package manifest or lockfile`);
+    }
+    if (String(f?.filename).endsWith('package.json')) {
+      const pj = packageJsonPatchOk(f);
+      if (!pj.ok) return no(`${f.filename}: ${pj.why}`);
     }
   }
   return { exempt: true, reason: `Dependabot PR, ${commits.length} verified commit${commits.length === 1 ? '' : 's'} from an allowlisted bot, only manifests and lockfiles changed`, commitCount: commits.length };

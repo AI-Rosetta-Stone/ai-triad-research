@@ -233,7 +233,7 @@ export async function fetchPullRequestInput(github, context, prNumber, { retry =
       filesTruncated: files.length >= PR_FILES_API_CAP || files.length !== pr.changed_files,
       reviews,
       comments,
-      dependabot: { authorLogin: pr.user?.login ?? null, headRepo: pr.head?.repo?.full_name ?? null, baseRepo: pr.base?.repo?.full_name ?? null, commits, commitsTotal: pr.commits, files: files.map((f) => ({ filename: f.filename, previous_filename: f.previous_filename })), filesTotal: pr.changed_files },
+      dependabot: { authorLogin: pr.user?.login ?? null, headRepo: pr.head?.repo?.full_name ?? null, baseRepo: pr.base?.repo?.full_name ?? null, commits, commitsTotal: pr.commits, files: files.map((f) => ({ filename: f.filename, previous_filename: f.previous_filename, status: f.status, patch: f.patch })), filesTotal: pr.changed_files },
       headPushedAtMs: earliestCheckRunStartMs(checkRuns),
       lastPushAt: null, // not read: a committer date is author-controlled (see merge-approval-verdict.mjs)
       labels: (pr.labels ?? []).map((l) => l?.name).filter(Boolean),
