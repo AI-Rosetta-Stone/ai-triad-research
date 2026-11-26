@@ -242,8 +242,15 @@ export function moderatorInterventionPrompt(
   sourceDocumentSummary?: string,
   resolution?: string,
   resolutionClauses?: string[],
+  /** t/784: earlier COMMITs in this concluding phase (whole text, at most 2 sentences each), not to be repeated. */
+  priorCommits?: string[],
+  /** t/784: the COMMIT target's own most recent turn, so the request presses a point that is theirs. */
+  targetRecentTurn?: string,
 ): string {
   const moveSpecificInstructions = getMoveSpecificInstructions(move, targetDebater, sourceClaim);
+  const { avoidRepeat, targetTurn } = move === 'COMMIT'
+    ? commitBlocks(targetDebater, priorCommits, targetRecentTurn)
+    : { avoidRepeat: '', targetTurn: '' };
 
   const sourceAnchor = sourceDocumentSummary
     ? `\n=== SOURCE DOCUMENT ANCHOR ===\n${sourceDocumentSummary}\n\nYour intervention must anchor the debate back to concepts in the source material. If a debater has drifted into implementation details or literalized a metaphor, reference specific source-document language in your intervention.\n`
@@ -267,11 +274,13 @@ ${sourceClaim ? `Original claim: "${sourceClaim}"` : ''}${sourceAnchor}${resolut
 
 === RECENT TRANSCRIPT ===
 ${recentTranscript}
-
+${targetTurn}
 === INSTRUCTIONS ===
-${moveSpecificInstructions}
+${moveSpecificInstructions}${avoidRepeat}
 
-You are procedurally authoritative. Describe what happened in the debate in terms of observable state (who said what, who evaded what, what topics were covered). Do NOT evaluate whether an argument is good, strong, correct, or compelling. The judge handles quality assessment.
+${move === 'COMMIT'
+  ? 'You are procedurally authoritative. Do NOT evaluate whether an argument is good, strong, correct, or compelling. The judge handles quality assessment.'
+  : 'You are procedurally authoritative. Describe what happened in the debate in terms of observable state (who said what, who evaded what, what topics were covered). Do NOT evaluate whether an argument is good, strong, correct, or compelling. The judge handles quality assessment.'}
 
 ${move === 'REVOICE' ? 'For REVOICE: restate the original claim in plain language. The system will verify propositional preservation before insertion.' : ''}
 ${move === 'CHECK' ? 'For CHECK: use a DIRECT QUOTE from the target debater\'s transcript, not a paraphrase.' : ''}
@@ -280,6 +289,15 @@ Respond ONLY with a JSON object (no markdown, no code fences):
 {
   "text": "the intervention text"${resolution ? ',\n  "clause_in_scope": "1" | "2" | ... | "redirect" | "none"' : ''}${move === 'REVOICE' ? ',\n  "original_claim_text": "the verbatim original claim being revoiced"' : ''}
 }`;
+}
+
+/** t/784: the COMMIT-only prompt blocks: earlier COMMITs not to reuse, and the target's own latest turn. */
+function commitBlocks(target: string, priorCommits?: string[], targetRecentTurn?: string): { avoidRepeat: string; targetTurn: string } {
+  const avoidRepeat = priorCommits?.length
+    ? `\nThe moderator already made these earlier final-position requests. Do NOT reuse or paraphrase any sentence of them, and do not reuse their wording or phrasing:\n${priorCommits.map(o => `- "${o}"`).join('\n')}\n`
+    : '';
+  const targetTurn = targetRecentTurn ? `\n=== ${target.toUpperCase()}'S MOST RECENT TURN ===\n${targetRecentTurn}\n` : '';
+  return { avoidRepeat, targetTurn };
 }
 
 function getMoveSpecificInstructions(move: InterventionMove, target: string, sourceClaim?: string): string {
@@ -313,7 +331,8 @@ function getMoveSpecificInstructions(move: InterventionMove, target: string, sou
     case 'COMPRESS':
       return `Ask ${target} for their single most important reason in one sentence (max 40 words).`;
     case 'COMMIT':
-      return `Ask ${target} for their final position. They must state: (1) what they conceded during the debate, (2) what conditions would change their remaining position, (3) their sharpest remaining disagreement with each opponent.`;
+      // t/784 (Design rules): open with the target's name and the commitment asked, no recap, at most 2 sentences.
+      return `Ask ${target} for their final position by pressing ONE specific point that is recognisably theirs: the disagreement ${target} pressed hardest, or a concession ${target} made but has not reconciled with their position. Take it from ${target}'s own turns (their most recent turn is shown above) and name it concretely. Your FIRST sentence must begin with "${target}," and put that point to them. Then ask, in words fitted to that point, whether they still stand by it and what would change their mind. Do NOT use a stock phrase for this ask, list numbered asks, or reuse any wording from the earlier requests listed below. Write at most 2 sentences in total. Do NOT recap or summarise the debate (never open with "This debate has focused on..." or a list of who conceded what); the synthesis does that.`;
     case 'CRUX_FOCUS':
       return `Focus ${target} on the core disagreement that neither side has been able to resolve. Ask them to name the specific evidence or value commitment that would change their position.`;
   }

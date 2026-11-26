@@ -13,6 +13,7 @@ import type { TranscriptEntry, TurnPipelineResult, TaxonomyRef } from './types.j
 import type { TurnPipelineInput } from './turnPipeline.js';
 import type { PoverResponseMeta } from './helpers.js';
 import * as moderatorModule from './moderator.js';
+import { setGlobalRecorder, clearGlobalRecorder, type FlightRecorder, type RecordInput } from '../flight-recorder/index.js';
 const { initModeratorState } = moderatorModule;
 
 // ── Shared helpers ──────────────────────────────────────
@@ -826,5 +827,55 @@ describe('executeTurnWithRetry', () => {
     expect(result.pipelineResult).toBeDefined();
     expect(result.pipelineResult.total_time_ms).toBe(550);
     expect(result.pipelineResult.stage_diagnostics).toBeDefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
+// t/784: concluding-phase COMMIT does not repeat an earlier COMMIT's opening
+// ═══════════════════════════════════════════════════════════
+
+describe('runModeratorSelection concluding COMMIT (t/784)', () => {
+  it("passes the earlier COMMIT's opening sentence into the next COMMIT prompt as not-to-reuse", async () => {
+    const RECAP = 'This debate has focused on how artificial intelligence safety rules affect market fairness and public safety.';
+    const transcript = [
+      makeTranscriptEntry({ speaker: 'accelerationist', type: 'statement' }),
+      makeTranscriptEntry({ speaker: 'safetyist', type: 'statement' }),
+      makeTranscriptEntry({ speaker: 'skeptic', type: 'statement' }),
+      makeTranscriptEntry({ speaker: 'moderator', type: 'intervention', content: `${RECAP} The Accelerationist conceded X.`, intervention_metadata: { move: 'COMMIT' } as never }),
+    ];
+    const input = makeBaseModeratorInput({ phase: 'concluding', round: 15, transcript });
+    const callbacks = makeBaseModeratorCallbacks(JSON.stringify({ text: 'Safetyist, state your final position now.' }));
+
+    await runModeratorSelection(input, callbacks);
+
+    const prompts = (callbacks.generate as ReturnType<typeof vi.fn>).mock.calls.map(c => String(c[0]));
+    const commitPrompt = prompts.find(p => p.includes('Move: COMMIT'));
+    expect(commitPrompt).toBeDefined();
+    expect(commitPrompt).toContain('Do NOT reuse or paraphrase any sentence of them');
+    // Since the t/784 second fix, the whole earlier COMMIT is listed, not only its opening.
+    expect(commitPrompt).toContain(`- "${RECAP} The Accelerationist conceded X."`);
+    // t/784 tweak: the target's own latest turn is passed in (the 4-entry window often lacks it).
+    expect(commitPrompt).toContain("=== ACCELERATIONIST'S MOST RECENT TURN ===\nTest statement content about AI governance.");
+  });
+
+  it('records a WARN when the generated COMMIT shares a 6-word run with an earlier COMMIT', async () => {
+    const EARLIER = 'Safetyist, you must state your final position on the pause.';
+    const transcript = [
+      makeTranscriptEntry({ speaker: 'accelerationist', type: 'statement' }),
+      makeTranscriptEntry({ speaker: 'moderator', type: 'intervention', content: EARLIER, intervention_metadata: { move: 'COMMIT' } as never }),
+    ];
+    const record = vi.fn<(e: RecordInput) => void>();
+    setGlobalRecorder({ record } as unknown as FlightRecorder);
+    try {
+      const input = makeBaseModeratorInput({ phase: 'concluding', round: 15, transcript });
+      const callbacks = makeBaseModeratorCallbacks(JSON.stringify({ text: 'Accelerationist, you must state your final position on open weights.' }));
+      await runModeratorSelection(input, callbacks);
+    } finally {
+      clearGlobalRecorder();
+    }
+    const warns = record.mock.calls.map(c => c[0]).filter(e => e.level === 'warn' && /shares a 6-word run/.test(String(e.message)));
+    expect(warns).toHaveLength(1);
+    expect(warns[0].message).toContain('round 15');
+    expect(warns[0].message).toContain('you must state your final position');
   });
 });
