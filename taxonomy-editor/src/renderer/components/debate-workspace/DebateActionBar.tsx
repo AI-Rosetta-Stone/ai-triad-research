@@ -18,6 +18,7 @@ import { NewsReportModal } from '../shared/NewsReportModal';
 import { useTierInfo } from '../../hooks/useTierInfo';
 import { isElectronMode } from '@bridge';
 import { useFlag } from '../../hooks/useFeatureFlags';
+import { AnonReadOnlyNotice, anonReadOnlyDescribedBy, anyDisabled, useAnonReadOnly } from './anonReadOnly';
 import { triggerManualDump } from '../../lib/flightRecorderInit';
 import { bandColor, BUDGET_BANDS } from '../../lib/bandColor';
 import { useSettingsDialog } from '../../hooks/useSettingsDialog';
@@ -831,13 +832,14 @@ export function DebateActions({ showParamHistory, setShowParamHistory, showEvalu
   // A conditional hook here crashed the popup with "Rendered fewer hooks than expected" (t/2298).
   const adminFlag = useFlag('permission-admin-features');
   const showAdminControls = isElectronMode() || adminFlag;
+  const anonReadOnly = useAnonReadOnly(activeDebate); // t/725: an anonymous visitor's non-Quick-take debate is read-only
   const { isAdaptive, isStepMode, currentAdaptivePhase } = deriveAdaptiveState(activeDebate);
 
   if (!activeDebate) return null;
 
   const isGenerating = !!debateGenerating;
   const isClosed = activeDebate.phase === 'closed';
-  const disableAnalysis = isGenerating || sending;
+  const disableAnalysis = anyDisabled(isGenerating, sending, anonReadOnly);
   const isSocratic = (activeDebate.active_povers ?? []).filter(p => p !== 'user').length < 2;
   const hasSynthesis = activeDebate.transcript.some(e => e.type === 'concluding');
   const hasEvaluations = !!activeDebate.neutral_evaluations?.length;
@@ -964,7 +966,8 @@ export function DebateActions({ showParamHistory, setShowParamHistory, showEvalu
           onSetPhase={setDebatePhase}
         />
       )}
-      <div className="debate-composer">
+      <AnonReadOnlyNotice active={anonReadOnly} />
+      <div className="debate-composer" {...anonReadOnlyDescribedBy(anonReadOnly)}>
         <DebateInputBar
           inputRef={inputRef}
           input={input}
