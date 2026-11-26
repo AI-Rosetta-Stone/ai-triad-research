@@ -190,6 +190,17 @@ describe('StatementCard collapse: the collapsed row (t/701 §8)', () => {
     expect(row.querySelector('.debate-tier-pills')).toBeNull();
   });
 
+  it('puts the claim on its own line under speaker and kind (t/761)', () => {
+    const { container } = renderAll(setTranscript(4, (i) => (i === 1 ? { type: 'opening' } : {})));
+    const row = container.querySelector('[data-entry-id="e1"]') as HTMLElement;
+    const line = row.querySelector('.debate-statement-collapsed-line') as HTMLElement;
+    const claim = row.querySelector('.debate-statement-collapsed-claim') as HTMLElement;
+    expect(line.querySelector('.debate-statement-speaker')).not.toBeNull();
+    expect(line.querySelector('.debate-statement-kind')?.textContent).toBe('· Opening statement');
+    expect(line.contains(claim)).toBe(false);
+    expect(claim.parentElement).toBe(line.parentElement);
+  });
+
   it('uses brief_claim when the entry has one', () => {
     const transcript = setTranscript(4, (i) => (i === 1 ? { summaries: { brief: 'b', medium: 'm', brief_claim: 'The structured claim.', brief_points: ['p1', 'p2'] } as TranscriptEntry['summaries'] } : {}));
     const { container } = renderAll(transcript);
