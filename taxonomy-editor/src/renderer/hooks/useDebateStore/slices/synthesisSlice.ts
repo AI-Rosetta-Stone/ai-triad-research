@@ -16,6 +16,7 @@ import { trackDebateComplete } from '../../../lib/analyticsEmitter';
 import { generateId, nowISO, stripCodeFences, parseAIJson, extractArraysFromPartialJson, formatRecentTranscript } from '@lib/debate/helpers';
 import { formatFactCheckContent } from '../shared/factCheckFormat';
 import { runSynthesisPhases } from '@lib/debate/synthesisPhases';
+import { unreadableListLines } from '@lib/debate/synthesisOrder';
 import type { SynthesisInput } from '@lib/debate/synthesisPhases';
 import { finalizeUndecidedCruxes } from '@lib/debate/cruxResolution';
 import { formatTaxonomyContext } from '../../../utils/taxonomyContext';
@@ -79,7 +80,7 @@ function synthRawTextLines(synthesis: any): string[] {
 }
 
 function synthAgreementLines(synthesis: any): string[] {
-  if (!(synthesis.areas_of_agreement?.length > 0)) return [];
+  if (!(synthesis.areas_of_agreement?.length > 0)) return unreadableListLines(synthesis, 'areas_of_agreement', '## Areas of Agreement');
   const lines: string[] = ['## Areas of Agreement', ''];
   for (const a of synthesis.areas_of_agreement) {
     const who = Array.isArray(a.povers) ? a.povers.map((p: string) => POVER_INFO[p as Exclude<SpeakerId, 'user'>]?.label || p).join(', ') : '';
@@ -89,7 +90,10 @@ function synthAgreementLines(synthesis: any): string[] {
 }
 
 function synthDisagreementLines(synthesis: any): string[] {
-  if (!(synthesis.areas_of_disagreement?.length > 0)) return [];
+  if (!(synthesis.areas_of_disagreement?.length > 0)) {
+    const unreadable = unreadableListLines(synthesis, 'areas_of_disagreement', '## Areas of Disagreement');
+    return unreadable.length ? ['', ...unreadable] : [];
+  }
   const lines: string[] = ['', '## Areas of Disagreement', ''];
   for (const d of synthesis.areas_of_disagreement) {
     const typeTag = d.type ? ` [${d.type}]` : '';
@@ -111,7 +115,10 @@ function synthDisagreementLines(synthesis: any): string[] {
 }
 
 function synthCruxesLines(synthesis: any): string[] {
-  if (!(synthesis.cruxes?.length > 0)) return [];
+  if (!(synthesis.cruxes?.length > 0)) {
+    const unreadable = unreadableListLines(synthesis, 'cruxes', '## Cruxes');
+    return unreadable.length ? ['', ...unreadable] : [];
+  }
   const lines: string[] = ['', '## Cruxes', ''];
   for (const c of synthesis.cruxes) {
     const typeTag = c.type ? ` [${c.type}]` : '';
