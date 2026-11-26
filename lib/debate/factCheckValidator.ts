@@ -12,7 +12,20 @@
 import { normalizeVerdict, FACT_VERDICTS, type FactVerdict } from './types/factVerdict.js';
 import type { FactCheckResult, FactDiscrepancy } from './types/synthesis.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
-import { parseFactCheckFinding } from './factCheckFinding.js';
+import { parseFactCheckFinding, type ParsedFactCheckFinding } from './factCheckFinding.js';
+
+/** WARN for a dropped finding and for each point or limit removed from a kept one (t/763). */
+function warnFindingFallbacks(finding: ParsedFactCheckFinding, verdict: FactVerdict, debateId?: string): void {
+  const rec = getGlobalRecorder();
+  if (!rec) return;
+  const base = { type: 'ai.fallback' as const, component: 'fact-check-validator', level: 'warn' as const, debate_id: debateId };
+  if (finding.dropped) {
+    rec.record({ ...base, message: `Fact-check finding dropped (${finding.dropped}); the card falls back to the explanation`, data: { verdict, reason: finding.dropped } });
+  }
+  for (const reason of finding.removed ?? []) {
+    rec.record({ ...base, message: `Fact-check ${reason}; removed, the rest of the finding is kept`, data: { verdict, reason } });
+  }
+}
 
 /**
  * Deterministic fallback when a `partially_accurate` verdict fails the discrepancy gate.
@@ -126,13 +139,7 @@ export function validateFactCheckResult(raw: unknown, debateId?: string): FactCh
 
   // t/763: the pithy finding, checked against the verdict that survived the gate.
   const finding = parseFactCheckFinding(obj, resolvedVerdict);
-  if (finding.dropped) {
-    getGlobalRecorder()?.record({
-      type: 'ai.fallback', component: 'fact-check-validator', level: 'warn', debate_id: debateId,
-      message: `Fact-check finding dropped (${finding.dropped}); the card falls back to the explanation`,
-      data: { verdict: resolvedVerdict, reason: finding.dropped },
-    });
-  }
+  warnFindingFallbacks(finding, resolvedVerdict, debateId);
 
   return {
     verdict: resolvedVerdict,

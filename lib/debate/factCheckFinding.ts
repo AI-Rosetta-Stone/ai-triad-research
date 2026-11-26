@@ -29,6 +29,22 @@ export const FINDING_MAX_WORDS = 40;
 /** Raw identifiers that must not appear in a finding: arXiv-style ids, POV node ids, conflict ids, URLs. */
 export const RAW_ID = /\b\d{4}\.\d{4,5}(?:v\d+)?\b|\b(?:acc|saf|skp|cc)-[a-z]+-\d{3}\b|\bconflict-[a-z0-9-]{6,}|https?:\/\/\S+/i;
 
+/** Internal-store names readers must never see (Design ruling, t/763#12). "this project's taxonomy" and
+ *  "the debate so far" are the allowed names, so a bare "taxonomy" is not flagged on its own. */
+export const INTERNAL_STORE = /\bconflict (?:data|logs?)\b|\btaxonomy (?:records?|nodes?|data)\b|\bnodes?\b|\bdebate (?:record|materials)\b|\bverified record\b/i;
+
+/** Claims that something is absent from all public data (Design ruling 2): describe what was checked instead. */
+export const PUBLIC_ABSENCE = /\b(?:public|publicly available)\s+(?:[\w-]+\s+){0,3}?(?:data|databases?|records?)\b|\ball public\b/i;
+
+/** Why reader-facing text breaks the wording rules, or undefined. Applied to the finding, each point and the limit. */
+export function readerTextProblem(text: string): string | undefined {
+  const store = INTERNAL_STORE.exec(text);
+  if (store) return `names an internal store ('${store[0]}')`;
+  const absent = PUBLIC_ABSENCE.exec(text);
+  if (absent) return `claims absence from public data ('${absent[0]}')`;
+  return undefined;
+}
+
 /** A finding must say something after the verdict word (a bare "Can't be verified." repeats the pill). */
 export const FINDING_MIN_WORDS_AFTER_VERDICT = 4;
 
@@ -42,6 +58,8 @@ export interface ParsedFactCheckFinding {
   value?: FactCheckFinding;
   /** Why the finding was dropped, when it was. The caller logs it as a WARN. */
   dropped?: string;
+  /** Points or a limit removed from a kept finding for breaking the wording rules. Logged as WARNs. */
+  removed?: string[];
 }
 
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
@@ -64,7 +82,8 @@ function findingProblem(finding: unknown, verdict: FactVerdict): string | undefi
   // Design ruling (t/763): a raw id may appear in a point, as the speaker's, but never in the finding.
   const id = RAW_ID.exec(text);
   if (id) return `finding contains a raw identifier ('${id[0]}')`;
-  return undefined;
+  const wording = readerTextProblem(text);
+  return wording ? `finding ${wording}` : undefined;
 }
 
 function problem(obj: Record<string, unknown>, verdict: FactVerdict): string | undefined {
@@ -95,10 +114,23 @@ export function parseFactCheckFinding(raw: unknown, verdict: FactVerdict): Parse
   }
   const why = problem(obj, verdict);
   if (why) return { dropped: why };
-  const value: FactCheckFinding = {
-    finding: asciiQuote((obj.finding as string).trim()),
-    finding_points: (obj.finding_points as string[]).map(p => p.trim()),
-  };
-  if (nonEmpty(obj.limit)) value.limit = obj.limit.trim();
-  return { value };
+  const { points, limit, removed } = screenSupportingLines(obj.finding_points as string[], obj.limit);
+  if (points.length === 0) return { dropped: `every finding_point removed (${removed.join('; ')})` };
+  const value: FactCheckFinding = { finding: asciiQuote((obj.finding as string).trim()), finding_points: points };
+  if (limit) value.limit = limit;
+  return removed.length ? { value, removed } : { value };
+}
+
+/** Readers see points and the limit too, so a line that breaks the wording rules is removed (Design, t/763#12). */
+function screenSupportingLines(rawPoints: string[], rawLimit: unknown): { points: string[]; limit?: string; removed: string[] } {
+  const removed: string[] = [];
+  const points = rawPoints.map(p => p.trim()).filter((p, i) => {
+    const bad = readerTextProblem(p);
+    if (bad) removed.push(`finding_points[${i}] ${bad}`);
+    return !bad;
+  });
+  if (!nonEmpty(rawLimit)) return { points, removed };
+  const bad = readerTextProblem(rawLimit);
+  if (bad) { removed.push(`limit ${bad}`); return { points, removed }; }
+  return { points, limit: rawLimit.trim(), removed };
 }

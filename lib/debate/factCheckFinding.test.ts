@@ -54,6 +54,47 @@ describe('parseFactCheckFinding', () => {
   });
 });
 
+describe('reader wording rules (Design, t/763#12)', () => {
+  const ok = "Can't be verified. No source checked here reports the cited 2026 report.";
+  it.each([
+    ["Can't be verified. Public databases and taxonomy records contain no mention of it.", /internal store \('taxonomy records'\)/],
+    ['Accurate. Internal conflict data confirms that women lead 18% of them.', /internal store \('conflict data'\)/],
+    ["Can't be verified. Public software engineering data does not contain these metrics.", /absence from public data/],
+  ])('drops a finding that breaks them: %s', (finding, reason) => {
+    const verdict = finding.startsWith('Accurate') ? 'supported' : 'unverifiable';
+    const r = parseFactCheckFinding({ finding, finding_points: ['a fine point here'] }, verdict);
+    expect(r.value).toBeUndefined();
+    expect(r.dropped).toMatch(reason);
+  });
+
+  it("allows the renamed stores: this project's taxonomy, the debate so far", () => {
+    const r = parseFactCheckFinding({ finding: "Can't be verified. No source in this project's taxonomy or the debate so far reports it.", finding_points: ['The debate so far cites no study for it.'] }, 'unverifiable');
+    expect(r.dropped).toBeUndefined();
+    expect(r.removed).toBeUndefined();
+  });
+
+  it('removes an offending point and keeps the rest, reporting it', () => {
+    const r = parseFactCheckFinding({ finding: ok, finding_points: ['Conflict data confirms the 93% figure.', 'The speaker generalises the finding.'], limit: 'Nothing in the debate record covers 2026.' }, 'unverifiable');
+    expect(r.value?.finding_points).toEqual(['The speaker generalises the finding.']);
+    expect(r.value?.limit).toBeUndefined();
+    expect(r.removed).toEqual([expect.stringMatching(/finding_points\[0\] names an internal store/), expect.stringMatching(/limit names an internal store \('debate record'\)/)]);
+  });
+
+  it('drops the finding when every point is removed', () => {
+    const r = parseFactCheckFinding({ finding: ok, finding_points: ['The available conflict data has nothing.'] }, 'unverifiable');
+    expect(r.dropped).toMatch(/every finding_point removed/);
+  });
+
+  it('validateFactCheckResult logs a WARN per removed point', () => {
+    const record = vi.fn<(e: RecordInput) => void>();
+    setGlobalRecorder({ record } as unknown as FlightRecorder);
+    const v = validateFactCheckResult({ verdict: 'unverifiable', explanation: 'e', finding: ok, finding_points: ['Conflict data has nothing.', 'A clean point here.'] });
+    expect(v.finding_points).toEqual(['A clean point here.']);
+    expect(record.mock.calls.map(c => c[0].message ?? '').some(m => /finding_points\[0\] names an internal store.*removed/.test(m))).toBe(true);
+    clearGlobalRecorder();
+  });
+});
+
 describe('raw ids in points (t/763 ruling 1)', () => {
   it("allows the speaker's bad id in a point", () => {
     const r = parseFactCheckFinding({ finding: "Can't be verified. No source checked here reports the cited figure.", finding_points: ["The statement cites '2601.11699v4', which doesn't match a known paper."] }, 'unverifiable');
@@ -91,7 +132,7 @@ describe('validateFactCheckResult carries the finding (t/763)', () => {
 describe('factCheckPrompt (t/763)', () => {
   const p = factCheckPrompt('claim', 'context', 'nodes', 'conflicts');
   it('asks for finding, finding_points and an optional limit, with the verdict words and the id rule', () => {
-    for (const s of ['Never put it in the finding', 'No source checked here reports', 'Never name the internal stores', 'Never invent a source', '"finding"', '"finding_points"', '"limit"', 'Accurate.', 'Partly accurate.', 'Overstated.', "Can't be verified.", 'never by a raw document id', 'no intensifiers']) {
+    for (const s of ['Never put it in the finding', 'No source checked here reports', "this project's taxonomy", 'Never write \"conflict data\"', 'Never invent a source', 'Never leave it as the bare verdict words', '"finding"', '"finding_points"', '"limit"', 'Accurate.', 'Partly accurate.', 'Overstated.', "Can't be verified.", 'never by a raw document id', 'no intensifiers']) {
       expect(p).toContain(s);
     }
   });
