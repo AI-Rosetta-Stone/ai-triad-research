@@ -39,10 +39,11 @@
     "t/566: 'merge-approval' has been required since 2026-11-26 (ruleset 26043005 and classic checks,",
     "pinned to App 5912670). The merge-approval App posts it as a check run through its API; no job",
     "posts it (merge-approval.yml's job is named 'merge-approval (compute)' on purpose). So the entry",
-    "is 'posts': 'app-aggregate' and names NO workflow: workflow-lint's file rules are written for",
-    "job-posted checks and report two false findings on merge-approval.yml (no pull_request trigger:",
-    "it runs on pull_request_target from main by design; R4: its concurrency group ends in",
-    "github.run_id but is not run_id alone). The drift guard still compares the context name."
+    "is 'posts': 'app-aggregate' and names merge-approval.yml (t/722): workflow-lint accepts pull_request_target for an",
+    "app-aggregate (the file runs from the base by design, t/537) and an unconditional github.run_id component in its",
+    "concurrency group. An entry with no workflow must be app-aggregate. The two relay workflows (merge-approval-group-relay,",
+    "merge-approval-review-relay) post nothing, they only wake merge-approval.yml, so they are not listed. The drift guard",
+    "still compares the context name."
   ],
   "strict": false,
   "enforce_admins": true,
@@ -51,7 +52,7 @@
     { "context": "joint-gv-guard", "workflow": ".github/workflows/joint-gv-guard.yml" },
     { "context": "CodeQL Analysis", "workflow": ".github/workflows/codeql.yml" },
     { "context": "consult-hold-guard", "workflow": ".github/workflows/consult-hold-guard.yml" },
-    { "context": "merge-approval", "posts": "app-aggregate" }
+    { "context": "merge-approval", "workflow": ".github/workflows/merge-approval.yml", "posts": "app-aggregate" }
   ],
   "merge_queue_ruleset": {
     "name": "main-merge-queue",
