@@ -20,6 +20,11 @@ residual at t/4096#65. (This doc already got this wrong once before the author-A
 landed, t/4096#65/PR #3490 — don't let a future reader re-infer "different App login = safe" from
 half of this doc; both identity switch-overs share the same actual control.)
 
+**Which approvals count (t/739).** A T1 or T2 approval counts only from a T1 reviewer role:
+Quality, Tech Lead or Security (`T1_REVIEWER_ROLES` in
+`operations/devops/t1-approval-guard-predicate.mjs`). `Approved (Design):` is the Design gate and
+never counts as the T1 review. The branch owner's own role never counts.
+
 ## The command
 
 ```powershell
