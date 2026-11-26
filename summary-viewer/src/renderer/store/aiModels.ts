@@ -20,7 +20,7 @@ export const MODELS_BY_BACKEND: Record<AIBackend, AIModelEntry[]> = {
   gemini: [
     // t/785: gemini-2.5-flash is shut down Dec 1, 2026; the registry's successor is the default.
     { value: 'gemini-3.5-flash-lite', label: '3.5 Flash Lite' },
-    { value: 'gemini-3.5-flash', label: '3.5 Flash' },
+    { value: 'gemini-3.6-flash', label: '3.6 Flash' },
   ],
   claude: [
     // t/781: claude-sonnet-4-5 retires Nov 30, 2026; ids follow the registry (aiModels.test.ts guards it).
