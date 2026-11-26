@@ -88,6 +88,11 @@ export function evaluatePackedExtract(r) {
   if (ok.length === 0) {
     return makeGateVerdict({ gate: GATE, verdict: VERDICTS.UNREADABLE, reason: 'the check exited 0 but printed no "<fixture>: OK format=" line, so nothing shows a document was extracted', details });
   }
+  // TL t/631#24: PDF alone does not pass. Both required formats must be reported, by name.
+  const missing = ['pdf', 'docx'].filter((f) => !lines.some((l) => l.includes(`: OK format=${f} `)));
+  if (missing.length > 0) {
+    return makeGateVerdict({ gate: GATE, verdict: VERDICTS.FAIL, reason: `the check exited 0 but did not report "OK format=${missing.join('" and "OK format=')}" (both pdf and docx must extract through the packed app)`, details });
+  }
   return makeGateVerdict({ gate: GATE, verdict: VERDICTS.PASS, reason: `${ok.length} fixture(s) extracted through the packed app${took}`, details });
 }
 
