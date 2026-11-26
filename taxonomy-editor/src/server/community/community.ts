@@ -13,6 +13,7 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import path from 'path';
 import { getConfig } from '../runtimeConfig.js';
 import { mintCommunityOpedShare, getCommunityOpedShareEntry, revokeCommunityOpedShare } from './communityOpedShares.js';
+import { communityPseudonym, communityItemOwnerKey } from './submitterPseudonym.js';
 import { projectArgumentNetwork, projectTopic } from './argumentNetworkProjection.js';
 import { writePublicCommunityOpEd, deletePublicCommunityOpEd, type CommunityOpEdItem } from '../storage/communityOpedShareStore.js';
 import {
@@ -535,8 +536,9 @@ export async function mintAndProjectCommunityOpEd(id: string, submittedBy: strin
     return { outcome: 'skipped', reason: 'malformed' };
   }
 
+  const owner = communityItemOwnerKey(lookup.item, id) ?? submittedBy; // t/693: the stored owner key wins over a caller's display
   const alreadyShared = !!(await getCommunityOpedShareEntry(id));
-  const shareId = await mintCommunityOpedShare(id, submittedBy);
+  const shareId = await mintCommunityOpedShare(id, owner);
   await writePublicCommunityOpEd(lookup.item as unknown as CommunityOpEdItem, shareId);
   return { outcome: alreadyShared ? 'already-shared' : 'minted', shareId };
 }
@@ -551,13 +553,13 @@ export async function mintAndProjectCommunityOpEd(id: string, submittedBy: strin
 export async function backfillCommunityOpedShares(): Promise<{
   minted: number; alreadyShared: number; skipped: number; skippedIds: string[];
 }> {
-  const items = await listCommunityOpEds() as { id: string; community_metadata?: { submitted_by_display?: string } }[];
+  const items = await listCommunityOpEds() as { id: string }[];
   let minted = 0;
   let alreadyShared = 0;
   const skippedIds: string[] = [];
 
   for (const it of items) {
-    const result = await mintAndProjectCommunityOpEd(it.id, it.community_metadata?.submitted_by_display ?? '');
+    const result = await mintAndProjectCommunityOpEd(it.id, ''); // t/693: the mint reads the owner key from the stored item
     if (result.outcome === 'minted') minted++;
     else if (result.outcome === 'already-shared') alreadyShared++;
     else {
@@ -734,12 +736,13 @@ export function stripSensitiveKeys(obj: unknown): unknown {
   return stripSensitiveKeysCore(obj, sanitizeUserText);
 }
 
-/** t/856: drop the pre-share private UUID from community_metadata before it's
- *  served publicly (kept in the stored file for admin tracing). */
+/** t/856, t/693: drop the server-only keys before community_metadata is served to any reader: the pre-share
+ *  private UUID and the submitter's storage id (an email address for Google/Entra). Both stay in the stored file. */
 function stripOriginalId(meta: unknown): unknown {
   if (!meta || typeof meta !== 'object') return meta;
   const rest = { ...(meta as Record<string, unknown>) };
   delete rest.original_id;
+  delete rest.owner_storage_id;
   return rest;
 }
 
@@ -1000,7 +1003,8 @@ function sanitizeForCommunity(data: unknown, submittedBy: string, type: Submissi
     d = { ...projected, id, created_at };
   }
   d.community_metadata = {
-    submitted_by_display: submittedBy,
+    submitted_by_display: communityPseudonym(submittedBy),
+    owner_storage_id: submittedBy, // t/693: server-only owner key; the display above is a keyed pseudonym
     submitted_at: new Date().toISOString(),
     approved_at: new Date().toISOString(),
     original_id: d.id,
@@ -1209,7 +1213,7 @@ function buildRemovalAudit(
     id,
     type: auditType,
     title: removalAuditTitle(item),
-    submitted_by: (meta.submitted_by_display as string) ?? null,
+    submitted_by: communityItemOwnerKey({ community_metadata: meta }, id),
     removed_by: removedBy,
     removed_at: new Date().toISOString(),
     reason: reason ?? null,
