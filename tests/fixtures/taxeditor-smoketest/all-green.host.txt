@@ -41,5 +41,6 @@ Smoke testing: https://stub
   Azure:   Healthy
   GitHub:  Healthy
   Endpoints: 7/7 passed
+  Embedding probe: ok, 100ms (ceiling 2s)
   Response: avg=19ms min=10ms max=42ms
   Duration: <masked>s

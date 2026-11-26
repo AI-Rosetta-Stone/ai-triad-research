@@ -7,6 +7,7 @@
   "OpedFilesOk": true,
   "EmbeddingStatus": "ok",
   "EmbeddingLatencyMs": 100,
+  "EmbeddingSummary": "ok, 100ms (ceiling 2s)",
   "EmbeddingCeilingSec": 2.0,
   "EmbeddingCachePresent": true,
   "EmbeddingCacheStatus": "present",

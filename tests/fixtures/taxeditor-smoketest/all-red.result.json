@@ -7,6 +7,7 @@
   "OpedFilesOk": false,
   "EmbeddingStatus": "unreachable",
   "EmbeddingLatencyMs": 0,
+  "EmbeddingSummary": "probe failed, no latency measured (server unreachable)",
   "EmbeddingCeilingSec": 2.0,
   "EmbeddingCachePresent": false,
   "EmbeddingCacheStatus": "warming",

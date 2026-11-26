@@ -144,7 +144,8 @@ function Invoke-TaxEditorSmokeTest {
     $OverallPass = $Health.Healthy -and $Failed -eq 0 -and $Azure.Healthy
 
     Write-SmokeSummary -OverallPass $OverallPass -HealthOk $Health.Healthy -AzureOk $Azure.Healthy -GitHubOk $GitHub.Healthy `
-        -Passed $Passed -Total $Total -Stats $Stats -Duration $Duration -Detailed $Detailed -CategorySummary $CategorySummary
+        -Passed $Passed -Total $Total -Stats $Stats -Duration $Duration -Detailed $Detailed -CategorySummary $CategorySummary `
+        -EmbeddingStatus $Embedding.Status -EmbeddingSummary $Embedding.Summary
 
     [PSCustomObject]@{
         BaseUrl         = $BaseUrl
@@ -155,6 +156,7 @@ function Invoke-TaxEditorSmokeTest {
         OpedFilesOk     = $OpedFiles.Pass
         EmbeddingStatus     = $Embedding.Status
         EmbeddingLatencyMs  = $Embedding.Ms
+        EmbeddingSummary    = $Embedding.Summary
         EmbeddingCeilingSec = $EmbeddingCeilingSec
         EmbeddingCachePresent = $Cache.Present
         EmbeddingCacheStatus  = $Cache.Status
