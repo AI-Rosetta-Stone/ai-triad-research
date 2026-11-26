@@ -54,6 +54,32 @@ describe('parseFactCheckFinding', () => {
   });
 });
 
+describe('finding length bounds (Quality, #5597)', () => {
+  const pts = { finding_points: ['A point.'] };
+  const after = (n: number) => `Accurate. ${Array(n).fill('word').join(' ')}`;
+
+  it.each([1, 2, 3])('drops a finding with %i word(s) after the verdict word', (n) => {
+    const r = parseFactCheckFinding({ finding: after(n), ...pts }, 'supported');
+    expect(r.value).toBeUndefined();
+    expect(r.dropped).toMatch(/no statement after the verdict word/);
+  });
+
+  it('keeps a finding with exactly 4 words after the verdict word', () => {
+    expect(parseFactCheckFinding({ finding: after(4), ...pts }, 'supported').value?.finding).toBe(after(4));
+  });
+
+  it('drops a 41-word finding and keeps a 40-word one (cap includes the verdict word)', () => {
+    const forty = after(39);
+    const fortyOne = after(40);
+    expect(forty.split(/\s+/)).toHaveLength(40);
+    expect(fortyOne.split(/\s+/)).toHaveLength(41);
+    expect(parseFactCheckFinding({ finding: forty, ...pts }, 'supported').value?.finding).toBe(forty);
+    const r = parseFactCheckFinding({ finding: fortyOne, ...pts }, 'supported');
+    expect(r.value).toBeUndefined();
+    expect(r.dropped).toMatch(/finding has 41 words \(cap 40\)/);
+  });
+});
+
 describe('reader wording rules (Design, t/763#12)', () => {
   const ok = "Can't be verified. No source checked here reports the cited 2026 report.";
   it.each([
