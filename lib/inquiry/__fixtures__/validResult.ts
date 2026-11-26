@@ -29,3 +29,38 @@ export function makeValidResult(): Record<string, unknown> {
     singleRunCaveat: 'One run is not a finding; the replication gate wants n >= 10.',
   };
 }
+
+// t/285: a result whose debate answered the question as asked.
+export function makeOnQuestionResult(): Record<string, unknown> {
+  return {
+    ...makeValidResult(),
+    directAnswer: { text: 'Yes: any foreseeable downstream effect counts as harm.', agreement: 'consensus' },
+    campVerdicts: [
+      {
+        camp: 'saf',
+        verdict: 'Harm is any foreseeable downstream effect.',
+        nodes: [{ nodeId: 'skp-beliefs-029', label: 'Precaution under uncertainty', camp: 'skp' }],
+        answeredLiteralQuestion: true,
+      },
+    ],
+    questionDrift: { warning: false },
+  };
+}
+
+// t/285: a result whose debate drifted: the question was rewritten, and one camp answered something else.
+export function makeDriftedResult(): Record<string, unknown> {
+  return {
+    ...makeValidResult(),
+    directAnswer: { text: 'No consensus answer: the camps disagree on what counts as harm.', agreement: 'split' },
+    campVerdicts: [
+      {
+        camp: 'acc',
+        verdict: 'The debate focused on regulatory process, not on harm.',
+        nodes: [{ nodeId: 'acc-beliefs-004', label: 'Regulatory process', camp: 'acc' }],
+        answeredLiteralQuestion: false,
+        answerNote: 'Focused on regulatory process instead of harm.',
+      },
+    ],
+    questionDrift: { debatedTopic: 'How should AI regulation be designed?', warning: true },
+  };
+}
