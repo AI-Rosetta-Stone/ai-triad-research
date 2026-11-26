@@ -46,7 +46,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
-    initAIModels();
+    // t/785: once the catalog settles, a saved retired/unknown model falls back to the default.
+    void initAIModels().then(() => useStore.getState().revalidateAIModel());
   }, []);
 
   useEffect(() => {
