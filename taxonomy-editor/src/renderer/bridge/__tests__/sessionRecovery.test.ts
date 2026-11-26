@@ -142,6 +142,20 @@ describe('session recovery (t/1476)', () => {
     expect(res.status).toBe(401);
   });
 
+  it('t/678: loadSnapshot turns a 403 anon_route_blocked into the sign-in result, not null (Quality t/467#84)', async () => {
+    mockResilientFetch.mockResolvedValue(mockResponse(403, { error: 'Sign in required', reason: 'anon_route_blocked' }));
+
+    const { api } = await import('../web-bridge');
+    await expect(api.loadSnapshot('src-1')).resolves.toEqual({ content: '', signInRequired: true });
+  });
+
+  it('t/678: any other loadSnapshot failure is still null with a WARN, never the sign-in prompt', async () => {
+    mockResilientFetch.mockResolvedValue(mockResponse(500, { error: 'Internal server error' }));
+
+    const { api } = await import('../web-bridge');
+    await expect(api.loadSnapshot('src-1')).resolves.toBeNull();
+  });
+
   it('does not attempt recovery for non-401 errors', async () => {
     mockResilientFetch.mockResolvedValue(mockResponse(500, { error: 'Internal server error' }));
 
