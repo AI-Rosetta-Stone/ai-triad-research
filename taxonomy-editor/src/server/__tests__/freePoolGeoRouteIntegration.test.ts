@@ -36,6 +36,7 @@ vi.mock('../security/userContext.js', () => ({
   getCurrentUserId: vi.fn(() => 'testuser'),
   getStorageUserId: vi.fn(() => 'testuser'),
   getStableId: vi.fn(() => undefined), // t/4328: isAdmin() reads the stableId; testuser is not an admin
+  isHostedAnonymousRequest: vi.fn(() => false), // t/723: signed-in caller, the anonymous debate limits don't apply
 }));
 
 vi.mock('../logger.js', () => ({
