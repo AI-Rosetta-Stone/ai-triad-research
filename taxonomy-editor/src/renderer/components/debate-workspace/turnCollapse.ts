@@ -78,13 +78,20 @@ export function resetTurnCollapse(): void {
   emit();
 }
 
+/** The turn ids of a transcript. Recomputed when the array or its length changes, so a turn
+ *  appended in place is still counted. */
+function useTurnIds(transcript: readonly TurnEntry[] | undefined): string[] {
+  const length = transcript?.length ?? 0;
+  return useMemo(() => turnIdsOf(transcript), [transcript, length]);
+}
+
 /** One card's collapsed state and its toggle. Without a debate id (a card rendered on its own)
  *  nothing is collapsed and the toggle does nothing. */
 export function useTurnCollapsed(
   debateId: string | undefined, transcript: readonly TurnEntry[] | undefined, entryId: string,
 ): { collapsed: boolean; toggle: () => void } {
   useSyncExternalStore(subscribe, getVersion, getVersion);
-  const turnIds = useMemo(() => turnIdsOf(transcript), [transcript]);
+  const turnIds = useTurnIds(transcript);
   const collapsed = isTurnCollapsed(debateId, turnIds, entryId);
   const toggle = useCallback(() => {
     if (debateId) setTurnCollapsed(debateId, entryId, !collapsed);
@@ -97,7 +104,7 @@ export function useTurnCollapseControls(
   debateId: string | undefined, transcript: readonly TurnEntry[] | undefined,
 ): { available: boolean; anyCollapsed: boolean; expandAll: () => void; collapseEarlier: () => void } {
   useSyncExternalStore(subscribe, getVersion, getVersion);
-  const turnIds = useMemo(() => turnIdsOf(transcript), [transcript]);
+  const turnIds = useTurnIds(transcript);
   const anyCollapsed = turnIds.some(id => isTurnCollapsed(debateId, turnIds, id));
   const expandAll = useCallback(() => { if (debateId) expandAllTurns(debateId, turnIds); }, [debateId, turnIds]);
   const collapseEarlier = useCallback(() => { if (debateId) collapseEarlierTurns(debateId); }, [debateId]);
