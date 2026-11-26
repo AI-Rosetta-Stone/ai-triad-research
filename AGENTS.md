@@ -37,7 +37,7 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 - **Errors:** use `New-ActionableError` / `ActionableError` (Goal / Problem / Location / Next Steps), never a bare `throw`. **Log every fallback with a `WARN`** saying it was taken and why. See `docs/error-handling.md`.
 - **Tokens:** prefer pings to email, reference entities (`t/KEY`) instead of inlining them, read files in ranges, pipe long output through head/tail/grep, quote test summaries not runs, and read CI with `gh run view --log-failed`.
 - **Playbooks:** `/name` in these docs is the skill `interweave:name` that Claude and Copilot sessions load (t/366). Either name means the same playbook.
-- **Browser checks:** every session has the `chrome-devtools` MCP server (headless Chrome, isolated profile, pinned 1.14.0; t/523). Use it to verify UI and hosted behaviour (navigate, snapshot, console, network) instead of ad-hoc Playwright. Never point it at prod with a request that writes or spends without the TL's go.
+- **Browser checks:** every session has the `chrome-devtools` MCP server (headless Chrome, isolated profile, pinned 1.14.0; t/523). Use it to verify UI and hosted behaviour (navigate, snapshot, console, network) instead of ad-hoc Playwright. For the desktop app, use `/electron-capture` (t/644), with the TL's go per session. Never point it at prod with a request that writes or spends without the TL's go.
 
 ## Situational Rules (read the doc first)
 
