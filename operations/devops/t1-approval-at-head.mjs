@@ -77,9 +77,11 @@ export function fetchApprovalInputs(repo, prNumber, expectedHeadSha, ghFn = gh) 
     if (!Number.isInteger(pr.commits) || pr.commits >= PR_COMMITS_API_CAP || commits.length !== pr.commits) {
       throw new Error(`the commit list may be cut short (listed ${commits.length}, the PR reports ${pr.commits}, API cap ${PR_COMMITS_API_CAP})`);
     }
+    // t/776: the Dependabot exemption also reads the changed paths (a count mismatch is caught there).
+    const files = pages(`repos/${repo}/pulls/${prNumber}/files?per_page=100`).map((f) => ({ filename: f.filename, previous_filename: f.previous_filename }));
     const comments = pages(`repos/${repo}/issues/${prNumber}/comments?per_page=100`);
     const reviews = pages(`repos/${repo}/pulls/${prNumber}/reviews?per_page=100`);
-    return { pr, commits, comments, reviews, error: null };
+    return { pr, commits, files, comments, reviews, error: null };
   } catch (err) {
     return { error: err };
   }
@@ -92,10 +94,10 @@ export function fetchApprovalInputs(repo, prNumber, expectedHeadSha, ghFn = gh) 
  * `commits` is still read and checked by fetchApprovalInputs (a cut-short list fails closed), but
  * its committer date is deliberately not used: the PR author controls it.
  */
-export function toPredicateInputs({ pr, comments, reviews, commits }) {
+export function toPredicateInputs({ pr, comments, reviews, commits, files }) {
   return {
     // t/751: the facts the Dependabot exemption reads (dependabotExemption), for a PR with no Tier line.
-    dependabot: { authorLogin: pr.user?.login ?? null, headRepo: pr.head?.repo?.full_name ?? null, baseRepo: pr.base?.repo?.full_name ?? null, commits, commitsTotal: pr.commits },
+    dependabot: { authorLogin: pr.user?.login ?? null, headRepo: pr.head?.repo?.full_name ?? null, baseRepo: pr.base?.repo?.full_name ?? null, commits, commitsTotal: pr.commits, files, filesTotal: pr.changed_files },
     body: pr.body ?? '',
     headRefName: pr.head.ref,
     headSha: pr.head.sha,

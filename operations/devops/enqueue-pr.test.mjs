@@ -259,7 +259,7 @@ function fakeGhTracking() {
       if (fn.files === 'throw') throw new Error('gh: HTTP 502');
       return JSON.stringify({ changed_files: fn.changedFilesCount ?? fn.files.length });
     }
-    if (joined.includes('/files?per_page=100')) return fn.files.map((f) => JSON.stringify([f, ''])).join('\n');
+    if (joined.includes('/files?per_page=100') && !args.includes('--slurp')) return fn.files.map((f) => JSON.stringify([f, ''])).join('\n');
     if (/\/pulls\/\d+\/reviews\/\d+/.test(joined)) {
       if (!fn.review) throw new Error('gh: Not Found (HTTP 404)');
       return JSON.stringify(fn.review);
@@ -271,12 +271,13 @@ function fakeGhTracking() {
       if (fn.approvalError) throw new Error(fn.approvalError);
       const a = fn.approval;
       if (/\/pulls\/\d+\/commits\?/.test(last)) return JSON.stringify([a.commits]);
+      if (/\/pulls\/\d+\/files\?/.test(last)) return JSON.stringify([fn.files.map((x) => (typeof x === 'string' ? { filename: x } : x))]); // t/776
       if (/\/issues\/\d+\/comments\?/.test(last)) return JSON.stringify([a.comments]);
       if (/\/pulls\/\d+\/reviews\?/.test(last)) return JSON.stringify([a.reviews]);
     }
     if (args[0] === 'api' && /^repos\/[^/]+\/[^/]+\/pulls\/\d+$/.test(last)) {
       if (fn.approvalError) throw new Error(fn.approvalError);
-      return JSON.stringify({ ...fn.approval.pr, commits: fn.prCommits ?? fn.approval.commits.length });
+      return JSON.stringify({ ...fn.approval.pr, commits: fn.prCommits ?? fn.approval.commits.length, changed_files: fn.files.length });
     }
     return fn.next(args);
   };
