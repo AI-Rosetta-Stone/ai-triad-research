@@ -2043,7 +2043,7 @@ jobs:
       always() && !cancelled() &&
       github.event_name != 'merge_group' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # no history yet (t/660): set from the first runs' wall time, 2x, min 10 (p/331#2639)
+    timeout-minutes: 10  # first two runs took 79s and 94s (pack 27-33s; 45730901283, 45731743835); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
