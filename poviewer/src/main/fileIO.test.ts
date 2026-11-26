@@ -128,9 +128,29 @@ describe('t/2534 happy paths unchanged', () => {
 });
 
 describe('t/781 retired Gemini ids in saved AI settings', () => {
-  it('maps gemini-2.5-flash and gemini-2.5-pro to their successors and leaves other ids alone', () => {
-    expect(fileIO.migrateRetiredModel({ model: 'gemini-2.5-flash', temperature: 0.2 })).toEqual({ model: 'gemini-3.5-flash-lite', temperature: 0.2 });
-    expect(fileIO.migrateRetiredModel({ model: 'gemini-2.5-pro', temperature: 0.1 }).model).toBe('gemini-3.8-flash');
-    expect(fileIO.migrateRetiredModel({ model: 'gemini-3.5-flash-lite', temperature: 0.1 }).model).toBe('gemini-3.5-flash-lite');
+  const known = new Set(['gemini-3.5-flash-lite', 'gemini-3.8-flash']);
+
+  it('migrates a saved retired id to its successor, with a WARN', () => {
+    const warn = vi.fn();
+    expect(fileIO.migrateRetiredModel({ model: 'gemini-2.5-flash', temperature: 0.2 }, known, warn)).toEqual({ model: 'gemini-3.5-flash-lite', temperature: 0.2 });
+    expect(fileIO.migrateRetiredModel({ model: 'gemini-2.5-pro', temperature: 0.1 }, known, warn).model).toBe('gemini-3.8-flash');
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls[0][0]).toMatch(/WARN.*gemini-2.5-flash.*retired/);
+  });
+
+  it('leaves an unknown id unchanged and WARNs', () => {
+    const warn = vi.fn();
+    const saved = { model: 'my-typo-model', temperature: 0.3 };
+    expect(fileIO.migrateRetiredModel(saved, known, warn)).toBe(saved);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/WARN.*my-typo-model.*not in ai-models.json/);
+  });
+
+  it('leaves a known id alone without a WARN, and skips the unknown check when the registry is unreadable', () => {
+    const warn = vi.fn();
+    const saved = { model: 'gemini-3.8-flash', temperature: 0.1 };
+    expect(fileIO.migrateRetiredModel(saved, known, warn)).toBe(saved);
+    expect(fileIO.migrateRetiredModel({ model: 'anything', temperature: 0.1 }, null, warn).model).toBe('anything');
+    expect(warn).not.toHaveBeenCalled();
   });
 });

@@ -7,7 +7,7 @@ import os from 'os';
 import type { AiSettings, PromptOverrides } from './analysisTypes.js';
 import { ActionableError } from '../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
-import { DEFAULT_MODEL } from '../../../lib/ai-client/index.js';
+import { DEFAULT_MODEL, loadModelRegistry } from '../../../lib/ai-client/index.js';
 import { app } from 'electron';
 import { resolveRepoRootForApp } from '../../../lib/electron-shared/resolveRepoRootForApp.js';
 import { assertSafeId, assertContainedIn } from '../../../lib/electron-shared/safeId.js';
@@ -402,15 +402,40 @@ const RETIRED_MODEL_SUCCESSORS: Record<string, string> = {
   'gemini-2.5-pro': 'gemini-3.8-flash',
 };
 
-export function migrateRetiredModel(settings: AiSettings): AiSettings {
+/**
+ * Map a saved model that Google has retired to its successor. An id that is neither retired nor in
+ * `knownModelIds` is left as the user saved it, with a WARN (it may be a typo or a model removed from
+ * the registry). `knownModelIds` null means the registry could not be read, so the check is skipped.
+ */
+export function migrateRetiredModel(
+  settings: AiSettings,
+  knownModelIds: ReadonlySet<string> | null = null,
+  warn: (message: string) => void = (m) => console.warn(m),
+): AiSettings {
   const successor = RETIRED_MODEL_SUCCESSORS[settings.model];
-  return successor ? { ...settings, model: successor } : settings;
+  if (successor) {
+    warn(`WARN: saved AI model '${settings.model}' is retired; using '${successor}' (t/781)`);
+    return { ...settings, model: successor };
+  }
+  if (knownModelIds && !knownModelIds.has(settings.model)) {
+    warn(`WARN: saved AI model '${settings.model}' is not in ai-models.json; leaving it unchanged (t/781)`);
+  }
+  return settings;
+}
+
+function knownRegistryModelIds(): ReadonlySet<string> | null {
+  try {
+    return new Set(loadModelRegistry(PROJECT_ROOT).models.map((m) => m.id));
+  } catch (err) {
+    console.warn(`WARN: could not read ai-models.json to check the saved AI model: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 export function loadAiSettings(): AiSettings {
   if (fs.existsSync(AI_SETTINGS_PATH)) {
     const raw = fs.readFileSync(AI_SETTINGS_PATH, 'utf-8');
-    return migrateRetiredModel(JSON.parse(raw) as AiSettings);
+    return migrateRetiredModel(JSON.parse(raw) as AiSettings, knownRegistryModelIds());
   }
   return { model: DEFAULT_MODEL, temperature: 0.1 };
 }
