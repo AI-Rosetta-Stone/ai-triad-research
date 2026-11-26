@@ -100,6 +100,7 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/guard-pr-read.sh',
   'operations/devops/merge-approval-run.mjs',
   'operations/devops/merge-approval-verdict.mjs',
+  'operations/devops/packed-extract-gate.mjs', // t/660: run by ci.yml's packed-extract-check job (never-gating)
   'operations/devops/rate-limit-snapshot-step.yml',
   'operations/devops/rate-limit-snapshot-start-step.yml', // t/563
   'operations/devops/run-merge-guard-tests.sh',
