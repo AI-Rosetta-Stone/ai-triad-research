@@ -135,6 +135,29 @@ describe('BdiGroundingView (t/778)', () => {
     expect(screen.getAllByText('desire reason').length).toBe(1);
   });
 
+  it('the Expand all link shares the BDI eyebrow line, with BDI on the left', () => {
+    const { container } = render(<BdiGroundingView stateKey="e1" refs={REFS} />);
+    const head = container.querySelector('.debate-why-head') as HTMLElement;
+    expect(head.querySelector('.taxrefs-bdi-group-label')?.textContent).toBe('BDI');
+    expect(head.querySelector('.debate-why-expand-all')?.textContent).toBe('Expand all');
+    expect(container.querySelectorAll('.debate-why-expand-all')).toHaveLength(1);
+  });
+
+  it('with no BDI rows the link goes on the first heading (Situations)', () => {
+    const { container } = render(<BdiGroundingView stateKey="e1" refs={[REFS[3]]} />);
+    const head = container.querySelector('.debate-why-head') as HTMLElement;
+    expect(head.querySelector('.taxrefs-bdi-group-label')?.textContent).toBe('Situations (1)');
+    expect(head.querySelector('.debate-why-expand-all')).not.toBeNull();
+    expect(container.querySelectorAll('.debate-why-expand-all')).toHaveLength(1);
+  });
+
+  it('with only policy refs the link goes on the Policy actions heading', () => {
+    const { container } = render(<BdiGroundingView stateKey="e1" refs={[]} policyRefs={['pol-001']} />);
+    const head = container.querySelector('.debate-why-head') as HTMLElement;
+    expect(head.querySelector('.taxrefs-bdi-group-label')?.textContent).toBe('Policy actions (1)');
+    expect(head.querySelector('.debate-why-expand-all')).not.toBeNull();
+  });
+
   it('the Expand all control points at the list it controls', () => {
     const { container } = render(<BdiGroundingView stateKey="e1" refs={REFS} />);
     const id = screen.getByRole('button', { name: 'Expand all' }).getAttribute('aria-controls');

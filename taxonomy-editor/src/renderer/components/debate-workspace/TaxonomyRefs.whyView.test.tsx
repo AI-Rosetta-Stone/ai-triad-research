@@ -81,8 +81,8 @@ describe('BdiGroundingView (t/4625 Why tab)', () => {
   it('renders the per-node entry for a statement with BDI refs, no outer BDI disclosure', () => {
     render(<BdiGroundingView refs={REFS} />);
     expect(screen.queryByText('No BDI grounding for this statement.')).not.toBeInTheDocument();
-    // No <summary>BDI</summary> toggle — the Why tab selection IS the disclosure.
-    expect(screen.queryByText('BDI')).not.toBeInTheDocument();
+    // No <summary>BDI</summary> toggle — the Why tab selection IS the disclosure. The `BDI` eyebrow (t/778) is a plain heading.
+    expect(screen.getByText('BDI').closest('summary')).toBeNull();
     expect(screen.getAllByText(NODE).length).toBeGreaterThan(0);
     // t/778: the explanation is collapsed until the row or Expand all opens it.
     expect(screen.queryByText('why it matters')).not.toBeInTheDocument();
@@ -178,7 +178,7 @@ describe('BdiGroundingView ordering and groups (t/187, t/778)', () => {
 
   it('has no Desires, Intentions or Beliefs headings', () => {
     const { container } = render(<BdiGroundingView refs={MIXED} />);
-    expect([...container.querySelectorAll('.taxrefs-bdi-group-label')]).toHaveLength(0);
+    expect([...container.querySelectorAll('.taxrefs-bdi-group-label')].map(el => el.textContent)).toEqual(['BDI']);
     expect(screen.queryByText(/^(Desires|Intentions|Beliefs)/)).not.toBeInTheDocument();
   });
 
@@ -190,7 +190,7 @@ describe('BdiGroundingView ordering and groups (t/187, t/778)', () => {
   it('puts situation nodes under their own heading after the BDI list instead of dropping them', () => {
     const { container } = render(<BdiGroundingView refs={[...MIXED, { node_id: 'sit-176', relevance: 'context', relevance_score: 0.7 }]} />);
     const labels = [...container.querySelectorAll('.taxrefs-bdi-group-label')].map(el => el.textContent);
-    expect(labels).toEqual(['Situations (1)']);
+    expect(labels).toEqual(['BDI', 'Situations (1)']);
     expect(idsOf(container)[4]).toBe('sit-176');
     expandAll();
     expect(within(screen.getByRole('group', { name: 'Situations, 1 node' })).getByText('context')).toBeInTheDocument();
