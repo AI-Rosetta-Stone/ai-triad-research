@@ -158,6 +158,25 @@ describe('session recovery (t/1476)', () => {
     expect(mockGlobalFetch).not.toHaveBeenCalled();
   });
 
+  it('t/719: an anonymous visitor has no questions of their own, so listInquiries answers [] without calling the server', async () => {
+    vi.resetModules();
+    mockGlobalFetch.mockResolvedValue(mockResponse(200, { user: 'anon:1', anonymous: true }));
+
+    const { api } = await import('../web-bridge');
+    await expect(api.listInquiries()).resolves.toEqual([]);
+    expect(mockResilientFetch).not.toHaveBeenCalled();
+  });
+
+  it('t/719: a signed-in user still gets their questions from the server', async () => {
+    vi.resetModules();
+    mockGlobalFetch.mockResolvedValue(mockResponse(200, { user: 'u', anonymous: false }));
+    mockResilientFetch.mockResolvedValue(mockResponse(200, [{ jobId: 'j1' }]));
+
+    const { api } = await import('../web-bridge');
+    await expect(api.listInquiries()).resolves.toEqual([{ jobId: 'j1' }]);
+    expect(mockResilientFetch).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces error when recovery fetch itself fails (condition #2)', async () => {
     const noSession = mockResponse(401, { error: 'Anonymous session required', reason: 'no_session' });
     mockResilientFetch.mockResolvedValue(noSession);

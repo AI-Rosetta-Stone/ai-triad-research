@@ -4,6 +4,8 @@
 import {
   LibraryGettingStarted, useLibraryIntroDismissed,
 } from '../shared/LibraryGettingStarted';
+import { SignInNotice } from '../shared/SignInNotice';
+import { INQUIRY_ANON_NOTICE } from './inquirySignInCopy';
 
 /**
  * Starter pool (t/4562; grown to 15 at t/4637 — PI request via parent t/4633, "15 examples per
@@ -44,11 +46,13 @@ interface InquiryGettingStartedProps {
    *  this most (mirrors Chat's hasNoChats rule). */
   hasNoQuestions: boolean;
   onPickStarter: (question: string) => void;
+  /** t/719: an anonymous visitor can't ask, so the examples give way to a sign-in notice. */
+  isAnonymous?: boolean;
 }
 
 /** Compact getting-started card for the Ask a Question library page (t/4562). Rendered via
  *  LibraryListPage's `intro` slot, between the header row and the My/Community tabs. */
-export function InquiryGettingStarted({ hasNoQuestions, onPickStarter }: InquiryGettingStartedProps) {
+export function InquiryGettingStarted({ hasNoQuestions, onPickStarter, isAnonymous = false }: InquiryGettingStartedProps) {
   return (
     <LibraryGettingStarted
       storageKey={DISMISSED_KEY}
@@ -57,6 +61,7 @@ export function InquiryGettingStarted({ hasNoQuestions, onPickStarter }: Inquiry
       examplePool={QUESTION_STARTERS.map((question) => ({ label: question, value: question }))}
       exampleCount={3}
       onSelectChip={onPickStarter}
+      insteadOfChips={isAnonymous ? <SignInNotice line={INQUIRY_ANON_NOTICE} /> : undefined}
       hasNoItems={hasNoQuestions}
       hideAriaLabel="Hide question introduction"
       showLinkLabel="Show question tips"

@@ -26,6 +26,7 @@ import type {
   LibraryListPageConfig, LibraryVariant, LibraryEditModeAction, LibraryRowEditAction,
 } from '../shared/LibraryListPage.types';
 import { InquiryGettingStarted } from './InquiryGettingStarted';
+import { useAuthStatus } from '../../hooks/useAuthStatus';
 import './inquiryShareProvider'; // t/4786: side-effect registration for the location-bar ⧉ button
 import '../shared/BulkDeleteDialog.css';
 import './InquiryTab.css';
@@ -130,6 +131,8 @@ export function InquiryTab() {
     setTimeout(() => setStatus(null), 4000);
   }, []);
 
+  const isAnonymous = useAuthStatus()?.anonymous === true;
+
   const handleOpenNew = useCallback(() => {
     setQuestion('');
     reset();
@@ -230,11 +233,11 @@ export function InquiryTab() {
   const libConfig: LibraryListPageConfig<InquiryMyLibRow, InquiryCommunityLibRow> = useMemo(() => ({
     title: 'Ask a Question',
     newLabel: '+ New Question',
-    onNew: handleOpenNew,
+    // t/719 (Design p/25#201): the server refuses anonymous asks and an anonymous visitor has no questions of
+    // their own, so there is no '+ New Question' and no My tab; the intro shows a sign-in notice instead.
+    onNew: isAnonymous ? undefined : handleOpenNew,
     showEdit: true,
-    // No anonymous-session special-casing exists for inquiries today (unlike Debates) — My
-    // content is per-session the same way it is for everyone else.
-    anonymousHasMyContent: true,
+    anonymousHasMyContent: false,
     editMode: {
       active: editMode,
       onEnter: () => setEditMode(true),
@@ -298,7 +301,7 @@ export function InquiryTab() {
     // (canOpenInNewWindow already gates Electron, which has no inquiry popout window type).
     itemPlace: row => ({ tool: 'inquiry', id: row.id, path: `/inquiry/${row.id}` }),
   }), [
-    handleOpenNew, handleExportMy, handleExportCommunity, handleShare, handleCopy, handleRename,
+    isAnonymous, handleOpenNew, handleExportMy, handleExportCommunity, handleShare, handleCopy, handleRename,
     handleAdminRename, handleAdminDelete, editMode, exitEditMode, editModeActions, selectedIds,
     myLibRows, rowActions, renamingId,
   ]);
@@ -320,7 +323,7 @@ export function InquiryTab() {
           communityLoading={communityLoading}
           onOpenMy={id => void openFromHistory(id)}
           onOpenCommunity={id => void openCommunityResult(id)}
-          intro={<InquiryGettingStarted hasNoQuestions={myLibRows.length === 0} onPickStarter={handlePickStarter} />}
+          intro={<InquiryGettingStarted hasNoQuestions={myLibRows.length === 0} onPickStarter={handlePickStarter} isAnonymous={isAnonymous} />}
           defaultCommunityOnWeb
           restoreKey="inquiry"
         />

@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 
 const gate = vi.hoisted(() => ({ blocked: undefined as string | undefined }));
 const store = vi.hoisted(() => ({
-  question: 'Is AI hype outrunning evidence?', debaterModel: undefined as string | undefined, error: null as string | null,
+  question: 'Is AI hype outrunning evidence?', debaterModel: undefined as string | undefined, error: null as string | null, signInRequired: false,
   jobId: null as string | null, status: null as string | null,
   tagSelection: { pov: 'skeptic', tag: 'critical', mode: 'scope' } as { pov: string; tag: string; mode: string } | undefined,
   temperature: undefined as number | undefined,
@@ -165,6 +165,19 @@ describe('InquiryAskPanel dialog shell (t/4666 phase 1)', () => {
     const { onStarted } = renderDialog();
     await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
     expect(onStarted).not.toHaveBeenCalled();
+  });
+
+  it('t/719: a sign-in refusal shows the session line with both sign-in links, and none of the server text', () => {
+    store.error = 'Goal: Send data to server Error: POST /api/inquiry failed with HTTP 403: {"error":"Sign in required","reason":"anon_route_blocked"}';
+    store.signInRequired = true;
+    renderDialog();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Your session has ended. Sign in to ask a question.');
+    expect(alert).not.toHaveTextContent('anon_route_blocked');
+    expect(screen.getByRole('link', { name: 'Sign in with GitHub' })).toHaveAttribute('href', '/api/auth/fresh-login/github');
+    expect(screen.getByRole('link', { name: 'Sign in with Google' })).toHaveAttribute('href', '/api/auth/fresh-login/google');
+    store.error = null;
+    store.signInRequired = false;
   });
 
   it('shows the store error inside the dialog, in an alert', () => {

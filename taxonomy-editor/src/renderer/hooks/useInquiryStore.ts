@@ -6,6 +6,7 @@
 
 import { create } from 'zustand';
 import { api } from '@bridge';
+import { isSignInRequiredError } from '../bridge/sourceAccess';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { deriveDebateConfig } from '@lib/debate/inquiryConfig';
 import type { InquiryJobStatus, InquiryResult, InquiryStatusResponse, InquiryResultSummary } from '../bridge/types';
@@ -61,6 +62,9 @@ interface InquiryStoreState {
   /** Job-level failure (status === 'failed') — distinct from pollError (TL point 3: poll-error ≠
    *  job-failed). A transient network blip while polling must not read as "the inquiry failed". */
   error: string | null;
+  /** t/719: the start was refused because the visitor isn't signed in (403 anon_route_blocked). The dialog shows
+   *  a sign-in notice, never the server's text. */
+  signInRequired: boolean;
   /** Set when a POLL request itself fails (network, 5xx) — surfaced separately from `error` so the
    *  UI can show "still trying to check status" rather than a false failure. Cleared on the next
    *  successful poll. */
@@ -292,6 +296,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     stageTimings: emptyStageTimings(),
     terminationReason: null,
     error: null,
+    signInRequired: false,
     pollError: null,
     result: null,
 
@@ -337,7 +342,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
 
     startInquiry: async () => {
       const { question, fidelity, debaterModel, evaluatorModel, tagSelection, temperature } = get();
-      set({ error: null, pollError: null, result: null, communityResultId: null, status: 'queued', progressPct: 0, stageDetail: null, stageDetailHistory: {}, stageTimings: emptyStageTimings(), terminationReason: null });
+      set({ error: null, signInRequired: false, pollError: null, result: null, communityResultId: null, status: 'queued', progressPct: 0, stageDetail: null, stageDetailHistory: {}, stageTimings: emptyStageTimings(), terminationReason: null });
       try {
         const { jobId } = await api.startInquiry({
           question,
@@ -363,6 +368,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
           jobId: null,
           status: 'failed',
           error: err instanceof Error ? err.message : String(err),
+          signInRequired: isSignInRequiredError(err),
         });
       }
     },
@@ -372,7 +378,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
       consecutivePollFailures = 0;
       set({
         jobId: null, communityResultId: null, status: null, progressPct: 0, stageDetail: null, stageDetailHistory: {}, stageTimings: emptyStageTimings(), terminationReason: null,
-        error: null, pollError: null, result: null, viewingList: false,
+        error: null, signInRequired: false, pollError: null, result: null, viewingList: false,
       });
     },
 
