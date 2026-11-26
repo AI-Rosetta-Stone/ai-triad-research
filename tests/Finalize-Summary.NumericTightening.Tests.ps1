@@ -115,6 +115,26 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
         It 'does not read .5 as the number 5' {
             Invoke-NumericDrop 'The rate was .5 per year.' 'The rate was 5 per year.' @{ LeadingDot = $true } | Should -Be 1
         }
+        # CL t/384#21: digits after a word's final full stop are a footnote marker, not a decimal.
+        It 'a footnote marker after a full stop does not ground a decimal: <Source>' -ForEach @(
+            @{ Claim = 'Productivity rises by 0.5 over the decade.'; Source = 'a theory of intentionality.5 Early critics disagreed.' }
+            @{ Claim = 'The risk is a factor of 0.43 for Black women.'; Source = 'lower estimates by race.43,44 The tool was revised.' }
+            @{ Claim = 'The measure was 0.14 on the scale.'; Source = '(levels of the income measure).14 Sixty-seven percent agreed.' }
+            @{ Claim = 'The rate was 0.5 per year.'; Source = "the end of the sentence.5`nThe next paragraph." }
+        ) {
+            Invoke-NumericDrop $Claim $Source @{ LeadingDot = $true } | Should -Be 1
+        }
+        It 'the footnote marker still grounds its plain number, as with the flag off' {
+            Invoke-NumericDrop 'There were 5 critics.' 'a theory of intentionality.5 Early critics disagreed.' @{ LeadingDot = $true } | Should -Be 0
+        }
+        It 'keeps a decimal that PDF text glued to the word before it and the unit after it' {
+            Invoke-NumericDrop 'The classifier achieves 0.74 AUC.' 'theclassifierachieves.74AUCinpredicting' @{ LeadingDot = $true } | Should -Be 0
+        }
+        It 'keeps a leading-dot decimal after a sign or a bracket: <Source>' -ForEach @(
+            @{ Source = 'more about AI (r=.48), suggesting' }, @{ Source = 'a delta (95% CI [.48,.111])' }
+        ) {
+            Invoke-NumericDrop 'The correlation was 0.48.' $Source @{ LeadingDot = $true } | Should -Be 0
+        }
     }
 
     Context 'Superscript exponents' {
@@ -123,6 +143,13 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
         }
         It 'drops 10^26 when neither 1026 nor 10^26 appears' {
             Invoke-NumericDrop 'Training used 10^26 FLOPs.' 'Training used 1025 FLOPs.' @{ Superscript = $true } | Should -Be 1
+        }
+        # CL t/384#21: the incident-reporting snapshot prints the exponent in brackets.
+        It 'reads the source form 10(^25) as 10^25' {
+            Invoke-NumericDrop 'The threshold is 10^25 floating point operations.' 'computation exceeds 10(^25) floating point operations' @{ Superscript = $true } | Should -Be 0
+        }
+        It 'the bracketed exponent grounds only its own power' {
+            Invoke-NumericDrop 'The threshold is 10^26 floating point operations.' 'computation exceeds 10(^25) floating point operations' @{ Superscript = $true } | Should -Be 1
         }
     }
 
