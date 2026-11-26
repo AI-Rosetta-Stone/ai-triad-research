@@ -12,6 +12,7 @@
 import { normalizeVerdict, FACT_VERDICTS, type FactVerdict } from './types/factVerdict.js';
 import type { FactCheckResult, FactDiscrepancy } from './types/synthesis.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { parseFactCheckFinding } from './factCheckFinding.js';
 
 /**
  * Deterministic fallback when a `partially_accurate` verdict fails the discrepancy gate.
@@ -123,11 +124,22 @@ export function validateFactCheckResult(raw: unknown, debateId?: string): FactCh
     ? (obj.sources as unknown[]).filter((s): s is { node_id?: string; conflict_id?: string } => !!s && typeof s === 'object')
     : [];
 
+  // t/763: the pithy finding, checked against the verdict that survived the gate.
+  const finding = parseFactCheckFinding(obj, resolvedVerdict);
+  if (finding.dropped) {
+    getGlobalRecorder()?.record({
+      type: 'ai.fallback', component: 'fact-check-validator', level: 'warn', debate_id: debateId,
+      message: `Fact-check finding dropped (${finding.dropped}); the card falls back to the explanation`,
+      data: { verdict: resolvedVerdict, reason: finding.dropped },
+    });
+  }
+
   return {
     verdict: resolvedVerdict,
     explanation: typeof obj.explanation === 'string' ? obj.explanation : '',
     sources,
     checked_text: typeof obj.checked_text === 'string' ? obj.checked_text : '',
     ...(keepDiscrepancy ? { discrepancy } : {}),
+    ...(finding.value ?? {}),
   };
 }

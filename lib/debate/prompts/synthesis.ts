@@ -404,9 +404,18 @@ A "partially_accurate" verdict WITHOUT a discrepancy carrying claimed + actual +
 
 When web search results are available, cite them specifically in your explanation.
 
+Also write the reader-facing finding:
+- "finding": ONE sentence of 25 words or fewer that opens with the plain verdict word for your verdict, then states what the evidence shows. Verdict words: supported → "Accurate."; partially_accurate → "Partly accurate." (or "Overstated." when the speaker over-claimed a number or scope); disputed → "Disputed."; false → "False."; unverifiable → "Can't be verified.".
+- "finding_points": 1 to 3 items, each 25 words or fewer, each one concrete piece of evidence behind the finding.
+- "limit": OPTIONAL, 25 words or fewer. Include it only for a real caveat (for example, the evidence is old, narrow, or from one source). Omit it otherwise.
+Rules for the finding, points and limit: name sources by title, publisher or author, never by a raw document id, node id, conflict id or URL. Use neutral summary verbs and add no intensifiers.
+
 Respond ONLY with a JSON object (no markdown, no code fences):
 {
   "verdict": "supported" | "partially_accurate" | "disputed" | "false" | "unverifiable",
+  "finding": "Accurate. ...",
+  "finding_points": ["...", "..."],
+  "limit": "... (optional)",
   "explanation": "brief explanation of your assessment",
   "discrepancy": {
     "dimension": "magnitude",
