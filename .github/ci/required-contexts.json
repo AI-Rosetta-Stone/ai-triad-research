@@ -43,16 +43,20 @@
     "app-aggregate (the file runs from the base by design, t/537) and an unconditional github.run_id component in its",
     "concurrency group. An entry with no workflow must be app-aggregate. The two relay workflows (merge-approval-group-relay,",
     "merge-approval-review-relay) post nothing, they only wake merge-approval.yml, so they are not listed. The drift guard",
-    "still compares the context name."
+    "still compares the context name and, since t/728, each context's App pin.",
+    "t/728: app_id is the GitHub App id each required check must be pinned to (15368 = GitHub Actions, 5912670 = the",
+    "merge-approval App), read 2026-11-26 from classic checks[].app_id and ruleset 26043005 required_status_checks[].integration_id.",
+    "Test-RequiredContextsListDrift.ps1 compares it against both; a missing, -1 or different live pin is drift, even if this",
+    "mirror also lacked one. A pin loosened to any source would let any workflow job post the name and satisfy the requirement."
   ],
   "strict": false,
   "enforce_admins": true,
   "required_contexts": [
-    { "context": "ci-gate", "workflow": ".github/workflows/ci.yml" },
-    { "context": "joint-gv-guard", "workflow": ".github/workflows/joint-gv-guard.yml" },
-    { "context": "CodeQL Analysis", "workflow": ".github/workflows/codeql.yml" },
-    { "context": "consult-hold-guard", "workflow": ".github/workflows/consult-hold-guard.yml" },
-    { "context": "merge-approval", "workflow": ".github/workflows/merge-approval.yml", "posts": "app-aggregate" }
+    { "context": "ci-gate", "app_id": 15368, "workflow": ".github/workflows/ci.yml" },
+    { "context": "joint-gv-guard", "app_id": 15368, "workflow": ".github/workflows/joint-gv-guard.yml" },
+    { "context": "CodeQL Analysis", "app_id": 15368, "workflow": ".github/workflows/codeql.yml" },
+    { "context": "consult-hold-guard", "app_id": 15368, "workflow": ".github/workflows/consult-hold-guard.yml" },
+    { "context": "merge-approval", "app_id": 5912670, "workflow": ".github/workflows/merge-approval.yml", "posts": "app-aggregate" }
   ],
   "merge_queue_ruleset": {
     "name": "main-merge-queue",
