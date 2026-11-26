@@ -1,4 +1,5 @@
 import { ActionableError } from '@lib/debate/errors';
+import { anonRefusalOf, anonRefusalLine, isRetryableFailureOf, RETRYABLE_FAILURE_LINE } from '../bridge/anonLimit';
 
 /** Which kind of call failed: 'ai' (default) gets model-oriented advice; 'operation' (library
  *  delete/rename/export etc.) gets neutral text that doesn't mention models (t/108). */
@@ -8,6 +9,11 @@ export interface MapErrorOptions { kind?: 'ai' | 'operation' }
  * Translate raw error messages into user-friendly, actionable guidance.
  */
 export function mapErrorToUserMessage(err: unknown, opts?: MapErrorOptions): string {
+  // t/725: the server's refusals of an anonymous visitor map on reason + code to Design's lines, never the sentence;
+  // a retryable 503 is a failure to retry, not a sign-in prompt.
+  const anon = anonRefusalOf(err);
+  if (anon) return anonRefusalLine(anon);
+  if (isRetryableFailureOf(err)) return RETRYABLE_FAILURE_LINE;
   // ActionableError already carries a one-line human-readable `problem`; its `.message` is the full
   // Goal/Error/Location/Resolve block, which must never be surfaced raw to users (t/2491).
   if (err instanceof ActionableError) return actionableErrorText(err, opts);

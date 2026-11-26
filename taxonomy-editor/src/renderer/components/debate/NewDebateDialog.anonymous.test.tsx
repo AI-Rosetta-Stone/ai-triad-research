@@ -207,3 +207,51 @@ describe('NewDebateDialog — an anonymous start sends a Quick take (t/725)', ()
     expect(options?.stepMode).toBeFalsy();
   });
 });
+
+describe('NewDebateDialog — a refused start shows the line, never the server text (t/725)', () => {
+  const refused = (body: Record<string, unknown>, status = 403) =>
+    h.createDebate.mockRejectedValue(Object.assign(new Error('SERVER SENTENCE'), {
+      httpStatus: status,
+      problem: `PUT /api/debates failed with HTTP ${status}: ${JSON.stringify({ error: 'SERVER SENTENCE', ...body })}`,
+    }));
+  const start = async () => {
+    fireEvent.change(screen.getByRole('textbox', { name: /topic/i }), { target: { value: 'Should labs publish evaluations?' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Start/ }));
+  };
+
+  it('403 anon_debate_kind: the Deep dive line with both sign-in links', async () => {
+    h.anonymous = true;
+    refused({ reason: 'anon_limit', code: 'anon_debate_kind', signInRequired: true });
+    render(<NewDebateDialog onClose={() => {}} />);
+    await start();
+    await waitFor(() => expect(screen.getByText('Sign in to run Deep dive and Socratic debates.')).toBeTruthy());
+    expect(within(screen.getByRole('alert')).getByRole('link', { name: 'Sign in with GitHub' })).toBeTruthy();
+    expect(within(screen.getByRole('alert')).getByRole('link', { name: 'Sign in with Google' })).toBeTruthy();
+    expect(screen.queryByText(/SERVER SENTENCE/)).toBeNull();
+  });
+
+  it('403 anon_debate_daily: the per-day line', async () => {
+    h.anonymous = true;
+    refused({ reason: 'anon_limit', code: 'anon_debate_daily' });
+    render(<NewDebateDialog onClose={() => {}} />);
+    await start();
+    await waitFor(() => expect(screen.getByText("You've started all the debates allowed per day without signing in. Sign in to start more, or try again tomorrow.")).toBeTruthy());
+  });
+
+  it('403 anon_debate_unsaved: plain text, no sign-in links (signing in does not fix it)', async () => {
+    h.anonymous = true;
+    refused({ reason: 'anon_limit', code: 'anon_debate_unsaved' });
+    render(<NewDebateDialog onClose={() => {}} />);
+    await start();
+    await waitFor(() => expect(screen.getByText("This debate couldn't be saved, so it can't continue. Try starting it again.")).toBeTruthy());
+    expect(within(screen.getByRole('alert')).queryByRole('link')).toBeNull();
+  });
+
+  it('a start that fails for another reason keeps its own message', async () => {
+    h.anonymous = true;
+    h.createDebate.mockRejectedValue(new Error('disk full'));
+    render(<NewDebateDialog onClose={() => {}} />);
+    await start();
+    await waitFor(() => expect(screen.getByText(/disk full/)).toBeTruthy());
+  });
+});

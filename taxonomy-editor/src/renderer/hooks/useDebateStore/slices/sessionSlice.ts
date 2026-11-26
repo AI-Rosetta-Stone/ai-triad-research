@@ -17,6 +17,7 @@ import type {
 } from '../../../types/debate';
 import { POVER_INFO, AI_POVERS, POV_KEYS, normalizeActivePovers, migrateSpeakerId } from '../../../types/debate';
 import { api, setActiveDebateId, isElectronMode } from '@bridge';
+import { anonRefusalOf, anonRefusalLine, isRetryableFailureOf, RETRYABLE_FAILURE_LINE } from '../../../bridge/anonLimit';
 import { isCircuitOpenError, getCircuitCooldownMs } from '../../../bridge/resilience';
 import { buildDebateDelta } from './buildDebateDelta';
 import { getDocTitles } from '../shared/docTitles';
@@ -372,7 +373,21 @@ async function persistDebateToServer(activeDebate: DebateSession, saveDiag: Save
  *      with stable markers.
  * The at-risk count is recomputed locally from the transcript (not string-scraped).
  */
+/** t/725: the line for a save the server refused as an anonymous visitor's limit (Design's copy), or for a retryable
+ *  503 (the anonymous counter store is down: retry, don't sign in). Undefined for any other failure. */
+function anonSaveErrorText(err: unknown): string | undefined {
+  const refusal = anonRefusalOf(err);
+  if (refusal) return anonRefusalLine(refusal);
+  return isRetryableFailureOf(err) ? RETRYABLE_FAILURE_LINE : undefined;
+}
+
 function computeSaveErrorState(err: unknown, activeDebate: DebateSession): { isDurableSaveLoss: boolean; isBreakerBlocked: boolean; atRiskTurns: number; debateError: string } {
+  const state = baseSaveErrorState(err, activeDebate);
+  const anonText = anonSaveErrorText(err);
+  return anonText ? { ...state, debateError: anonText } : state;
+}
+
+function baseSaveErrorState(err: unknown, activeDebate: DebateSession): { isDurableSaveLoss: boolean; isBreakerBlocked: boolean; atRiskTurns: number; debateError: string } {
   const rawMessage = String((err as Error)?.message ?? '');
   const httpStatus = (err as { httpStatus?: number }).httpStatus;
   const isAuthQuotaFailure = httpStatus === 401 || httpStatus === 402 || httpStatus === 403;
