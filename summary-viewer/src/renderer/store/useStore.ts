@@ -57,6 +57,8 @@ interface SummaryViewerState {
   aiModel: AIModel;
   setAIBackend: (backend: AIBackend) => void;
   setAIModel: (model: AIModel) => void;
+  /** t/785: re-resolve the saved model against the loaded catalog (a retired id falls back, with a WARN). */
+  revalidateAIModel: () => void;
 
   // Actions
   loadSources: () => Promise<void>;
@@ -113,6 +115,7 @@ export const useStore = create<SummaryViewerState>((set, get) => ({
     storeModel(model);
     set({ aiModel: model });
   },
+  revalidateAIModel: () => set({ aiModel: getStoredModel() }),
 
   loadSources: async () => {
     try {
