@@ -784,6 +784,13 @@ jobs:
       - name: Read the staging identity's live role assignments and compare with Bicep
         id: drift
         shell: bash
+        env:
+          # main.bicep names the storage account 'staitriad${uniqueSuffix}', and uniqueSuffix is
+          # uniqueString(resourceGroup().id): fixed for the life of the resource group, and already
+          # public in the vault names in deploy/azure/. The predicate matches each assignment on its
+          # whole resource path (SO t/707#14), so it needs the value. A wrong or missing value
+          # matches nothing and exits 1 (could not evaluate): it can make the job red, never clean.
+          UNIQUE_SUFFIX: kvwl3nywge4iw
         run: |
           principal="$(az containerapp show --name "${CONTAINER_APP_NAME}-staging" -g "${RESOURCE_GROUP}" --query identity.principalId -o tsv)"
           if ! [[ "$principal" =~ ^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$ ]]; then
@@ -806,7 +813,7 @@ jobs:
             "$RUNNER_TEMP/raw.json" > "$RUNNER_TEMP/live.json"
 
           set +e
-          node operations/devops/azure/staging-role-drift.mjs "$RUNNER_TEMP/live.json" \
+          node operations/devops/azure/staging-role-drift.mjs --param "uniqueSuffix=${UNIQUE_SUFFIX}" "$RUNNER_TEMP/live.json" \
             deploy/azure/main.bicep deploy/azure/staging-keyvault.bicep > "$RUNNER_TEMP/summary.raw"
           code=$?
           set -e
