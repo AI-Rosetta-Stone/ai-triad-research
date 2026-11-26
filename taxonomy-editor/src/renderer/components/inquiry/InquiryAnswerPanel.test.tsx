@@ -164,6 +164,49 @@ describe('InquiryAnswerPanel TRUNCATED banner names the real cause (t/4753)', ()
   });
 });
 
+// t/286: the direct answer and the debated topic, in the panel (Design t/286#14).
+describe('InquiryAnswerPanel direct answer and debated topic (t/286)', () => {
+  const question = 'What counts as an AI harm?';
+
+  it('shows both under the question and above the provenance line', () => {
+    setResult({ ...BASE_RESULT, directAnswer: { text: 'Realized damage counts.', agreement: 'split' }, questionDrift: { debatedTopic: 'Whether harm needs intent' } } as unknown as InquiryResult);
+    const { container } = render(<InquiryAnswerPanel />);
+    expect(screen.getByText('Camps disagree')).toBeTruthy();
+    const answer = screen.getByText('Realized damage counts.');
+    const topic = screen.getByText('The debate addressed: Whether harm needs intent');
+    const heading = screen.getByText(question);
+    const prov = container.querySelector('.inquiry-prov')!;
+    expect(heading.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(answer.compareDocumentPosition(topic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(topic.compareDocumentPosition(prov) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows the direct answer alone', () => {
+    setResult({ ...BASE_RESULT, directAnswer: { text: 'Realized damage counts.', agreement: 'consensus' } } as unknown as InquiryResult);
+    render(<InquiryAnswerPanel />);
+    expect(screen.getByText('Realized damage counts.')).toBeTruthy();
+    expect(screen.queryByText(/The debate addressed/)).toBeNull();
+  });
+
+  it('an old result without either field renders neither', () => {
+    setResult(BASE_RESULT);
+    const { container } = render(<InquiryAnswerPanel />);
+    expect(container.querySelector('.inquiry-direct-answer')).toBeNull();
+    expect(container.querySelector('.inquiry-debated-topic')).toBeNull();
+  });
+
+  it('never shows the drift warning, score, per-camp flags or answer note', () => {
+    setResult({
+      ...BASE_RESULT,
+      campVerdicts: [{ camp: 'acc', verdict: 'Harm requires realized, measurable damage.', nodes: [], answeredLiteralQuestion: false, answerNote: 'SECRET-NOTE' }],
+      directAnswer: { text: 'Realized damage counts.', agreement: 'consensus' },
+      questionDrift: { debatedTopic: 'Whether harm needs intent', warning: true, driftScore: 0.93 },
+    } as unknown as InquiryResult);
+    const { container } = render(<InquiryAnswerPanel />);
+    expect(container.textContent).not.toMatch(/SECRET-NOTE|0\.93|drifted|did not address/i);
+  });
+});
+
 describe('InquiryAnswerPanel How section (t/280)', () => {
   it('opens the debate from the How section through the same deleted-debate probe', async () => {
     mockApi.loadDebateSession.mockResolvedValueOnce({});

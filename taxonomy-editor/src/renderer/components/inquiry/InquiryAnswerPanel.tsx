@@ -12,6 +12,7 @@ import { InquiryExportDropdown } from './InquiryExportDropdown';
 import { InquiryShareControl } from './InquiryShareControl';
 import { GroundingSection } from './GroundingSection';
 import { InquiryHowSection } from './InquiryHowSection';
+import { DirectAnswerBlock, DebatedTopicLine } from './DirectAnswer';
 import { mapErrorToUserMessage } from '../../utils/errorMessages';
 import './InquiryTab.css';
 
@@ -231,6 +232,9 @@ export function InquiryAnswerPanel() {
     <div className="inquiry-answer">
       <span className="inquiry-eyebrow">Answer</span>
       <h2 className="inquiry-ansq">{result.request.question}</h2>
+      {/* t/286 (Design t/286#14): directly under the question, above provenance and the camps. Old results omit both. */}
+      <DirectAnswerBlock directAnswer={result.directAnswer} />
+      <DebatedTopicLine question={result.request.question} debatedTopic={result.questionDrift?.debatedTopic} />
       <div className="inquiry-prov mono">
         <span>debaters <b>{result.derivation.models.debaters}</b></span>
         <span>evaluator <b>{result.derivation.models.evaluator}</b></span>

@@ -14,6 +14,7 @@ import { CAMP_LABELS, FIDELITY_LABELS, trustVerdictLabel } from './inquiry/inqui
 import { InquiryTagScope } from './InquiryTagScope';
 import { PublicGroundingSection } from './inquiry/PublicGroundingSection';
 import { InquiryHowSection } from './inquiry/InquiryHowSection';
+import { DirectAnswerBlock, DebatedTopicLine } from './inquiry/DirectAnswer';
 import './PublicInquiryView.css';
 
 /** ADR-001 graceful-empty: a terminal share with no substantive content needs its own
@@ -146,6 +147,11 @@ export function PublicInquiryShareContent({ doc }: { doc: PublicInquiryShare }) 
        *  Condition A/B) — presence-branch only, no content inspection (t/3566 exemption scope).
        *  Must-include per SO review (t/3628#2): "one run, not a finding" caveat. */}
       <div className="pov-inquiry-headline-group">
+        {/* t/286 (Design t/286#14): direct answer, then the debated-topic line, then the headline, so the headline
+         *  stays immediately adjacent to the caveat (t/3734 SO adjacency). Condition A already omits directAnswer
+         *  on degraded runs at construction. */}
+        <DirectAnswerBlock directAnswer={doc.directAnswer} />
+        <DebatedTopicLine question={doc.request.question} debatedTopic={doc.questionDrift?.debatedTopic} />
         {doc.synthesizedHeadline && <p className="pov-inquiry-headline">{doc.synthesizedHeadline}</p>}
         <div className="pov-inquiry-caveat"><b>One run, not a finding.</b> {doc.singleRunCaveat}</div>
       </div>

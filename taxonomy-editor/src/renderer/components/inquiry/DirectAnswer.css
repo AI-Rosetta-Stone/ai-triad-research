@@ -1,0 +1,27 @@
+/* t/286: direct answer and debated-topic line (Design, t/286#14). Body-size paragraph, slightly emphasised;
+ * not a heading, card or banner. The tag is a neutral text chip (border plus --text-secondary), never colour-coded.
+ * The topic line is --text-secondary at full opacity (4.5:1 in all four themes), wrapping, never truncated. */
+.inquiry-direct-answer { margin: 4px 0 16px; }
+.inquiry-direct-tag {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.inquiry-direct-text {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+.inquiry-debated-topic {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}

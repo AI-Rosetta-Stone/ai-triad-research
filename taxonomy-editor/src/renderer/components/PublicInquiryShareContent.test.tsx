@@ -95,3 +95,39 @@ describe('PublicInquiryShareContent POV-tag scope (t/3983)', () => {
     expect(screen.getByLabelText('Tag scope').textContent).toContain('Prioritizing Skeptic · Critical (requested: Skeptic · Critical, scope mode)');
   });
 });
+
+// t/286: the direct answer and the debated topic on the share page (Design t/286#14, #15: answer, topic, headline, caveat).
+describe('PublicInquiryShareContent direct answer and debated topic (t/286)', () => {
+  const withFields = {
+    ...BASE_DOC,
+    synthesizedHeadline: 'Camps converge on outcome, diverge on intent.',
+    directAnswer: { text: 'Realized damage counts.', agreement: 'split' },
+    questionDrift: { debatedTopic: 'Whether harm needs intent' },
+  } as unknown as PublicInquiryShare;
+
+  it('orders direct answer, debated topic, headline, then the caveat, all in one group', () => {
+    render(<PublicInquiryShareContent doc={withFields} />);
+    const answer = screen.getByText('Realized damage counts.');
+    const topic = screen.getByText('The debate addressed: Whether harm needs intent');
+    const headline = screen.getByText('Camps converge on outcome, diverge on intent.');
+    const caveat = screen.getByText(BASE_DOC.singleRunCaveat, { exact: false });
+    expect(screen.getByText('Camps disagree')).toBeTruthy();
+    expect(answer.parentElement!.parentElement).toBe(caveat.parentElement);
+    expect(answer.parentElement!.nextElementSibling).toBe(topic);
+    expect(topic.nextElementSibling).toBe(headline);
+    // the t/3734 adjacency still holds with a topic line present
+    expect(caveat.previousElementSibling).toBe(headline);
+  });
+
+  it('shows the direct answer alone', () => {
+    render(<PublicInquiryShareContent doc={{ ...BASE_DOC, directAnswer: { text: 'Realized damage counts.', agreement: 'consensus' } } as unknown as PublicInquiryShare} />);
+    expect(screen.getByText('Realized damage counts.')).toBeTruthy();
+    expect(screen.queryByText(/The debate addressed/)).toBeNull();
+  });
+
+  it('an old share without either field renders neither', () => {
+    const { container } = render(<PublicInquiryShareContent doc={BASE_DOC} />);
+    expect(container.querySelector('.inquiry-direct-answer')).toBeNull();
+    expect(container.querySelector('.inquiry-debated-topic')).toBeNull();
+  });
+});
