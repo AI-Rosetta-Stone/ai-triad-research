@@ -561,7 +561,6 @@ jobs:
               freeTierGeminiKeyStaging=${{ secrets.FREE_TIER_GEMINI_KEY_STAGING }} \
               geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }} \
               budgetAlertEmail=${{ vars.ALERT_EMAIL }} \
-              stagingSharedReadOnly=true \
               stagingLoadTestSize=${{ inputs.staging_load_test_size == 'true' && 'true' || 'false' }} \
             --no-pretty-print 2>&1) || true
           echo "$RESULT"
@@ -633,7 +632,6 @@ jobs:
             budgetAlertEmail=${{ vars.ALERT_EMAIL }}
             trafficPinRevisionName=${{ steps.current_revision.outputs.revision }}
             trafficPinRevisionNameStaging=${{ steps.current_revision.outputs.staging_revision }}
-            stagingSharedReadOnly=true
             stagingLoadTestSize=${{ inputs.staging_load_test_size == 'true' && 'true' || 'false' }}
 
       # NOTE: the current active revision is now captured BEFORE the Bicep apply
