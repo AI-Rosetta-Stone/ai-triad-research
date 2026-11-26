@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 const record = vi.hoisted(() => vi.fn());
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record }) }));
 
-import { freePoolLine, refusalLine, partialStateFor, ANON_RETENTION_LINE } from './anonOpEdCopy';
+import { freePoolLine, refusalLine, partialStateFor, anonBand, ANON_RETENTION_LINE, ANON_WORD_CAP_NOTE } from './anonOpEdCopy';
 
 const ANON = 'sign in and add your own API key for this model in Settings > API Keys';
 const SIGNED = 'add your own API key for this model in Settings > API Keys';
@@ -27,6 +27,18 @@ describe('anonymous op-ed copy (t/467)', () => {
       expect(freePoolLine('free_pool_region', anonymous)).toBe(`Free op-eds aren't available in your region. To continue, ${r}.`);
       expect(freePoolLine('free_pool_oped_limit', anonymous)).toBe('You already have op-eds generating. Wait for one to finish, then try again.');
     }
+  });
+
+  it('p/25#196: the word-cap note, its 400 guard line and the session line are verbatim', () => {
+    expect(ANON_WORD_CAP_NOTE).toBe('Without signing in, op-eds are up to 1,500 words.');
+    expect(freePoolLine('anon_word_cap', true)).toBe('Without signing in, op-eds can be up to 1,500 words. Choose a shorter length, or sign in.');
+    expect(freePoolLine('anon_session_unavailable', true)).toBe("Couldn't start creating op-eds without signing in. Try again in a minute.");
+  });
+
+  it('p/25#196: a band that runs past 1,500 ends at 1,500; any other band is unchanged', () => {
+    expect(anonBand('1200–2000 words, analytical and evidence-grounded')).toEqual({ band: '1200–1500 words, analytical and evidence-grounded', clamped: true });
+    expect(anonBand('800–1500 words, structural analysis')).toEqual({ band: '800–1500 words, structural analysis', clamped: false });
+    expect(anonBand('~800 words, strong news hook')).toEqual({ band: '~800 words, strong news hook', clamped: false });
   });
 
   it('a pre-stream refusal has no {PARTIAL}', () => {

@@ -26,6 +26,10 @@ const refusalFor = async (res: Response) => {
 describe('free-pool refusal codes (t/467)', () => {
   it('maps each pre-stream status and code; anything else stays unmapped', () => {
     expect(preStreamFreePoolCode(403, { error: 'free_pool_region' })).toBe('free_pool_region');
+    // Design p/25#196: the session mint's refusal is its own code, not the free pool's 503; the word-cap 400 is the guard.
+    expect(preStreamFreePoolCode(503, { error: 'anon_session_unavailable' })).toBe('anon_session_unavailable');
+    expect(preStreamFreePoolCode(400, { error: 'Anonymous op-eds allow at most 1500 words per voice. Sign in for longer op-eds.' })).toBe('anon_word_cap');
+    expect(preStreamFreePoolCode(400, { error: 'Anonymous op-eds allow at most 3 voices. Sign in for more.' })).toBeNull();
     expect(preStreamFreePoolCode(503, { error: 'free_pool_empty' })).toBe('free_pool_unavailable');
     expect(preStreamFreePoolCode(503, { error: 'Free tier is not available' })).toBe('free_pool_unavailable');
     expect(preStreamFreePoolCode(429, { error: 'free_pool_exhausted' })).toBe('free_pool_exhausted');
@@ -50,6 +54,11 @@ describe('free-pool refusal codes (t/467)', () => {
   it('an error frame with a pool code is a mid-stream refusal without a set id', async () => {
     expect(await refusalFor(sse([{ type: 'run_started', runId: 'r1' }, { type: 'error', code: 'ANON_RUN_COST_CEILING', problem: 'raw' }])))
       .toEqual({ code: 'run_cost_ceiling', midStream: true });
+  });
+
+  it("t/703: when run_started carries setId, an error-frame refusal has it, so the dialog can check the set", async () => {
+    expect(await refusalFor(sse([{ type: 'run_started', runId: 'r1', setId: 'set-9' }, { type: 'error', code: 'ANON_RUN_COST_CEILING', problem: 'raw' }])))
+      .toEqual({ code: 'run_cost_ceiling', midStream: true, setId: 'set-9' });
   });
 
   it('voices refused by the pool, then complete: a mid-stream refusal with the set id; no raw text in progress', async () => {

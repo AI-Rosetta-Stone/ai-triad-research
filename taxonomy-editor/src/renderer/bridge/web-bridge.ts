@@ -21,7 +21,7 @@ import { nextStepsForStatus } from './httpErrorSteps'; import { computeEmbedding
 import { runChatStream, chatStreamBus } from './chatStream';
 import { checkAnonymousSessionForModelSelection } from './anonymousSessionCheck';
 import { runOpEdCreate, cancelActiveOpEdRun, opedProgressBus } from './opedStream';
-import { readByokKeys, maskByokKey } from './byokKeys';
+import { readByokKeys, maskByokKey } from './byokKeys'; import { anonMintOutcome, anonSessionUnavailableResponse, type AnonMintOutcome } from './anonSession'; // t/467
 import { pickBrowserDocument, extractDocumentText } from './webDocumentUpload'; import { snapshotOrSignIn } from './sourceAccess'; // t/276, t/678
 import { onQuotaMilestone } from '../hooks/useQuotaWarning'; import { shareChatRest, unshareChatRest } from './chatShare'; // t/4922
 export { getResilienceState, subscribeResilience, resetResilience } from './resilience';
@@ -106,9 +106,9 @@ function throwTimeoutError(method: string, path: string, timeoutMs: number): nev
 
 // ── Anonymous session recovery ──
 
-let _sessionRecoveryInFlight: Promise<boolean> | null = null;
+let _sessionRecoveryInFlight: Promise<AnonMintOutcome> | null = null;
 
-async function recoverAnonymousSession(): Promise<boolean> {
+async function recoverAnonymousSession(): Promise<AnonMintOutcome> {
   if (_sessionRecoveryInFlight) return _sessionRecoveryInFlight;
   _sessionRecoveryInFlight = (async () => {
     try {
@@ -124,7 +124,7 @@ async function recoverAnonymousSession(): Promise<boolean> {
         credentials: 'include',
         cache: 'no-store',
       });
-      return res.ok;
+      return await anonMintOutcome(res);
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'auth.session-recovery',
@@ -133,7 +133,7 @@ async function recoverAnonymousSession(): Promise<boolean> {
         message: 'Anonymous session recovery failed',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      return false;
+      return 'failed';
     } finally {
       _sessionRecoveryInFlight = null;
     }
@@ -165,10 +165,10 @@ export async function fetchWithSessionRecovery(path: string, init: RequestInit, 
   let res = await resilientFetch(path, init, opts);
   if (await isNoSessionResponse(res) || isHtmlLoginPage(res)) {
     const recovered = await recoverAnonymousSession();
-    if (recovered) {
+    if (recovered === 'ok') {
       _authAnonymous = true;
       res = await resilientFetch(path, init, opts);
-    }
+    } else if (recovered === 'unavailable') res = anonSessionUnavailableResponse(); // t/467: say why, in place of the 401
   }
   return res;
 }

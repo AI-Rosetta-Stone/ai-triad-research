@@ -174,10 +174,11 @@ function toProgress(event: Record<string, unknown>): OpEdProgressEvent | null {
   }
 }
 
-/** The run's 'error' frame as a create error: a free-pool code (t/467) or the frame's own text. */
-function streamErrorFor(event: Record<string, unknown>): ActionableError {
+/** The run's 'error' frame as a create error: a free-pool code (t/467) or the frame's own text. `setId` is the
+ *  one run_started gave (t/703; optional until that server change is deployed), so the dialog can check the set. */
+function streamErrorFor(event: Record<string, unknown>, setId: string | undefined): ActionableError {
   const pool = midStreamFreePoolCode(event.code);
-  if (pool) return freePoolError({ code: pool, midStream: true }, event);
+  if (pool) return freePoolError({ code: pool, midStream: true, ...(setId ? { setId } : {}) }, event);
   const evtProblem = typeof event.problem === 'string' ? event.problem : (typeof event.message === 'string' ? event.message : 'Op-ed generation failed on the server.');
   return new ActionableError({ goal: 'Op-Ed Studio: create an op-ed', problem: evtProblem, location: 'opedStream.runOpEdCreate', nextSteps: ['Try creating it again', 'Check My Op-Eds — a partial op-ed may have been saved'] });
 }
@@ -235,6 +236,7 @@ export async function runOpEdCreate(fetchFn: OpEdFetch, payload: CreateOpEdPaylo
   if (!res.ok) { activeAbort = null; throw await buildHttpError(res, !!payload.documentSource); }
 
   let runId = '';
+  let startedSetId: string | undefined;
   let resolvedSetId: string | null = null;
   let streamError: ActionableError | null = null;
   let poolCode: FreePoolCode | null = null;
@@ -242,13 +244,17 @@ export async function runOpEdCreate(fetchFn: OpEdFetch, payload: CreateOpEdPaylo
     await consumeSse(res, (frame) => {
       const event = (frame.event ?? frame) as Record<string, unknown>; // frames wrap: {runId, seq, event}
       if (typeof frame.runId === 'string' && frame.runId) runId = frame.runId;
-      if (event.type === 'run_started') { if (typeof event.runId === 'string') runId = event.runId; return; }
+      if (event.type === 'run_started') {
+        if (typeof event.runId === 'string') runId = event.runId;
+        if (typeof event.setId === 'string' && event.setId) startedSetId = event.setId;
+        return;
+      }
       if (event.type === 'complete') {
         const set = event.set as { set_id?: unknown } | undefined;
         if (set && typeof set.set_id === 'string') resolvedSetId = set.set_id;
         return;
       }
-      if (event.type === 'error') { streamError = streamErrorFor(event); return; }
+      if (event.type === 'error') { streamError = streamErrorFor(event, startedSetId); return; }
       if (event.type === 'voice_failed') poolCode ??= midStreamFreePoolCode(event.code); // t/467 (t/668's code)
       const progress = toProgress(event);
       if (progress) emitProgress(progress);

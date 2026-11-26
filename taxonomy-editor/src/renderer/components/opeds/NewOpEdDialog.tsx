@@ -29,7 +29,7 @@ import { registryOrNull } from '../debate/SeatTagPicker';
 import type { PovNode } from '@lib/debate/taxonomyTypes';
 import './NewOpEdDialog.css';
 import { freePoolRefusalOf } from '../../bridge/opedFreePool';
-import { ANON_RETENTION_LINE, partialStateFor, refusalLine } from './anonOpEdCopy';
+import { ANON_MAX_WORDS, ANON_RETENTION_LINE, ANON_WORD_CAP_NOTE, anonBand, partialStateFor, refusalLine } from './anonOpEdCopy';
 import {
   SOURCE_MODES, SourceSelector, DocumentField, hasSourceFor, sourceStartReason, useDocumentSource, useDocumentExtractionAvailable,
   type SourceMode, type DocumentState, type DocumentChoice,
@@ -169,11 +169,26 @@ function sectionHasDiff(section: SettingsSection, s: OpEdSettingsValues, globalM
   }
 }
 
+/** t/467 (Design p/25#196 a): the outlet's band line, ending at the anonymous cap when the user isn't signed in,
+ *  with the note that says so when the cap changed it. */
+function OutletBandHint({ outlet, isAnonymous }: { outlet: string; isAnonymous: boolean }) {
+  const raw = OUTLETS.find(o => o.value === outlet)?.band ?? '';
+  const shown = isAnonymous ? anonBand(raw) : { band: raw, clamped: false };
+  return (
+    <>
+      <p className="oped-field-hint">{shown.band}</p>
+      {shown.clamped && <p className="oped-signin-note">{ANON_WORD_CAP_NOTE}</p>}
+    </>
+  );
+}
+
 function OpEdSettingsDrawer({
-  initial, globalModel, onApply, onClose,
+  initial, globalModel, isAnonymous, onApply, onClose,
 }: {
   initial: OpEdSettingsValues;
   globalModel: string;
+  /** t/467: an anonymous user's word count stops at ANON_MAX_WORDS. */
+  isAnonymous: boolean;
   onApply: (v: OpEdSettingsValues) => void;
   onClose: () => void;
 }) {
@@ -209,14 +224,15 @@ function OpEdSettingsDrawer({
 
   // While typing, keep the raw parsed value (no clamp) so intermediate digits — e.g. "80" on the
   // way to "800" — aren't collapsed to the 300 floor, which made only 300/2000 reachable (t/2685).
-  // Clamp to [300,2000] on blur; empty ⇒ null ⇒ use the outlet band.
+  // Clamp to [300,maxWords] on blur; empty ⇒ null ⇒ use the outlet band.
+  const maxWords = isAnonymous ? ANON_MAX_WORDS : 2000;
   const parseWordCount = (raw: string): number | null => {
     if (raw.trim() === '') return null;
     const n = parseInt(raw, 10);
     return Number.isNaN(n) ? null : n;
   };
   const clampWordCountOnBlur = () => {
-    setWordCount(prev => (prev == null ? null : Math.min(2000, Math.max(300, prev))));
+    setWordCount(prev => (prev == null ? null : Math.min(maxWords, Math.max(300, prev))));
   };
 
   return (
@@ -258,7 +274,7 @@ function OpEdSettingsDrawer({
                   <select id="oped-s-outlet" className="oped-select" value={outlet} onChange={e => setOutlet(e.target.value)}>
                     {OUTLETS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
-                  <p className="oped-field-hint">{OUTLETS.find(o => o.value === outlet)?.band}</p>
+                  <OutletBandHint outlet={outlet} isAnonymous={isAnonymous} />
                 </div>
                 <div className="oped-settings-field">
                   <label className="oped-field-label" htmlFor="oped-s-wordcount">Word count override</label>
@@ -267,13 +283,13 @@ function OpEdSettingsDrawer({
                     type="number"
                     className="oped-input"
                     min={300}
-                    max={2000}
+                    max={maxWords}
                     placeholder="Use outlet band"
                     value={wordCount ?? ''}
                     onChange={e => setWordCount(parseWordCount(e.target.value))}
                     onBlur={clampWordCountOnBlur}
                   />
-                  <p className="oped-field-hint">300–2000. Overrides the outlet's target length.</p>
+                  <p className="oped-field-hint">300–{maxWords}. Overrides the outlet's target length.</p>
                 </div>
               </>
             )}
@@ -607,7 +623,7 @@ function OpEdCreateForm(p: CreateFormProps) {
           <select id="oped-outlet" className="oped-select" value={p.outlet} onChange={e => p.setOutlet(e.target.value)}>
             {OUTLETS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <p className="oped-field-hint">{OUTLETS.find(o => o.value === p.outlet)?.band}</p>
+          <OutletBandHint outlet={p.outlet} isAnonymous={p.isAnonymous} />
         </div>
 
         {/* News hook */}
@@ -834,7 +850,8 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
       temperature,
     };
     if (fromWebPage && url.trim()) params.url = url.trim();
-    if (wordCount != null) params.wordCount = wordCount;
+    // t/467: a count set before the user turned out to be anonymous still goes out inside the cap.
+    if (wordCount != null) params.wordCount = isAnonymous ? Math.min(wordCount, ANON_MAX_WORDS) : wordCount;
     if (!ground) params.voiceOnly = true;
     else { params.maxGroundingNodes = maxGroundingNodes; params.maxSituations = maxSituations; }
     const tagSelection = opEdTagSelection(tagChoice, orderedVoices); // t/3992
@@ -960,6 +977,7 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
         <OpEdSettingsDrawer
           initial={{ outlet, wordCount, thesis, authorBio, ground, maxGroundingNodes, maxSituations, model, temperature }}
           globalModel={globalModel}
+          isAnonymous={isAnonymous}
           onApply={handleApplySettings}
           onClose={() => setShowSettings(false)}
         />

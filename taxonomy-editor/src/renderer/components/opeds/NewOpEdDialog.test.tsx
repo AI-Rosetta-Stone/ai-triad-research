@@ -444,6 +444,33 @@ describe('NewOpEdDialog — settings drawer', () => {
     fireEvent.blur(input);
     expect(input.value).toBe('');
   });
+
+  it('t/467: an anonymous user gets the default outlet band ending at 1,500, with the note; signed in, neither', () => {
+    h.anonymous = true;
+    const { unmount } = open();
+    expect(screen.getByText('1200–1500 words, analytical and evidence-grounded')).toBeTruthy();
+    expect(screen.getByText('Without signing in, op-eds are up to 1,500 words.')).toBeTruthy();
+    // An outlet inside the cap shows its own band and no note.
+    fireEvent.change(screen.getByLabelText('Outlet'), { target: { value: 'Politico' } });
+    expect(screen.queryByText('Without signing in, op-eds are up to 1,500 words.')).toBeNull();
+    unmount();
+    h.anonymous = false;
+    open();
+    expect(screen.getByText('1200–2000 words, analytical and evidence-grounded')).toBeTruthy();
+    expect(screen.queryByText('Without signing in, op-eds are up to 1,500 words.')).toBeNull();
+  });
+
+  it('t/467: an anonymous word count override stops at 1,500 and is sent inside the cap', async () => {
+    h.anonymous = true;
+    open();
+    fireEvent.click(screen.getByRole('button', { name: /More options/ }));
+    const input = screen.getByLabelText('Word count override') as HTMLInputElement;
+    expect(input.max).toBe('1500');
+    fireEvent.change(input, { target: { value: '2000' } });
+    fireEvent.blur(input);
+    expect(input.value).toBe('1500');
+    expect(screen.getByText(/^300–1500\. Overrides/)).toBeTruthy();
+  });
 });
 
 describe('NewOpEdDialog — draft + progress + cancel', () => {
@@ -523,6 +550,19 @@ describe('NewOpEdDialog — draft + progress + cancel', () => {
     await waitFor(() => expect(screen.getByText("Free op-eds aren't available in your region. To continue, sign in and add your own API key for this model in Settings > API Keys.")).toBeTruthy());
     expect(screen.queryByText('raw server text')).toBeNull();
     expect(h.loadOpEdSet).not.toHaveBeenCalled();
+  });
+
+  it('t/467: a session that could not be started, and the word-cap guard, show their own lines', async () => {
+    h.anonymous = true;
+    refuse({ code: 'anon_session_unavailable', midStream: false });
+    const { unmount } = open();
+    draft();
+    await waitFor(() => expect(screen.getByText("Couldn't start creating op-eds without signing in. Try again in a minute.")).toBeTruthy());
+    unmount();
+    refuse({ code: 'anon_word_cap', midStream: false });
+    open();
+    draft();
+    await waitFor(() => expect(screen.getByText('Without signing in, op-eds can be up to 1,500 words. Choose a shorter length, or sign in.')).toBeTruthy());
   });
 
   it('t/467: a signed-in user without a key gets the remedy without sign-in', async () => {

@@ -5,21 +5,24 @@
 // (t/467#72, #74, #77). The server's contract (TaxonomyServer p/74#27, #29, #32):
 //   before the stream: 403 free_pool_region; 503 (free_pool_empty, free_pool_unavailable, or none yet); 429
 //   free_pool_exhausted, free_pool_oped_limit, anon_oped_limit.
+//   Design p/25#196: 400 over the anonymous words-per-voice cap (the dialog prevents it; this is the guard), and
+//   503 anon_session_unavailable, which the bridge hands over when the session mint is refused (anonSession.ts).
 //   mid-stream: the SSE error frame's `code`, or voice_failed's `code` (t/668), as FREE_POOL_EXHAUSTED,
 //   FREE_POOL_UNAVAILABLE or ANON_RUN_COST_CEILING. Both fields are optional; without them a failure stays generic.
 // No server text, codes or amounts reach the user. The raw response is recorded with a WARN.
 import { ActionableError } from '@lib/debate/errors';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { ANON_SESSION_UNAVAILABLE } from './anonSession';
 
 export type FreePoolCode =
   | 'anon_oped_limit' | 'free_pool_exhausted' | 'free_pool_unavailable' | 'free_pool_region'
-  | 'free_pool_oped_limit' | 'run_cost_ceiling';
+  | 'free_pool_oped_limit' | 'run_cost_ceiling' | 'anon_word_cap' | 'anon_session_unavailable';
 
 export interface FreePoolRefusal {
   code: FreePoolCode;
   /** True when the run had started (some voices may have been written). */
   midStream: boolean;
-  /** The set's id, when the stream told us (a run that completed with pool-refused voices). */
+  /** The set's id, when the stream told us (a run that completed with pool-refused voices, or run_started's setId, t/703). */
   setId?: string;
 }
 
@@ -27,6 +30,10 @@ export interface FreePoolRefusal {
 export function preStreamFreePoolCode(status: number, data: Record<string, unknown>): FreePoolCode | null {
   const error = data.error;
   if (status === 403 && error === 'free_pool_region') return 'free_pool_region';
+  if (status === 503 && error === ANON_SESSION_UNAVAILABLE) return 'anon_session_unavailable';
+  // The server sends no code for the word cap, only its sentence (routes/opedAnonLimits.ts). If the sentence
+  // changes, this stops matching and the user sees the server's own text, which says the same thing.
+  if (status === 400 && typeof error === 'string' && /^Anonymous op-eds allow at most [\d,]+ words per voice/.test(error)) return 'anon_word_cap';
   if (status === 503) return 'free_pool_unavailable'; // free_pool_empty, free_pool_unavailable, or the older sentence
   if (status !== 429) return null;
   if (error === 'anon_oped_limit') return 'anon_oped_limit';
