@@ -16,8 +16,8 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
 export const OPEN_NEWEST_TURNS = 2;
 export const COLLAPSE_ABOVE_TURNS = 3;
 
-/** Entry types that have no StatementCard: hidden housekeeping, and the two card kinds that never collapse. */
-const NOT_A_TURN = new Set(['clarification', 'system', 'probing', 'fact-check']);
+/** Entry types that have no StatementCard: hidden housekeeping, and the probing card, which never collapses (a fact check collapses like a turn, t/764). */
+const NOT_A_TURN = new Set(['clarification', 'system', 'probing']);
 
 type TurnEntry = { id: string; type: string };
 
