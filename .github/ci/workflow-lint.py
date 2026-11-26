@@ -514,6 +514,15 @@ def load_required_contexts(root='.'):
     return entries, None
 
 
+def required_context_entry_problem(entry):
+    """t/722 (SO p/136#101): an SSOT entry with no `workflow` is skipped by every file rule, so it must be an
+    explicit claim. Returns a problem string, or None. Only `posts: app-aggregate` may omit `workflow`."""
+    if entry.get('workflow') or entry.get('posts') == 'app-aggregate':
+        return None
+    return (f'{RC_SSOT_PATH}: required context "{entry.get("context")}" names no `workflow` and is not marked '
+            f'`"posts": "app-aggregate"`, so no lint rule would ever read it; name its workflow file or mark it app-aggregate')
+
+
 def check_required_context(path, content, context_name, posts=None):
     """Return violation strings for a required-context workflow file (R1–R5).
 
@@ -529,7 +538,12 @@ def check_required_context(path, content, context_name, posts=None):
 
     # Locate on.pull_request block (indent 2 under `on:`).
     pr_idx = _find_key(lines, 'pull_request', 2)
-    if pr_idx == -1:
+    if pr_idx == -1 and posts == 'app-aggregate' and _find_key(lines, 'pull_request_target', 2) != -1:
+        # t/722: an app-posted aggregate whose workflow runs from the BASE branch by design (merge-approval.yml: pull_request_target,
+        # issue_comment, workflow_run, so PR code never runs with the App token, t/537). The pull_request-only rules below (R1 paths,
+        # R3 types) have nothing to read. Job-posted contexts are NOT relaxed: they still need `pull_request:`.
+        pr_end = 0
+    elif pr_idx == -1:
         errs.append(f'{path}: required context "{context_name}" — no `pull_request:` trigger; a required PR check must run on pull_request')
         pr_end = 0
     else:
@@ -599,7 +613,11 @@ def check_required_context(path, content, context_name, posts=None):
         group_is_run_id = False
         if group_line is not None:
             subs = re.findall(r'\$\{\{(.*?)\}\}', group_line)
-            group_is_run_id = len(subs) == 1 and subs[0].strip() == 'github.run_id'
+            # t/722: a group with ANY other text or substitutions is still unique per run when one substitution is exactly
+            # `github.run_id` on its own (`prefix-${{ pr }}-${{ github.run_id }}`): the run_id component is unconditional, so no two
+            # runs share a group and a pending run cannot be replaced. A ternary or `||` fallback AROUND run_id is one substitution
+            # that is not exactly `github.run_id`, so it is still refused (the N1 shape).
+            group_is_run_id = any(sub.strip() == 'github.run_id' for sub in subs)
         if not group_is_run_id:
             errs.append(f'{path}:{concurrency_idx + 1}: R4 required context "{context_name}" — this `concurrency:` key is not unconditionally keyed on `github.run_id`. A constant, or conditionally-constant (e.g. a ternary that falls back to a literal for some events), group lets GitHub cancel a PENDING run sharing that group when a new one queues into it, regardless of `cancel-in-progress` (the N1 pending-run-replacement vector, e/399#2/e/400#2 -- live-fire evidence on t/4567). Key the group on `github.run_id` alone, unconditionally.')
 
@@ -1306,6 +1324,41 @@ jobs:
     else:
         print('  PASS: R5 flags `no` whose condition never checks skipped (comment does not satisfy it)')
 
+    # ── t/722: merge-approval's two former false findings, and the no-workflow refusal ──
+    # R1: an app-aggregate whose workflow runs from the base (pull_request_target) is not R1-flagged; the same file as a
+    # job-posted context, or an app-aggregate with NO relevant trigger, still is.
+    rc_prt = "permissions: {}\non:\n  pull_request_target:\n    types: [opened]\njobs:\n  ci-gate:\n    if: always()\n"
+    if any('no `pull_request:` trigger' in e for e in check_required_context('rc_prt_agg', rc_prt, 'merge-approval', 'app-aggregate')):
+        failures.append('t/722: R1 flagged an app-aggregate workflow that runs on pull_request_target by design')
+    else:
+        print('  PASS: t/722 R1 accepts pull_request_target for an app-aggregate context')
+    if not any('no `pull_request:` trigger' in e for e in check_required_context('rc_prt_job', rc_prt, 'ci-gate')):
+        failures.append('t/722: R1 stopped flagging a JOB-posted context with no pull_request trigger (relaxed too far)')
+    else:
+        print('  PASS: t/722 R1 still flags a job-posted context that has only pull_request_target')
+    rc_noprt = "permissions: {}\non:\n  push:\njobs:\n  ci-gate:\n    if: always()\n"
+    if not any('no `pull_request:` trigger' in e for e in check_required_context('rc_noprt_agg', rc_noprt, 'merge-approval', 'app-aggregate')):
+        failures.append('t/722: R1 accepted an app-aggregate workflow with neither pull_request nor pull_request_target')
+    else:
+        print('  PASS: t/722 R1 still flags an app-aggregate workflow with no PR trigger at all')
+    # R4: prefix + unrelated substitution + an unconditional run_id is unique per run (accepted); a fallback AROUND run_id is not.
+    rc_r4prefix = rc_ok.replace('on:\n', "concurrency:\n  group: merge-approval-${{ github.event.pull_request.number || github.event.issue.number || 'x' }}-${{ github.run_id }}\non:\n")
+    if any('R4' in e for e in check_required_context('rc_r4prefix', rc_r4prefix, 'ci-gate')):
+        failures.append('t/722: R4 flagged a group that ends in an unconditional github.run_id (unique per run)')
+    else:
+        print('  PASS: t/722 R4 accepts a group with an unconditional github.run_id component')
+    rc_r4around = rc_ok.replace('on:\n', "concurrency:\n  group: merge-approval-${{ github.event.number }}-${{ github.run_id || 'x' }}\non:\n")
+    if not any('R4' in e for e in check_required_context('rc_r4around', rc_r4around, 'ci-gate')):
+        failures.append('t/722: R4 accepted a group where run_id sits inside a fallback expression')
+    else:
+        print('  PASS: t/722 R4 still flags a fallback around github.run_id')
+    # no-workflow entries
+    for _entry, _bad in (({'context': 'x'}, True), ({'context': 'x', 'posts': 'something-else'}, True),
+                         ({'context': 'x', 'posts': 'app-aggregate'}, False), ({'context': 'x', 'workflow': '.github/workflows/a.yml'}, False)):
+        if bool(required_context_entry_problem(_entry)) != _bad:
+            failures.append(f't/722: required_context_entry_problem({_entry}) should be {"a problem" if _bad else "None"}')
+    print('  PASS: t/722 an entry with no workflow must be app-aggregate (self-test)')
+
     # ── t/3691: file-vs-job separation (posts marker) + name-then-id lookup + matrix guard ──
     # Arm A: an app-posted aggregate (posts='app-aggregate') with NO matching job → R2/R5 N/A
     # (skipped); the FILE rules (R1/R3/R4) still ran on it. rc_ok's job id is 'ci-gate'; ask 'CodeQL'.
@@ -1827,7 +1880,11 @@ else:
         _ctx = _e.get('context')
         _posts = _e.get('posts')  # t/3691: 'app-aggregate' => app-posted (CodeQL); R2/R5 N/A, file rules still apply
         if not _wf:
-            continue  # entry with no workflow file to lint (none today — CodeQL now names codeql.yml + posts:app-aggregate)
+            # t/722: an entry with no workflow is skipped silently, so only an explicit app-posted aggregate may omit it.
+            _problem = required_context_entry_problem(_e)
+            if _problem:
+                errors.append(_problem)
+            continue
         if not _os.path.exists(_wf):
             errors.append(f'{_wf}: required context "{_ctx}" (SSOT {RC_SSOT_PATH}) names a workflow file that does not exist')
             continue
