@@ -163,10 +163,65 @@ test('P1: R2a/R2c diff lines come from the already-fetched pulls.listFiles patch
 // zero permissions). This job must have no knowledge of it at all -- a PR that rewrites its own
 // predicate's test file to always pass cannot influence THIS verdict, because this job never
 // reads any test result and never executes any PR-authored test file in the first place ──────
-test('P2 fix 4 (t/4266#13): issue_comment and pull_request_review are triggers, so R6 re-evaluates once approval arrives (no deadlock)', () => {
+test('P2 fix 4 (t/4266#13) + t/544: comments trigger directly, and reviews arrive via the relay (workflow_run), so R6 re-evaluates once approval arrives (no deadlock)', () => {
   // `edited`, `deleted` and `dismissed` (SO condition on #5176): withdrawn evidence must re-evaluate.
   assert.match(workflow, /^\s*issue_comment:\s*\n\s*types: \[created, edited, deleted\]/m);
-  assert.match(workflow, /^\s*pull_request_review:\s*\n\s*types: \[submitted, dismissed\]/m);
+  assert.match(workflow, /^\s*workflow_run:\s*\n\s*workflows: \[t1-approval-review-relay\]\s*\n\s*types: \[completed\]/m);
+  const relay = readFileSync(path.join(root, '.github', 'workflows', 't1-approval-review-relay.yml'), 'utf8');
+  assert.match(relay, /^\s*pull_request_review:\s*\n\s*types: \[submitted, dismissed\]/m, 'the relay carries both review actions, dismissal included');
+});
+
+// ── t/544 (TL p/143#30): a review evaluates with MAIN's workflow and predicate, never the head's ──
+const onBlock = () => workflow.slice(workflow.indexOf('\non:\n'), workflow.indexOf('\npermissions:'));
+
+test('t/544: no trigger runs this file from the PR side (no pull_request_review, no pull_request); reviews come by workflow_run, which runs main\'s file', () => {
+  const on = onBlock();
+  assert.doesNotMatch(on, /^\s*pull_request_review:/m, 'a pull_request_review run takes the workflow from the PR head (the #5482 stale-copy crash)');
+  assert.doesNotMatch(on, /^\s*pull_request:/m);
+  assert.match(on, /^\s*pull_request_target:/m);
+  assert.match(on, /^\s*workflow_run:/m);
+  // The relay that triggers it holds no permissions and runs nothing but an echo, so a PR that edits
+  // the relay can at most add or drop a re-evaluation; it cannot choose the code that evaluates.
+  const relay = readFileSync(path.join(root, '.github', 'workflows', 't1-approval-review-relay.yml'), 'utf8');
+  assert.match(relay, /^permissions: \{\}$/m);
+  assert.equal((relay.match(/^\s+run: /gm) || []).length, 1);
+  assert.doesNotMatch(relay, /uses:|github-script|actions\/checkout/);
+});
+
+test('t/544: on a relay run, the predicate still loads from the base branch tip (git show <baseTip>), never the PR head', () => {
+  const code = scriptCodeLines();
+  assert.match(code, /git show \$\{baseTipSha\}:/, 'modules come from the base tip');
+  assert.doesNotMatch(code, /git show \$\{headSha\}|git show \$\{pr\.head\.sha\}|ref: \$\{\{ github\.event\.workflow_run\.head/);
+  assert.deepEqual(structureIssues(code), [], 'the one-predicate-import structure check still passes');
+});
+
+// The resolver from the workflow itself, run against fakes (the shipped code, not a copy).
+function loadResolver(payload, apiPrs = []) {
+  const m = /\n {12}async function resolvePrNumber\(\) \{[\s\S]*?\n {12}\}\n/.exec(workflow);
+  assert.ok(m, 'resolvePrNumber is defined');
+  const calls = [];
+  const github = { rest: { repos: { listPullRequestsAssociatedWithCommit: async (a) => { calls.push(a); return { data: apiPrs }; } } } };
+  const fn = new Function('context', 'github', 'owner', 'repo', 'retry', `${m[0]}\nreturn resolvePrNumber;`)({ payload }, github, 'o', 'r', (label, f) => f());
+  return { fn, calls };
+}
+const wr = (over = {}) => ({ workflow_run: { event: 'pull_request_review', head_sha: 'h'.repeat(40), head_repository: { full_name: 'o/r' }, pull_requests: [{ number: 7 }], ...over } });
+
+test('t/544: the relay run resolves its PR under the guard\'s rules (same-repo pull_requests, else the open PR at head_sha; other events ignored)', async () => {
+  assert.equal(await loadResolver(wr()).fn(), 7);
+  const fork = loadResolver(wr({ head_repository: { full_name: 'evil/r' }, pull_requests: [{ number: 99 }] }), [{ number: 8, state: 'open', head: { sha: 'h'.repeat(40) } }]);
+  assert.equal(await fork.fn(), 8, 'a fork run ignores pull_requests[0] and asks the API');
+  assert.equal(fork.calls.length, 1);
+  assert.equal(await loadResolver(wr({ event: 'push' })).fn(), null, 'only the relay\'s pull_request_review runs re-evaluate');
+  assert.equal(await loadResolver(wr({ pull_requests: [], head_repository: { full_name: 'o/r' } }), [{ number: 3, state: 'closed', head: { sha: 'h'.repeat(40) } }]).fn(), null);
+});
+
+test('t/544: a stale relay run (the PR moved since the review) is skipped before anything is posted', () => {
+  const run = workflow.slice(workflow.indexOf('async function run()'));
+  const iGet = run.indexOf("retry('pulls.get'");
+  const iStale = run.indexOf('if (relayHead && headSha !== relayHead)');
+  const iFirstPost = run.search(/postVerdictComment\(|createComment|updateComment/);
+  assert.ok(iGet > 0 && iStale > iGet && iStale < iFirstPost, 'pulls.get, then the stale check, then any post');
+  assert.match(run.slice(iStale, iStale + 300), /return;/);
 });
 
 test('P2 fix 4: issue_comment is filtered to PRs via resolvePrNumber, same shape as t1-approval-guard.yml', () => {
@@ -305,4 +360,25 @@ test('CONTROL: tierRequirementsNote returns null for T0 and for an undeclared ti
   assert.equal(fn('T0'), null);
   assert.equal(fn(null), null);
   assert.equal(fn(undefined), null);
+});
+
+// ── t/544 binding (Security p/131#33): the enqueue path never decides on tier-check's check run ──
+test('t/544 binding: a forged tier-check result cannot change whether a PR is enqueued (it only adds a T0 warning)', async () => {
+  const { approvalFromApiVerdict } = await import('./t1-approval-at-head.mjs');
+  const cases = [
+    { tier: 'T0', isDraft: false, headSha: 'h', inputs: null },
+    { tier: 'T1', isDraft: false, headSha: 'h', inputs: { error: new Error('x') } },
+    { tier: 'T2', isDraft: false, headSha: 'h', inputs: { error: new Error('x') } },
+    { tier: 'T1', isDraft: true, headSha: 'h', inputs: null },
+  ];
+  for (const c of cases) {
+    const a = approvalFromApiVerdict({ ...c, tierCheckDisagreesOnT0: false });
+    const b = approvalFromApiVerdict({ ...c, tierCheckDisagreesOnT0: true });
+    assert.deepEqual([a.allow, a.reason], [b.allow, b.reason], `${c.tier}${c.isDraft ? ' draft' : ''}: the tier-check signal changed the decision`);
+  }
+  // enqueue-pr reads tier-check's run only for T0's warning, and nowhere else.
+  const src = readFileSync(path.join(here, 'enqueue-pr.mjs'), 'utf8');
+  const uses = src.split('\n').filter((l) => /tierCheckDisagreesAt\(/.test(l) && !/^\s*(\/\/|\*|export function)/.test(l));
+  assert.equal(uses.length, 1, uses.join('\n'));
+  assert.match(uses[0], /tier === 'T0' \? tierCheckDisagreesAt\(/);
 });

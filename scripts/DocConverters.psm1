@@ -378,13 +378,23 @@ function ConvertFrom-MarkItDown {
     $Md = ConvertFrom-Pdf -PdfPath $RawFile
     if ($Md -match 'PDF EXTRACTION FAILED') { Write-Warning 'Install a PDF tool' }
 #>
+function Expand-PdfLigature {
+    # t/681: a PDF's text layer holds typographic ligatures as single characters (U+FB00 to U+FB06: ff, fi,
+    # fl, ffi, ffl, and the two st forms). A snapshot must hold the letters, because quotes and search are
+    # written in letters, and because the snapshots repaired under t/652 hold letters. Only this block is
+    # changed (each character's NFKC form); nothing else in the text is normalized.
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return $Text }
+    [regex]::Replace($Text, '[\uFB00-\uFB06]', { param($m) $m.Value.Normalize([System.Text.NormalizationForm]::FormKC) })
+}
+
 function ConvertFrom-Pdf {
     param(
         [Parameter(Mandatory)][string]$PdfPath
     )
 
     $md = ConvertFrom-MarkItDown -FilePath $PdfPath
-    if ($md) { return $md }
+    if ($md) { return (Expand-PdfLigature -Text $md) }
 
     if (Test-ExternalTool 'pdftotext') {
         Write-Host "   →  Using pdftotext for PDF extraction" -ForegroundColor Gray
@@ -394,7 +404,7 @@ function ConvertFrom-Pdf {
             & pdftotext -enc UTF-8 $PdfPath $TempOut 2>$null
             if ((Test-Path $TempOut) -and (Get-Item $TempOut).Length -gt 0) {
                 $RawText = Get-Content $TempOut -Raw -Encoding UTF8
-                return (Optimize-PdfText -RawText $RawText)
+                return (Expand-PdfLigature -Text (Optimize-PdfText -RawText $RawText))
             }
         } finally {
             Remove-Item $TempOut -Force -ErrorAction SilentlyContinue
@@ -408,7 +418,7 @@ function ConvertFrom-Pdf {
         try {
             & mutool draw -F txt -o $TempOut $PdfPath 2>$null
             if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $TempOut) -and (Get-Item -LiteralPath $TempOut).Length -gt 0) {
-                return ((Get-Content -LiteralPath $TempOut -Raw -Encoding utf8) -replace "`r`n", "`n")
+                return (Expand-PdfLigature -Text ((Get-Content -LiteralPath $TempOut -Raw -Encoding utf8) -replace "`r`n", "`n"))
             }
         }
         finally {

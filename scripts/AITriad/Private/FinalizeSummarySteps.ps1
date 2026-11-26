@@ -612,7 +612,9 @@ function New-SummaryModelInfo {
     #>
     param([string]$Model, [double]$Temperature, [string]$TaxonomyJson, [int]$ChunkCount, [object]$FireStats,
           [object]$MaxTokens = $null, [object]$JsonRepaired = $false, [object]$Truncated = $null,
-          [object]$OutputTokens = $null, [int]$CampBridgeDropped = 0, [object]$NumericUngroundedDropped = $null)
+          [object]$OutputTokens = $null, [int]$CampBridgeDropped = 0, [object]$NumericUngroundedDropped = $null,
+          [object]$VerbatimSnapped = $null, [object]$VerbatimDropped = $null,
+          [object]$VerbatimInterleaved = $null, [object]$VerbatimQuotes = $null)
     $Multiline = [System.Text.RegularExpressions.RegexOptions]::Multiline
     $IsRagFiltered = $TaxonomyJson -match '^\s*=== RELEVANT TAXONOMY NODES'
     $IsCompact = $TaxonomyJson -match '^\s*=== COMPACT TAXONOMY'
@@ -635,6 +637,9 @@ function New-SummaryModelInfo {
     $UsedFire = $null -ne $FireStats
     if ($UsedFire) { $ExtractionMode = 'fire' } else { $ExtractionMode = 'single_shot' }
     $FinishReason = if ($null -eq $Truncated) { $null } elseif ($Truncated) { 'truncated' } else { 'stop' }
+    $InterleavedRate = if ($null -eq $VerbatimInterleaved -or $null -eq $VerbatimQuotes) { $null }
+        elseif ([int]$VerbatimQuotes -eq 0) { 0.0 }
+        else { [Math]::Round([int]$VerbatimInterleaved / [int]$VerbatimQuotes, 4) }
     $ModelInfo = [ordered]@{
         model             = $Model
         temperature       = $Temperature
@@ -649,6 +654,15 @@ function New-SummaryModelInfo {
         camp_bridge_dropped = $CampBridgeDropped
         # t/375: forensic/additive, nothing branches on it; $null when the guard couldn't run (no snapshot).
         numeric_ungrounded_dropped = $NumericUngroundedDropped
+        # t/389: forensic/additive, nothing branches on them; $null when the guard couldn't run (no snapshot).
+        verbatim_snapped           = $VerbatimSnapped
+        verbatim_dropped           = $VerbatimDropped
+        # t/389#11 (CL): quotes stored as several strings, one per source piece, because their text is in
+        # the snapshot in order but not as one passage (a two-column or table layout). Count and share of
+        # the quotes examined; provenance quality, forensic/additive, nothing branches on them. $null when
+        # the guard couldn't run.
+        verbatim_interleaved       = $VerbatimInterleaved
+        verbatim_interleaved_rate  = $InterleavedRate
     }
 
     if ($UsedFire) {

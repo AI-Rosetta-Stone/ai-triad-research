@@ -5,6 +5,8 @@ name: t1-approval-review-relay
 # that does. It holds NO permissions and runs no PR code: one step that echoes the event. Its
 # completion triggers t1-approval-guard.yml through `workflow_run`, which GitHub always runs from
 # the default branch, so the guard's job, token and script come from main.
+# t/544: tier-check.yml follows this relay the same way (its own `pull_request_review` trigger is gone),
+# so one review event re-evaluates both checks from main.
 #
 # A PR that edits this file can at most stop or add a re-evaluation of its own display row; it
 # cannot change what the guard decides, and (t/534 part A) enqueue-pr.mjs and the sweeps evaluate

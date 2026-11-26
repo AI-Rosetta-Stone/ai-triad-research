@@ -469,6 +469,8 @@ jobs:
               - 'CHANGELOG.md'
               - 'deploy/azure/Dockerfile.base'
               - 'deploy/azure/smoke-healthz.sh'
+              # t/611: the container smoke's runner (its phase code is under scripts/**, above).
+              - 'operations/devops/Invoke-ContainerSmoke.ps1'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - '.npmrc'
@@ -2196,7 +2198,7 @@ jobs:
       # t/9 (PI rule p/4#32): the post-merge worktree sweep removes a worktree only when its PR merged
       # and its tree is clean; WARN and skip otherwise; never --force.
       - name: post-merge worktree sweep suite
-        run: node --test operations/devops/sweep-landed-worktrees.test.mjs
+        run: node --test operations/devops/sweep-landed-worktrees.test.mjs operations/devops/run-worktree-sweep.test.mjs
 
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
@@ -2208,6 +2210,11 @@ jobs:
       # This keeps each list a superset of what its predicate reacts to.
       - name: guard comment-filter suite
         run: node --test operations/devops/comment-filter-workflow.test.mjs
+
+      # t/684 (t/651): debate-tested-sweep.yml pushes to the public data repo. Its commit step is run in a
+      # throwaway clone: only taxonomy/Origin/ is staged, and any other change fails it before a commit.
+      - name: debate-tested-sweep commit-step suite
+        run: node --test operations/devops/debate-tested-sweep-commit.test.mjs
 
       # t/4819: the shared GitHub 5xx/429 retry both workflows above load from the base tip, plus
       # end-to-end arms that run each workflow's real script against a mocked API.
@@ -2765,9 +2772,110 @@ jobs:
           SMOKE_MODE: liveness
         run: bash deploy/azure/smoke-healthz.sh
 
+      # ── t/611 (t/579 prevention, t/609 item B): the deploy smoke's phases against THIS image ──
+      # A PR that locks a route the deploy smoke reads anonymously used to pass CI and then roll back its
+      # own deploy (#5500, t/579). This starts the image built above with the hosted auth profile and runs
+      # the smoke's phases (operations/devops/Invoke-ContainerSmoke.ps1): every phase that needs no
+      # external credential runs; Azure and GitHub are skipped with a WARN line and a reason; the step
+      # summary has the table. Data: the public data repo, mounted as a filesystem data root.
+      - name: Checkout data repo for the container smoke (t/611; cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
+        with:
+          continue-on-error: 'false'
+          symlink: 'false'
+
+      - name: Container smoke — the deploy smoke's phases against the built image (t/611)
+        timeout-minutes: 8
+        env:
+          IMAGE: ai-triad-test:ci
+        run: |
+          set -euo pipefail
+          # The container user writes caches and anon sessions under the data root; the runner's
+          # checkout is owned by another uid.
+          chmod -R a+rwX ai-triad-data
+          # Hosted auth profile, mirrored from deploy/azure/main.bicep's container env (line numbers at
+          # the time of t/611). No real keys, no Azure, no GitHub App.
+          #   NODE_ENV=production          main.bicep:718
+          #   AUTH_OPTIONAL=1              main.bicep:726 (param authOptional, default '1', :200)
+          #   AUTH_DISABLED (empty)        main.bicep:725 (param authDisabled, default '', :197)
+          #   WEBSITE_AUTH_ENABLED=true    main.bicep:743
+          #   READ_ONLY_PRINCIPALS         main.bicep:733 (the literal value)
+          #   ADMIN_USERS                  main.bicep:737 (a GitHub Actions variable in prod; a placeholder here)
+          #   IDENTITY_MAP (empty)         main.bicep:740 (a GitHub Actions variable in prod)
+          #   HOME=/home/aitriad           main.bicep:717
+          # Not mirrored, on purpose: STORAGE_MODE (prod derives github-api from NODE_ENV and reads the data
+          # repo through the GitHub App; here the same data is a mounted filesystem root), and every Azure
+          # var (AZURE_STORAGE_ACCOUNT_URL unset means analytics writes locally). ALLOWED_USERS is not in
+          # main.bicep's env and the server does not read it.
+          #
+          # TLS in front, like prod's ingress: with NODE_ENV=production the app marks the anonymous session
+          # cookie Secure (taxonomy-editor/src/server/routes/anonSessionCreated.ts), and .NET never sends a
+          # Secure cookie over plain http, so the smoke's own session helpers would see only the Sign-In
+          # interstitial (first run, 45623244435). Caddy terminates TLS with its internal CA, which the
+          # runner trusts, so the smoke runs unmodified against https://localhost.
+          docker network create container-smoke-net
+          docker run -d --name container-smoke --network container-smoke-net \
+            -e NODE_ENV=production \
+            -e AUTH_OPTIONAL=1 \
+            -e AUTH_DISABLED= \
+            -e WEBSITE_AUTH_ENABLED=true \
+            -e READ_ONLY_PRINCIPALS='github:ai-triad-smoke,github:github-344897154' \
+            -e ADMIN_USERS='github:ci-container-smoke-admin-placeholder' \
+            -e IDENTITY_MAP= \
+            -e HOME=/home/aitriad \
+            -e STORAGE_MODE=filesystem \
+            -e AI_TRIAD_DATA_ROOT=/data \
+            -e PORT=7863 \
+            -v "$PWD/ai-triad-data:/data" \
+            "$IMAGE"
+          # The Caddyfile is inline here, never fetched. Headers as ACA ingress sends them: X-Forwarded-Proto is
+          # set to https explicitly; X-Forwarded-For is APPENDED by Caddy's reverse_proxy by default (ACA appends
+          # the client IP as the last entry too). The app has no trust-proxy setting: it reads only the rightmost
+          # X-Forwarded-For entry, and only from a private/loopback peer (httpKit.ts getClientIp), which Caddy's
+          # docker-network address is; it never reads X-Forwarded-Proto (the Secure flag follows NODE_ENV).
+          printf 'https://localhost {\n\ttls internal\n\treverse_proxy container-smoke:7863 {\n\t\theader_up X-Forwarded-Proto https\n\t}\n}\n' > "$RUNNER_TEMP/Caddyfile"
+          # caddy 2.11.9-alpine (Docker Hub library/caddy), pinned by its multi-arch index digest.
+          docker run -d --name container-smoke-tls --network container-smoke-net -p 443:443 \
+            -v "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+          # Caddy's local CA goes into THIS runner's trust store only (an ephemeral VM, this job), so the smoke's
+          # own helpers verify TLS normally. Never bypass certificate checks (a pin test in
+          # tests/ContainerSmoke.Tests.ps1 fails on any such flag in this workflow).
+          root=/data/caddy/pki/authorities/local/root.crt
+          for i in $(seq 1 30); do docker exec container-smoke-tls test -f "$root" && break; sleep 1; done
+          docker cp "container-smoke-tls:$root" "$RUNNER_TEMP/caddy-local-root.crt"
+          echo "Caddy local root CA trusted for this job: $(openssl x509 -noout -fingerprint -sha256 -in "$RUNNER_TEMP/caddy-local-root.crt")"
+          sudo cp "$RUNNER_TEMP/caddy-local-root.crt" /usr/local/share/ca-certificates/caddy-local-root.crt
+          sudo update-ca-certificates >/dev/null
+          dump_logs() {
+            echo "::group::docker logs container-smoke (last 300 lines)"; docker logs container-smoke --tail 300 2>&1 || true; echo "::endgroup::"
+            echo "::group::docker logs container-smoke-tls (last 50 lines)"; docker logs container-smoke-tls --tail 50 2>&1 || true; echo "::endgroup::"
+          }
+          # Readiness on the HTTPS URL first, capped, so a dead container fails fast with its logs instead of
+          # spending the smoke's Health retries.
+          start=$(date +%s)
+          ready=""
+          for i in $(seq 1 45); do
+            if curl -fsS --max-time 5 -o /dev/null https://localhost/healthz; then ready=1; break; fi
+            sleep 2
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::container-smoke: https://localhost/healthz was not ready within ~90 s; not running the smoke."
+            dump_logs
+            exit 1
+          fi
+          echo "container ready over TLS after $(( $(date +%s) - start ))s"
+          rc=0
+          pwsh -NoProfile -NonInteractive -File operations/devops/Invoke-ContainerSmoke.ps1 -BaseUrl https://localhost -HealthMaxAttempts 3 || rc=$?
+          echo "container smoke wall time: $(( $(date +%s) - start ))s" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$rc" -eq 0 ] || dump_logs
+          exit "$rc"
+
       - name: Cleanup
         if: always()
-        run: docker rm -f smoke-test || true
+        run: |
+          docker rm -f smoke-test container-smoke container-smoke-tls || true
+          docker network rm container-smoke-net || true
 
   # ── test-python: run scripts/test_*.py under pytest (t/2933) ─────────────
   # Five test files (test_data_tree_guard, test_embed_envelope, test_generate_guard,

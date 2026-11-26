@@ -85,10 +85,35 @@ CASE=push-main; setup $CASE
 echo success > "$FIX/job.921"; echo success > "$FIX/job.920"
 if run 0; then ok 'echo "$OUT" | grep -q "CI run 920 (push on main)"' "should use the main push, not the feature-branch push"; fi
 
-# 4. test-container skipped (no container-relevant change) counts as passed, as before.
-CASE=skipped; setup $CASE
-row 930 merge_group completed success gh-readonly-queue/main/pr-1-x > "$FIX/runs.$SHA"; echo skipped > "$FIX/job.930"
-run 0 || true
+# 4. t/599 (SO p/273#4, #6): test-container SKIPPED counts only from a push to main. Its paths filter is
+#    main's ci.yml; a merge_group, workflow_dispatch or epic/** run judges with its own ref's ci.yml.
+CASE=skipped-push-main; setup $CASE
+row 930 push completed success main > "$FIX/runs.$SHA"; echo skipped > "$FIX/job.930"
+if run 0; then ok 'echo "$OUT" | grep -q "test-container: skipped in CI run 930 (push on main)"' "a main push's skip should count"; fi
+
+for ev in "merge_group gh-readonly-queue/main/pr-1-x" "workflow_dispatch feat/z" "push epic/big"; do
+  set -- $ev
+  CASE="skipped-$1-not-counted"; setup "$CASE"
+  row 931 "$1" completed success "$2" > "$FIX/runs.$SHA"; echo skipped > "$FIX/job.931"
+  if run 1; then
+    ok 'echo "$OUT" | grep -q "skipped in CI run 931 .*not counted: only a push to main"' "a $1 skip must not count, and must say why"
+    ok 'echo "$OUT" | grep -q "No completed green CI run"' "a $1 skip alone must block"
+  fi
+done
+
+# 4b. A dispatch skip next to a green dispatch success: the success still passes (skip ignored, not fatal).
+CASE=skipped-then-success; setup $CASE
+{ row 933 workflow_dispatch completed success feat/z; row 932 workflow_dispatch completed success feat/z; } > "$FIX/runs.$SHA"
+echo skipped > "$FIX/job.933"; echo success > "$FIX/job.932"
+if run 0; then ok 'echo "$OUT" | grep -q "test-container: success in CI run 932"' "the success should pass despite the newer skip"; fi
+
+# 4c. The wait path judges skip the same way: a running dispatch that ends skipped blocks; a main push passes.
+CASE=wait-dispatch-skipped; setup $CASE
+row 934 workflow_dispatch in_progress "" feat/z > "$FIX/runs.$SHA"; echo skipped > "$FIX/job.934.after"
+if run 1; then ok 'echo "$OUT" | grep -q "finished with test-container .skipped., and only a push to main.s skip counts"' "a dispatch skip after the wait must block"; fi
+CASE=wait-main-skipped; setup $CASE
+row 935 push in_progress "" main > "$FIX/runs.$SHA"; echo skipped > "$FIX/job.935.after"
+if run 0; then ok 'grep -q "^935$" "$FIX/.watched"' "should watch run 935 and pass on the main push skip"; fi
 
 # 5. Every trusted run failed test-container -> blocked (fail closed).
 CASE=all-red; setup $CASE

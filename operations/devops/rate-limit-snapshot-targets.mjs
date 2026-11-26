@@ -36,6 +36,12 @@ export const SNAPSHOT_TARGETS = [
   ['enqueue-sweep.yml', 'sweep'],
   ['ci-infra-rerun.yml', 'rerun-infra-failures'],
   ['ci-infra-rerun.yml', 'alert-infra-failures'],
+  // t/563 (Lead p/233#187): frequent per-push workflows the 2026-11-25 run counts showed were unmeasured
+  // (t/563#10: 44, 31 and 30 runs in 3.5 h). merge-approval is NOT here: it reads on its own App token,
+  // so a GITHUB_TOKEN snapshot would measure nothing (it has its own App-token snapshot).
+  ['cl-path-check.yml', 'cl-path-check'],
+  ['stray-file-guard.yml', 'stray-file-guard'],
+  ['cancel-superseded-runs.yml', 'cancel'],
 ];
 
 const JOB_KEY = /^ {2}([A-Za-z0-9_-]+):\s*(#.*)?$/;

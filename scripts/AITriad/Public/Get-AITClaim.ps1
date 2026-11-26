@@ -101,7 +101,7 @@ function Get-AITClaim {
     }
 
     # duplicate_of (t/4337 C1): a listing skips marked copies' summaries.
-    $SummaryFiles = @(Get-ListedSummaryFile -SummariesDir $SummariesDir -DocId $DocId -IncludeDuplicates:$IncludeDuplicates -Caller 'Get-AITClaim')
+    $SummaryFiles = @(Get-ListedSummaryFile -SummariesDir $SummariesDir -DocId $DocId -IncludeDuplicates:$IncludeDuplicates -Caller 'Get-AITClaim' -ExcludeChunks)
     if ($SummaryFiles.Count -eq 0) {
         Write-Warning "No summary files found in $SummariesDir"
         return
@@ -117,6 +117,18 @@ function Get-AITClaim {
     $IsLookup = $DocId -and -not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($DocId)
     $Resolution = if ($IncludeDuplicates -or $IsLookup) { $null } else { Get-DefaultSourceResolution -Caller 'Get-AITClaim' }
     $Canonicals = if ($Resolution) { [System.Collections.Generic.HashSet[string]]::new([string[]]@($Resolution.Resolved.Values), [System.StringComparer]::Ordinal) } else { $null }
+    # A listed legacy chunk is part of its base (spec 6.2, t/596): its claims are added like a copy's, so the
+    # base's canonical is a group too and its own claims are the ones a chunk's claim is compared with.
+    if ($Resolution) {
+        # The `if` expression above unrolls the set it builds: $Canonicals is $null (no marks), one string or an
+        # array. Build the set again, as a set, and add the bases of the listed chunks.
+        $CanonicalSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        foreach ($Known in @($Canonicals)) { if ($null -ne $Known) { [void]$CanonicalSet.Add([string]$Known) } }
+        foreach ($ChunkId in @((Get-SourceResolutionChunk -Resolution $Resolution).Keys)) {
+            [void]$CanonicalSet.Add((Get-SourceGroupRole -Resolution $Resolution -Id $ChunkId).CanonicalId)
+        }
+        $Canonicals = $CanonicalSet
+    }
     $GroupKeys = @{}   # canonical doc id -> @{ FactualClaim = List[key]; KeyPoint = List[key] }
     $NewKeySet = { @{ FactualClaim = [System.Collections.Generic.List[string]]::new(); KeyPoint = [System.Collections.Generic.List[string]]::new() } }
     $AddSummaryKeys = {
@@ -157,7 +169,7 @@ function Get-AITClaim {
     }
     if ($Resolution) {
         $AllFiles = [System.IO.FileInfo[]]@(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
-        foreach ($Copy in @(Get-MarkedCopySummary -Files $AllFiles -Resolution $Resolution -Caller 'Get-AITClaim')) {
+        foreach ($Copy in @(Get-MarkedCopySummary -Files $AllFiles -Resolution $Resolution -Caller 'Get-AITClaim' -IncludeChunks)) {
             if (-not $GroupKeys.ContainsKey($Copy.CanonicalId)) { $GroupKeys[$Copy.CanonicalId] = & $NewKeySet }
             $Sources.Add([pscustomobject]@{ Summary = $Copy.Summary; DocId = $Copy.CanonicalId; Via = $Copy.CopyId })
         }

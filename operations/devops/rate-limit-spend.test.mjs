@@ -83,3 +83,17 @@ test('collect honours --max-runs (newest first)', () => {
   assert.equal(c.runs, 2); assert.equal(c.listed, 3);
   assert.equal(c.from, '2026-11-25T02:00:00Z');
 });
+
+test('t/563 (Lead p/233#187): an App-pool line pairs only with its own pool, is labelled as that App quota, and an unlisted pool is ignored', () => {
+  const log = [
+    'x t/563 rate-limit-start: pool=merge-approval-app workflow=merge-approval job=compute core used=10 reset=12:00:00Z graphql used=5 graphql_reset=1795612860',
+    'x t/314 rate-limit: pool=merge-approval-app workflow=merge-approval job=compute core used=14 remaining=4986 limit=5000 reset=12:00:00Z graphql used=9 remaining=4991 limit=5000',
+    // The enqueue sweep's end-only App line (t/318): ignored, not counted as a 'no start line' discard.
+    'x t/314 rate-limit: pool=app workflow=Merge-queue enqueue sweep job=sweep core used=1 remaining=1 limit=2 reset=12:00:00Z graphql used=1 remaining=1 limit=2',
+  ].join('\n');
+  const entries = parseSnapshots(log);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].workflow, 'merge-approval [merge-approval-app quota, not GITHUB_TOKEN]');
+  assert.deepEqual(pairDeltas(entries).map((d) => [d.core, d.gql]), [[4, 4]]);
+  assert.ok(TARGET_WORKFLOW_FILES.includes('merge-approval.yml'), 'its logs are read');
+});

@@ -1,6 +1,6 @@
 {
   "spec": "docs/specs/source-identity.md section 7",
-  "version": 4,
+  "version": 5,
   "generator": "scripts/new_evidence_union_fixture.py",
   "key_cases": [
     {
@@ -926,6 +926,213 @@
       }
     }
   ],
+  "chunk_mention_key_cases": [
+    {
+      "name": "chunks of the canonical: a near item gets no container; a distinct one gets a chunk key with the chunk's own index; chunks go by N",
+      "canonical": "d-2026",
+      "docs": {
+        "d-2026": {
+          "has_source": true,
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "The plan exports the US stack."
+                  }
+                ]
+              }
+            },
+            "factual_claims": [
+              {
+                "claim": "Claim one."
+              }
+            ]
+          }
+        },
+        "d-2026-1": {
+          "has_source": false,
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "The plan exports the US stack"
+                  },
+                  {
+                    "point": "Countries want sovereign AI."
+                  }
+                ]
+              }
+            },
+            "factual_claims": [
+              {
+                "claim": "Claim one"
+              },
+              {
+                "claim": "A claim only the chunk found."
+              }
+            ]
+          }
+        },
+        "d-2026-2": {
+          "has_source": false,
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "Countries want sovereign AI!"
+                  },
+                  {
+                    "point": "A point only the second chunk has."
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        }
+      },
+      "manifest": {
+        "d-2026-1": "d-2026",
+        "d-2026-2": "d-2026"
+      },
+      "expected_containers": {
+        "summary:d-2026#chunk-d-2026-1-saf-kp-1": "Countries want sovereign AI.",
+        "summary:d-2026#chunk-d-2026-1-fc-1": "A claim only the chunk found.",
+        "summary:d-2026#chunk-d-2026-2-saf-kp-1": "A point only the second chunk has."
+      }
+    },
+    {
+      "name": "a copy, its chunk and the canonical's chunk: the copy first, then the canonical's chunk, then the copy's chunk with via and chunk in the key",
+      "canonical": "d-2026",
+      "docs": {
+        "d-2026": {
+          "has_source": true,
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "The plan exports the US stack."
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        },
+        "c-2026": {
+          "has_source": true,
+          "mark": "d-2026",
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "The plan exports the US stack"
+                  },
+                  {
+                    "point": "A point only the copy has."
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        },
+        "c-2026-1": {
+          "has_source": false,
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "A point only the copy has"
+                  },
+                  {
+                    "point": "A point only the chunk of the copy has."
+                  }
+                ]
+              }
+            },
+            "factual_claims": [
+              {
+                "claim": "A claim only the chunk of the copy found."
+              }
+            ]
+          }
+        },
+        "d-2026-1": {
+          "has_source": false,
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "A point only the chunk of the copy has."
+                  },
+                  {
+                    "point": "A point only the canonical's chunk has."
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        }
+      },
+      "manifest": {
+        "c-2026-1": "c-2026",
+        "d-2026-1": "d-2026"
+      },
+      "expected_containers": {
+        "summary:d-2026#via-c-2026-saf-kp-1": "A point only the copy has.",
+        "summary:d-2026#chunk-d-2026-1-saf-kp-0": "A point only the chunk of the copy has.",
+        "summary:d-2026#chunk-d-2026-1-saf-kp-1": "A point only the canonical's chunk has.",
+        "summary:d-2026#via-c-2026-chunk-c-2026-1-fc-0": "A claim only the chunk of the copy found."
+      }
+    },
+    {
+      "name": "not listed: the -N document is not in the group and adds no container",
+      "canonical": "r-2026",
+      "docs": {
+        "r-2026": {
+          "has_source": true,
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "The report sets out four options."
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        },
+        "r-2026-1": {
+          "has_source": false,
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "A different document that happens to share the stem."
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        }
+      },
+      "manifest": {},
+      "expected_containers": {}
+    }
+  ],
   "derived_key_regex": "^summary:[^#]+#via-",
   "derived_key_cases": [
     {
@@ -967,6 +1174,18 @@
     {
       "key": "summary:a-2026#acc-kp-0-via-b",
       "derived": false
+    },
+    {
+      "key": "summary:d-2026#chunk-d-2026-1-fc-0",
+      "derived": false
+    },
+    {
+      "key": "summary:d-2026#chunk-d-2026-1-saf-kp-2",
+      "derived": false
+    },
+    {
+      "key": "summary:d-2026#via-c-2026-chunk-c-2026-1-saf-kp-0",
+      "derived": true
     }
   ],
   "resolve_cases": [

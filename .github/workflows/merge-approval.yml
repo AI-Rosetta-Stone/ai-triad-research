@@ -150,12 +150,35 @@ jobs:
             } catch (err) {
               core.warning(`merge-approval: .github/ci/tier-paths.json unreadable on ${process.env.DEFAULT_BRANCH} (${err.message}); rule C will fail`);
             }
+            // t/563 (Lead p/233#187): the merge-approval App's OWN installation quota around the evaluation.
+            // This job reads on the App token, not GITHUB_TOKEN, so it is logged as pool=merge-approval-app and
+            // rate-limit-spend.mjs reports it as that App's quota. GET /rate_limit does not count against the
+            // limit. Display only: it never fails or changes the evaluation, and its WARN stays on one line.
+            const appSnapshot = async (gh, kind) => {
+              try {
+                const { core: c, graphql: g } = (await gh.rest.rateLimit.get()).data.resources;
+                const nums = [c.used, c.remaining, c.limit, c.reset, g.used, g.remaining, g.limit, g.reset];
+                if (!nums.every((n) => Number.isInteger(n) && n >= 0)) throw new Error(`unexpected rate_limit shape ${JSON.stringify(nums)}`);
+                const reset = `${new Date(c.reset * 1000).toISOString().slice(11, 19)}Z`;
+                const tag = `pool=merge-approval-app workflow=${process.env.GITHUB_WORKFLOW} job=${process.env.GITHUB_JOB}`;
+                core.info(kind === 'start'
+                  ? `t/563 rate-limit-start: ${tag} core used=${c.used} reset=${reset} graphql used=${g.used} graphql_reset=${g.reset}`
+                  : `t/314 rate-limit: ${tag} core used=${c.used} remaining=${c.remaining} limit=${c.limit} reset=${reset} graphql used=${g.used} remaining=${g.remaining} limit=${g.limit}`);
+              } catch (e) {
+                core.warning(`t/563: could not read the merge-approval App's rate_limit (${String((e && e.message) || e).replace(/[\r\n]+/g, ' ')}); no App-pool snapshot.`);
+              }
+            };
             try {
               const appGithub = getOctokit(process.env.APP_TOKEN);
-              // t/566: every read and the post use the App token; github-script's GITHUB_TOKEN client is not passed.
-              const result = await runMergeApproval({ appGithub, context, tierConfig, retry, log: (m) => core.info(m) });
-              if (result.skipped) core.notice(`merge-approval: no check posted (${result.skipped})`);
-              for (const p of result.posted) core.info(`merge-approval: ${p.conclusion} on ${p.headSha}`);
+              await appSnapshot(appGithub, 'start');
+              try {
+                // t/566: every read and the post use the App token; github-script's GITHUB_TOKEN client is not passed.
+                const result = await runMergeApproval({ appGithub, context, tierConfig, retry, log: (m) => core.info(m) });
+                if (result.skipped) core.notice(`merge-approval: no check posted (${result.skipped})`);
+                for (const p of result.posted) core.info(`merge-approval: ${p.conclusion} on ${p.headSha}`);
+              } finally {
+                await appSnapshot(appGithub, 'end');
+              }
             } catch (err) {
               core.setFailed(`merge-approval: CANNOT EVALUATE: ${err && err.stack ? err.stack : String(err)}`);
             }

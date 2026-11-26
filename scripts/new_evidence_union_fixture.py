@@ -263,6 +263,10 @@ DERIVED_KEY_CASES = [
     ("sei:acc-beliefs-001", False), ("node:saf-beliefs-001", False), ("debate-1#entry-2", False),
     # 'via-' outside the derived position is not a derived key.
     ("summary:via-report-2026#fc-0", False), ("node:via-x-2026", False), ("summary:a-2026#acc-kp-0-via-b", False),
+    # v5 (t/596): a chunk of the canonical itself is not derived (the manifest is a reviewed file); a chunk of a
+    # marked copy is, because the mark can go.
+    ("summary:d-2026#chunk-d-2026-1-fc-0", False), ("summary:d-2026#chunk-d-2026-1-saf-kp-2", False),
+    ("summary:d-2026#via-c-2026-chunk-c-2026-1-saf-kp-0", True),
 ]
 
 
@@ -356,6 +360,27 @@ def union_v3(canonical, docs, manifest):
     return out
 
 
+def chunk_mention_union(canonical, docs, manifest):
+    """Spec 7.7 with chunks (v5, t/596): the union containers a group adds. The canonical's items come first,
+    then the group in 7.1 order (copies, the canonical's chunks by N, each copy's chunks by N). An item near
+    one already in the group gets no container. Keys, with <item> indexing the member's own array:
+        a copy               summary:<canonical>#via-<copy>-<item>
+        a chunk of canonical summary:<canonical>#chunk-<chunk>-<item>
+        a chunk of a copy    summary:<canonical>#via-<copy>-chunk-<chunk>-<item>"""
+    own = docs.get(canonical, {}).get("summary", {})
+    keys = [key(t) for t in containers(own, canonical).values()]
+    out = {}
+    for mid, kind, via in group(canonical, docs, manifest):
+        prefix = {"copy": f"via-{mid}-", "chunk_D": f"chunk-{mid}-", "chunk_copy": f"via-{via}-chunk-{mid}-"}[kind]
+        for cid, text in containers(docs[mid].get("summary", {}), "x").items():
+            k = key(text)
+            if any(near(k, kk) for kk in keys):
+                continue
+            keys.append(k)
+            out[f"summary:{canonical}#{prefix}{cid[len('summary:x#'):]}"] = text
+    return out
+
+
 def documents(canonical, docs, manifest):
     """R5 (7.5): distinct resolved ids of the group (the canonical's own id included)."""
     return len({resolve(i, docs, manifest) for i in [canonical] + [m for m, _k, _v in group(canonical, docs, manifest)]})
@@ -394,6 +419,30 @@ UNLISTED_DOCS = {
     "r-2026-1": {"has_source": False, "summary": _s(("n1", "A different document that happens to share the stem."))},
 }
 
+# v5 (t/596, spec 7.7): mention containers for chunks. (name, canonical, docs, manifest)
+MENTION_CHUNK_DOCS_A = {
+    "d-2026": {"has_source": True, "summary": S(["The plan exports the US stack."], ["Claim one."])},
+    "d-2026-1": {"has_source": False, "summary": S(["The plan exports the US stack", "Countries want sovereign AI."], ["Claim one", "A claim only the chunk found."])},
+    "d-2026-2": {"has_source": False, "summary": S(["Countries want sovereign AI!", "A point only the second chunk has."])},
+}
+MENTION_CHUNK_DOCS_E = {
+    "d-2026": {"has_source": True, "summary": S(["The plan exports the US stack."])},
+    "c-2026": {"has_source": True, "mark": "d-2026", "summary": S(["The plan exports the US stack", "A point only the copy has."])},
+    "c-2026-1": {"has_source": False, "summary": S(["A point only the copy has", "A point only the chunk of the copy has."], ["A claim only the chunk of the copy found."])},
+    "d-2026-1": {"has_source": False, "summary": S(["A point only the chunk of the copy has.", "A point only the canonical's chunk has."])},
+}
+MENTION_UNLISTED_DOCS = {
+    "r-2026": {"has_source": True, "summary": S(["The report sets out four options."])},
+    "r-2026-1": {"has_source": False, "summary": S(["A different document that happens to share the stem."])},
+}
+CHUNK_MENTION_CASES = [
+    ("chunks of the canonical: a near item gets no container; a distinct one gets a chunk key with the chunk's own index; chunks go by N",
+     "d-2026", MENTION_CHUNK_DOCS_A, {"d-2026-1": "d-2026", "d-2026-2": "d-2026"}),
+    ("a copy, its chunk and the canonical's chunk: the copy first, then the canonical's chunk, then the copy's chunk with via and chunk in the key",
+     "d-2026", MENTION_CHUNK_DOCS_E, {"c-2026-1": "c-2026", "d-2026-1": "d-2026"}),
+    ("not listed: the -N document is not in the group and adds no container", "r-2026", MENTION_UNLISTED_DOCS, {}),
+]
+
 # (name, docs, manifest, id, expected). expected is the resolved id, or MissingBase for a refusal.
 RESOLVE_CASES_V3 = [
     ("(d) an id shaped like a chunk but not in the manifest resolves to itself", {"x-2026": {"has_source": False}, "x-2026-1": {"has_source": False}}, {}, "x-2026-1", "x-2026-1"),
@@ -430,7 +479,7 @@ def _resolve_case(name, docs, manifest, doc_id, expected):
 def main():
     fixture = {
         "spec": "docs/specs/source-identity.md section 7",
-        "version": 4,
+        "version": 5,
         "generator": "scripts/new_evidence_union_fixture.py",
         "key_cases": [{"name": n, "quote": q, "expected_key": key(q)} for n, q in KEY_INPUTS],
         "near_cases": [{"name": n, "a": a, "b": b, "expected": near(a, b)} for n, a, b in NEAR_INPUTS],
@@ -440,6 +489,9 @@ def main():
         # v2 (spec 7.7, TL p/360#661): the mention-container form of the union, and the derived-key test.
         "mention_key_cases": [{"name": n, "canonical": c, "summaries": [{"id": i, "summary": s} for i, s in m.items()],
                                "expected_containers": mention_union(c, m)} for n, c, m in MENTION_INPUTS],
+        # v5 (t/596, spec 7.7): the same union with listed chunks in the group.
+        "chunk_mention_key_cases": [{"name": n, "canonical": c, "docs": d, "manifest": m,
+                                     "expected_containers": chunk_mention_union(c, d, m)} for n, c, d, m in CHUNK_MENTION_CASES],
         "derived_key_regex": "^summary:[^#]+#via-",
         "derived_key_cases": [{"key": k, "derived": d} for k, d in DERIVED_KEY_CASES],
         # v3 (t/355, R1 to R7): resolve, the group, the union with provenance, the document count, and extraction.
@@ -481,6 +533,17 @@ def main():
     assert list(mk["two copies with the same distinct item: only the ordinal-first copy's (-1 < -10 < -2)"]) == ["summary:c-2026#via-c-2026-1-saf-kp-0"]
     assert list(mk["an empty item makes no container but still advances its index"]) == ["summary:c-2026#via-c-2026-1-skp-kp-1"]
     assert list(mk["a group whose canonical has no summary: copy items still land under the canonical's namespace"]) == ["summary:c-2026#via-c-2026-1-fc-0"]
+    cm = {c["name"]: c["expected_containers"] for c in fixture["chunk_mention_key_cases"]}
+    assert cm[CHUNK_MENTION_CASES[0][0]] == {
+        "summary:d-2026#chunk-d-2026-1-saf-kp-1": "Countries want sovereign AI.",
+        "summary:d-2026#chunk-d-2026-1-fc-1": "A claim only the chunk found.",
+        "summary:d-2026#chunk-d-2026-2-saf-kp-1": "A point only the second chunk has."}
+    assert list(cm[CHUNK_MENTION_CASES[1][0]].items()) == [
+        ("summary:d-2026#via-c-2026-saf-kp-1", "A point only the copy has."),
+        ("summary:d-2026#chunk-d-2026-1-saf-kp-0", "A point only the chunk of the copy has."),
+        ("summary:d-2026#chunk-d-2026-1-saf-kp-1", "A point only the canonical's chunk has."),
+        ("summary:d-2026#via-c-2026-chunk-c-2026-1-fc-0", "A claim only the chunk of the copy found.")]
+    assert cm[CHUNK_MENTION_CASES[2][0]] == {}
     import re
     for c in fixture["derived_key_cases"]:
         assert bool(re.match(fixture["derived_key_regex"], c["key"])) == c["derived"], c["key"]

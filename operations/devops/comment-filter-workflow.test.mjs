@@ -31,7 +31,10 @@ const guardYml = read('.github', 'workflows', 't1-approval-guard.yml');
 const tierYml = read('.github', 'workflows', 'tier-check.yml');
 
 const HAYSTACK = "format('{0} {1}', github.event.comment.body, github.event.changes.body.from)";
-const PR_GROUP = '${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}';
+const PR_KEY = '${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}';
+// t/237: tier-check's group also carries github.event_name, so a comment run can't cancel a PR-event run
+// (it posts no head-pinned check). t1-approval-guard pins its verdict to the head SHA and keeps the shared key.
+const PR_GROUP = { 't1-approval-guard.yml': `\${{ github.workflow }}-${PR_KEY}`, 'tier-check.yml': `\${{ github.workflow }}-\${{ github.event_name }}-${PR_KEY}` };
 const SWEEP_MARKER = '<!-- t1-sweep-guard-rerun:';
 const RECHECK = '/recheck-guards';
 
@@ -188,7 +191,7 @@ for (const [name, f] of [['t1-approval-guard.yml', guard], ['tier-check.yml', ti
 
   test(`${name}: the concurrency group carries the SAME filter, so a skipped run never shares the PR's group`, () => {
     const inner = f.ifExpr.replace(/^\$\{\{ /, '').replace(/ \}\}$/, '');
-    assert.equal(f.group, `${PR_GROUP}-\${{ ( ${inner} ) && 'evaluate' || github.run_id }}`);
+    assert.equal(f.group, `${PR_GROUP[name]}-\${{ ( ${inner} ) && 'evaluate' || github.run_id }}`);
   });
 
   test(`${name}: the explicit re-run token runs the job, and the header and docs/pr-landing.md name it`, () => {
@@ -413,15 +416,11 @@ function triggerTypes(yml, event) {
 for (const [name, yml] of [['t1-approval-guard.yml', guardYml], ['tier-check.yml', tierYml]]) {
   test(`${name}: a deleted or edited comment and a dismissed review are triggers`, () => {
     assert.deepEqual(triggerTypes(yml, 'issue_comment'), ['created', 'edited', 'deleted']);
-    if (name.startsWith('t1')) {
-      // t/534 part B: the guard no longer runs on pull_request_review (PR-side workflow file);
-      // the permission-less relay does, and the guard follows it via workflow_run (from main).
-      assert.ok(!/^  pull_request_review:/m.test(yml.slice(yml.indexOf('\non:\n'))), 'the guard must not trigger on pull_request_review');
-      assert.match(yml.slice(yml.indexOf('\non:\n')), /^  workflow_run:\n    workflows: \[t1-approval-review-relay\]\n    types: \[completed\]/m);
-      assert.deepEqual(triggerTypes(read('.github', 'workflows', 't1-approval-review-relay.yml'), 'pull_request_review'), ['submitted', 'dismissed']);
-    } else {
-      assert.deepEqual(triggerTypes(yml, 'pull_request_review'), ['submitted', 'dismissed']);
-    }
+    // t/534 part B (the guard) and t/544 (tier-check): neither runs on pull_request_review (a PR-side
+    // workflow file); the permission-less relay does, and both follow it via workflow_run (from main).
+    assert.ok(!/^  pull_request_review:/m.test(yml.slice(yml.indexOf('\non:\n'))), `${name} must not trigger on pull_request_review`);
+    assert.match(yml.slice(yml.indexOf('\non:\n')), /^  workflow_run:\n    workflows: \[t1-approval-review-relay\]\n    types: \[completed\]/m);
+    assert.deepEqual(triggerTypes(read('.github', 'workflows', 't1-approval-review-relay.yml'), 'pull_request_review'), ['submitted', 'dismissed']);
   });
 }
 
@@ -569,4 +568,11 @@ test('tier-check R6: a PI approval COMMENT never clears the advisory (PI ruling 
   const so = { body: SO_CLEARING, createdAt: AFTER_PUSH };
   assert.equal(checkR6(true, [], [{ body: 'Approved (PI): go ahead.', createdAt: AFTER_PUSH }, so], [], HEAD, APP, PUSH_AT), true);
   assert.equal(checkR6(true, [], [{ login: APP, body: 'Approved (PI): go ahead.', createdAt: AFTER_PUSH }, so], [], HEAD, APP, PUSH_AT), true);
+});
+
+// t/237 (SO t/237#3 condition 3, before t/4103 makes tier-check required): an issue_comment run must never
+// share a concurrency group with a pull_request_target run of tier-check, or cancel-in-progress lets the
+// comment run cancel the PR-event run, leaving tier-check CANCELLED with no head-pinned verdict.
+test('tier-check.yml: the concurrency group is keyed on github.event_name, so event types never cancel each other', () => {
+  assert.match(tier.group, /^\$\{\{ github\.workflow \}\}-\$\{\{ github\.event_name \}\}-/);
 });

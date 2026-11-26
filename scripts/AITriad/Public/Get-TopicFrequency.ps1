@@ -120,7 +120,7 @@ function Get-TopicFrequency {
     # citations are added back under the canonical after the scan, at most once per node (spec 7.5).
     $AllSummaryFiles = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
     $Resolution      = Get-DefaultSourceResolution -Caller 'Get-TopicFrequency'
-    $SummaryFiles    = @(Select-SelectableSummaryFile -Files $AllSummaryFiles -Resolution $Resolution)
+    $SummaryFiles    = @(Select-SelectableSummaryFile -Files $AllSummaryFiles -Resolution $Resolution -ExcludeChunks)
     $SummaryCount = $SummaryFiles.Count
 
     if ($SummaryCount -lt 3) {
@@ -212,7 +212,8 @@ function Get-TopicFrequency {
             $Citations[$Camp][$NodeId].DocIds.Add($Canonical)
         }
     }
-    foreach ($Copy in @(Get-MarkedCopySummary -Files $AllSummaryFiles -Resolution $Resolution -Caller 'Get-TopicFrequency')) {
+    # Marked copies and listed legacy chunks (spec 6.2, t/596): their citations count under the canonical, once per document.
+    foreach ($Copy in @(Get-MarkedCopySummary -Files $AllSummaryFiles -Resolution $Resolution -Caller 'Get-TopicFrequency' -IncludeChunks)) {
         $CopyProps = $Copy.Summary.PSObject.Properties
         $PovSummaries = if ($CopyProps['pov_summaries']) { $Copy.Summary.pov_summaries } else { $null }
         foreach ($Camp in $CampKeys) {

@@ -70,6 +70,28 @@ Describe 'New-OrgEdgeRationale: the agreed wording (t/584#8)' -Tag 'organization
         & $script:Rationale @{ Kind = 'Withdrawn' } | Should -BeExactly 'Proposed by automated claim matching; the supporting claim was later withdrawn.'
     }
 
+    # The three rejected forms (t/680; table on t/584#20). The expected strings are the ones stored on
+    # ai-triad-data main by the t/584 write (PR #89).
+    It 'a rejected edge with no recorded reason says where the document is' {
+        & $script:Rationale @{ Kind = 'Rejected'; OrgName = 'Electronic Frontier Foundation'; SiteHost = 'en.wikipedia.org' } |
+            Should -BeExactly "Rejected: the document is on en.wikipedia.org, one of the sites listed in Electronic Frontier Foundation's links."
+    }
+
+    It 'a rejected edge quotes the reviewer''s note whole, as recorded' {
+        & $script:Rationale @{ Kind = 'Rejected'; OrgName = 'Electronic Frontier Foundation'; SiteHost = 'en.wikipedia.org'; ReviewNote = 'This should be Org-005' } |
+            Should -BeExactly "Rejected: the document is on en.wikipedia.org, one of the sites listed in Electronic Frontier Foundation's links. Reviewer's note: $($script:L)This should be Org-005$($script:R)"
+    }
+
+    It 'a rejected marked copy names the canonical document and needs no site or organization' {
+        & $script:Rationale @{ Kind = 'Rejected'; CanonicalTitle = 'AI RMF Playbook' } |
+            Should -BeExactly 'Rejected: the document is a marked copy of AI RMF Playbook. It is not shown as a publisher of its own.'
+    }
+
+    It 'a rejected edge with neither a site nor a canonical document is refused' {
+        { & $script:Rationale @{ Kind = 'Rejected'; OrgName = 'RAND' } } | Should -Throw -ExpectedMessage '*site host nor a canonical document*'
+        { & $script:Rationale @{ Kind = 'Rejected'; SiteHost = 'rand.org' } } | Should -Throw -ExpectedMessage '*organization name*'
+    }
+
     It 'no rationale is a pipeline diagnostic' {
         foreach ($A in @{ Kind = 'Matched'; OrgName = 'NIST'; ClaimText = 'X.'; DocumentTitle = 'D' }, @{ Kind = 'Published'; OrgName = 'RAND'; SiteHost = 'rand.org' }, @{ Kind = 'Withdrawn' }) {
             & $script:Rationale $A | Should -Not -Match 'match_basis|best_cosine|nli_|families='
