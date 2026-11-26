@@ -1,5 +1,5 @@
 {
-  "_comment": "t/4103 — tier-declaration check path floor (R1) and lint-severity globs (R2c). See operations/devops/tier-check-predicate.mjs for the rules this config feeds. t/566 (TL p/9#613, p/9#617): the R1 floor covers the server auth/AI gates (server/security, server/ai, routes/admin*, routes/diagnostics, anonAiRoutes) and deploy/azure code and config only. deploy/azure runbook .md files are deliberately NOT floored: they do not execute, and continuous-deploy holds any batch touching R1, so floored docs would hold deploys on doc edits.",
+  "_comment": "t/4103 — tier-declaration check path floor (R1) and lint-severity globs (R2c). See operations/devops/tier-check-predicate.mjs for the rules this config feeds. t/566 (TL p/9#613, p/9#617): the R1 floor covers the server auth/AI gates (server/security, server/ai, routes/admin*, routes/diagnostics, anonAiRoutes, authGates) and deploy/azure code and config only. deploy/azure runbook .md files are deliberately NOT floored: they do not execute, and continuous-deploy holds any batch touching R1, so floored docs would hold deploys on doc edits.",
   "r1Paths": [
     ".github/ci/required-contexts.json",
     ".github/ci/tier-paths.json",
@@ -13,6 +13,7 @@
     "deploy/azure/deploy.ps1",
     ".github/workflows/deploy-azure.yml",
     "taxonomy-editor/src/server/anonAiRoutes.ts",
+    "taxonomy-editor/src/server/authGates.ts",
     "taxonomy-editor/src/server/routes/diagnostics.ts"
   ],
   "r1Globs": [

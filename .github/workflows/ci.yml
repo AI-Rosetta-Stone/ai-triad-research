@@ -1708,7 +1708,7 @@ jobs:
     # its paths, and on the nightly schedule.
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.verify-config == 'true')
+      github.event_name != 'merge_group' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.verify-config == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -1872,15 +1872,19 @@ jobs:
 
           gh label create "$LABEL" --color "B60205" --description "CI: contrast-check alert on main" 2>/dev/null || true
 
-          EXISTING=$(gh issue list --state open --label "$LABEL" --json number --jq '.[0].number // empty')
+          # t/675: REST through `gh api`, here and in the auto-close step below. The issue
+          # subcommands of gh are GraphQL-backed and spent the shared GITHUB_TOKEN GraphQL pool
+          # (t/563#16). The issues endpoint also lists PRs, so they are filtered out.
+          EXISTING=$(gh api -X GET "repos/$GH_REPO/issues" -f state=open -f labels="$LABEL" -f per_page=100 --jq '[.[] | select(.pull_request == null)][0].number // empty')
           # t/4414 lint finding (e/349#6 class): this alert had no label the r/23 bridge
           # watches, so a persisting contrast regression could sit open and unseen.
           if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --body-file "$BODY_FILE"
-            gh issue edit "$EXISTING" --remove-label "owner-acked" --add-label "alert-escalated" 2>/dev/null || true
+            gh api -X POST "repos/$GH_REPO/issues/$EXISTING/comments" -F body=@"$BODY_FILE" --silent
+            gh api -X DELETE "repos/$GH_REPO/issues/$EXISTING/labels/owner-acked" >/dev/null 2>&1 || true
+            gh api -X POST "repos/$GH_REPO/issues/$EXISTING/labels" -f 'labels[]=alert-escalated' >/dev/null 2>&1 || true
             echo "::error::contrast-check RED on main — appended to issue #${EXISTING}"
           else
-            ISSUE_URL=$(gh issue create --title "$TITLE" --label "$LABEL" --label "alert-escalated" --body-file "$BODY_FILE")
+            ISSUE_URL=$(gh api -X POST "repos/$GH_REPO/issues" -f title="$TITLE" -f "labels[]=$LABEL" -f 'labels[]=alert-escalated' -F body=@"$BODY_FILE" --jq '.html_url')
             echo "::error::contrast-check RED on main — alert issue created: ${ISSUE_URL}"
           fi
           rm -f "$BODY_FILE"
@@ -1897,9 +1901,10 @@ jobs:
           COMMIT_SHA: ${{ github.sha }}
         run: |
           LABEL="ci-alert:contrast"
-          EXISTING=$(gh issue list --state open --label "$LABEL" --json number --jq '.[0].number // empty')
+          EXISTING=$(gh api -X GET "repos/$GH_REPO/issues" -f state=open -f labels="$LABEL" -f per_page=100 --jq '[.[] | select(.pull_request == null)][0].number // empty')
           if [ -n "$EXISTING" ]; then
-            gh issue close "$EXISTING" --comment "contrast-check passed on main (commit: ${COMMIT_SHA}). Auto-closing."
+            gh api -X POST "repos/$GH_REPO/issues/$EXISTING/comments" -f body="contrast-check passed on main (commit: ${COMMIT_SHA}). Auto-closing." --silent
+            gh api -X PATCH "repos/$GH_REPO/issues/$EXISTING" -f state=closed --silent
           fi
 
   # ── Dependency audit: standalone security gate (t/1800) ──
@@ -1959,7 +1964,7 @@ jobs:
     # on PRs and pushes that touch its paths, and on the nightly schedule.
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
+      github.event_name != 'merge_group' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     strategy:
@@ -2363,7 +2368,7 @@ jobs:
     # nightly schedule.
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.debate == 'true')
+      github.event_name != 'merge_group' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.debate == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     env:
@@ -2426,7 +2431,7 @@ jobs:
     # nightly schedule.
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.schema == 'true')
+      github.event_name != 'merge_group' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.schema == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -2485,7 +2490,7 @@ jobs:
     # nightly schedule.
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.schema-drift == 'true')
+      github.event_name != 'merge_group' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.schema-drift == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:

@@ -118,6 +118,96 @@ test("ci.yml: every gated family trims on merge_group only on a positive full=='
   assert.equal(CI.split("(github.event_name == 'merge_group' && needs.changes.outputs.full != 'false')").length - 1, 21);
 });
 
+// ── 2b. never-gating jobs skip on merge_group (t/702) ──
+// The job list is read from ONE place: ci-gate's comment "never-gating jobs and the merge queue".
+// Pure: takes ci.yml's text, returns { listed, problems }.
+const NEVER_GATING_TERM = "always() && !cancelled() && github.event_name != 'merge_group' && ";
+function jobIf(ci, job) {
+  const L = ci.split('\n');
+  const jobsAt = L.indexOf('jobs:');
+  const s = L.findIndex((l, i) => i > jobsAt && l === `  ${job}:`);
+  if (s < 0) return null;
+  for (let i = s + 1; i < L.length && !/^ {2}\S/.test(L[i]); i++) {
+    const m = L[i].match(/^ {4}if: (.*)$/);
+    if (!m) continue;
+    if (m[1] !== '>-' && m[1] !== '>') return m[1].trim();
+    const parts = [];
+    for (let k = i + 1; k < L.length && /^ {6}\S/.test(L[k]); k++) parts.push(L[k].trim());
+    return parts.join(' ');
+  }
+  return '';
+}
+function neverGatingProblems(ci) {
+  const problems = [];
+  const c = ci.match(/ {4}# ── never-gating jobs and the merge queue ──\n((?: {4}#.*\n)+)/);
+  if (!c) return { listed: [], problems: ['ci-gate: the "never-gating jobs and the merge queue" comment was not found'] };
+  const text = c[1].replace(/^ {4}# ?/gm, '').replace(/\n/g, ' ');
+  const m = text.match(/NOT in the needs above, so their result cannot hold a merge-queue batch back: ([a-z0-9, -]+)\. /);
+  if (!m) return { listed: [], problems: ['ci-gate: the never-gating comment no longer carries its job list ("…batch back: a, b, c.")'] };
+  const listed = m[1].split(',').map((x) => x.trim()).filter(Boolean);
+  const g = ci.match(/ {2}ci-gate:\n {4}name: ci-gate\n {4}needs: \[([^\]]+)\]/);
+  if (!g) return { listed, problems: ['ci-gate: its header (name, then a one-line needs list) was not found, so the never-gating jobs cannot be checked against its needs'] };
+  const gateNeeds = g[1].split(',').map((x) => x.trim());
+  for (const j of listed) {
+    const cond = jobIf(ci, j);
+    if (cond === null) { problems.push(`${j}: listed as never-gating but there is no such job in ci.yml`); continue; }
+    if (!cond.startsWith(NEVER_GATING_TERM)) problems.push(`${j}: its if must start with "${NEVER_GATING_TERM.trim()}" (found: ${cond || 'no if'})`);
+    if (gateNeeds.includes(j)) problems.push(`${j}: listed as never-gating but it is in ci-gate's needs`);
+  }
+  // The other direction: a job that excludes merge_group outright must be on the list, so the
+  // comment cannot fall behind the jobs.
+  const L = ci.split('\n');
+  const jobsAt = L.indexOf('jobs:');
+  for (let i = jobsAt + 1; i < L.length; i++) {
+    const jm = L[i].match(/^ {2}([A-Za-z0-9_-]+):$/);
+    if (!jm || listed.includes(jm[1])) continue;
+    if ((jobIf(ci, jm[1]) ?? '').includes("github.event_name != 'merge_group'")) problems.push(`${jm[1]}: excludes merge_group but is not in ci-gate's never-gating list`);
+  }
+  return { listed, problems };
+}
+
+test('t/702: every never-gating job ci-gate lists skips on merge_group by the explicit term, and is not a need', () => {
+  const { listed, problems } = neverGatingProblems(CI);
+  assert.ok(listed.length >= 7, `expected the seven never-gating jobs, parsed ${listed.length}: ${listed.join(', ')}`);
+  assert.deepEqual(problems, []);
+});
+
+test('t/702 arms: a missing term, a missing job, a job in needs, an unlisted excluder and a lost list are each reported', () => {
+  const term = "github.event_name != 'merge_group' && ";
+  // Arm 1b: the term removed from a single-line if.
+  const oneLine = "    if: always() && !cancelled() && github.event_name != 'merge_group' && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'";
+  const apr = CI.indexOf('\n  action-pin-resolution:\n');
+  const at = CI.indexOf(oneLine, apr);
+  assert.ok(apr >= 0 && at > apr, 'fixture: action-pin-resolution\'s single-line if was not found');
+  const noTermOneLine = CI.slice(0, at) + oneLine.replace(term, '') + CI.slice(at + oneLine.length);
+  assert.deepEqual(neverGatingProblems(noTermOneLine).problems.map((p) => p.split(':')[0]), ['action-pin-resolution']);
+  // Arm 6: ci-gate's header reshaped (a multi-line needs list): one problem line, no TypeError.
+  const reshaped = CI.replace('  ci-gate:\n    name: ci-gate\n    needs: [', '  ci-gate:\n    name: ci-gate\n    needs:\n      [');
+  assert.notEqual(reshaped, CI);
+  assert.deepEqual(neverGatingProblems(reshaped).problems.map((p) => p.split(':')[0]), ['ci-gate']);
+  // Arm 1: the pre-t/702 shape (the term removed from a folded if).
+  const noTerm = CI.replace(`always() && !cancelled() &&\n      ${term}(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')`,
+    "always() && !cancelled() &&\n      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')");
+  assert.notEqual(noTerm, CI, 'fixture: dependency-audit\'s if was not found');
+  assert.deepEqual(neverGatingProblems(noTerm).problems.map((p) => p.split(':')[0]), ['dependency-audit']);
+  // Arm 2: a listed job that does not exist.
+  const ghost = CI.replace('schema-validation, debate-eval, action-pin-resolution.', 'schema-validation, debate-eval, action-pin-resolution, no-such-job.');
+  assert.notEqual(ghost, CI);
+  assert.match(neverGatingProblems(ghost).problems.join('\n'), /^no-such-job: listed as never-gating but there is no such job in ci\.yml$/m);
+  // Arm 3: a listed job promoted into ci-gate's needs without leaving the list.
+  const promoted = CI.replace('    needs: [changes, test-powershell,', '    needs: [changes, verify-config, test-powershell,');
+  assert.notEqual(promoted, CI);
+  assert.match(neverGatingProblems(promoted).problems.join('\n'), /^verify-config: listed as never-gating but it is in ci-gate's needs$/m);
+  // Arm 4: a job that excludes merge_group but was dropped from the list.
+  const unlisted = CI.replace('schema-validation, debate-eval, action-pin-resolution.', 'schema-validation, debate-eval.');
+  assert.notEqual(unlisted, CI);
+  assert.match(neverGatingProblems(unlisted).problems.join('\n'), /^action-pin-resolution: excludes merge_group but is not in ci-gate's never-gating list$/m);
+  // Arm 5: the comment's list sentence reworded away.
+  const lost = CI.replace('cannot hold a\n    # merge-queue batch back:', 'cannot hold a\n    # merge-queue batch back, namely');
+  assert.notEqual(lost, CI);
+  assert.equal(neverGatingProblems(lost).problems.length, 1);
+});
+
 // ── 3. ci-gate's merge_group skip-integrity step, run on needs fixtures ──
 function integrityScript() {
   const m = CI.match(/- name: Merge-group skip integrity \(t\/391\)[\s\S]*?node -e '\n([\s\S]*?)\n {10}'\n/);

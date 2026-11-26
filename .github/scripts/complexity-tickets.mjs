@@ -219,23 +219,39 @@ export function reportBody(rows, { top, refactorIssues, date }) {
 
 // ── gh plumbing ──────────────────────────────────────────────────────────────
 
-function makeGh(dryRun) {
-  const run = args => execFileSync('gh', args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
-  const withBody = (args, body) => {
-    if (dryRun) { console.log(`[dry-run] gh ${args.join(' ')}\n${body}\n`); return '' }
+// t/675: every call is REST through `gh api`. The `gh issue` / `gh pr` subcommands are
+// GraphQL-backed and spent the shared GITHUB_TOKEN GraphQL pool on every CI run (t/563#16);
+// `gh api repos/...` spends REST core only. `{owner}/{repo}` is filled in by gh from GH_REPO
+// or the checkout. The dry-run lines still read `gh issue ...`: they describe the write and
+// are kept as they were.
+const REPO = 'repos/{owner}/{repo}'
+const ghCli = args => execFileSync('gh', args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
+
+/** `run(args)` runs gh and returns its stdout; injectable so tests can record the calls. */
+export function makeGh(dryRun, run = ghCli) {
+  // A write: the JSON payload goes through a file (--input), so no body text reaches argv.
+  const send = (method, path, payload, jq) => {
     const dir = mkdtempSync(join(tmpdir(), 'cx-'))
-    const file = join(dir, 'body.md')
+    const file = join(dir, 'payload.json')
     try {
-      writeFileSync(file, body, 'utf-8')
-      return run([...args, '--body-file', file])
+      writeFileSync(file, JSON.stringify(payload), 'utf-8')
+      return run(['api', '-X', method, `${REPO}/${path}`, '--input', file, ...(jq ? ['--jq', jq] : [])])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   }
+  // A paged read: --jq prints one JSON value per line across every page.
+  const readLines = (path, fields, jq) => String(run(['api', '-X', 'GET', '--paginate', `${REPO}/${path}`, ...fields.flatMap(f => ['-f', f]), '--jq', jq]))
+    .split('\n').filter(Boolean).map(l => JSON.parse(l))
+  const withBody = (shown, body, write) => {
+    if (dryRun) { console.log(`[dry-run] gh ${shown.join(' ')}\n${body}\n`); return '' }
+    return write()
+  }
   return {
+    /** Open issues with the label, newest first (the issues endpoint also returns PRs; they are dropped). */
     list(label) {
       try {
-        return JSON.parse(run(['issue', 'list', '--label', label, '--state', 'open', '--limit', '500', '--json', 'number,title']))
+        return readLines('issues', ['state=open', `labels=${label}`, 'per_page=100'], '.[] | select(.pull_request == null) | {number, title} | @json')
       } catch (err) {
         if (!dryRun) throw err
         console.warn(`WARN complexity-tickets: gh issue list failed in dry-run, treating as no open issues: ${err.message}`)
@@ -244,20 +260,29 @@ function makeGh(dryRun) {
     },
     ensureLabel(label, color, description) {
       if (dryRun) return
-      try { run(['label', 'create', label, '--color', color, '--description', description]) }
+      try { send('POST', 'labels', { name: label, color, description }) }
       catch (err) {
-        const msg = `${err.stderr ?? ''}${err.message}`
-        if (!/already exists/i.test(msg)) console.warn(`WARN complexity-tickets: could not create label ${label}; issue writes may fail: ${msg.trim()}`)
+        // gh api prints the 422 body ("code":"already_exists") on stdout.
+        const msg = `${err.stdout ?? ''}${err.stderr ?? ''}${err.message}`
+        if (!/already.exists/i.test(msg)) console.warn(`WARN complexity-tickets: could not create label ${label}; issue writes may fail: ${msg.trim()}`)
       }
     },
-    create: (title, label, body) => withBody(['issue', 'create', '--title', title, '--label', label], body).trim(),
-    comment: (n, body) => withBody(['issue', 'comment', String(n)], body),
-    edit: (n, body) => withBody(['issue', 'edit', String(n)], body),
+    create: (title, label, body) => withBody(['issue', 'create', '--title', title, '--label', label], body,
+      () => send('POST', 'issues', { title, labels: [label], body }, '.html_url')).trim(),
+    comment: (n, body) => withBody(['issue', 'comment', String(n)], body, () => send('POST', `issues/${n}/comments`, { body })),
+    edit: (n, body) => withBody(['issue', 'edit', String(n)], body, () => send('PATCH', `issues/${n}`, { body })),
+    /** Comment, then close as completed (what `gh issue close --reason completed --comment` did). */
+    close(n, text) {
+      if (dryRun) { console.log(`[dry-run] gh issue close ${n}: ${text}`); return }
+      send('POST', `issues/${n}/comments`, { body: text })
+      send('PATCH', `issues/${n}`, { state: 'closed', state_reason: 'completed' })
+    },
     /** Issue body + all comment bodies, for "already recorded?" checks. */
     texts(n) {
       try {
-        const v = JSON.parse(run(['issue', 'view', String(n), '--json', 'body,comments']))
-        return [v.body ?? '', ...(v.comments ?? []).map(c => c.body ?? '')]
+        const body = JSON.parse(run(['api', '-X', 'GET', `${REPO}/issues/${n}`, '--jq', '.body | @json']))
+        const comments = readLines(`issues/${n}/comments`, ['per_page=100'], '.[] | .body | @json')
+        return [body ?? '', ...comments.map(c => c ?? '')]
       } catch (err) {
         console.warn(`WARN complexity-tickets: could not read #${n}; commenting without the duplicate check: ${err.message}`)
         return []
@@ -266,16 +291,10 @@ function makeGh(dryRun) {
   }
 }
 
-// `gh issue close --comment` takes the text inline (no --body-file), so it bypasses withBody.
-function closeIssue(dryRun, n, text) {
-  if (dryRun) { console.log(`[dry-run] gh issue close ${n}: ${text}`); return }
-  execFileSync('gh', ['issue', 'close', String(n), '--reason', 'completed', '--comment', text], { stdio: 'inherit' })
-}
-
-function fileViolations({ dir, repoRoot, dryRun }) {
+export function fileViolations({ dir, repoRoot, dryRun, run }) {
   const files = groupByPath(readReports(dir, repoRoot))
   if (files.length === 0) { console.log('No complexity-budget violations reported; nothing to file.'); return }
-  const gh = makeGh(dryRun)
+  const gh = makeGh(dryRun, run)
   gh.ensureLabel(REFACTOR_LABEL, 'D93F0B', 'File is over its complexity budget; refactor it below baseline')
   const open = new Map(gh.list(REFACTOR_LABEL).map(i => [i.title, i.number]))
   const baseline = new Map(loadOffenders(repoRoot).map(r => [r.path, r]))
@@ -297,9 +316,9 @@ function fileViolations({ dir, repoRoot, dryRun }) {
   }
 }
 
-function report({ repoRoot, top, dryRun }) {
+export function report({ repoRoot, top, dryRun, run }) {
   const rows = loadOffenders(repoRoot)
-  const gh = makeGh(dryRun)
+  const gh = makeGh(dryRun, run)
   gh.ensureLabel(REPORT_LABEL, '5319E7', 'Weekly complexity-budget offender report')
   gh.ensureLabel(REFACTOR_LABEL, 'D93F0B', 'File is over its complexity budget; refactor it below baseline')
 
@@ -308,7 +327,7 @@ function report({ repoRoot, top, dryRun }) {
   for (const i of refactorIssues) {
     const path = pathFromTitle(i.title)
     if (path && !offenderPaths.has(path)) {
-      closeIssue(dryRun, i.number, `\`${path}\` is no longer in any complexity baseline on main (at or under the threshold, or removed). Closing.`)
+      gh.close(i.number, `\`${path}\` is no longer in any complexity baseline on main (at or under the threshold, or removed). Closing.`)
       console.log(`${path}: closed #${i.number}`)
     }
   }
