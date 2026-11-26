@@ -118,4 +118,26 @@ describe('pullDataUpdates never commits local content (t/682)', () => {
     expect(warn.mock.calls.some(a => String(a[0]).includes('dirty data root'))).toBe(false);
     warn.mockRestore();
   });
+
+  it('a conflicting stash restore returns success:false naming the file and the stash (SO risk on #5581)', async () => {
+    const root = hoisted.dataRoot;
+    const seed = path.join(tmp, 'seed');
+    // Upstream edits the same tracked file the user edited locally: `pull --rebase --autostash`
+    // exits 0 but the stash restore conflicts (warning on stderr only).
+    write(seed, 'taxonomy/acc.json', '{"v":3,"upstream":true}\n');
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-q', '-m', 'upstream edits acc');
+    git(seed, 'push', '-q', 'origin', 'HEAD:main');
+    write(root, 'taxonomy/acc.json', '{"v":2,"local":true}\n');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await pullDataUpdates();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('taxonomy/acc.json');
+    expect(result.message).toContain('stash@{0}');
+    expect(git(root, 'stash', 'list')).toContain('autostash'); // the edit is not lost
+    expect(warn.mock.calls.some(a => String(a[0]).includes('autostash restore conflicted'))).toBe(true);
+    warn.mockRestore();
+  });
 });
