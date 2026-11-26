@@ -98,8 +98,22 @@ describe('desktop community approve hides the submitter storage id (t/713)', () 
     blobStore.set('community/chats/chat-old.json', JSON.stringify({
       title: 'Old', community_metadata: { submitted_by_display: 'legacy-user' },
     }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await adminRemoveCommunityItem('chats', 'old', null as unknown as string);
     expect(audits()[0].submitted_by).toBe('legacy-user');
+    // The fallback WARNs with the item id only, never the value.
+    const lines = warn.mock.calls.map(a => String(a[0])).filter(l => l.includes('no owner_storage_id'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('old');
+    expect(lines[0]).not.toContain('legacy-user');
+    warn.mockRestore();
+  });
+
+  it('a new item (owner_storage_id present) takes no fallback and logs no WARN', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(communityItemOwnerKey({ community_metadata: { owner_storage_id: 'o', submitted_by_display: 'Contributor' } }, 'x')).toBe('o');
+    expect(warn.mock.calls.some(a => String(a[0]).includes('no owner_storage_id'))).toBe(false);
+    warn.mockRestore();
   });
 
   it('communityItemOwnerKey matches the server rule', () => {

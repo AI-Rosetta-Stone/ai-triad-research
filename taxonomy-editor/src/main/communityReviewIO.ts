@@ -210,12 +210,18 @@ export function stripSensitiveKeys(obj: unknown): unknown {
 export const COMMUNITY_DISPLAY_FALLBACK = 'Contributor';
 
 /** t/713: the owner of a published item, the same rule as the server's communityItemOwnerKey:
- *  `owner_storage_id` first, the display only as the pre-t/693 fallback, else null. */
-export function communityItemOwnerKey(item: unknown): string | null {
+ *  `owner_storage_id` first, the display only as the pre-t/693 fallback, else null. Taking the
+ *  fallback logs a WARN naming the item id only, never the value (it may be an email address). */
+export function communityItemOwnerKey(item: unknown, itemId?: string): string | null {
   const meta = asRecord(asRecord(item).community_metadata as unknown);
-  for (const key of ['owner_storage_id', 'submitted_by_display'] as const) {
-    const v = meta[key];
-    if (typeof v === 'string' && v.length > 0) return v;
+  const owner = meta.owner_storage_id;
+  if (typeof owner === 'string' && owner.length > 0) return owner;
+  const display = meta.submitted_by_display;
+  if (typeof display === 'string' && display.length > 0) {
+    const message = `community item ${itemId ?? '(unknown id)'} has no owner_storage_id; owner taken from submitted_by_display (pre-t/693 item)`;
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'communityReviewIO', level: 'warn', message });
+    console.warn(`[communityReviewIO] WARN ${message}`);
+    return display;
   }
   return null;
 }
@@ -427,7 +433,7 @@ class CommunityReviewClient {
       id,
       type: safeType,
       title: titleOf(itemData),
-      submitted_by: communityItemOwnerKey(itemData) ?? 'unknown', // t/713: owner key first
+      submitted_by: communityItemOwnerKey(itemData, id) ?? 'unknown', // t/713: owner key first
       removed_by: desktopAdminActor(),
       removed_at: new Date().toISOString(),
       reason: reason ?? null,
