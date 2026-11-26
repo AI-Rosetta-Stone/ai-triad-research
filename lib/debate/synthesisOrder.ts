@@ -116,3 +116,16 @@ export function prepareSynthesisLists(data: Item, debateId?: string): Item {
   warnFlag('cruxes', 'decisive', normaliseFlag(data.cruxes, 'decisive', true), debateId);
   return orderSynthesisLists(data);
 }
+
+/** Reader text for a list whose every item was malformed (Design, t/774). */
+export const UNREADABLE_LIST_TEXT: Readonly<Record<string, string>> = {
+  areas_of_agreement: "Agreements couldn't be read for this synthesis.",
+  areas_of_disagreement: "Disagreements couldn't be read for this synthesis.",
+  cruxes: "Cruxes couldn't be read for this synthesis.",
+};
+
+/** The section lines for an unreadable list (heading + message), or [] when the list isn't marked unreadable. */
+export function unreadableListLines(data: Record<string, unknown>, key: string, heading: string): string[] {
+  const marked = Array.isArray(data.unreadable_lists) && (data.unreadable_lists as unknown[]).includes(key);
+  return marked && UNREADABLE_LIST_TEXT[key] ? [heading, '', UNREADABLE_LIST_TEXT[key], ''] : [];
+}
