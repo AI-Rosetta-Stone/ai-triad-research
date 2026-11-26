@@ -93,10 +93,10 @@ Describe 'Invoke-EntityExtraction (t/1806 Phase 1)' -Tag 'unit' {
                     [PSCustomObject]@{ Text = '{"proposals":[],"org_mentions":[]}'; Model = 'stub' }
                 }
 
-                Invoke-EntityExtraction -NodeId 'node-a' -Model 'gemini-3.7-flash' -Concurrency 1 `
+                Invoke-EntityExtraction -NodeId 'node-a' -Model 'gemini-3.8-flash' -Concurrency 1 `
                     -EntitiesPath $EntPath -EmbeddingsPath $EmbPath -SourceEvidenceIndexPath $SeiPath -OutputPath $LogPath -Confirm:$false | Out-Null
 
-                $script:capturedModel | Should -Be 'gemini-3.7-flash'
+                $script:capturedModel | Should -Be 'gemini-3.8-flash'
             }
         }
 

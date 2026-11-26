@@ -82,7 +82,7 @@ function New-OpEd {
         If supplied, writes the headline and body to a Markdown file
         at this path (UTF-8, no BOM).
     .PARAMETER Model
-        AI model to use. Defaults to gemini-3.7-flash — a deliberate step up from
+        AI model to use. Defaults to gemini-3.8-flash — a deliberate step up from
         the flash-lite enrichment default because long-form persuasive prose needs
         a stronger tier; a GA model is preferred over a preview as a default. For
         maximum polish, pass -Model gemini-3.1-pro-preview.
@@ -179,7 +179,7 @@ function New-OpEd {
         [string]$OutputPath,
 
         [ValidateScript({ Test-AIModelId $_ })]
-        [string]$Model = 'gemini-3.7-flash',
+        [string]$Model = 'gemini-3.8-flash',
 
         [ValidateRange(0.0, 2.0)]
         [double]$Temperature = 0.8,

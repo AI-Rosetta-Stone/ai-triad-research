@@ -6,7 +6,7 @@
       "kind": "brief",
       "prompt": "<<op-ed-source-brief @ oped/prompts>>\n{{SOURCE_MATERIAL}}=Audits will slow innovation and cost millions, the report argues.",
       "system": null,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-3.8-flash",
       "temperature": 0.2,
       "maxTokens": 4000,
       "jsonMode": true,
@@ -52,7 +52,7 @@
       "kind": "essay",
       "prompt": "<<op-ed-generation-user @ oped/prompts>>\n{{AUTHOR_BIO}}=(none supplied — write a generic authority line the author can replace, e.g. \"[Author], [affiliation]\")\n{{GROUNDING_NODES}}=(none — argue from your camp voice and general knowledge)\n{{NEWS_HOOK}}=(none supplied — invent a plausible current news hook and make clear in the lede what timely event it assumes, so the author can verify it against real events before submitting)\n{{OUTLET_GUIDANCE}}=WaPo guidance\n{{SITUATIONS}}=(none supplied)\n{{SOURCE_ACTOR_TYPE}}=think tank\n{{SOURCE_AUTHOR}}=Jane Roe\n{{SOURCE_KEY_CLAIMS}}=  1. Audits cost millions.\n  2. Most harms are speculative.\n{{SOURCE_MATERIAL}}=Audits will slow innovation and cost millions, the report argues.\n{{SOURCE_RECOMMENDATIONS}}=voluntary codes; sandbox pilots\n{{SOURCE_STANCE}}=oppose audits\n{{SOURCE_THESIS}}=Audits slow innovation.\n{{STYLE_BODY_FORMAT}}=prose\n{{THESIS}}=(none supplied — derive a clear, arguable thesis that follows from your camp value hierarchy)\n{{TOPIC}}=Write an op-ed responding to the source material below (from https://example.com/doc.pdf). Choose the sharpest angle consistent with your camp's convictions.\n{{WORD_COUNT}}=800",
       "system": "<<op-ed-generation-system @ oped/prompts>>\n{{OUTLET_GUIDANCE}}=WaPo guidance\n{{POV_LABEL}}=Fixture Safetyist\n{{STYLE_AUDIENCE}}=general readers\n{{STYLE_JARGON}}=none\n{{STYLE_PARAGRAPH}}=brief\n{{STYLE_READING_LEVEL}}=grade 10\n{{STYLE_SENTENCE}}=short\n{{VOICE_BLOCK}}=PERSONALITY: a careful, evidence-first fixture voice\nDISPOSITION: cautious\nRHETORICAL STYLE: plain and direct\nREASONING MODE: precautionary\nPREFERRED EVIDENCE: incident reports\nSIGNATURE MOVE: names the irreversible harm\n\nPROSE STYLE: short sentences.\n\nVOICE HYGIENE: no hedging.\n\nVALUE HIERARCHY (in priority order):\n  1. safety\n  2. accountability\n\nEPISTEMIC STANCE:\n  - uncertainty favors caution\n\nANTI-PATTERNS (never do these):\n  - doom without a remedy\n  - jargon\n{{WORD_COUNT}}=800",
-      "model": "gemini-3.7-flash",
+      "model": "gemini-3.8-flash",
       "temperature": 0.8,
       "maxTokens": 7400,
       "jsonMode": true,
@@ -86,7 +86,7 @@
   ],
   "warnings": [],
   "verbose": [
-    "Generating op-ed: pov='skeptic' outlet='WashingtonPost' words=800 model='gemini-3.7-flash' temp=0.8"
+    "Generating op-ed: pov='skeptic' outlet='WashingtonPost' words=800 model='gemini-3.8-flash' temp=0.8"
   ],
   "error": null,
   "output": {
@@ -96,7 +96,7 @@
     "WordCount": 51,
     "Pov": "skeptic",
     "Outlet": "WashingtonPost",
-    "Model": "gemini-3.7-flash",
+    "Model": "gemini-3.8-flash",
     "Backend": "gemini",
     "Grounding": [],
     "StanceRelationship": "rebut",
