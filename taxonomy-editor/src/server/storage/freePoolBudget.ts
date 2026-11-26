@@ -2,11 +2,13 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { randomUUID } from 'crypto';
-import { BlobServiceClient, type ContainerClient, type BlockBlobClient, RestError } from '@azure/storage-blob';
+import { BlobServiceClient, type ContainerClient, type BlockBlobClient } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { userContentContainer, isUserContentContainerConfigured } from './userContentContainer.js';
+// t/744: the two race/absence checks live with the generic JSON document store; one copy for both.
+import { isBlobNotFound as isNotFound, isBlobPreconditionFailed as isPreconditionFailed } from './jsonDocStore.js';
 
 /**
  * FreePoolBudget — the free Gemini pool's global daily spending cap (t/4410
@@ -291,26 +293,6 @@ export interface BlobFreePoolBudgetOptions {
 const DEFAULT_BLOB_PREFIX = '_system/free-pool-budget';
 const DEFAULT_RESERVATION_TTL_MS = 2 * 60 * 1000;
 const DEFAULT_MAX_CAS_RETRIES = 5;
-
-function isNotFound(err: unknown): boolean {
-  return err instanceof RestError ? (err.statusCode === 404 || err.code === 'BlobNotFound') : false;
-}
-
-/** t/4491: a lost CAS race on an EXISTING blob (`ifMatch`, stale ETag) comes
- *  back as 412. A lost race on a brand-new day's FIRST write (`ifNoneMatch:
- *  '*'`, two replicas racing to create the same not-yet-existing blob) comes
- *  back as 409 `BlobAlreadyExists` instead — a different status for the same
- *  "lost the race, re-download and retry" case. This was a latent gap in
- *  every `rmw` caller (`reserve`/`renew`/`commit`/`release`, not just the new
- *  `reserveForKey`) since t/4484 — never caught because the existing tests
- *  happen to pre-seed the day's blob before racing, so they only ever hit
- *  the 412 path. `reserveForKey`'s own replica-safety test is what surfaced
- *  it (two replicas racing a genuinely fresh day). */
-function isPreconditionFailed(err: unknown): boolean {
-  if (!(err instanceof RestError)) return false;
-  if (err.statusCode === 412) return true;
-  return err.statusCode === 409 && err.code === 'BlobAlreadyExists';
-}
 
 function todayUtc(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10); // YYYY-MM-DD
