@@ -86,6 +86,19 @@ describe('free-pool refusal codes (t/467)', () => {
     expect(seen.find((e) => e.voice === 'saf')?.error).toBeUndefined();
   });
 
+  it('t/741: voices refused by the pool, then the stream ends without complete: still the pool refusal, with no run-status call', async () => {
+    const events = [{ type: 'run_started', runId: 'r1' }, { type: 'voice_start', pov: 'acc' }, { type: 'voice_failed', pov: 'acc', error: 'raw', code: 'FREE_POOL_EXHAUSTED' }];
+    const fetchFn = vi.fn().mockResolvedValue(sse(events));
+    const err = await runOpEdCreate(fetchFn, payload).then(() => null, (e: unknown) => e);
+    expect(freePoolRefusalOf(err)).toEqual({ code: 'free_pool_exhausted', midStream: true });
+    expect(fetchFn).toHaveBeenCalledTimes(1); // the create only; /api/oped-runs is not asked
+  });
+
+  it("t/741: the same, when run_started carried setId: the refusal has it, so the dialog can check the set", async () => {
+    const events = [{ type: 'run_started', runId: 'r1', setId: 'set-7' }, { type: 'voice_failed', pov: 'acc', error: 'raw', code: 'FREE_POOL_EXHAUSTED' }];
+    expect(await refusalFor(sse(events))).toEqual({ code: 'free_pool_exhausted', midStream: true, setId: 'set-7' });
+  });
+
   it('a voice_failed without a code (before t/668) stays a generic failure, and the set resolves', async () => {
     const res = sse([{ type: 'voice_failed', pov: 'saf', error: 'boom' }, { type: 'complete', set: { set_id: 'set-1' } }]);
     await expect(runOpEdCreate(vi.fn().mockResolvedValue(res), payload)).resolves.toEqual({ set_id: 'set-1' });
