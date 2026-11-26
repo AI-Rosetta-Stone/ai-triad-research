@@ -31,7 +31,7 @@ export const RAW_ID = /\b\d{4}\.\d{4,5}(?:v\d+)?\b|\b(?:acc|saf|skp|cc)-[a-z]+-\
 
 /** Internal-store names readers must never see (Design ruling, t/763#12). "this project's taxonomy" and
  *  "the debate so far" are the allowed names, so a bare "taxonomy" is not flagged on its own. */
-export const INTERNAL_STORE = /\bconflict (?:data|logs?)\b|\btaxonomy (?:records?|nodes?|data)\b|\bnodes?\b|\bdebate (?:record|materials)\b|\bverified record\b/i;
+export const INTERNAL_STORE = /\bconflict (?:data|logs?|records?)\b|\btaxonomy (?:records?|nodes?|data)\b|\bnodes?\b|\bdebate (?:record|materials)\b|\bverified record\b/i;
 
 /** Claims that something is absent from all public data (Design ruling 2): describe what was checked instead. */
 export const PUBLIC_ABSENCE = /\b(?:public|publicly available)\s+(?:[\w-]+\s+){0,3}?(?:data|databases?|records?)\b|\ball public\b/i;

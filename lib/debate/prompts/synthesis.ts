@@ -418,7 +418,7 @@ Also write the reader-facing finding:
 - "limit": OPTIONAL, 25 words or fewer. Include it only for a real caveat (for example, the evidence is old, narrow, or from one source). Omit it otherwise.
 Rules for the finding, points and limit:
 - Name sources by title, publisher or author, never by a raw document id, node id, conflict id or URL. Never invent a source.
-- When the evidence comes from the material above rather than a named outside source, call it "this project's taxonomy" or "the debate so far". Never write "conflict data", "conflict logs", "taxonomy records", "nodes", "debate record", "debate materials" or "verified record".
+- When the evidence comes from the material above rather than a named outside source, call it "this project's taxonomy" or "the debate so far". Never write "conflict data", "conflict logs", "conflict records", "taxonomy records", "nodes", "debate record", "debate materials" or "verified record".
 - If the speaker cited a bad or unknown identifier, you may quote it in a point, attributed to them (e.g. "The statement cites '<id>', which doesn't match a known paper."). Never put it in the finding.
 - For "Can't be verified.", write the finding exactly as: "Can't be verified. No source checked here reports <the specific figure, date or source the speaker cited>." Never leave it as the bare verdict words, and never say something is absent from public data, public databases or public records.
 - Use neutral summary verbs and add no intensifiers.

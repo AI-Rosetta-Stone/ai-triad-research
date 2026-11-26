@@ -59,6 +59,7 @@ describe('reader wording rules (Design, t/763#12)', () => {
   it.each([
     ["Can't be verified. Public databases and taxonomy records contain no mention of it.", /internal store \('taxonomy records'\)/],
     ['Accurate. Internal conflict data confirms that women lead 18% of them.', /internal store \('conflict data'\)/],
+    ['Accurate. The conflict records confirm that women lead 18% of them.', /internal store \('conflict records'\)/],
     ["Can't be verified. Public software engineering data does not contain these metrics.", /absence from public data/],
   ])('drops a finding that breaks them: %s', (finding, reason) => {
     const verdict = finding.startsWith('Accurate') ? 'supported' : 'unverifiable';
