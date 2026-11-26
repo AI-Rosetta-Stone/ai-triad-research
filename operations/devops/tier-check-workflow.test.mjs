@@ -382,3 +382,45 @@ test('t/544 binding: a forged tier-check result cannot change whether a PR is en
   assert.equal(uses.length, 1, uses.join('\n'));
   assert.match(uses[0], /tier === 'T0' \? tierCheckDisagreesAt\(/);
 });
+
+// ── t/674 items 4 and 5 ──
+
+test('t/674 item 5: a PR into a non-default branch is skipped with a notice before anything loads from its base', () => {
+  const code = scriptCodeLines();
+  const skip = code.indexOf('if (pr.base.ref !== defaultBranch)');
+  assert.ok(skip > 0, 'the base check exists');
+  assert.ok(skip < code.indexOf('git fetch origin ${JSON.stringify(pr.base.ref)}'), 'the check runs before the base is fetched');
+  assert.match(code, /core\.notice\(`tier-check: base is '\$\{pr\.base\.ref\}', not \$\{defaultBranch\}/);
+  assert.match(code, /context\.payload\.repository\?\.default_branch \|\| 'main'/);
+});
+
+// The closure walk from the workflow itself, run against a fake showFromBase.
+function runClosure(files) {
+  const m = /( {12}const closure = new Map[\s\S]*?\n {12}for \(const \[name, text\] of closure\)[^\n]*\n)/.exec(workflow);
+  assert.ok(m, 'the import-closure walk is in the step');
+  const written = {};
+  const fallbacks = [];
+  const fn = new AsyncFunction('basePredicateText', 'showFromBase', 'r1FallbackCheck', 'config', 'fs', 'path', 'tmpDir',
+    `${m[1].replace(/^ {12}const closure/, 'const closure').replace(/\breturn;/g, 'return "fallback";')}\nreturn "ok";`);
+  const fsFake = { writeFileSync: (p, t) => { written[path.basename(p)] = t; } };
+  return fn(files['tier-check-predicate.mjs'], (p) => files[path.basename(p)] ?? null, async (_c, why) => { fallbacks.push(why); }, {}, fsFake, path, '/t')
+    .then((r) => ({ r, written, fallbacks }));
+}
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+
+test('t/674 item 4: the whole local import closure is copied from the base, transitively', async () => {
+  const { r, written } = await runClosure({
+    'tier-check-predicate.mjs': "import { a } from './role-review-verdicts.mjs';\nimport x from 'node:fs';",
+    'role-review-verdicts.mjs': "export { b } from './later-module.mjs';",
+    'later-module.mjs': 'export const b = 1;',
+  });
+  assert.equal(r, 'ok');
+  assert.deepEqual(Object.keys(written).sort(), ['later-module.mjs', 'role-review-verdicts.mjs', 'tier-check-predicate.mjs']);
+});
+
+test('t/674 item 4: a module the base cannot show is an R1 fallback, never a crash', async () => {
+  const { r, fallbacks, written } = await runClosure({ 'tier-check-predicate.mjs': "import { a } from './new-dep.mjs';" });
+  assert.equal(r, 'fallback');
+  assert.match(fallbacks[0], /new-dep\.mjs not yet on the base branch's tip/);
+  assert.deepEqual(written, {});
+});
