@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { CampSchema, FidelitySchema, TagModeSchema, TrustVerdictSchema, HEADLINE_MAX_CHARS, DirectAnswerSchema, QuestionDriftSchema, inquiryDisplayTitle, type InquiryResult, type NodeRef, type SituationRef, type TagMode } from './schema.js';
 import { PovNameSchema, type PovName } from '../schema/povTags.js';
 import { TRUNCATION_REASONS } from './jobStatus.js';
+import { shownDirectAnswer, shownQuestionDrift } from './gatedFields.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
 
 /** Independent of INQUIRY_SCHEMA_VERSION — the public artifact is its own contract (SO e/201#2). */
@@ -34,6 +35,7 @@ const PublicTrustStateSchema = z.object({
   metricFamily: z.string().optional(),
 }).strict();
 // t/285: the public share drops questionDrift.warning until the CL validation gate is met (t/285#7).
+// Strict on the write side: the stored objects are passthrough, the share is not (Quality t/285#54).
 const PublicQuestionDriftSchema = QuestionDriftSchema.omit({ warning: true }).strict();
 // t/285#53: the per-camp answer flag and note are stored, not shown, so they are not in the share. Fields are
 // named, not spread, so a new field stays out until classified.
@@ -97,7 +99,7 @@ export const PublicInquiryShareSchema = z.object({
    *  (no field produced by the generator). Construction is the ONLY enforcement point (t/3667). */
   synthesizedHeadline: z.string().optional(),
   /** t/285: the answer to the question as asked. Condition A applies (as for the headline): omitted on degraded runs. */
-  directAnswer: DirectAnswerSchema.optional(),
+  directAnswer: DirectAnswerSchema.strict().optional(),
   /** t/285: whether the debate stayed on the question. The warning is gated (CL t/285#7 notes 1 and 3): the public
    *  share carries debatedTopic and driftScore only, never `warning`. */
   questionDrift: PublicQuestionDriftSchema.optional(),
@@ -305,11 +307,11 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
           message: `toPublicInquiryShare: directAnswer suppressed — degraded run (Condition A, as for synthesizedHeadline)` });
         return {};
       }
-      return { directAnswer: result.directAnswer };
+      return { directAnswer: shownDirectAnswer(result.directAnswer) };
     })(),
     // t/285: the warning is gated, so only the debated topic and score reach the public share.
     ...(result.questionDrift !== undefined
-      ? { questionDrift: { ...(result.questionDrift.debatedTopic !== undefined ? { debatedTopic: result.questionDrift.debatedTopic } : {}), ...(result.questionDrift.driftScore !== undefined ? { driftScore: result.questionDrift.driftScore } : {}) } }
+      ? { questionDrift: shownQuestionDrift(result.questionDrift) }
       : {}),
   };
   return PublicInquiryShareSchema.parse(share);

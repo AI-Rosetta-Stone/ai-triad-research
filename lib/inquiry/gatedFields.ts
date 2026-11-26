@@ -1,28 +1,47 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/285 (TL t/285#53): the leaves of an InquiryResult that are stored but not shown on any surface.
-// All three are the model's unvalidated self-report of whether a camp answered the question:
+// t/285: what of the direct answer, the question-drift block and a camp verdict may leave the stored result.
+//
+// Stored, not shown on any surface (TL t/285#53). All three are the model's unvalidated self-report of
+// whether a camp answered the question, kept so the Comp-Linguist validation sample has data:
 //   - campVerdicts[].answeredLiteralQuestion
 //   - campVerdicts[].answerNote
 //   - questionDrift.warning
-// They stay in the stored result so the Comp-Linguist validation sample has data. The export and community
-// projections strip them here; the public share names its fields one by one and never names these.
-// fieldClassification.ts holds the per-surface decision; this file is the one place that removes them.
+//
+// DirectAnswerSchema and QuestionDriftSchema are passthrough so an older build round-trips a later field
+// (TL t/285#50). That tolerance is for storage only. A projection must NAME the fields it lets out, or an
+// unknown key (a later gated field, or a stray key the model returned) would reach a reader unclassified
+// (Quality t/285#54). So these helpers build each shown object field by field; nothing is spread.
+// fieldClassification.ts holds the per-surface decision; this file is the one place that applies it to
+// these three objects. The public share names its own fields and uses the same helpers.
 
-import type { CampVerdict, QuestionDrift } from './schema.js';
+import type { CampVerdict, DirectAnswer, QuestionDrift } from './schema.js';
 
 export type ShownCampVerdict = Omit<CampVerdict, 'answeredLiteralQuestion' | 'answerNote'>;
-export type ShownQuestionDrift = Omit<QuestionDrift, 'warning'>;
-
-/** A camp verdict without the gated answer flag and note. Does not mutate its input. */
-export function withoutGatedCampFields(cv: CampVerdict): ShownCampVerdict {
-  const { answeredLiteralQuestion: _flag, answerNote: _note, ...rest } = cv;
-  return rest;
+export interface ShownDirectAnswer {
+  text: string;
+  agreement: DirectAnswer['agreement'];
+}
+export interface ShownQuestionDrift {
+  debatedTopic?: string;
+  driftScore?: number;
 }
 
-/** A question-drift block without the gated warning. Does not mutate its input. */
-export function withoutGatedWarning(drift: QuestionDrift): ShownQuestionDrift {
-  const { warning: _gated, ...rest } = drift;
-  return rest;
+/** A camp verdict's shown fields: camp, verdict and nodes. Never the gated flag or note, never an unknown key. */
+export function withoutGatedCampFields(cv: CampVerdict): ShownCampVerdict {
+  return { camp: cv.camp, verdict: cv.verdict, nodes: cv.nodes };
+}
+
+/** The direct answer's two declared fields, and nothing else the stored object may carry. */
+export function shownDirectAnswer(answer: DirectAnswer): ShownDirectAnswer {
+  return { text: answer.text, agreement: answer.agreement };
+}
+
+/** The drift block's shown fields: the debated topic and the score. Never the warning, never an unknown key. */
+export function shownQuestionDrift(drift: QuestionDrift): ShownQuestionDrift {
+  return {
+    ...(drift.debatedTopic !== undefined ? { debatedTopic: drift.debatedTopic } : {}),
+    ...(drift.driftScore !== undefined ? { driftScore: drift.driftScore } : {}),
+  };
 }

@@ -6,6 +6,8 @@
 import { describe, it, expect } from 'vitest';
 import type { InquiryResult } from './schema.js';
 import { toCommunityInquiryResult } from './communityProjection.js';
+import { exportableResult } from './inquiryExport.js';
+import { toPublicInquiryShare } from './publicShare.js';
 import { makeOnQuestionResult, makeDriftedResult } from './__fixtures__/validResult.js';
 
 const asResult = (r: Record<string, unknown>) => r as unknown as InquiryResult;
@@ -48,6 +50,40 @@ describe('t/285 community projection: per-camp answer flags (TL t/285#53)', () =
     }
     // The stored result keeps them for the validation sample.
     expect(result.campVerdicts[0]).toHaveProperty('answeredLiteralQuestion', false);
+  });
+});
+
+describe('t/285 projections copy named fields only (Quality t/285#54, TL t/285#55)', () => {
+  // The stored objects are passthrough, so a stored result can carry a key no surface has classified.
+  const withStrays = (): InquiryResult => {
+    const base = makeOnQuestionResult() as Record<string, any>;
+    return asResult({
+      ...base,
+      directAnswer: { ...base.directAnswer, strayAnswerKey: 'leak-a' },
+      questionDrift: { debatedTopic: 'Other topic', strayDriftKey: 'leak-d' },
+      campVerdicts: base.campVerdicts.map((cv: object) => ({ ...cv, strayCampKey: 'leak-c' })),
+    });
+  };
+
+  it('the community projection drops unknown keys on directAnswer, questionDrift and each camp verdict', () => {
+    const out = toCommunityInquiryResult(withStrays());
+    expect(out.directAnswer).toEqual({ text: expect.any(String), agreement: 'consensus' });
+    expect(out.questionDrift).toEqual({ debatedTopic: 'Other topic' });
+    expect(JSON.stringify(out)).not.toMatch(/leak-[adc]/);
+  });
+
+  it('the export projection drops them too', () => {
+    const out = exportableResult(withStrays());
+    expect(out.directAnswer).toEqual({ text: expect.any(String), agreement: 'consensus' });
+    expect(JSON.stringify(out)).not.toMatch(/leak-[adc]/);
+  });
+
+  it('the public share drops them too', () => {
+    const base = withStrays();
+    const healthy = asResult({ ...base, calibration: [{ metric: 'convergence', value: 1, trust: { verdict: 'trust', reason: 'natural', terminationReason: 'natural' } }] });
+    const share = toPublicInquiryShare(healthy);
+    expect(share.directAnswer).toEqual({ text: expect.any(String), agreement: 'consensus' });
+    expect(JSON.stringify(share)).not.toMatch(/leak-[adc]/);
   });
 });
 

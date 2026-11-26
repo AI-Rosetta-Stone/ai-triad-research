@@ -237,7 +237,9 @@ export function buildDirectAnswerField(raw: LlmSynthesisOutput['directAnswer']):
     warn('synthesizeInquiry: directAnswer failed schema (text 1–1000 chars, agreement consensus|split) — omitted');
     return {};
   }
-  return { directAnswer: parsed.data };
+  // Named fields only: the schema is passthrough for storage round-trips, but a stray key from the model is not
+  // part of the answer and must not be stored (Quality t/285#54).
+  return { directAnswer: { text: parsed.data.text, agreement: parsed.data.agreement } };
 }
 
 /**

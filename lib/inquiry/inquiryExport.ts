@@ -20,7 +20,10 @@ import type {
   CalibrationEntry,
 } from './schema.js';
 import { inquiryDisplayTitle } from './schema.js';
-import { withoutGatedCampFields, withoutGatedWarning, type ShownCampVerdict, type ShownQuestionDrift } from './gatedFields.js';
+import {
+  shownDirectAnswer, shownQuestionDrift, withoutGatedCampFields,
+  type ShownCampVerdict, type ShownDirectAnswer, type ShownQuestionDrift,
+} from './gatedFields.js';
 import { deriveTruncation } from './jobStatus.js';
 import { loadPovTagRegistry, type PovName } from '../schema/povTags.js';
 
@@ -316,8 +319,9 @@ ${sections.join('\n')}
  * Today that is `questionDrift.warning` and each camp's `answeredLiteralQuestion` and `answerNote` (TL t/285#53),
  * whose gates are in fieldClassification.ts. The owner is a user reading the file. The stored result is not mutated.
  */
-export type ExportableInquiryResult = Omit<InquiryResult, 'questionDrift' | 'campVerdicts'> & {
+export type ExportableInquiryResult = Omit<InquiryResult, 'questionDrift' | 'campVerdicts' | 'directAnswer'> & {
   campVerdicts: ShownCampVerdict[];
+  directAnswer?: ShownDirectAnswer;
   questionDrift?: ShownQuestionDrift;
 };
 
@@ -326,7 +330,9 @@ export function exportableResult(result: InquiryResult): ExportableInquiryResult
   return {
     ...result,
     campVerdicts: result.campVerdicts.map(withoutGatedCampFields),
-    ...(drift !== undefined ? { questionDrift: withoutGatedWarning(drift) } : {}),
+    // Named fields only: an unknown key on these passthrough objects is unclassified, so it stays out (t/285#54).
+    ...(result.directAnswer !== undefined ? { directAnswer: shownDirectAnswer(result.directAnswer) } : {}),
+    ...(drift !== undefined ? { questionDrift: shownQuestionDrift(drift) } : {}),
   };
 }
 

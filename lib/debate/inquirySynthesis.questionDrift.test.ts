@@ -20,6 +20,11 @@ describe('t/285 directAnswer', () => {
     });
   });
 
+  it('stores the two declared fields only: a stray key from the model is dropped (Quality t/285#54)', () => {
+    const raw = { text: 'Yes.', agreement: 'consensus', confidence: 0.9, note: 'extra' };
+    expect(buildDirectAnswerField(raw)).toEqual({ directAnswer: { text: 'Yes.', agreement: 'consensus' } });
+  });
+
   it('omits a missing answer rather than fabricating one', () => {
     expect(buildDirectAnswerField(undefined)).toEqual({});
   });

@@ -128,16 +128,46 @@ describe('inquiryPayloadSchema with questionDrift (t/285)', () => {
     });
   });
 
-  it('refuses an unprojected drifted result that still carries the gated warning', () => {
-    expect(inquiryPayloadSchema.safeParse({ result: makeDriftedResult(), note: '' }).success).toBe(false);
+  // TL t/285#55: a new Ask result reaches the upload as it was stored, with no projection by the caller. The schema
+  // strips the gated leaves itself, so the parse succeeds and its OUTPUT (what the desktop uploads) carries none.
+  it('accepts an unprojected new result and strips the three gated leaves from its output', () => {
+    const stored = makeDriftedResult();
+    // The fixture is a stored result: it carries all three gated leaves.
+    const raw = JSON.stringify(stored);
+    expect(raw).toContain('"warning"');
+    expect(raw).toContain('"answeredLiteralQuestion"');
+    expect(raw).toContain('"answerNote"');
+
+    const parsed = inquiryPayloadSchema.safeParse({ result: stored, note: '' });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    const out = JSON.stringify(parsed.data);
+    expect(out).not.toContain('"warning"');
+    expect(out).not.toContain('"answeredLiteralQuestion"');
+    expect(out).not.toContain('"answerNote"');
+    // What is not gated survives.
+    expect(parsed.data.result.questionDrift).toEqual({ debatedTopic: 'How should AI regulation be designed?' });
+    expect(parsed.data.result.campVerdicts[0].verdict).toBe((stored.campVerdicts as { verdict: string }[])[0].verdict);
+    // The caller's object is not mutated.
+    expect(JSON.stringify(stored)).toBe(raw);
   });
 
-  it('refuses a result whose camp verdict still carries the gated answer flag or note (TL t/285#53)', () => {
-    const projected = toCommunityInquiryResult(makeDriftedResult() as any);
-    const withFlag = { ...projected, campVerdicts: projected.campVerdicts.map((cv) => ({ ...cv, answeredLiteralQuestion: false })) };
-    const withNote = { ...projected, campVerdicts: projected.campVerdicts.map((cv) => ({ ...cv, answerNote: 'Focused on X.' })) };
-    expect(inquiryPayloadSchema.safeParse({ result: withFlag, note: '' }).success).toBe(false);
-    expect(inquiryPayloadSchema.safeParse({ result: withNote, note: '' }).success).toBe(false);
+  it('strips only the three named leaves: any other unknown key is still refused', () => {
+    const stored = makeDriftedResult() as Record<string, any>;
+    const strayOnDrift = { ...stored, questionDrift: { ...stored.questionDrift, laterGatedField: true } };
+    const strayOnCamp = { ...stored, campVerdicts: stored.campVerdicts.map((cv: object) => ({ ...cv, modelExtra: 'x' })) };
+    const strayOnAnswer = { ...stored, directAnswer: { text: 'Yes.', agreement: 'consensus', modelExtra: 'x' } };
+    const strayOnResult = { ...stored, somethingNew: 1 };
+    for (const result of [strayOnDrift, strayOnCamp, strayOnAnswer, strayOnResult]) {
+      expect(inquiryPayloadSchema.safeParse({ result, note: '' }).success).toBe(false);
+    }
+  });
+
+  it('leaves a malformed body for the strict check to refuse, without throwing', () => {
+    for (const body of [null, 'x', [], { result: null, note: '' }, { result: { campVerdicts: 'no' }, note: '' }]) {
+      expect(() => inquiryPayloadSchema.safeParse(body)).not.toThrow();
+      expect(inquiryPayloadSchema.safeParse(body).success).toBe(false);
+    }
   });
 
   it('still accepts a result with no questionDrift block at all', () => {
