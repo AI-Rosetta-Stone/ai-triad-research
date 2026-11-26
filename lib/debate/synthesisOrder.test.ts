@@ -75,6 +75,20 @@ describe('normaliseFlag / prepareSynthesisLists decisive (t/770)', () => {
     expect(items.map(i => i.decisive)).toEqual([false, true, false, undefined, undefined]);
   });
 
+  it('prepareSynthesisLists: two decisive disagreements -> first stays true, second set false, WARN reports 1 extra (Quality, #5602)', () => {
+    const record = vi.fn<(e: RecordInput) => void>();
+    setGlobalRecorder({ record } as unknown as FlightRecorder);
+    const out = prepareSynthesisLists({
+      areas_of_agreement: [{ point: 'a', povers: ALL, answers_question: true }],
+      areas_of_disagreement: [{ point: 'd1', decisive: true, positions: [] }, { point: 'd2', decisive: true, positions: ALL.map(p => ({ pover: p })) }],
+      cruxes: [{ question: 'c1', decisive: true }],
+    });
+    const dis = out.areas_of_disagreement as Record<string, unknown>[];
+    expect(dis.map(d => [d.point, d.decisive])).toEqual([['d1', true], ['d2', false]]);
+    const msgs = record.mock.calls.map(c => c[0].message ?? '');
+    expect(msgs).toEqual([expect.stringMatching(/Synthesis disagreements: decisive missing on 0, invalid on 0; 1 extra true value\(s\) set to false \(first kept\)/)]);
+  });
+
   it('prepareSynthesisLists: several decisive cruxes -> first kept on top, one WARN naming the extra', () => {
     const record = vi.fn<(e: RecordInput) => void>();
     setGlobalRecorder({ record } as unknown as FlightRecorder);
