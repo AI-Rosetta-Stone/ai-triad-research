@@ -26,6 +26,9 @@ export const FINDING_VERDICT_WORDS: Readonly<Record<FactVerdict, readonly string
 /** Hard cap per text, with slack over the spec's ~25 words so a 27-word line isn't thrown away. */
 export const FINDING_MAX_WORDS = 40;
 
+/** A finding must say something after the verdict word (a bare "Can't be verified." repeats the pill). */
+export const FINDING_MIN_WORDS_AFTER_VERDICT = 4;
+
 export interface FactCheckFinding {
   finding: string;
   finding_points: string[];
@@ -43,14 +46,25 @@ const words = (s: string) => s.trim().split(/\s+/).length;
 // Typographic apostrophes are common in model output; compare on the ASCII form.
 const asciiQuote = (s: string) => s.replace(/[‘’]/g, "'");
 
-function problem(obj: Record<string, unknown>, verdict: FactVerdict): string | undefined {
-  const { finding, finding_points: points, limit } = obj;
+function findingProblem(finding: unknown, verdict: FactVerdict): string | undefined {
   if (!nonEmpty(finding)) return 'finding missing or empty';
   if (words(finding) > FINDING_MAX_WORDS) return `finding has ${words(finding)} words (cap ${FINDING_MAX_WORDS})`;
+  const text = asciiQuote(finding.trim());
   const allowed = FINDING_VERDICT_WORDS[verdict];
-  if (!allowed.some(w => asciiQuote(finding.trim()).startsWith(w))) {
-    return `finding does not open with the verdict word for '${verdict}' (${allowed.join(' or ')})`;
+  const opener = allowed.find(w => text.startsWith(w));
+  if (!opener) return `finding does not open with the verdict word for '${verdict}' (${allowed.join(' or ')})`;
+  // The verdict word alone is the pill's job; the finding must say what the evidence shows (t/763 sample).
+  const rest = text.slice(opener.length).trim();
+  if (!rest || words(rest) < FINDING_MIN_WORDS_AFTER_VERDICT) {
+    return `finding has no statement after the verdict word (want ${FINDING_MIN_WORDS_AFTER_VERDICT}+ words)`;
   }
+  return undefined;
+}
+
+function problem(obj: Record<string, unknown>, verdict: FactVerdict): string | undefined {
+  const { finding_points: points, limit } = obj;
+  const f = findingProblem(obj.finding, verdict);
+  if (f) return f;
   if (!Array.isArray(points)) return 'finding_points is not an array';
   if (points.length < 1 || points.length > 3) return `finding_points has ${points.length} items (want 1-3)`;
   const bad = points.findIndex(p => !nonEmpty(p));

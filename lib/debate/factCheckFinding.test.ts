@@ -29,20 +29,21 @@ describe('parseFactCheckFinding', () => {
     ["Can't be verified.", 'unverifiable'],
     ['Can’t be verified.', 'unverifiable'],
   ] as const)('accepts "%s" for %s', (word, verdict) => {
-    const r = parseFactCheckFinding({ finding: `${word} Rest of the sentence.`, finding_points: ['a'] }, verdict);
+    const r = parseFactCheckFinding({ finding: `${word} The evidence shows this much.`, finding_points: ['a'] }, verdict);
     expect(r.dropped).toBeUndefined();
     expect(r.value?.finding.startsWith(word.replace('’', "'"))).toBe(true);
   });
 
   it.each([
     ['empty finding', { finding: ' ', finding_points: ['a'] }, 'supported', /finding missing/],
+    ['bare verdict word', { finding: "Can't be verified.", finding_points: ['a'] }, 'unverifiable', /no statement after the verdict word/],
     ['wrong verdict word', { finding: 'Disputed. Something.', finding_points: ['a'] }, 'supported', /verdict word for 'supported'/],
-    ['Overstated on a supported verdict', { finding: 'Overstated. x', finding_points: ['a'] }, 'supported', /verdict word/],
-    ['points not an array', { finding: 'Accurate. x', finding_points: 'a' }, 'supported', /not an array/],
-    ['no points', { finding: 'Accurate. x', finding_points: [] }, 'supported', /0 items/],
-    ['four points', { finding: 'Accurate. x', finding_points: ['a', 'b', 'c', 'd'] }, 'supported', /4 items/],
-    ['over-long point', { finding: 'Accurate. x', finding_points: [Array(50).fill('w').join(' ')] }, 'supported', /50 words/],
-    ['non-string limit', { finding: 'Accurate. x', finding_points: ['a'], limit: 7 }, 'supported', /limit is not a string/],
+    ['Overstated on a supported verdict', { finding: 'Overstated. The figure was 10, not 12.', finding_points: ['a'] }, 'supported', /verdict word/],
+    ['points not an array', { finding: 'Accurate. The report confirms it.', finding_points: 'a' }, 'supported', /not an array/],
+    ['no points', { finding: 'Accurate. The report confirms it.', finding_points: [] }, 'supported', /0 items/],
+    ['four points', { finding: 'Accurate. The report confirms it.', finding_points: ['a', 'b', 'c', 'd'] }, 'supported', /4 items/],
+    ['over-long point', { finding: 'Accurate. The report confirms it.', finding_points: [Array(50).fill('w').join(' ')] }, 'supported', /50 words/],
+    ['non-string limit', { finding: 'Accurate. The report confirms it.', finding_points: ['a'], limit: 7 }, 'supported', /limit is not a string/],
   ] as const)('drops a bad shape: %s', (_n, raw, verdict, reason) => {
     const r = parseFactCheckFinding(raw, verdict);
     expect(r.value).toBeUndefined();
@@ -62,7 +63,7 @@ describe('validateFactCheckResult carries the finding (t/763)', () => {
     const record = vi.fn<(e: RecordInput) => void>();
     setGlobalRecorder({ record } as unknown as FlightRecorder);
     // partially_accurate without a discrepancy is downgraded to unverifiable by the gate.
-    const r = validateFactCheckResult({ verdict: 'partially_accurate', explanation: 'e', finding: 'Partly accurate. x', finding_points: ['a'] });
+    const r = validateFactCheckResult({ verdict: 'partially_accurate', explanation: 'e', finding: 'Partly accurate. The count was 10, not 12.', finding_points: ['a'] });
     expect(r.verdict).toBe('unverifiable');
     expect(r.finding).toBeUndefined();
     const msgs = record.mock.calls.map(c => c[0].message ?? '');
