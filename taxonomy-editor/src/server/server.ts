@@ -44,7 +44,7 @@ import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool, computeEmbeddingsOffThread } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { pollLeaseConfigFromEnv } from './pollLeaseConfig.js';
-import { sharedOverlayStateFromEnv, startSharedOverlayDrainFromEnv } from './sharedOverlayWiring.js';
+import { sharedOverlayStateFromEnv, startSharedOverlayDrainFromEnv, sharedOverlayBootState } from './sharedOverlayWiring.js';
 import { writeLifecycleDump, lifecycleDumpPruneSince, LIFECYCLE_DUMP_MAX_COUNT, LIFECYCLE_DUMP_MAX_AGE_MS } from './lifecycleDumps.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
@@ -273,7 +273,7 @@ if (STORAGE_MODE === 'github-api') {
   log.server.info({ pollLease: pollLease ? { maxReplicas: pollLease.maxReplicas, armed: pollLease.maxReplicas > 1 } : null }, 'GitHub poll lease config at boot (t/509)');
   // t/553 (t/503 PR 4): shared overlay state + commit lock, only when the account URL and container are both set.
   const sharedOverlayState = sharedOverlayStateFromEnv(process.env);
-  log.server.info({ sharedOverlayState: !!sharedOverlayState, draining: process.env.OVERLAY_SHARED_STATE_DRAINING === '1' }, 'shared overlay state config at boot (t/553)');
+  log.server.info({ sharedOverlayState: sharedOverlayBootState(process.env, !!sharedOverlayState) }, 'shared overlay state at boot: configured = store built, active = configured and OVERLAY_SHARED_STATE_ENABLED=1 (t/553, t/688#3)');
   githubBackend = new GitHubAPIBackend({
     cacheDir: CACHE_DIR,
     recorder: serverRecorder,

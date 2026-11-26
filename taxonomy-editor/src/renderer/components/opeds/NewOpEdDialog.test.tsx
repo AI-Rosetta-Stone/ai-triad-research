@@ -380,6 +380,54 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
     expect(urlInput.value).toBe('https://example.com/post');
   });
 
+  it('t/467: an anonymous create from a web page starts, and sends the URL (Quality t/467#84)', async () => {
+    h.anonymous = true;
+    createOpEdSet.mockResolvedValue({ set_id: 'set-url' });
+    const onCreated = vi.fn();
+    open({ onCreated });
+    fireEvent.click(screen.getByRole('radio', { name: 'Web page' }));
+    fireEvent.change(screen.getByLabelText(/Web page URL/), { target: { value: 'https://example.com/post' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Draft/ }));
+    await waitFor(() => expect(createOpEdSet).toHaveBeenCalledTimes(1));
+    const sent = createOpEdSet.mock.calls[0][0] as { url?: string; params: { url?: string } };
+    expect(sent.url).toBe('https://example.com/post');
+    expect(sent.params.url).toBe('https://example.com/post');
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('set-url'));
+  });
+
+  it('t/467: a word count set while signed in is sent inside the cap once the user is anonymous (Quality t/467#84)', async () => {
+    createOpEdSet.mockResolvedValue({ set_id: 'set-cap' });
+    const view = open();
+    fireEvent.click(screen.getByRole('button', { name: /More options/ }));
+    const input = screen.getByLabelText('Word count override') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '2000' } });
+    fireEvent.blur(input);
+    expect(input.value).toBe('2000');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    // The session turns out to be anonymous (auth resolved late, or the sign-in ended) with 2,000 still in state.
+    h.anonymous = true;
+    view.rerender(<NewOpEdDialog open onClose={vi.fn()} onCreated={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'Mandatory audits' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Draft/ }));
+    await waitFor(() => expect(createOpEdSet).toHaveBeenCalledTimes(1));
+    expect((createOpEdSet.mock.calls[0][0] as { params: { wordCount?: number } }).params.wordCount).toBe(1500);
+  });
+
+  it('t/467: a signed-in user\'s word count is sent as chosen', async () => {
+    createOpEdSet.mockResolvedValue({ set_id: 'set-full' });
+    open();
+    fireEvent.click(screen.getByRole('button', { name: /More options/ }));
+    const input = screen.getByLabelText('Word count override') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '2000' } });
+    fireEvent.blur(input);
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'Mandatory audits' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Draft/ }));
+    await waitFor(() => expect(createOpEdSet).toHaveBeenCalledTimes(1));
+    expect((createOpEdSet.mock.calls[0][0] as { params: { wordCount?: number } }).params.wordCount).toBe(2000);
+  });
+
   it('Remove moves focus to Choose a file', async () => {
     pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'notes.md', content: 'one two' });
     open();

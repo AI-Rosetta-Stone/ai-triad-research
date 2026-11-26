@@ -3,8 +3,8 @@
 
 # t/4732 (PI decision 2026-11-10): staging gets its own Gemini free-tier key, secret
 # free-tier-gemini-key-staging, so it stops drawing on prod's pool. The staging app alone may
-# hold or reference that secret; prod stays on the shared free-tier-gemini-key. An empty staging
-# param falls back to the shared key. Static parse of the real main.bicep, same approach as
+# hold or reference that secret; prod stays on its own free-tier-gemini-key. An empty staging
+# param leaves staging with no free-tier key (t/654: no fallback to prod's key). Static parse of the real main.bicep, same approach as
 # BicepAllowedOrigins.Tests.ps1.
 
 BeforeAll {
@@ -53,20 +53,19 @@ Describe 'staging-only Gemini free-tier key (t/4732)' {
         $script:Staging | Should -Match '(?m)^\s+secrets: stagingSecrets\s*$'
         $script:Staging | Should -Match '(?m)^\s+env: stagingContainerEnv\s*$'
         $def = [regex]::Match($script:Bicep, '(?s)var stagingSecrets = concat\((.*?)\)\r?\n').Groups[1].Value
-        $def | Should -Match '^sharedOauthSecrets,'
-        $def | Should -Match 'freeTierStagingKeyProvided \? \[ \{ name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging \} \] : stagingFallbackFreeTier'
+        $def | Should -Match '^stagingOauthSecrets,'
+        $def | Should -Match 'freeTierStagingKeyProvided \? \[ \{ name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging \} \] : \[\]'
     }
 
-    It 't/269: staging drops the shared key once its own key is set; the shared key stays only on the fallback arm' {
-        $shared = [regex]::Match($script:Bicep, '(?s)var sharedOauthSecrets = concat\((.*?)\r?\n\)').Groups[1].Value
-        $shared | Should -Not -BeNullOrEmpty
-        $shared | Should -Not -Match 'freeTierSecretName|freeTierEnabled|freeTierGeminiKey'
-        Get-VarLine 'stagingFallbackFreeTier' | Should -Be 'freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : []'
+    It 't/269 + t/654: staging never holds the shared prod free-tier key, not even as a fallback' {
+        $script:Bicep | Should -Not -Match '(?m)^var stagingFallbackFreeTier\b'
+        $def = [regex]::Match($script:Bicep, '(?s)var stagingSecrets = concat\((.*?)\)\r?\n').Groups[1].Value
+        $def | Should -Not -Match 'freeTierSecretName|freeTierGeminiKey\b'
     }
 
-    It 'staging FREE_TIER_GEMINI_KEY points at the staging secret when provided, else falls back to the shared one' {
+    It 'staging FREE_TIER_GEMINI_KEY points at the staging secret when provided, else at nothing (t/654: no prod fallback)' {
         Get-VarLine 'freeTierStagingKeyProvided' | Should -Be '!empty(freeTierGeminiKeyStaging)'
-        Get-VarLine 'stagingExtraFreeTier' | Should -Be "freeTierStagingKeyProvided ? [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierStagingSecretName } ] : extraFreeTier"
+        Get-VarLine 'stagingExtraFreeTier' | Should -Be "freeTierStagingKeyProvided ? [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierStagingSecretName } ] : []"
         $env = Get-VarLine 'stagingContainerEnv'
         $env | Should -Match '\bstagingExtraFreeTier\b'
         $env | Should -Not -Match '\bextraFreeTier\b'

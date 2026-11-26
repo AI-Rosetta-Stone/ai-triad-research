@@ -715,6 +715,13 @@ function BodyRow<TMy extends { id: string }, TCommunity extends { id: string }>(
 
 // ── Empty/loading state row ──
 
+/** What an empty list is missing, completing 'No ... yet.': My takes it from its search placeholder; Community uses
+ *  the page's own wording when it gives one (t/719), else the lower-cased title. */
+function emptyLabelFor(listView: string, config: { searchPlaceholderMy: string; communityEmptyLabel?: string; title: string }): string {
+  if (listView === 'my') return config.searchPlaceholderMy.replace(/^Search /, '').replace(/…$/, '');
+  return config.communityEmptyLabel ?? config.title.toLowerCase();
+}
+
 function EmptyStateRow({
   loading, hasSortedRows, hasRows, hasQuery, query, emptyLabel,
 }: {
@@ -971,7 +978,7 @@ function PhoneListView<TMy extends { id: string }, TCommunity extends { id: stri
   hasRows: boolean;
   hasQuery: boolean;
 }) {
-  const emptyLabel = listView === 'my' ? config.searchPlaceholderMy.replace(/^Search /, '').replace(/…$/, '') : config.title.toLowerCase();
+  const emptyLabel = emptyLabelFor(listView, config);
   const hasSortedRows = sortedRows.length > 0;
 
   return (
@@ -1125,7 +1132,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   ].filter(Boolean).join(' ');
 
   const openRow = listView === 'my' ? onOpenMy : onOpenCommunity;
-  const emptyLabel = listView === 'my' ? config.searchPlaceholderMy.replace(/^Search /, '').replace(/…$/, '') : config.title.toLowerCase();
+  const emptyLabel = emptyLabelFor(listView, config);
 
   return (
     <div className="library-list-page" data-action-visibility={actionVisibility}>

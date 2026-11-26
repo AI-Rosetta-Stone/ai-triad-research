@@ -44,6 +44,7 @@ export type FieldPath = string;
 const EXPORT_FULL = 'Owner-initiated export of one\'s own answer — the owner already has access to every field; full fidelity is the point (TL t/3651#2).';
 const COMMUNITY_CORE = 'Core answer content — the substance a community reader is there to see (authenticated cross-user, not anonymous).';
 const PUBLIC_CORE = 'Answer substance — the shared artifact itself.';
+const CAMP_FLAG_GATED = 'GATED (t/285#53): the model\'s unvalidated self-report of whether a camp answered; stored for the validation sample, not shown until it is run and the TL rules on its rate.';
 // POV tags (t/3965, SO e/252 cond 1; TL t/3965#6). Same reasoning as request.fidelity, and more severe: a
 // Scope run grounds one camp on a single tagged wing, so published without its tag it reads as the whole
 // camp's position, with no way for the reader to tell.
@@ -133,6 +134,49 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
   },
   'campVerdicts.nodes.label': { 'public-share': I('Public-safe node display snapshot (label, not id).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
   'campVerdicts.nodes.camp': { 'public-share': I('Public-safe node snapshot (camp code).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
+  // t/285 — whether each camp answered the literal question, and the note that goes with it.
+  // STORED, NOT SHOWN (TL t/285#53): both are the model's own unvalidated self-report, the same kind of
+  // "did not answer" judgment t/496 ruled out for a warning. They stay in the stored result so the
+  // Comp-Linguist validation sample has data, and no surface carries them until that sample is run and the
+  // TL rules on its rate. The TL's ruling covers all three columns.
+  'campVerdicts.answeredLiteralQuestion': {
+    'public-share': X(CAMP_FLAG_GATED),
+    community: X(CAMP_FLAG_GATED),
+    export: X(`${CAMP_FLAG_GATED} The owner is a person reading the download.`),
+  },
+  'campVerdicts.answerNote': {
+    'public-share': X(CAMP_FLAG_GATED),
+    community: X(CAMP_FLAG_GATED),
+    export: X(`${CAMP_FLAG_GATED} The owner is a person reading the download.`),
+  },
+  // t/285 — direct answer and question drift. Derived from public debate content; no user data.
+  'directAnswer.text': {
+    'public-share': I('The direct answer to the question, derived from public debate content (t/285 TL: include on all surfaces).'),
+    community: I(COMMUNITY_CORE),
+    export: I(EXPORT_FULL),
+  },
+  'directAnswer.agreement': {
+    'public-share': I('Whether camps agree on the direct answer; public-safe enum.'),
+    community: I(COMMUNITY_CORE),
+    export: I(EXPORT_FULL),
+  },
+  'questionDrift.debatedTopic': {
+    'public-share': I('The topic the debate addressed when it differed from the question; derived from public debate content, no user data.'),
+    community: I(COMMUNITY_CORE),
+    export: I(EXPORT_FULL),
+  },
+  'questionDrift.driftScore': {
+    'public-share': I('Numeric drift score 0–1; public-safe scalar.'),
+    community: I(COMMUNITY_CORE),
+    export: I(EXPORT_FULL),
+  },
+  // GATED (t/285#7, CL notes 1 and 3; TL p/35#86): stipulated, from the model's self-report. Not shown on any
+  // surface a person can read until a validation rate is reported, the owner's JSON download included.
+  'questionDrift.warning': {
+    'public-share': X('GATED (t/285): stipulated warning from the model self-report; not user-facing until CL validation is reported.'),
+    community: X('GATED (t/285): stipulated warning from the model self-report; not user-facing until CL validation is reported.'),
+    export: X('GATED (t/285, TL p/35#86): the owner is a user reading the download; the warning is not shown until CL validation is reported.'),
+  },
 
   // ── convergences ──
   'convergences.claim': { 'public-share': I(PUBLIC_CORE), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },

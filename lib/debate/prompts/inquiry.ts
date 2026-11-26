@@ -21,7 +21,8 @@ export const SINGLE_RUN_CAVEAT =
  * The LLM must return a JSON object with this shape:
  * ```json
  * {
- *   "campVerdicts": [{"camp": "acc|saf|skp|cc", "verdict": "...", "nodeIds": ["acc-beliefs-001"]}],
+ *   "directAnswer": {"text": "...", "agreement": "consensus|split"},
+ *   "campVerdicts": [{"camp": "acc|saf|skp|cc", "verdict": "...", "nodeIds": ["acc-beliefs-001"], "answeredLiteralQuestion": true, "answerNote": "..."}],
  *   "convergences": [{"claim": "...", "nodeIds": ["acc-beliefs-001", "saf-beliefs-002"]}],
  *   "evidenceLayers": [{"title": "...", "role": "...", "solves": "...", "sources": [...]}],
  *   "unresolvedGaps": [{"description": "...", "confidence": "..."}],
@@ -37,10 +38,15 @@ export function inquirySynthesisPrompt(
   transcriptHighlights: string,
   anSummary: string,
   groundingContext: string,
+  debatedTopic?: string,
 ): string {
+  // t/285: when the debate was run on a rewritten topic, show both so the synthesis can say whether it answered the question asked.
+  const topicLines = debatedTopic
+    ? `QUESTION (as asked): "${question}"\nTOPIC THE DEBATE ADDRESSED (rewritten from the question): "${debatedTopic}"`
+    : `QUESTION: "${question}"`;
   return `You are a research analyst synthesizing a multi-perspective AI policy debate into a structured answer artifact.
 
-QUESTION: "${question}"
+${topicLines}
 
 === GROUNDING NODES (use ONLY these node IDs in your output) ===
 ${groundingContext}
@@ -57,12 +63,20 @@ Your task: produce a structured JSON synthesis of this debate. Return ONLY valid
 
 REQUIRED FIELDS:
 
+DIRECT ANSWER (produce this first, before any other field):
+   - "directAnswer": { "text": "...", "agreement": "consensus" | "split" }
+   - "text": a short answer (1-3 sentences) to the QUESTION AS ASKED. Answer the literal question. If the camps have no consensus answer, say so explicitly and give the reason in one clause, e.g. "No consensus answer: the camps disagree on whether X applies."
+   - "agreement": "consensus" if the camps agree on the answer, "split" if they diverge.
+   - Do not describe the camps here. That belongs in synthesizedHeadline and campVerdicts.
+
 FIGURES RULE (applies to every field): Do not introduce any number, percentage, date, or magnitude phrase (e.g. "hundreds of thousands", "millions", "dozens") that does not appear in the QUESTION or the DEBATE HIGHLIGHTS above. If a debater stated a figure, attribute it to that camp ("the Accelerationist cited …") rather than stating it as fact. If no figure was given, describe the claim qualitatively ("far more deaths").
 
 1. campVerdicts — one entry per POV camp that appeared in the debate (acc, saf, skp, cc).
    - "camp": the camp code
    - "verdict": 2-4 sentences summarising this camp's position on the question
    - "nodeIds": 1-3 grounding node IDs (from the list above) most relevant to this camp's answer
+   - "answeredLiteralQuestion": true if this camp directly answered the question as asked, false if it focused on something else
+   - "answerNote": when answeredLiteralQuestion is false, one line on what the camp focused on instead (max 300 characters)
    - If the grounding context has a "NOTE (<camp>)" line, begin that camp's verdict with "The taxonomy has little that speaks directly to this question; " and do not present the camp's general position as its specific answer.
 
 2. convergences — points where two or more camps agree despite different framings (0-5 items).

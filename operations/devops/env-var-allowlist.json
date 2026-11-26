@@ -17,5 +17,5 @@
   "GHCR_PACKAGE": "optional override (|| default) for the public GHCR package path used by rollbackStatus.ts; not Bicep-wired by design",
   "FREE_TIER_GEMINI_KEY": "wired in main.bicep via conditional concat (freeTierSecretName, main.bicep:669/747) outside the static `var baseEnv = [...]` array that Get-BicepBaseEnv.ps1 parses -- confirmed present in deployed Bicep, not actually missing",
   "GEMINI_PAID_KEY": "wired in main.bicep via conditional concat (paidTierSecretName, main.bicep:672/750), same reason as FREE_TIER_GEMINI_KEY",
-  "GITHUB_WEBHOOK_SECRET": "wired in main.bicep via conditional concat outside the static baseEnv array, same reason as FREE_TIER_GEMINI_KEY -- confirmed 2 occurrences (prod+staging) in main.bicep"
+  "GITHUB_WEBHOOK_SECRET": "wired in main.bicep via conditional concat outside the static baseEnv array, same reason as FREE_TIER_GEMINI_KEY -- wired for prod only (extraGithubWebhook in containerEnv); staging's env never carries it (t/654, tests/BicepStagingNoProdSecrets.Tests.ps1)"
 }

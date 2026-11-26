@@ -460,7 +460,9 @@ describe('Community Library workflow (integration)', () => {
     const listed = communityChats[0] as any;
     expect(listed.title).toBe('Great Discussion');
     expect(listed.community_metadata).toBeTruthy();
-    expect(listed.community_metadata.submitted_by_display).toBe('alice');
+    // t/693: the display is a pseudonym (the fixed word here, no secret is loaded), never the storage id.
+    expect(listed.community_metadata.submitted_by_display).toBe('Contributor');
+    expect(listed.community_metadata.owner_storage_id).toBeUndefined();
 
     // Verify sanitization: debug/flight_recorder stripped
     const raw = await community.loadCommunityItem('chats', communityId);
@@ -468,9 +470,11 @@ describe('Community Library workflow (integration)', () => {
     expect((raw as any).flight_recorder).toBeUndefined();
     expect((raw as any).debug).toBeUndefined();
     // t/856: original_id (pre-share private UUID) is stripped from public
-    // responses; submitted_by_display is retained.
+    // responses; submitted_by_display is retained. t/693: so is owner_storage_id stripped, and
+    // the display is not the storage id.
     expect((raw as any).community_metadata.original_id).toBeUndefined();
-    expect((raw as any).community_metadata.submitted_by_display).toBe('alice');
+    expect((raw as any).community_metadata.owner_storage_id).toBeUndefined();
+    expect((raw as any).community_metadata.submitted_by_display).toBe('Contributor');
   });
 
   it('submit → reject flow', async () => {

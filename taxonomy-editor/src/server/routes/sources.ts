@@ -40,6 +40,8 @@ import { greatestHitsPath } from '../../../../lib/debate/corpusCoverage.js';
 import * as fileIO from '../storage/fileIO.js';
 import { requireAdminOrOperator } from './adminGate.js';
 import { validateProposalFile } from './proposalSchema.js';
+import { refuseAnonymousSignInRequired, anonSourceDocumentView } from './signInRequired.js';
+import { isHostedAnonymousRequest } from '../security/userContext.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -217,6 +219,7 @@ export function registerSourcesRoutes(r: Router, _ctx: ServerCtx): void {
   });
 
   get('/api/snapshots/:sourceId', async (req, res) => {
+    if (refuseAnonymousSignInRequired(res)) return; // t/677: sign-in only (PI, t/574#13)
     const sourceId = param(req, 'sourceId', '/api/snapshots/:sourceId');
     const data = await fileIO.loadSnapshot(sourceId);
     if (data === null) { error(res, `Snapshot not found: ${sourceId}`, 404); return; }
@@ -228,7 +231,9 @@ export function registerSourcesRoutes(r: Router, _ctx: ServerCtx): void {
   get('/api/source-documents/:docId', async (req, res) => {
     const docId = param(req, 'docId', '/api/source-documents/:docId');
     try {
-      json(res, await fileIO.resolveSourceDocument(docId));
+      const doc = await fileIO.resolveSourceDocument(docId);
+      // t/677 (Rosetta Stone p/74#30): anonymous callers learn only that it exists and its type, never its text or path.
+      json(res, isHostedAnonymousRequest() ? anonSourceDocumentView(doc as { available?: unknown; type?: unknown }) : doc);
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -239,11 +244,13 @@ export function registerSourcesRoutes(r: Router, _ctx: ServerCtx): void {
       });
       log.api.warn({ err, docId }, 'source-document resolution failed');
       // AC #3 graceful degradation — never surface a 500 for a missing/bad doc.
-      json(res, { available: false, type: null });
+      const unavailable = { available: false, type: null };
+      json(res, isHostedAnonymousRequest() ? anonSourceDocumentView(unavailable) : unavailable); // t/677: same contract
     }
   });
 
   get('/api/source-documents/:docId/file', async (req, res) => {
+    if (refuseAnonymousSignInRequired(res)) return; // t/677: sign-in only (PI, t/574#13)
     const docId = param(req, 'docId', '/api/source-documents/:docId/file');
     try {
       const pdf = await fileIO.readSourceDocumentPdf(docId);

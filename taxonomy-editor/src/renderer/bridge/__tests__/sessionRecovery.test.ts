@@ -142,6 +142,20 @@ describe('session recovery (t/1476)', () => {
     expect(res.status).toBe(401);
   });
 
+  it('t/678: loadSnapshot turns a 403 anon_route_blocked into the sign-in result, not null (Quality t/467#84)', async () => {
+    mockResilientFetch.mockResolvedValue(mockResponse(403, { error: 'Sign in required', reason: 'anon_route_blocked' }));
+
+    const { api } = await import('../web-bridge');
+    await expect(api.loadSnapshot('src-1')).resolves.toEqual({ content: '', signInRequired: true });
+  });
+
+  it('t/678: any other loadSnapshot failure is still null with a WARN, never the sign-in prompt', async () => {
+    mockResilientFetch.mockResolvedValue(mockResponse(500, { error: 'Internal server error' }));
+
+    const { api } = await import('../web-bridge');
+    await expect(api.loadSnapshot('src-1')).resolves.toBeNull();
+  });
+
   it('does not attempt recovery for non-401 errors', async () => {
     mockResilientFetch.mockResolvedValue(mockResponse(500, { error: 'Internal server error' }));
 
@@ -156,6 +170,48 @@ describe('session recovery (t/1476)', () => {
     const { bridgeGet } = await import('../web-bridge');
     await expect(bridgeGet('/api/health')).rejects.toThrow();
     expect(mockGlobalFetch).not.toHaveBeenCalled();
+  });
+
+  it("t/719: the route's 401 for an anonymous visitor means no questions of their own: listInquiries answers []", async () => {
+    vi.resetModules();
+    mockGlobalFetch.mockResolvedValue(mockResponse(200, { user: 'anon:1', anonymous: true }));
+    mockResilientFetch.mockResolvedValue(mockResponse(401, { error: 'Sign in required' }));
+
+    const { api } = await import('../web-bridge');
+    await expect(api.listInquiries()).resolves.toEqual([]);
+  });
+
+  it('t/719: a signed-in user whose auth check failed still gets their questions, not an empty list (Quality p/57#103)', async () => {
+    vi.resetModules();
+    mockGlobalFetch.mockRejectedValue(new Error('auth check down')); // isAnonymous() then answers true
+    mockResilientFetch.mockResolvedValue(mockResponse(200, [{ jobId: 'j1' }]));
+
+    const { api } = await import('../web-bridge');
+    await expect(api.listInquiries()).resolves.toEqual([{ jobId: 'j1' }]);
+  });
+
+  it('t/719: a 401 for a signed-in user, and any other failure, still reject', async () => {
+    vi.resetModules();
+    mockGlobalFetch.mockResolvedValue(mockResponse(200, { user: 'u', anonymous: false }));
+    mockResilientFetch.mockResolvedValue(mockResponse(401, { error: 'Unauthorized' }));
+    const signedIn = await import('../web-bridge');
+    await expect(signedIn.api.listInquiries()).rejects.toThrow();
+
+    vi.resetModules();
+    mockGlobalFetch.mockResolvedValue(mockResponse(200, { user: 'anon:1', anonymous: true }));
+    mockResilientFetch.mockResolvedValue(mockResponse(500, { error: 'Internal server error' }));
+    const anonymous = await import('../web-bridge');
+    await expect(anonymous.api.listInquiries()).rejects.toThrow();
+  });
+
+  it('t/719: a signed-in user still gets their questions from the server', async () => {
+    vi.resetModules();
+    mockGlobalFetch.mockResolvedValue(mockResponse(200, { user: 'u', anonymous: false }));
+    mockResilientFetch.mockResolvedValue(mockResponse(200, [{ jobId: 'j1' }]));
+
+    const { api } = await import('../web-bridge');
+    await expect(api.listInquiries()).resolves.toEqual([{ jobId: 'j1' }]);
+    expect(mockResilientFetch).toHaveBeenCalledTimes(1);
   });
 
   it('surfaces error when recovery fetch itself fails (condition #2)', async () => {

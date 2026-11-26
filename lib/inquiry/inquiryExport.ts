@@ -20,6 +20,10 @@ import type {
   CalibrationEntry,
 } from './schema.js';
 import { inquiryDisplayTitle } from './schema.js';
+import {
+  shownDirectAnswer, shownQuestionDrift, withoutGatedCampFields,
+  type ShownCampVerdict, type ShownDirectAnswer, type ShownQuestionDrift,
+} from './gatedFields.js';
 import { deriveTruncation } from './jobStatus.js';
 import { loadPovTagRegistry, type PovName } from '../schema/povTags.js';
 
@@ -310,6 +314,28 @@ ${sections.join('\n')}
 
 // ── JSON ──────────────────────────────────────────────────────────────────────
 
+/**
+ * The export projection (t/285, TL p/35#86): the result minus every leaf the matrix excludes on the export surface.
+ * Today that is `questionDrift.warning` and each camp's `answeredLiteralQuestion` and `answerNote` (TL t/285#53),
+ * whose gates are in fieldClassification.ts. The owner is a user reading the file. The stored result is not mutated.
+ */
+export type ExportableInquiryResult = Omit<InquiryResult, 'questionDrift' | 'campVerdicts' | 'directAnswer'> & {
+  campVerdicts: ShownCampVerdict[];
+  directAnswer?: ShownDirectAnswer;
+  questionDrift?: ShownQuestionDrift;
+};
+
+export function exportableResult(result: InquiryResult): ExportableInquiryResult {
+  const drift = result.questionDrift;
+  return {
+    ...result,
+    campVerdicts: result.campVerdicts.map(withoutGatedCampFields),
+    // Named fields only: an unknown key on these passthrough objects is unclassified, so it stays out (t/285#54).
+    ...(result.directAnswer !== undefined ? { directAnswer: shownDirectAnswer(result.directAnswer) } : {}),
+    ...(drift !== undefined ? { questionDrift: shownQuestionDrift(drift) } : {}),
+  };
+}
+
 export function inquiryToJson(result: InquiryResult, opts?: InquiryExportOptions): string {
   return JSON.stringify(
     {
@@ -317,12 +343,11 @@ export function inquiryToJson(result: InquiryResult, opts?: InquiryExportOptions
       title: resolvedTitle(result, opts),
       question: result.request?.question,
       exportedAt: opts?.exportedAt ?? resolvedDate(opts).toISOString(),
-      // Export is owner-initiated, owner-scoped, FULL FIDELITY — every field is classified `include` for
-      // the `export` surface in fieldClassification.ts (t/3648), BY DECISION, not by pass-through luck.
-      // The embed is safe precisely because the export column excludes nothing; `inquiryExport.test.ts`
-      // asserts that invariant against the matrix and FAILS if a field is ever classified export-EXCLUDE
-      // — the signal to replace this wholesale embed with a matrix-derived projection at that point.
-      result,
+      // Export is owner-initiated and owner-scoped, but the owner is still a person reading this file. The embed
+      // is the result passed through exportableResult, which drops every leaf the export column excludes
+      // (fieldClassification.ts, t/3648; questionDrift.warning, t/285). inquiryExport.test.ts asserts the
+      // projection matches the matrix.
+      result: exportableResult(result),
     },
     null,
     2,

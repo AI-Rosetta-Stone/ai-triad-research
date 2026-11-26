@@ -260,6 +260,47 @@ export function modeOfTier(tier: string): DisplayMode {
   return META_TIERS.has(tier) ? 'analysis' : 'text';
 }
 
+// ── Statement density (t/701, docs/ux/debate-statement-density.md) ──────────
+
+/** §2: two lengths, not three. Medium is no longer offered: a stored or default `medium` shows as
+ *  Brief. Every other tier passes through. Nothing on disk is rewritten. */
+export function lengthTier<T extends string>(tier: T): Exclude<T, 'medium'> | 'brief' {
+  return tier === 'medium' ? 'brief' : (tier as Exclude<T, 'medium'>);
+}
+
+/** §5: the plain-language kind shown after the speaker. An unknown type shows as itself. */
+const KIND_LABELS: Record<string, string> = {
+  opening: 'Opening statement', statement: 'Response', cross_respond: 'Response', question: 'Question',
+  answer: 'Answer', intervention: 'Intervention', reflection: 'Reflection', system: 'Note',
+  concluding: 'Synthesis', 'fact-check': 'Fact check', probing: 'Probing questions',
+};
+export function kindLabel(type: string): string { return KIND_LABELS[type] ?? type; }
+
+/** §3: the word count behind "Read full statement (≈N words)", rounded to the nearest 10. */
+export function roundedWordCount(content: string): number {
+  const words = content.trim().split(/\s+/).filter(Boolean).length;
+  return Math.round(words / 10) * 10;
+}
+
+/** §7 (as corrected in t/701#4): a stored `brief` summary in an old debate can end with a
+ *  generated `Tagline: …` close. A Brief has no sign-off, so the caller shows `body` and drops
+ *  the tagline. Returns the text before it and the tagline without its label, or `tagline: null`
+ *  when there is none. Only a tagline at the very end counts. */
+export function splitTagline(content: string): { body: string; tagline: string | null } {
+  const m = /(?:^|\s)[*_]{0,2}Tagline:[*_]{0,2}[ \t]*([^\n]+?)\s*$/i.exec(content);
+  if (!m) return { body: content, tagline: null };
+  const tagline = m[1].replace(/^[*_]+|[*_]+$/g, '').trim();
+  if (!tagline) return { body: content, tagline: null };
+  return { body: content.slice(0, m.index).trimEnd(), tagline };
+}
+
+/** §8: the first sentence of a text, for a collapsed turn's claim row in an old debate. */
+export function firstSentence(text: string): string {
+  const flat = stripLeadingHeadings(text).replace(/\s+/g, ' ').trim();
+  const m = /^.*?[.!?](?=\s|$)/.exec(flat);
+  return m ? m[0] : flat;
+}
+
 // ── Find-in-debate helpers ────────────────────────────────
 
 export function countOccurrences(text: string, query: string): number {

@@ -632,6 +632,22 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     expect(err.event.code).toBe('FREE_POOL_EXHAUSTED');
   });
 
+  // t/703: run_started names the set, so a client stopped by an error frame can still check GET /api/oped-sets/:setId.
+  it('t/703: run_started carries the setId the generator is given', async () => {
+    let generatorSetId = '';
+    generateOpEdSet.mockImplementation(async function* (req: { set_id: string; topic: string; params: unknown }) {
+      generatorSetId = req.set_id;
+      yield { type: 'complete', set: { schema_version: 1, set_id: req.set_id, topic: req.topic, params: req.params, created_at: 'c', opeds: [] } };
+    });
+    finalizeOpedSet.mockResolvedValue(undefined);
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, validBody);
+    const frames = (res.write as unknown as { mock: { calls: string[][] } }).mock.calls.map(c => c[0]).filter(f => f.startsWith('data: '));
+    const started = frames.map(f => JSON.parse(f.slice(6))).find(f => f.event?.type === 'run_started');
+    expect(generatorSetId).not.toBe('');
+    expect(started.event).toEqual({ type: 'run_started', runId: started.runId, setId: generatorSetId });
+  });
+
   // t/500 (t/666): the limits on a stored anonymous op-ed, all before any spend, through the real create route.
   describe('t/500: anonymous create limits', () => {
     const anon = () => { isAnonymousUser.mockReturnValue(true); getStorageUserId.mockReturnValue('anon-0f8fad5b-d9cb-469f-a165-8c7c0e2c1a11'); };

@@ -232,6 +232,18 @@ describe('useInquiryStore', () => {
     expect(useInquiryStore.getState().screen()).toBe('ask');
   });
 
+  it('t/719: a 403 anon_route_blocked start is flagged as sign-in required; any other failure is not', async () => {
+    mockApi.startInquiry.mockRejectedValueOnce(Object.assign(new Error('POST /api/inquiry failed with HTTP 403: {"error":"Sign in required","reason":"anon_route_blocked"}'), { httpStatus: 403 }));
+    useInquiryStore.getState().setQuestion('q');
+    await useInquiryStore.getState().startInquiry();
+    expect(useInquiryStore.getState().status).toBe('failed');
+    expect(useInquiryStore.getState().signInRequired).toBe(true);
+
+    mockApi.startInquiry.mockRejectedValueOnce(Object.assign(new Error('HTTP 500'), { httpStatus: 500 }));
+    await useInquiryStore.getState().startInquiry();
+    expect(useInquiryStore.getState().signInRequired).toBe(false);
+  });
+
   describe('"My Questions" history (t/3620)', () => {
     function summary(overrides: Record<string, unknown> = {}) {
       return {

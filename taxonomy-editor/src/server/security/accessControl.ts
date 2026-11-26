@@ -12,6 +12,7 @@ import { isSafeId, isSafePov, isSafeFilename } from '../storage/fileIO.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { signAnonSessionId, verifyAnonSessionCookie } from './anonSessionSigning.js';
+import { isAnonGetAllowlisted, anonGetAllowlistEnforced, recordAnonGetDenied } from './anonGetAllowlist.js';
 
 // Review group ids are "domain:id" (e.g. "calibration:jpsnover") — allow the
 // colon, still block path separators / dots / encoded sequences.
@@ -436,6 +437,33 @@ const ANON_BLOCKED_DATA_GETS: readonly string[] = [
   '/api/calibration/history',
 ];
 
+/** The anonymous GET decision (t/579 blocks, then t/574 deny-by-default). Split out of isAnonAllowedRoute for its complexity budget. */
+function isAnonGetAllowed(urlPath: string): boolean {
+  // t/579 (incident): no anonymous read of admin health, site-wide analytics or calibration data.
+  if (ANON_BLOCKED_DATA_GETS.includes(urlPath.toLowerCase().replace(/\/+$/, ''))) return false;
+  // t/3259 + t/3260 (PM ruling, TL-confirmed p/522#192): the ~400MB synthetic-embeddings corpus export
+  // is AUTH-ONLY — never anon-reachable, independent of any flag. This is the SOLE always-on protection:
+  // anon debates, when later enabled, MUST route through the tiny /relevant-nodes endpoint (T2/t/3257),
+  // never the corpus. Bypass-safe: server.ts feeds BOTH this gate and the router (matchRoute) the
+  // identical normalizedRequestPath (new URL().pathname), so a `?query` is stripped for both (=== matches
+  // → blocked) and a trailing slash makes matchRoute's exact segment-count match 404 (nothing served);
+  // the trailing-slash strip here blocks `/synth/` at the gate too.
+  if (urlPath.replace(/\/+$/, '') === SYNTHETIC_EMBEDDINGS_PATH) return false;
+  // t/579 (incident): the flight-recorder file routes (list, download, view) serve the shared dump
+  // folder, including server dumps with every user's server events and log lines. Anonymous callers
+  // get none of them. Prefix match, case-insensitive, so no trailing slash, encoding or case variant
+  // of these paths gets through. download-merged/:dumpId stays: it omits the server side for
+  // anonymous sessions (diagnostics.ts, includeServer).
+  if (isAnonBlockedFlightRecorderGet(urlPath)) return false;
+  // t/574 / t/590: deny by default. Only classified anonymous GETs pass (anonGetAllowlist.ts). Report-only until
+  // ANON_GET_ALLOWLIST_ENFORCE=1: a would-deny is logged by route pattern and still allowed.
+  const verdict = isAnonGetAllowlisted(urlPath);
+  if (verdict.allowed) return true;
+  const enforced = anonGetAllowlistEnforced();
+  recordAnonGetDenied(verdict.pattern, enforced);
+  return !enforced;
+}
+
 /**
  * Whether an anonymous (signed-out) user may call `method urlPath` in
  * AUTH_OPTIONAL mode. Anonymous users get read-only, non-AI access plus
@@ -448,25 +476,7 @@ export function isAnonAllowedRoute(method: string, urlPath: string): boolean {
   if (ANON_SAFE_AI_ROUTES.includes(urlPath)) return true;
   if (isAnonBlockedRoute(urlPath)) return false;
 
-  if (method === 'GET') {
-    // t/579 (incident): no anonymous read of admin health, site-wide analytics or calibration data.
-    if (ANON_BLOCKED_DATA_GETS.includes(urlPath.toLowerCase().replace(/\/+$/, ''))) return false;
-    // t/3259 + t/3260 (PM ruling, TL-confirmed p/522#192): the ~400MB synthetic-embeddings corpus export
-    // is AUTH-ONLY — never anon-reachable, independent of any flag. This is the SOLE always-on protection:
-    // anon debates, when later enabled, MUST route through the tiny /relevant-nodes endpoint (T2/t/3257),
-    // never the corpus. Bypass-safe: server.ts feeds BOTH this gate and the router (matchRoute) the
-    // identical normalizedRequestPath (new URL().pathname), so a `?query` is stripped for both (=== matches
-    // → blocked) and a trailing slash makes matchRoute's exact segment-count match 404 (nothing served);
-    // the trailing-slash strip here blocks `/synth/` at the gate too.
-    if (urlPath.replace(/\/+$/, '') === SYNTHETIC_EMBEDDINGS_PATH) return false;
-    // t/579 (incident): the flight-recorder file routes (list, download, view) serve the shared dump
-    // folder, including server dumps with every user's server events and log lines. Anonymous callers
-    // get none of them. Prefix match, case-insensitive, so no trailing slash, encoding or case variant
-    // of these paths gets through. download-merged/:dumpId stays: it omits the server side for
-    // anonymous sessions (diagnostics.ts, includeServer).
-    if (isAnonBlockedFlightRecorderGet(urlPath)) return false;
-    return true;
-  }
+  if (method === 'GET') return isAnonGetAllowed(urlPath);
 
   const isMutation = method === 'POST' || method === 'PUT' || method === 'DELETE';
   if (isMutation && isAnonUserContentRoute(urlPath)) return true;

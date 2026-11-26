@@ -11,8 +11,8 @@
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { freeAzuritePort } from './azuriteFreePort.js';
-import { spawn, type ChildProcess } from 'child_process';
+import { freeAzuritePort, spawnOwnAzurite } from './azuriteFreePort.js';
+import type { ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -161,9 +161,7 @@ function lockContainer(): string {
 describe.skipIf(SKIP_LOCAL_SKEW)('GitHubAPIBackend — shared overlay commit under the per-user commit lease (t/550)', () => {
   beforeAll(async () => {
     azuriteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azurite-overlay-commit-test-'));
-    proc = spawn(process.execPath,
-      [AZURITE_MAIN, '--silent', '--skipApiVersionCheck', '--location', azuriteDir, '--blobHost', '127.0.0.1', '--blobPort', String(PORT)],
-      { stdio: 'ignore', windowsHide: true });
+    proc = await spawnOwnAzurite(AZURITE_MAIN, azuriteDir, PORT); // t/687: fails fast if it isn't ours
     service = BlobServiceClient.fromConnectionString(CONN);
     const start = Date.now();
     for (;;) {
@@ -444,6 +442,41 @@ describe.skipIf(SKIP_LOCAL_SKEW)('GitHubAPIBackend — shared overlay commit und
     expect(gh.refUpdates).toBe(0);
     expect((await makeStore().listEntries(USER)).map(e => e.entry.content)).toEqual(['pending']);
   }, 30_000);
+
+  // t/689 (TL t/503#26 item 2): a batch prunes local copies of paths the store no longer holds, even when it isn't empty.
+  it('t/689: a non-empty batch prunes A\'s local copy of a path another replica already committed', async () => {
+    const a = await createReplica();
+    await a.writeFile(FILE, 'committed elsewhere');
+    await a.writeFile('/conflicts/bar.json', 'still pending');
+    const store = makeStore();
+    const gone = (await store.listEntries(USER)).find(e => e.repoPath === REPO_PATH)!;
+    expect(await store.unstage(USER, REPO_PATH, { ifMatch: gone.etag })).toBe('deleted'); // another replica's commit cleared it
+    expect(await a.commitOverlay(USER, undefined, { branchName: BRANCH })).toMatchObject({ filesCommitted: 1 });
+    expect(a.getUncommittedOverlaySummary()).toEqual([]);
+  });
+
+  // t/690 (TL t/503#26 item 3): the broadcast entries come from the store, not this replica's local map.
+  it('t/690: getOverlayEntriesForBroadcast lists the store (another replica\'s newer save), not A\'s local copy', async () => {
+    const a = await createReplica();
+    const b = await createReplica();
+    await a.writeFile(FILE, 'X from A');
+    await b.writeFile(FILE, 'Y from B');
+    expect(a.getOverlayEntries(USER)).toEqual({ writes: [{ path: REPO_PATH, content: 'X from A' }], deletes: [] }); // the stale local copy
+    expect(await a.getOverlayEntriesForBroadcast(USER)).toEqual({ writes: [{ path: REPO_PATH, content: 'Y from B' }], deletes: [] });
+  });
+
+  it('t/690: an empty store gives null, and a store failure gives null (broadcast skipped), never the local map', async () => {
+    const a = await createReplica();
+    expect(await a.getOverlayEntriesForBroadcast(USER)).toBeNull();
+    await a.writeFile(FILE, 'pending');
+    const spy = vi.spyOn(SharedOverlayStore.prototype, 'listEntries').mockRejectedValueOnce(new Error('simulated store outage'));
+    try {
+      expect(await a.getOverlayEntriesForBroadcast(USER)).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await a.getOverlayEntriesForBroadcast(USER)).toEqual({ writes: [{ path: REPO_PATH, content: 'pending' }], deletes: [] });
+  });
 
   // ── t/552: the DRAINING rollback ──────────────────────────────────────────────────────────────
 

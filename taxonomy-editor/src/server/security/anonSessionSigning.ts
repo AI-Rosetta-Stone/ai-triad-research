@@ -46,6 +46,25 @@ export function anonSessionSigningReady(): boolean {
   return secret !== null;
 }
 
+/** The label the community pseudonym subkey is derived under. Changing it changes every pseudonym. */
+const COMMUNITY_PSEUDONYM_LABEL = 'community-pseudonym-v1';
+
+/**
+ * t/693: the key Community uses to turn a contributor's storage id into a display pseudonym, or null when no
+ * secret is installed (the caller then shows the fixed word, never the storage id).
+ *
+ *   subkey = HMAC-SHA256(anon-session-hmac, 'community-pseudonym-v1')
+ *
+ * One-way: the subkey does not reveal the signing secret, and it cannot be used to sign a cookie. The cookie
+ * path cannot produce it either, because signAnonSessionId only MACs a uuid v4 and the label is not one.
+ * Rotating anon-session-hmac changes the subkey, so pseudonyms published afterwards differ from stored ones.
+ * The subkey is a credential: never log, return or serialize it.
+ */
+export function deriveCommunityPseudonymKey(): Buffer | null {
+  if (!secret) return null;
+  return crypto.createHmac('sha256', secret).update(COMMUNITY_PSEUDONYM_LABEL, 'utf8').digest();
+}
+
 function mac(uuid: string, key: Buffer): Buffer {
   return crypto.createHmac('sha256', key).update(uuid, 'utf8').digest();
 }
