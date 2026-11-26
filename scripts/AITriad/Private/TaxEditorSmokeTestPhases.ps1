@@ -413,6 +413,7 @@ function Invoke-SmokeEmbeddingLatencyPhase {
     Write-Host '=== Embedding Latency ===' -ForegroundColor Cyan
     $Status = 'ok'
     $Ms     = 0
+    $Reason = ''
     # An anonymous session, as the Analytics and DataPresence phases use (t/621). Without it the
     # compute route answers 401 in the CI container, and in prod it answered 200 with no vectors,
     # so the probe timed a request that looked nothing up and reported PASS.
@@ -426,20 +427,33 @@ function Invoke-SmokeEmbeddingLatencyPhase {
         $Perf = Measure-EmbeddingLatency @ProbeParams
         $Status = $Perf.Status
         $Ms     = $Perf.DurationMs
-        $PerfIcon  = if ($Perf.Status -eq 'ok') { '[PASS]' } else { '[DEGRADED]' }
-        $PerfColor = if ($Perf.Status -eq 'ok') { 'Green' } else { 'Yellow' }
-        $PerfWhy   = if ($Perf.Status -ne 'ok' -and $Perf.Count -eq 0 -and $Perf.HttpStatus -eq 200) { '; no vectors returned, latency not measured' } else { '' }
-        Write-Host "  $PerfIcon embeddings.compute — $($Perf.DurationMs)ms (ceiling $($CeilingSec)s, $($Perf.Count) vectors, http $($Perf.HttpStatus)$PerfWhy)" -ForegroundColor $PerfColor
+        $AuthReason = if ($Perf.PSObject.Properties['AuthReason'] -and $Perf.AuthReason) { [string]$Perf.AuthReason } else { '' }
+        # t/737 (DevOps Lead, p/233#226): the server lets an anonymous caller reach the compute route
+        # only while the free-tier key is set (authGates.ts). Where it is not set (the CI container),
+        # the probe cannot run, which is not a degradation. Skipped ONLY for 403 with that exact
+        # reason; any other 403 and every other failure stays degraded.
+        if ($Perf.Status -ne 'ok' -and $Perf.HttpStatus -eq 403 -and $AuthReason -eq 'anon_route_blocked') {
+            $Status = 'skipped'
+            $Reason = 'free tier off (anon embeddings need the free-tier key)'
+            Write-Host "  [SKIPPED] embeddings.compute — skipped: $Reason ($($Perf.DurationMs)ms, http 403, auth reason anon_route_blocked)" -ForegroundColor DarkYellow
+        } else {
+            $PerfIcon  = if ($Perf.Status -eq 'ok') { '[PASS]' } else { '[DEGRADED]' }
+            $PerfColor = if ($Perf.Status -eq 'ok') { 'Green' } else { 'Yellow' }
+            $PerfWhy   = if ($Perf.Status -ne 'ok' -and $Perf.Count -eq 0 -and $Perf.HttpStatus -eq 200) { '; no vectors returned, latency not measured' } else { '' }
+            if ($Perf.Status -ne 'ok' -and $AuthReason) { $PerfWhy += ", auth reason $AuthReason" }
+            Write-Host "  $PerfIcon embeddings.compute — $($Perf.DurationMs)ms (ceiling $($CeilingSec)s, $($Perf.Count) vectors, http $($Perf.HttpStatus)$PerfWhy)" -ForegroundColor $PerfColor
+        }
     } catch {
         # New-ActionableError from an unreachable server — report degraded, do NOT crash the smoke.
         $Status = 'unreachable'
         Write-Host "  [DEGRADED] embeddings.compute — unreachable: $($_.Exception.Message)" -ForegroundColor Yellow
     }
-    if ($Status -ne 'ok') {
+    if ($Status -notin 'ok', 'skipped') {
         Write-Host "::warning::Embedding latency $Status — ${Ms}ms vs ${CeilingSec}s ceiling (perf-regression probe t/3088; monitoring signal, does not block the gate). A sustained breach is the t/3085 cache-miss class."
     }
     Write-Host ''
-    return [pscustomobject]@{ Status = $Status; Ms = $Ms }
+    # Reason (t/737): why the probe was skipped; '' for every other status.
+    return [pscustomobject]@{ Status = $Status; Ms = $Ms; Reason = $Reason }
 }
 
 function Invoke-SmokeCachePresencePhase {

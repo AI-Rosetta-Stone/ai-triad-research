@@ -37,7 +37,8 @@ function Measure-EmbeddingLatency {
         Optional anonymous WebRequestSession (the endpoint is anon-allowed but AUTH_OPTIONAL
         serves a Sign-In interstitial to a cookie-less request — pass a session to avoid it).
     .OUTPUTS
-        [PSCustomObject] { DurationMs; Status ('ok'|'degraded'); Count; HttpStatus; CeilingSec; NodeIds; Error }
+        [PSCustomObject] { DurationMs; Status ('ok'|'degraded'); Count; HttpStatus; CeilingSec; NodeIds; Error; AuthReason }
+        AuthReason is the X-Auth-Reason header of a non-2xx answer ('' when the server gave none).
     #>
     [CmdletBinding()]
     [OutputType([PSCustomObject])]
@@ -120,6 +121,13 @@ function Measure-EmbeddingLatency {
     elseif ($ms -gt ($CeilingSec * 1000)) { 'degraded' }
     else { 'ok' }
 
+    # t/737: why the server refused, when it said (X-Auth-Reason on a non-2xx answer). The caller
+    # decides what the reason means; here a refused request is `degraded` whatever the reason.
+    $authReason = ''
+    if (-not $check.Success -and $check.PSObject.Properties['AuthReason'] -and $check.AuthReason) {
+        $authReason = [string]$check.AuthReason
+    }
+
     [PSCustomObject]@{
         DurationMs = $ms
         Status     = $status
@@ -128,5 +136,6 @@ function Measure-EmbeddingLatency {
         CeilingSec = $CeilingSec
         NodeIds    = $ids
         Error      = $problem
+        AuthReason = $authReason
     }
 }

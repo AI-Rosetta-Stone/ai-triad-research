@@ -93,6 +93,25 @@ Describe 'Measure-EmbeddingLatency — timed probe arms (t/3088)' -Tag 'health' 
         }
     }
 
+    It 'carries the X-Auth-Reason of a refused request, and stays degraded (t/737)' {
+        InModuleScope AITriad {
+            # CI container smoke, run 45725505446: `65ms (ceiling 2s, 0 vectors, http 403)`.
+            Mock Invoke-RemoteCheck -MockWith {
+                [PSCustomObject]@{ Success = $false; StatusCode = 403; ResponseMs = 65
+                    Body = $null; ContentType = 'application/json'; RawBody = ''; Error = 'HTTP 403'; AuthReason = 'anon_route_blocked' }
+            }
+            $r = Measure-EmbeddingLatency -BaseUrl 'https://stub' -CeilingSec 2
+            $r.Status     | Should -Be 'degraded' -Because 'the probe reports the reason; the phase decides what it means'
+            $r.HttpStatus | Should -Be 403
+            $r.AuthReason | Should -Be 'anon_route_blocked'
+            # A result with no AuthReason field (an older mock, a success) reads as no reason.
+            Mock Invoke-RemoteCheck -MockWith {
+                [PSCustomObject]@{ Success = $false; StatusCode = 503; ResponseMs = 200; Body = $null; ContentType = ''; RawBody = ''; Error = 'HTTP 503' }
+            }
+            (Measure-EmbeddingLatency -BaseUrl 'https://stub' -CeilingSec 2).AuthReason | Should -Be ''
+        }
+    }
+
     It 'UNREACHABLE (StatusCode 0): server never answered → New-ActionableError (distinct from slow)' {
         InModuleScope AITriad {
             Mock Invoke-RemoteCheck -MockWith {
@@ -230,6 +249,49 @@ Describe 'Invoke-TaxEditorSmokeTest — embedding probe is its OWN category, NON
             $result = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' -HealthMaxAttempts 1 6>$null
             $result.EmbeddingStatus | Should -Be 'degraded'
             $result.OverallPass | Should -BeTrue -Because 'the probe is a monitoring signal; it never fails a deploy'
+        }
+    }
+
+    It 'free tier off: 403 with anon_route_blocked is reported as skipped, with no warning (t/737)' {
+        InModuleScope AITriad {
+            Mock Measure-EmbeddingLatency -MockWith {
+                [PSCustomObject]@{ DurationMs = 65; Status = 'degraded'; Count = 0; HttpStatus = 403; CeilingSec = 2; NodeIds = @('x'); Error = 'HTTP 403'; AuthReason = 'anon_route_blocked' }
+            }
+            $out = Invoke-SmokeEmbeddingLatencyPhase -BaseUrl 'https://stub' -TimeoutSec 5 -CeilingSec 2 6>&1 | Out-String
+            $out | Should -Match '\[SKIPPED\] embeddings\.compute'
+            $out | Should -Match 'skipped: free tier off \(anon embeddings need the free-tier key\)'
+            $out | Should -Not -Match '::warning::'
+            $out | Should -Not -Match '\[DEGRADED\]'
+            $Phase = Invoke-SmokeEmbeddingLatencyPhase -BaseUrl 'https://stub' -TimeoutSec 5 -CeilingSec 2 6>$null
+            $Phase.Status | Should -Be 'skipped'
+            $Phase.Reason | Should -Be 'free tier off (anon embeddings need the free-tier key)'
+            $result = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' -HealthMaxAttempts 1 6>$null
+            $result.EmbeddingStatus | Should -Be 'skipped'
+            $result.OverallPass     | Should -BeTrue
+        }
+    }
+
+    It 'any other refusal stays degraded and prints the reason: <Case>' -ForEach @(
+        @{ Case = '403 with another reason'; Http = 403; Reason = 'user_not_in_allowlist'; Shown = 'auth reason user_not_in_allowlist' }
+        @{ Case = '403 with no reason'; Http = 403; Reason = ''; Shown = 'http 403\)' }
+        @{ Case = '401 with anon_route_blocked'; Http = 401; Reason = 'anon_route_blocked'; Shown = 'auth reason anon_route_blocked' }
+        @{ Case = '401 no_session'; Http = 401; Reason = 'no_session'; Shown = 'auth reason no_session' }
+        @{ Case = '500'; Http = 500; Reason = ''; Shown = 'http 500\)' }
+    ) {
+        InModuleScope AITriad -Parameters @{ Http = $Http; Reason = $Reason; Shown = $Shown } {
+            param($Http, $Reason, $Shown)
+            $script:ProbeHttp = $Http; $script:ProbeReason = $Reason
+            Mock Measure-EmbeddingLatency -MockWith {
+                [PSCustomObject]@{ DurationMs = 70; Status = 'degraded'; Count = 0; HttpStatus = $script:ProbeHttp; CeilingSec = 2; NodeIds = @('x'); Error = "HTTP $($script:ProbeHttp)"; AuthReason = $script:ProbeReason }
+            }
+            $out = Invoke-SmokeEmbeddingLatencyPhase -BaseUrl 'https://stub' -TimeoutSec 5 -CeilingSec 2 6>&1 | Out-String
+            $out | Should -Match '\[DEGRADED\] embeddings\.compute'
+            $out | Should -Match $Shown
+            $out | Should -Match '::warning::Embedding latency degraded'
+            $out | Should -Not -Match 'SKIPPED'
+            $Phase = Invoke-SmokeEmbeddingLatencyPhase -BaseUrl 'https://stub' -TimeoutSec 5 -CeilingSec 2 6>$null
+            $Phase.Status | Should -Be 'degraded'
+            $Phase.Reason | Should -Be ''
         }
     }
 
