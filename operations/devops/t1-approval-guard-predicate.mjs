@@ -407,8 +407,12 @@ export function isVersionSpec(value) {
   for (const alt of value.split('||')) {
     const tokens = alt.trim().split(/\s+/);
     if (tokens.length === 1 && tokens[0] === '') return false;
-    for (const t of tokens) {
-      if (t !== '-' && !VERSION_TOKEN.test(t)) return false;
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      // A hyphen range joins two versions ('1.0.0 - 2.0.0'): `-` alone is valid only between two version tokens.
+      if (t === '-') {
+        if (i === 0 || i === tokens.length - 1 || !VERSION_TOKEN.test(tokens[i - 1]) || !VERSION_TOKEN.test(tokens[i + 1])) return false;
+      } else if (!VERSION_TOKEN.test(t)) return false;
     }
   }
   return true;

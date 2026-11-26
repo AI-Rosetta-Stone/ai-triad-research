@@ -583,6 +583,12 @@ test('t/776 isVersionSpec: the accepted and refused shapes', () => {
     assert.equal(isVersionSpec(bad), false, JSON.stringify(bad));
   }
   assert.equal(isVersionSpec(undefined), false);
+  // t/796 (SO): a bare `-` is valid only between two version tokens.
+  for (const bad of ['-', '1.0.0 -', '- 1.0.0', '1.0.0 - - 2.0.0', '1.0.0 - || 2.0.0', '- || 1', '1 || -']) {
+    assert.equal(isVersionSpec(bad), false, JSON.stringify(bad));
+  }
+  assert.equal(isVersionSpec('1.0.0 - 2.0.0'), true);
+  assert.equal(isVersionSpec('1.0.0 - 2.0.0 || 3.0.0 - 4.0.0'), true);
   assert.equal(isVersionSpec('1'.repeat(201)), false, 'over the length cap');
   assert.equal(isVersionSpec('1'.repeat(200)), true, 'at the length cap');
 });
