@@ -264,6 +264,43 @@ BeforeAll {
         [pscustomobject]@{ Findings = @($findings); Expanded = $walk.Expanded; Vars = $walk.Vars; EntryCount = $walk.Entries.Count; SecureParams = $secure }
     }
 
+    # t/742 (SO re-clear of #5551, p/298#19): the POINT OF USE. Everything above checks what stagingSecrets and
+    # stagingContainerEnv contain; this checks that the staging app resource uses exactly those two vars and
+    # nothing else. `secrets: union(stagingSecrets, oauthSecrets)` on the app passed every other test here.
+    # Returns the findings, plus what it read so the caller can prove the parse was not vacuous.
+    function Get-StagingAppWiringReport([string]$Bicep) {
+        $m = [regex]::Matches($Bicep, "(?m)^resource containerAppStaging '[^']+'[ \t]*=[ \t]*")
+        if ($m.Count -ne 1) { throw "resource containerAppStaging was found $($m.Count) times in main.bicep (expected exactly 1). Update tests/BicepStagingNoProdSecrets.Tests.ps1 if the staging app was renamed." }
+        $body = Read-BicepExpression $Bicep ($m[0].Index + $m[0].Length) 'resource containerAppStaging'
+        $mask = Get-BicepMask $body
+        # The value of each `<key>:` property, read to the end of its expression (brackets may span lines).
+        $read = {
+            param([string]$KeyPattern)
+            foreach ($hit in [regex]::Matches($mask, "(?<![\w.])($KeyPattern)[ \t]*:")) {
+                $start = $hit.Index + $hit.Length
+                $d = 0; $i = $start
+                while ($i -lt $mask.Length) {
+                    $c = $mask[$i]
+                    if ('([{'.IndexOf($c) -ge 0) { $d++ }
+                    elseif (')]}'.IndexOf($c) -ge 0) { if ($d -eq 0) { break }; $d-- }
+                    elseif ($d -eq 0 -and ($c -eq "`n" -or $c -eq ',')) { break }
+                    $i++
+                }
+                [pscustomobject]@{ Key = $hit.Groups[1].Value; Value = $body.Substring($start, $i - $start).Trim() }
+            }
+        }
+        $secrets = @(& $read 'secrets')
+        $env = @(& $read 'env')
+        $refs = @(& $read '\w*[sS]ecretRef')
+        $findings = [System.Collections.Generic.List[string]]::new()
+        if ($secrets.Count -ne 1) { $findings.Add("the staging app has $($secrets.Count) 'secrets:' properties (expected exactly 1)") }
+        foreach ($s in $secrets) { if ($s.Value -ne 'stagingSecrets') { $findings.Add("the staging app's secrets: is <$($s.Value)>; it must be exactly stagingSecrets, the var this suite checks") } }
+        if ($env.Count -ne 1) { $findings.Add("the staging app has $($env.Count) 'env:' properties (expected exactly 1: one container, one env)") }
+        foreach ($e in $env) { if ($e.Value -ne 'stagingContainerEnv') { $findings.Add("the staging app's env: is <$($e.Value)>; it must be exactly stagingContainerEnv, the var this suite checks") } }
+        foreach ($r in $refs) { $findings.Add("the staging app references a secret outside its env: <$($r.Key): $($r.Value)>; this suite does not check that path") }
+        [pscustomobject]@{ Findings = @($findings); Secrets = $secrets; Env = $env; BodyLength = $body.Length }
+    }
+
     # One edit to a copy of main.bicep. The old text must occur exactly once, so an arm can never go vacuous
     # because main.bicep was reworded.
     function Edit-BicepCopy([string]$Old, [string]$New) {
@@ -340,6 +377,15 @@ Describe 'staging holds no prod secret except the accepted OAuth three (t/654)' 
         Get-BicepVarExpr $script:Bicep 'stagingPaidKeyRetained' | Should -Be 'paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : []'
         $script:EnvReport.Expanded | Should -Not -Match 'Paid'
     }
+
+    It 't/742: the staging app USES the checked vars: secrets is exactly stagingSecrets, env is exactly stagingContainerEnv' {
+        $wiring = Get-StagingAppWiringReport $script:Bicep
+        # Not vacuous: the whole resource was read (it is over a hundred lines) and both properties were found.
+        $wiring.BodyLength | Should -BeGreaterThan 2000
+        $wiring.Secrets | Should -HaveCount 1
+        $wiring.Env | Should -HaveCount 1
+        $wiring.Findings | Should -BeNullOrEmpty -Because 'the staging app must use the allow-listed vars, unwrapped, and nothing else'
+    }
 }
 
 # t/710: the failing arm. Each case edits a COPY of main.bicep the way a prod secret could come back, and
@@ -402,5 +448,46 @@ Describe 'the allow-list catches a prod secret returning to staging (t/710 faili
         (Get-StagingEnvReport $named).Findings -join "`n" | Should -Match 'which only prod may have'
         $value = Edit-BicepCopy $anchor "$anchor`n  { name: 'SYNC_TOKEN', value: 'Bearer `${githubToken}' }"
         (Get-StagingEnvReport $value).Findings -join "`n" | Should -Match '@secure\(\) param githubToken'
+    }
+}
+
+# t/742: the failing arm for the point of use. The vars stay clean in every case here; only the staging app's
+# own properties change, which is exactly what the checks above this could not see.
+Describe 'the staging app must use the checked vars, unwrapped (t/742 failing arms)' {
+    It 'secrets: wrapped in a union with prod''s secrets (SO''s example)' {
+        $bad = Edit-BicepCopy 'secrets: stagingSecrets' 'secrets: union(stagingSecrets, oauthSecrets)'
+        (Get-StagingSecretReport $bad).Findings | Should -BeNullOrEmpty -Because 'the var itself is untouched; only the point-of-use check can see this'
+        (Get-StagingAppWiringReport $bad).Findings -join "`n" | Should -Match 'secrets: is <union\(stagingSecrets, oauthSecrets\)>'
+    }
+
+    It 'secrets: pointed at prod''s list, or built across several lines' {
+        (Get-StagingAppWiringReport (Edit-BicepCopy 'secrets: stagingSecrets' 'secrets: oauthSecrets')).Findings -join "`n" | Should -Match 'secrets: is <oauthSecrets>'
+        $multi = Edit-BicepCopy 'secrets: stagingSecrets' "secrets: concat(`n        stagingSecrets,`n        sharedOauthSecrets`n      )"
+        (Get-StagingAppWiringReport $multi).Findings -join "`n" | Should -Match 'secrets: is <concat\('
+    }
+
+    It 'env: wrapped in a concat with a prod env var' {
+        $bad = Edit-BicepCopy 'env: stagingContainerEnv' 'env: concat(stagingContainerEnv, extraGithubToken)'
+        (Get-StagingEnvReport $bad).Findings | Should -BeNullOrEmpty -Because 'the var itself is untouched; only the point-of-use check can see this'
+        (Get-StagingAppWiringReport $bad).Findings -join "`n" | Should -Match 'env: is <concat\(stagingContainerEnv, extraGithubToken\)>'
+    }
+
+    It 'env: a second container with its own env' {
+        $bad = Edit-BicepCopy 'env: stagingContainerEnv' "env: stagingContainerEnv`n        }`n        {`n          name: 'sidecar'`n          env: containerEnv"
+        $found = (Get-StagingAppWiringReport $bad).Findings -join "`n"
+        $found | Should -Match "has 2 'env:' properties"
+        $found | Should -Match 'env: is <containerEnv>'
+    }
+
+    It 'a secret referenced outside env (for example a scale rule''s secretRef), or a second secrets: list' {
+        $ref = Edit-BicepCopy 'env: stagingContainerEnv' "env: stagingContainerEnv`n          auth: [ { secretRef: githubTokenSecretName, triggerParameter: 'token' } ]"
+        (Get-StagingAppWiringReport $ref).Findings -join "`n" | Should -Match 'references a secret outside its env: <secretRef: githubTokenSecretName>'
+        $second = Edit-BicepCopy 'env: stagingContainerEnv' "env: stagingContainerEnv`n          secrets: oauthSecrets"
+        (Get-StagingAppWiringReport $second).Findings -join "`n" | Should -Match "has 2 'secrets:' properties"
+    }
+
+    It 'a staging app the test cannot find throws instead of passing' {
+        $gone = Edit-BicepCopy "resource containerAppStaging 'Microsoft.App/containerApps@" "resource containerAppStagingV2 'Microsoft.App/containerApps@"
+        { Get-StagingAppWiringReport $gone } | Should -Throw '*found 0 times*'
     }
 }
