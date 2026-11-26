@@ -27,7 +27,6 @@ import { computeExtractionCoverage } from './calibrationLogger.js';
 import { runNeutralEvaluation, buildSpeakerMapping, resolveEvaluatorModel } from './neutralEvaluator.js';
 import { buildMediumTierSummary, buildDistantTierSummary } from './tieredCompression.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
-import { prepareSynthesisLists } from './synthesisOrder.js';
 import { computeNodeEngagement, type EngagementTranscriptEntry } from './reflectionScope.js';
 import { POV_PREFIXES } from './nodeIdUtils.js';
 
@@ -70,6 +69,7 @@ export class SynthesisPipeline {
         cruxTracker: this.ctx.session.crux_tracker,
         policyLines,
         hasSourceDoc: this.ctx.config.sourceType === 'document' || this.ctx.config.sourceType === 'url',
+        debateId: this.ctx.session.id,
       },
       (prompt, label) => this.ctx.generate(prompt, label),
       (_phase, label) => this.ctx.progress('concluding', undefined, label),
@@ -80,7 +80,8 @@ export class SynthesisPipeline {
     );
 
     // t/769: lists in relevance order before anything is built from them (the card shows the top 3).
-    const concludingData = prepareSynthesisLists(result.data, this.ctx.session.id);
+    // t/775: runSynthesisPhases already returns normalised, relevance-ordered lists.
+    const concludingData = result.data;
     const elapsed = result.elapsed_ms;
 
     // Format readable content

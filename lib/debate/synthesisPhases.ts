@@ -14,6 +14,7 @@ import {
 } from './prompts.js';
 import { formatCruxResolutionContext } from './cruxResolution.js';
 import { parseJsonRobust, stripCodeFences, extractArraysFromPartialJson } from './helpers.js';
+import { prepareSynthesisLists } from './synthesisOrder.js';
 import type { UsageCallDeps } from '../ai-client/usageRegistry.js';
 import { callByUsage } from '../ai-client/usageRegistry.js';
 
@@ -28,6 +29,8 @@ export interface SynthesisInput {
   policyLines?: string[];
   /** Whether the debate was sourced from a document/URL. */
   hasSourceDoc?: boolean;
+  /** For flight-recorder correlation of the list-normalisation WARNs (t/775). */
+  debateId?: string;
 }
 
 export type SynthesisGenerateFn = (prompt: string, label: string) => Promise<string>;
@@ -176,7 +179,7 @@ export async function runSynthesisPhases(
   if (maxPhase === 1) {
     applyDegradedMarker(data, degradedPhases);
     return {
-      data,
+      data: prepareSynthesisLists(data, input.debateId),
       rawResponses: { extract: extractRaw, map: '', evaluate: '' },
       elapsed_ms: Date.now() - start,
     };
@@ -218,7 +221,7 @@ export async function runSynthesisPhases(
   if (maxPhase === 2) {
     applyDegradedMarker(data, degradedPhases);
     return {
-      data,
+      data: prepareSynthesisLists(data, input.debateId),
       rawResponses: { extract: extractRaw, map: mapRaw, evaluate: '' },
       elapsed_ms: Date.now() - start,
     };
@@ -259,7 +262,8 @@ export async function runSynthesisPhases(
   applyDegradedMarker(data, degradedPhases);
 
   return {
-    data,
+    // t/775: one ordering source for every caller (engine pipeline and the app's requestSynthesis).
+    data: prepareSynthesisLists(data, input.debateId),
     rawResponses: { extract: extractRaw, map: mapRaw, evaluate: evalRaw },
     elapsed_ms: Date.now() - start,
   };
