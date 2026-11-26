@@ -44,15 +44,15 @@ describe('COMMIT prompt (Design rules, t/784)', () => {
   });
 
   it('lists earlier COMMIT openings as not to be reused, only when there are any', () => {
-    expect(commit()).not.toContain('Do NOT reuse or paraphrase them');
+    expect(commit()).not.toContain('Do NOT reuse or paraphrase any sentence of them');
     const p = commit([RECAP]);
-    expect(p).toContain('Do NOT reuse or paraphrase them');
+    expect(p).toContain('Do NOT reuse or paraphrase any sentence of them');
     expect(p).toContain(`- "${RECAP}"`);
   });
 
   it('never adds the do-not-repeat block to other moves', () => {
     const p = moderatorInterventionPrompt('PIN', 'elicitation', 'Safetyist', 'r', undefined, 't', undefined, undefined, undefined, undefined, [RECAP]);
-    expect(p).not.toContain('Do NOT reuse or paraphrase them');
+    expect(p).not.toContain('Do NOT reuse or paraphrase any sentence of them');
   });
 });
 
@@ -105,8 +105,11 @@ describe('COMMIT prompt presses a point that is the target\'s own (t/784 tweak)'
     const p = moderatorInterventionPrompt('COMMIT', 'synthesis', 'Safetyist', 'r', undefined, 't', undefined, undefined, undefined, undefined, [], 'Registries cannot track open weights.');
     expect(p).toContain("=== SAFETYIST'S MOST RECENT TURN ===\nRegistries cannot track open weights.");
     expect(p).toContain('pressing ONE specific point that is recognisably theirs');
-    expect(p).toContain('do NOT list numbered asks');
+    expect(p).toContain('list numbered asks');
     expect(p).not.toContain('(1) what they conceded');
+    // t/784 second replay: the model copied the stock 'hold, qualify or give it up' ask, so it is gone.
+    expect(p).not.toMatch(/hold, qualify/i);
+    expect(p).toContain('Do NOT use a stock phrase for this ask');
   });
 
   it('adds no target-turn block for other moves', () => {

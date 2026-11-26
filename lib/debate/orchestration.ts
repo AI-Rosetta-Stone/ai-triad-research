@@ -80,7 +80,7 @@ import { applyEngineFloor, checkModeratorDormancy, recordEnginePin } from './mod
 import { inferBackend } from '../ai-client/registry.js';
 import { DEFAULT_TEMPERATURE } from '../ai-client/defaults.js';
 import { runPropositionalGate } from './revoiceGate.js';
-import { priorCommitOpenings, latestTurnOf, warnOnCommitRepeat } from './commitOpenings.js';
+import { priorCommitTexts, latestTurnOf, warnOnCommitRepeat } from './commitOpenings.js';
 
 const SLOW_BACKEND_TIMEOUT_MS = 180_000;
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -451,7 +451,7 @@ export async function runModeratorSelection(
           sourceDocSummary,
           resolution,
           resolutionClauses,
-          priorCommitOpenings(transcript as TranscriptEntry[]),
+          priorCommitTexts(transcript as TranscriptEntry[]),
           latestTurnOf(transcript as TranscriptEntry[], concludingTarget),
         );
         const stage2Text = await callbacks.generate(

@@ -850,8 +850,9 @@ describe('runModeratorSelection concluding COMMIT (t/784)', () => {
     const prompts = (callbacks.generate as ReturnType<typeof vi.fn>).mock.calls.map(c => String(c[0]));
     const commitPrompt = prompts.find(p => p.includes('Move: COMMIT'));
     expect(commitPrompt).toBeDefined();
-    expect(commitPrompt).toContain('Do NOT reuse or paraphrase them');
-    expect(commitPrompt).toContain(`- "${RECAP}"`);
+    expect(commitPrompt).toContain('Do NOT reuse or paraphrase any sentence of them');
+    // Since the t/784 second fix, the whole earlier COMMIT is listed, not only its opening.
+    expect(commitPrompt).toContain(`- "${RECAP} The Accelerationist conceded X."`);
     // t/784 tweak: the target's own latest turn is passed in (the 4-entry window often lacks it).
     expect(commitPrompt).toContain("=== ACCELERATIONIST'S MOST RECENT TURN ===\nTest statement content about AI governance.");
   });

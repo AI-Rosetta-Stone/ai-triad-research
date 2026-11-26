@@ -242,7 +242,7 @@ export function moderatorInterventionPrompt(
   sourceDocumentSummary?: string,
   resolution?: string,
   resolutionClauses?: string[],
-  /** t/784: opening sentences of COMMITs already given in this concluding phase, not to be repeated. */
+  /** t/784: earlier COMMITs in this concluding phase (whole text, at most 2 sentences each), not to be repeated. */
   priorCommitOpenings?: string[],
   /** t/784: the COMMIT target's own most recent turn, so the request presses a point that is theirs. */
   targetRecentTurn?: string,
@@ -294,7 +294,7 @@ Respond ONLY with a JSON object (no markdown, no code fences):
 /** t/784: the COMMIT-only prompt blocks: earlier openings not to reuse, and the target's own latest turn. */
 function commitBlocks(target: string, priorOpenings?: string[], targetRecentTurn?: string): { avoidRepeat: string; targetTurn: string } {
   const avoidRepeat = priorOpenings?.length
-    ? `\nThe moderator already opened earlier final-position requests with these sentences. Do NOT reuse or paraphrase them, and do not reuse their wording:\n${priorOpenings.map(o => `- "${o}"`).join('\n')}\n`
+    ? `\nThe moderator already made these earlier final-position requests. Do NOT reuse or paraphrase any sentence of them, and do not reuse their wording or phrasing:\n${priorOpenings.map(o => `- "${o}"`).join('\n')}\n`
     : '';
   const targetTurn = targetRecentTurn ? `\n=== ${target.toUpperCase()}'S MOST RECENT TURN ===\n${targetRecentTurn}\n` : '';
   return { avoidRepeat, targetTurn };
@@ -332,7 +332,7 @@ function getMoveSpecificInstructions(move: InterventionMove, target: string, sou
       return `Ask ${target} for their single most important reason in one sentence (max 40 words).`;
     case 'COMMIT':
       // t/784 (Design rules): open with the target's name and the commitment asked, no recap, at most 2 sentences.
-      return `Ask ${target} for their final position by pressing ONE specific point that is recognisably theirs: the disagreement ${target} pressed hardest, or a concession ${target} made but has not reconciled with their position. Take it from ${target}'s own turns (their most recent turn is shown above) and name it concretely. Your FIRST sentence must begin with "${target}," and put that point to them. Ask them to commit: will they hold, qualify or give it up, and what would change their mind. Word this naturally around the point; do NOT list numbered asks or use a fixed formula. Write at most 2 sentences in total. Do NOT recap or summarise the debate (never open with "This debate has focused on..." or a list of who conceded what); the synthesis does that.`;
+      return `Ask ${target} for their final position by pressing ONE specific point that is recognisably theirs: the disagreement ${target} pressed hardest, or a concession ${target} made but has not reconciled with their position. Take it from ${target}'s own turns (their most recent turn is shown above) and name it concretely. Your FIRST sentence must begin with "${target}," and put that point to them. Then ask, in words fitted to that point, whether they still stand by it and what would change their mind. Do NOT use a stock phrase for this ask, list numbered asks, or reuse any wording from the earlier requests listed below. Write at most 2 sentences in total. Do NOT recap or summarise the debate (never open with "This debate has focused on..." or a list of who conceded what); the synthesis does that.`;
     case 'CRUX_FOCUS':
       return `Focus ${target} on the core disagreement that neither side has been able to resolve. Ask them to name the specific evidence or value commitment that would change their position.`;
   }
