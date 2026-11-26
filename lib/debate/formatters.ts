@@ -9,6 +9,7 @@
 import type { DebateSession, SpeakerId, TranscriptEntry } from './types.js';
 import { POVER_INFO, normalizeVerdict } from './types.js';
 import { orderSynthesisLists } from './synthesisOrder.js';
+import { factCheckExportView, factCheckSummaryText } from './factCheckExport.js';
 import {
   extractConflictCandidates,
   extractSteelmanCandidates,
@@ -246,7 +247,7 @@ export function formatDebateMarkdown(session: DebateSession): string {
   if (factChecks.length > 0) {
     const counts: Record<string, number> = {};
     for (const fc of factChecks) {
-      const v = ((fc.metadata as Record<string, unknown> | undefined)?.verdict as string | undefined) ?? 'unknown';
+      const v = factCheckExportView(fc).label;
       counts[v] = (counts[v] ?? 0) + 1;
     }
     const summary = Object.entries(counts).map(([v, n]) => `${n} ${v}`).join(', ');
@@ -257,10 +258,11 @@ export function formatDebateMarkdown(session: DebateSession): string {
     lines.push('');
     for (const fc of factChecks) {
       const meta = fc.metadata as Record<string, unknown> | undefined;
-      const verdict = (meta?.verdict as string | undefined) ?? 'unknown';
+      // t/771: verdict from metadata (either shape), printed once; body without a repeated verdict.
+      const { label, text } = factCheckSummaryText(fc);
       const source = (meta?.source as string | undefined) === 'auto' ? 'auto' : 'user';
       const confidence = meta?.confidence ? ` (confidence: ${meta.confidence})` : '';
-      lines.push(`- **${verdict}** _[${source}]_${confidence}: ${fc.content.slice(0, 240)}`);
+      lines.push(`- **${label}** _[${source}]_${confidence}: ${text}`);
     }
     lines.push('');
   }
