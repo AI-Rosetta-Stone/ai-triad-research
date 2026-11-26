@@ -40,6 +40,11 @@ import { StatementHowLayout } from './StatementHowLayout';
 import { StatementTierPills, type SetEntryDisplayTier } from './StatementTierPills';
 import { StructuredBrief, ReadMoreLink, HeaderTurnSymbols, structuredBriefOf, structuredBriefText, collapsedClaimOf } from './StatementBrief';
 import { useTurnCollapsed } from './turnCollapse';
+import { findingOf, pointsOf, limitOf, collapsedFindingOf } from './factCheckView';
+import {
+  FactCheckPill, FactCheckTargetLink, FactCheckChecked, FactCheckFinding, FactCheckPoints,
+  FactCheckDiscrepancyPair, FactCheckSourcesRow, FactCheckDetailsToggle, type FactCheckTarget,
+} from './FactCheckParts';
 import { StatementSteelmans } from '../shared/Steelman';
 import { useDiagnoseEntry } from './useDiagnoseEntry';
 import { api } from '@bridge';
@@ -977,12 +982,17 @@ export function ProbingCard({ entry, statementId }: { entry: TranscriptEntry; st
   );
 }
 
-// ── FactCheckCard sub-parts (t/1911 ADR-007 line-slice) ─────────────────
+// ── FactCheckCard (t/764: docs/ux/debate-fact-check-card.md) ─────────────
 type FactCheckMeta = {
   verdict: FactVerdict;
   discrepancy?: FactDiscrepancy;
   explanation: string;
   checked_text: string;
+  /** §5 (t/763): optional, written by the Debate Engine; an old entry has none. */
+  finding?: string;
+  finding_points?: string[];
+  limit?: string;
+  target_an_id?: string;
   web_search_used?: boolean;
   web_search_queries?: string[];
   web_search_evidence?: string;
@@ -994,130 +1004,6 @@ type FactCheckMeta = {
 };
 type FactCheckCitation = NonNullable<FactCheckMeta['web_search_citations']>[number];
 
-function FactCheckHeader({ statementId, factCheck, verdictClass, citations, hasWebEvidence, showWebEvidence, setShowWebEvidence }: {
-  statementId?: string;
-  factCheck: FactCheckMeta | undefined;
-  verdictClass: string;
-  citations: FactCheckCitation[];
-  hasWebEvidence: boolean;
-  showWebEvidence: boolean;
-  setShowWebEvidence: (v: boolean) => void;
-}) {
-  return (
-    <div className="debate-statement-header">
-      {statementId && (
-        <span className="debate-statement-id" title={`Statement ${statementId}`} id={`stmt-${statementId}`}>
-          {statementId}
-        </span>
-      )}
-      <span className="debate-statement-speaker">Fact Check</span>
-      <span className={`debate-fact-check-verdict ${verdictClass}`}>
-        {factCheck ? FACT_VERDICT_LABEL[factCheck.verdict] ?? factCheck.verdict : 'unknown'}
-      </span>
-      <TheoryLink docPath="docs/fact-check-process.md" anchor="what-the-card-shows-you" size={12} />
-      {citations.length > 0 && (
-        <span className="debate-fact-check-sources-inline" aria-label="External sources">
-          <span className="debate-fact-check-sources-inline-label">Sources:</span>
-          {citations.map((c, i) => (
-            c.uri ? (
-              <a
-                key={c.uri || i}
-                href={c.uri}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="debate-fact-check-sources-inline-link"
-                title={c.title || c.uri}
-              >
-                [{i + 1}]
-              </a>
-            ) : (
-              <span
-                key={i}
-                className="debate-fact-check-sources-inline-link debate-fact-check-sources-inline-link-disabled"
-                title={c.title}
-              >
-                [{i + 1}]
-              </span>
-            )
-          ))}
-        </span>
-      )}
-      {hasWebEvidence && (
-        <button
-          className="btn btn-sm debate-fact-check-web-toggle"
-          onClick={() => setShowWebEvidence(!showWebEvidence)}
-          title={showWebEvidence ? 'Hide web evidence' : 'Show web search evidence'}
-        >
-          {showWebEvidence ? 'Hide Web Evidence' : 'Show Web Evidence'}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function FactCheckDiscrepancy({ factCheck }: { factCheck: FactCheckMeta | undefined }) {
-  if (!(factCheck?.verdict === 'partially_accurate' && factCheck.discrepancy)) return null;
-  return (
-    <div
-      className={`debate-fact-check-discrepancy debate-fact-check-severity-${factCheck.discrepancy.severity}`}
-      title={factCheck.discrepancy.source ? `Source: ${factCheck.discrepancy.source}` : undefined}
-    >
-      <span className="debate-fact-check-discrepancy-severity">
-        {factCheck.discrepancy.severity === 'major' ? '⚠ Major discrepancy' : 'Minor discrepancy'}
-      </span>
-      <span className="debate-fact-check-discrepancy-dimension">
-        {DISCREPANCY_DIMENSION_LABEL[factCheck.discrepancy.dimension] ?? factCheck.discrepancy.dimension}
-      </span>
-      <span className="debate-fact-check-discrepancy-delta">
-        <span className="debate-fact-check-discrepancy-claimed">{factCheck.discrepancy.claimed}</span>
-        <span className="debate-fact-check-discrepancy-arrow"> → </span>
-        <span className="debate-fact-check-discrepancy-actual">{factCheck.discrepancy.actual}</span>
-      </span>
-    </div>
-  );
-}
-
-function FactCheckContent({ entry, factCheck, findQuery, matchOffset, findCurrentIndex }: {
-  entry: TranscriptEntry;
-  factCheck: FactCheckMeta | undefined;
-  findQuery: string;
-  matchOffset: number;
-  findCurrentIndex: number;
-}) {
-  // Retroactive fix: older auto fact-checks truncated the claim in entry.content.
-  // Use the full checked_text from metadata when available.
-  let displayContent = entry.content;
-  if (factCheck?.checked_text) {
-    const quoteStart = displayContent.indexOf('"');
-    const quoteEnd = quoteStart >= 0 ? displayContent.indexOf('"', quoteStart + 1) : -1;
-    if (quoteStart >= 0 && quoteEnd > quoteStart) {
-      const embedded = displayContent.slice(quoteStart + 1, quoteEnd);
-      const isTruncated = embedded.endsWith('...') && factCheck.checked_text.length > embedded.length;
-      const claimText = isTruncated ? factCheck.checked_text : embedded;
-      // t/4726 wraps the claim in `*"..."*`; a plain `"..."` (no surrounding asterisks) is a
-      // debate saved before that change. Re-wrap it the same way at render time (t/4727) —
-      // never rewriting the saved file — reusing t/4726's own escaping so a claim containing
-      // `*`/`_` still renders as valid, unbroken emphasis instead of a second copy that could
-      // drift from it.
-      const alreadyItalic = displayContent[quoteStart - 1] === '*' && displayContent[quoteEnd + 1] === '*';
-      if (alreadyItalic) {
-        if (isTruncated) {
-          displayContent = displayContent.slice(0, quoteStart + 1) + claimText + displayContent.slice(quoteEnd);
-        }
-      } else {
-        displayContent = displayContent.slice(0, quoteStart) + '*"' + escapeMarkdownEmphasis(claimText) + '"*' + displayContent.slice(quoteEnd + 1);
-      }
-    }
-  }
-  return (
-    <div className="debate-statement-content markdown-body">
-      {findQuery
-        ? <HighlightedText text={displayContent} query={findQuery} matchOffset={matchOffset} currentIndex={findCurrentIndex} />
-        : <Markdown remarkPlugins={DEBATE_REMARK_PLUGINS} components={{ ...lineageMarkdownComponents, a: SafeLink, span: RefLinkSpan }}>{fixMarkdownLinks(displayContent)}</Markdown>}
-    </div>
-  );
-}
-
 function FactCheckCitationMeta({ segments }: { segments: FactCheckCitation['segments'] }) {
   const withConf = segments.filter(s => typeof s.confidence === 'number');
   if (withConf.length === 0) return null;
@@ -1125,81 +1011,75 @@ function FactCheckCitationMeta({ segments }: { segments: FactCheckCitation['segm
   return <>{`, max confidence ${max.toFixed(2)}`}</>;
 }
 
-function FactCheckWebEvidence({ factCheck, citations, show }: {
-  factCheck: FactCheckMeta | undefined;
-  citations: FactCheckCitation[];
-  show: boolean;
+function FactCheckReasoning({ reasoning, findQuery, matchOffset, findCurrentIndex }: {
+  reasoning: string; findQuery: string; matchOffset: number; findCurrentIndex: number;
 }) {
-  if (!show) return null;
+  if (!reasoning) return null;
   return (
-    <div className="debate-fact-check-web-evidence">
-      <div className="debate-fact-check-web-evidence-header">Web Search Evidence</div>
-      <div className="debate-fact-check-web-evidence-body markdown-body">
-        {factCheck?.web_search_evidence ? (
-          <Markdown remarkPlugins={DEBATE_REMARK_PLUGINS} components={{ a: SafeLink, span: RefLinkSpan }}>{fixMarkdownLinks(factCheck.web_search_evidence)}</Markdown>
-        ) : (
-          <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
-            {factCheck?.web_search_used
-              ? 'Web search was performed but the grounding response did not include extractable evidence text. The search results were still used to inform the verdict above.'
-              : 'Web search was not available for this fact check. Verdict is based on internal taxonomy data and conflict database only.'}
-          </p>
-        )}
-        {citations.length > 0 && (
-          <ol className="debate-fact-check-sources">
-            {citations.map((c, i) => (
-              <li key={c.uri || i} id={`fact-check-source-${i + 1}`}>
-                {c.uri ? (
-                  <a href={c.uri} target="_blank" rel="noreferrer noopener">{c.title}</a>
-                ) : (
-                  <span>{c.title}</span>
-                )}
-                {c.segments.length > 0 && (
-                  <span className="debate-fact-check-source-meta">
-                    {' '}
-                    — {c.segments.length} grounded span{c.segments.length === 1 ? '' : 's'}
-                    <FactCheckCitationMeta segments={c.segments} />
-                  </span>
-                )}
-              </li>
-            ))}
-          </ol>
-        )}
+    <>
+      <h4 className="debate-fact-check-details-heading">Full reasoning</h4>
+      <div className="debate-statement-content markdown-body">
+        {findQuery
+          ? <HighlightedText text={reasoning} query={findQuery} matchOffset={matchOffset} currentIndex={findCurrentIndex} />
+          : <Markdown remarkPlugins={DEBATE_REMARK_PLUGINS} components={{ ...lineageMarkdownComponents, a: SafeLink, span: RefLinkSpan }}>{fixMarkdownLinks(reasoning)}</Markdown>}
       </div>
-    </div>
+    </>
   );
 }
 
-export function FactCheckCard({ entry, statementId, findQuery = '', matchOffset = 0, findCurrentIndex = -1 }: {
-  entry: TranscriptEntry; statementId?: string; findQuery?: string; matchOffset?: number; findCurrentIndex?: number;
-}) {
-  const activeDebate = useDebateStore(s => s.activeDebate);
-  const [showWebEvidence, setShowWebEvidence] = useState(false);
-  const factCheck = entry.metadata?.fact_check as FactCheckMeta | undefined;
-  // Same scoping hook as StatementCard — carries the 95ch prose measure (t/2240)
-  // onto fact-check panels so both surfaces read as one system.
-  const chatRedesign = useFlag('DEBATE_CHAT_REDESIGN');
-
-  const verdictClass = factCheck?.verdict
-    ? `debate-fact-check-${factCheck.verdict}`
-    : '';
-
-  const citations = factCheck?.web_search_citations ?? [];
-  const hasWebEvidence = !!(factCheck?.web_search_used || factCheck?.web_search_evidence || citations.length > 0);
-
+function FactCheckCitationList({ citations }: { citations: FactCheckCitation[] }) {
+  if (citations.length === 0) return null;
   return (
-    <div className={`debate-statement debate-type-fact-check debate-speaker-system ${verdictClass}${chatRedesign ? ' debate-redesign' : ''}`}>
-      <FactCheckHeader
-        statementId={statementId}
-        factCheck={factCheck}
-        verdictClass={verdictClass}
-        citations={citations}
-        hasWebEvidence={hasWebEvidence}
-        showWebEvidence={showWebEvidence}
-        setShowWebEvidence={setShowWebEvidence}
-      />
-      <FactCheckDiscrepancy factCheck={factCheck} />
-      <FactCheckContent entry={entry} factCheck={factCheck} findQuery={findQuery} matchOffset={matchOffset} findCurrentIndex={findCurrentIndex} />
-      <FactCheckWebEvidence factCheck={factCheck} citations={citations} show={showWebEvidence} />
+    <ol className="debate-fact-check-sources">
+      {citations.map((c, i) => (
+        <li key={c.uri || i} id={`fact-check-source-${i + 1}`}>
+          {c.uri ? <a href={c.uri} target="_blank" rel="noreferrer noopener">{c.title}</a> : <span>{c.title}</span>}
+          {c.segments.length > 0 && (
+            <span className="debate-fact-check-source-meta">
+              {' '}— {c.segments.length} grounded span{c.segments.length === 1 ? '' : 's'}
+              <FactCheckCitationMeta segments={c.segments} />
+            </span>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** §2: the queries, the grounding text and the numbered citations, or a note that no search ran. */
+function FactCheckWebSearch({ factCheck, citations }: { factCheck: FactCheckMeta | undefined; citations: FactCheckCitation[] }) {
+  const queries = factCheck?.web_search_queries ?? [];
+  const evidence = factCheck?.web_search_evidence;
+  if (queries.length === 0 && citations.length === 0 && !evidence) {
+    return <p className="debate-fact-check-details-searched">Web search was not used for this fact check; the verdict rests on the taxonomy and conflict data.</p>;
+  }
+  return (
+    <>
+      <h4 className="debate-fact-check-details-heading">Web search</h4>
+      {queries.length > 0 && <p className="debate-fact-check-details-searched">Searched: {queries.map(q => `“${q}”`).join(' · ')}</p>}
+      {evidence && (
+        <div className="debate-fact-check-web-evidence-body markdown-body">
+          <Markdown remarkPlugins={DEBATE_REMARK_PLUGINS} components={{ a: SafeLink, span: RefLinkSpan }}>{fixMarkdownLinks(evidence)}</Markdown>
+        </div>
+      )}
+      <FactCheckCitationList citations={citations} />
+    </>
+  );
+}
+
+/** §2: the details panel: full reasoning, the web search, the taxonomy sources. */
+function FactCheckDetails({ id, entry, factCheck, citations, find, activeDebate }: {
+  id: string;
+  entry: TranscriptEntry;
+  factCheck: FactCheckMeta | undefined;
+  citations: FactCheckCitation[];
+  find: { query: string; matchOffset: number; currentIndex: number };
+  activeDebate: ActiveDebateT;
+}) {
+  return (
+    <div className="debate-fact-check-details" id={id}>
+      <FactCheckReasoning reasoning={factCheck?.explanation || ''} findQuery={find.query} matchOffset={find.matchOffset} findCurrentIndex={find.currentIndex} />
+      <FactCheckWebSearch factCheck={factCheck} citations={citations} />
       <TaxonomyRefsSection
         refs={entry.taxonomy_refs}
         policyRefs={entry.policy_refs}
@@ -1208,5 +1088,106 @@ export function FactCheckCard({ entry, statementId, findQuery = '', matchOffset 
         stageDiagnostics={stageDiagnosticsFor(activeDebate, entry.id)}
       />
     </div>
+  );
+}
+
+/** §1.1: the entry the fact check was raised on, from its argument-network node. Null when the
+ *  fact check has no known target (a manual one): the `of …` part is then omitted. */
+function factCheckTargetOf(activeDebate: ActiveDebateT, targetAnId: string | undefined): FactCheckTarget | null {
+  if (!activeDebate || !targetAnId) return null;
+  const node = activeDebate.argument_network?.nodes?.find(n => n.id === targetAnId);
+  const target = node ? activeDebate.transcript.find(e => e.id === node.source_entry_id) : undefined;
+  if (!target) return null;
+  return { entryId: target.id, speaker: speakerLabel(target.speaker), kind: kindLabel(target.type) };
+}
+
+/** What the card shows, worked out once: the finding, points, target and the collapse state. */
+function useFactCheckView(entry: TranscriptEntry, factCheck: FactCheckMeta | undefined, findQuery: string) {
+  const activeDebate = useDebateStore(s => s.activeDebate);
+  const { collapsed, toggle } = useTurnCollapsed(activeDebate?.id, activeDebate?.transcript, entry.id);
+  const target = useMemo(() => factCheckTargetOf(activeDebate, factCheck?.target_an_id), [activeDebate, factCheck?.target_an_id]);
+  // A find-in-debate match shows the card open, with the reasoning it matched in.
+  const hasFindMatch = !!findQuery && countOccurrences(entry.content, findQuery) > 0;
+  return {
+    activeDebate, toggle, target, hasFindMatch,
+    isCollapsed: collapsed && !hasFindMatch,
+    caretShown: !!activeDebate?.id,
+    finding: findingOf(factCheck), points: pointsOf(factCheck), limit: limitOf(factCheck),
+  };
+}
+
+/** §4: two lines. Line 1: caret, label, pill, `of {Speaker} · {Kind}`. Line 2: the finding. */
+function CollapsedFactCheck({ className, entry, factCheck, statementId, view, pill }: {
+  className: string; entry: TranscriptEntry; factCheck: FactCheckMeta | undefined; statementId?: string;
+  view: ReturnType<typeof useFactCheckView>; pill: ReactNode;
+}) {
+  return (
+    <div className={className} data-entry-id={entry.id}>
+      <div className="debate-statement-header" onClick={(e) => { e.stopPropagation(); view.toggle(); }}>
+        {view.caretShown && <StatementCollapseToggle collapsed onToggle={view.toggle} entryId={entry.id} />}
+        <div className="debate-statement-collapsed-body">
+          <div className="debate-statement-collapsed-line">
+            <span className="debate-fact-check-header-label">Fact check</span>
+            {pill}
+            <FactCheckTargetLink target={view.target} statementId={statementId} asLink={false} />
+          </div>
+          <span className="debate-statement-collapsed-claim">{collapsedFindingOf(factCheck)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** §1: the open card: header, checked claim, finding, points or the discrepancy pair, sources, details. */
+function OpenFactCheck({ className, entry, factCheck, statementId, view, pill, find }: {
+  className: string; entry: TranscriptEntry; factCheck: FactCheckMeta | undefined; statementId?: string;
+  view: ReturnType<typeof useFactCheckView>; pill: ReactNode;
+  find: { query: string; matchOffset: number; currentIndex: number };
+}) {
+  const [showDetails, setShowDetails] = useState(false);
+  const citations = factCheck?.web_search_citations ?? [];
+  const detailsOpen = showDetails || view.hasFindMatch;
+  const detailsId = `debate-fact-check-details-${entry.id}`;
+  const pair = factCheck?.verdict === 'partially_accurate' ? factCheck.discrepancy : undefined;
+  return (
+    <div className={className} data-entry-id={entry.id}>
+      <div className="debate-statement-header">
+        {view.caretShown && <StatementCollapseToggle collapsed={false} onToggle={view.toggle} entryId={entry.id} />}
+        <span className="debate-fact-check-header-label">Fact check</span>
+        {pill}
+        <TheoryLink docPath="docs/fact-check-process.md" anchor="what-the-card-shows-you" size={12} />
+        <FactCheckTargetLink target={view.target} statementId={statementId} asLink />
+      </div>
+      <FactCheckChecked text={factCheck?.checked_text} />
+      {view.finding ? <FactCheckFinding>{view.finding}</FactCheckFinding> : null}
+      {pair ? <FactCheckDiscrepancyPair discrepancy={pair} /> : <FactCheckPoints points={view.points} limit={view.limit} />}
+      <FactCheckSourcesRow citations={citations} />
+      <FactCheckDetailsToggle open={detailsOpen} onToggle={() => setShowDetails(!showDetails)} panelId={detailsId} />
+      {detailsOpen && (
+        <FactCheckDetails id={detailsId} entry={entry} factCheck={factCheck} citations={citations} find={find} activeDebate={view.activeDebate} />
+      )}
+    </div>
+  );
+}
+
+export function FactCheckCard({ entry, statementId, findQuery = '', matchOffset = 0, findCurrentIndex = -1 }: {
+  entry: TranscriptEntry; statementId?: string; findQuery?: string; matchOffset?: number; findCurrentIndex?: number;
+}) {
+  const factCheck = entry.metadata?.fact_check as FactCheckMeta | undefined;
+  // Same scoping hook as StatementCard — carries the 95ch prose measure (t/2240)
+  // onto fact-check panels so both surfaces read as one system.
+  const chatRedesign = useFlag('DEBATE_CHAT_REDESIGN');
+  const view = useFactCheckView(entry, factCheck, findQuery);
+  const verdictClass = factCheck?.verdict ? `debate-fact-check-${factCheck.verdict}` : '';
+  const pill = <FactCheckPill verdict={factCheck?.verdict} verdictClass={verdictClass} />;
+  const className = `debate-statement debate-type-fact-check debate-speaker-system ${verdictClass}${chatRedesign ? ' debate-redesign' : ''}${view.isCollapsed ? ' debate-statement-collapsed' : ''}`;
+  if (view.isCollapsed) {
+    return <CollapsedFactCheck className={className} entry={entry} factCheck={factCheck} statementId={statementId} view={view} pill={pill} />;
+  }
+  return (
+    <OpenFactCheck
+      className={className} entry={entry} factCheck={factCheck} statementId={statementId} view={view} pill={pill}
+      find={{ query: findQuery, matchOffset, currentIndex: findCurrentIndex }}
+    />
   );
 }
