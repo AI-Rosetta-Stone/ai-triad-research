@@ -183,6 +183,19 @@ describe('t/724 over real HTTP: an anonymous visitor with a valid session', () =
   });
 });
 
+describe('t/724 over real HTTP: the title-only rename delta (Rosetta Stone p/74#42)', () => {
+  it('exactly the rename body the renderer sends passes on an existing Deep dive; anything beyond meta.title does not', async () => {
+    store.set(`anon-${A}`, new Map([['old', deep('old')]]));
+    // The body renameDebate sends: debateId, baseVersion, four empty arrays, meta { title } (no changedFields, no updated_at).
+    const rename = { debateId: 'old', baseVersion: 1, newTranscriptEntries: [], changedNodes: [], changedEdges: [], newMutations: [], meta: { title: 'Renamed' } };
+    expect((await send('PATCH', '/api/debates/old', signed(A), rename)).text).toBe('reached');
+    expectAnonLimit(await send('PATCH', '/api/debates/old', signed(A), { ...rename, meta: { title: 'x', protocol_id: 'structured' } }), 'anon_debate_kind');
+    expectAnonLimit(await send('PATCH', '/api/debates/old', signed(A), { ...rename, changedFields: ['title'] }), 'anon_debate_kind');
+    expectAnonLimit(await send('PATCH', '/api/debates/old', signed(A), { ...rename, newMutations: [{ id: 'm' }] }), 'anon_debate_kind');
+    expectAnonLimit(await send('PATCH', '/api/debates/old', signed(A), { ...rename, meta: {} }), 'anon_debate_kind');
+  });
+});
+
 describe('t/724 over real HTTP, B1: no valid anonymous session', () => {
   it.each([['a bare (unsigned) cookie', BARE], ['a forged signature', FORGED], ['no session cookie', NO_SESSION_COOKIE]])(
     '%s: PUT, PATCH and a debate AI call are 401 no_session, and nothing is stored', async (_n, cookie) => {
