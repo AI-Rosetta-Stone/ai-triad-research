@@ -84,7 +84,7 @@ describe('toPublicInquiryShare — t/285 directAnswer Condition A and questionDr
     expect(share).not.toHaveProperty('questionDrift.warning');
   });
 
-  it('carries the per-camp answer flag and note on a healthy run', () => {
+  it('never carries the per-camp answer flag or note: stored, not shown (TL t/285#53)', () => {
     const base = makeResult({
       calibration: makeCalibration({ verdict: 'trust', reason: 'natural', terminationReason: 'natural' }),
     });
@@ -94,8 +94,9 @@ describe('toPublicInquiryShare — t/285 directAnswer Condition A and questionDr
       campVerdicts: [{ camp: 'acc' as const, verdict: 'v', nodes: [node], answeredLiteralQuestion: false, answerNote: 'Focused on X.' }],
     } as InquiryResult;
     const cv = toPublicInquiryShare(withFlag).campVerdicts[0];
-    expect(cv.answeredLiteralQuestion).toBe(false);
-    expect(cv.answerNote).toBe('Focused on X.');
+    expect(cv).not.toHaveProperty('answeredLiteralQuestion');
+    expect(cv).not.toHaveProperty('answerNote');
+    expect(JSON.stringify(toPublicInquiryShare(withFlag))).not.toContain('Focused on X.');
   });
 });
 

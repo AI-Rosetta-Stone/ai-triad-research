@@ -44,6 +44,7 @@ export type FieldPath = string;
 const EXPORT_FULL = 'Owner-initiated export of one\'s own answer — the owner already has access to every field; full fidelity is the point (TL t/3651#2).';
 const COMMUNITY_CORE = 'Core answer content — the substance a community reader is there to see (authenticated cross-user, not anonymous).';
 const PUBLIC_CORE = 'Answer substance — the shared artifact itself.';
+const CAMP_FLAG_GATED = 'GATED (t/285#53): the model\'s unvalidated self-report of whether a camp answered; stored for the validation sample, not shown until it is run and the TL rules on its rate.';
 // POV tags (t/3965, SO e/252 cond 1; TL t/3965#6). Same reasoning as request.fidelity, and more severe: a
 // Scope run grounds one camp on a single tagged wing, so published without its tag it reads as the whole
 // camp's position, with no way for the reader to tell.
@@ -133,17 +134,20 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
   },
   'campVerdicts.nodes.label': { 'public-share': I('Public-safe node display snapshot (label, not id).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
   'campVerdicts.nodes.camp': { 'public-share': I('Public-safe node snapshot (camp code).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
-  // t/285 — whether each camp answered the literal question. Derived from public debate content; no user data.
-  // Column owners (Server Auth, Server Community) confirm on the PR; Shared Lib owns the export column.
+  // t/285 — whether each camp answered the literal question, and the note that goes with it.
+  // STORED, NOT SHOWN (TL t/285#53): both are the model's own unvalidated self-report, the same kind of
+  // "did not answer" judgment t/496 ruled out for a warning. They stay in the stored result so the
+  // Comp-Linguist validation sample has data, and no surface carries them until that sample is run and the
+  // TL rules on its rate. The TL's ruling covers all three columns.
   'campVerdicts.answeredLiteralQuestion': {
-    'public-share': I('Answer-quality flag derived from public debate content; no user data. Lets a public reader see whether a camp answered the question.'),
-    community: I(COMMUNITY_CORE),
-    export: I(EXPORT_FULL),
+    'public-share': X(CAMP_FLAG_GATED),
+    community: X(CAMP_FLAG_GATED),
+    export: X(`${CAMP_FLAG_GATED} The owner is a person reading the download.`),
   },
   'campVerdicts.answerNote': {
-    'public-share': I('One-line note on a camp that did not answer directly; derived from public debate content, no user data (t/285 TL: include on all surfaces).'),
-    community: I(COMMUNITY_CORE),
-    export: I(EXPORT_FULL),
+    'public-share': X(CAMP_FLAG_GATED),
+    community: X(CAMP_FLAG_GATED),
+    export: X(`${CAMP_FLAG_GATED} The owner is a person reading the download.`),
   },
   // t/285 — direct answer and question drift. Derived from public debate content; no user data.
   'directAnswer.text': {

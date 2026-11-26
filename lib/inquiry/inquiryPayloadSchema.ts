@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { z } from 'zod';
-import { InquiryResultSchema, QuestionDriftSchema } from './schema.js';
+import { CampVerdictSchema, InquiryResultSchema, QuestionDriftSchema } from './schema.js';
 
 // HTTP/HTTPS URL validation — rejects javascript:, data:, and other non-web protocols.
 // Zod's .url() is insufficient; it allows javascript: and data: URIs.
@@ -18,11 +18,13 @@ export const HttpUrlSchema = z.string().refine(
   { message: 'Must be a valid HTTP or HTTPS URL' }
 );
 
-// The community projection of questionDrift (t/285, TL p/35#89): the gated `warning` is absent. It is strict, so a
-// result that still carries the warning is refused here, not uploaded. The full InquiryResultSchema still requires
-// `warning` for the public and export surfaces.
+// The community projection (t/285, TL p/35#89 and t/285#53): the gated `questionDrift.warning` and each camp's
+// gated `answeredLiteralQuestion` and `answerNote` are absent. Both shapes are strict, so a result that still
+// carries a gated leaf is refused here, not uploaded.
 const CommunityQuestionDriftSchema = QuestionDriftSchema.omit({ warning: true }).strict();
+const CommunityCampVerdictSchema = CampVerdictSchema.omit({ answeredLiteralQuestion: true, answerNote: true }).strict();
 export const CommunityInquiryResultSchema = InquiryResultSchema.extend({
+  campVerdicts: z.array(CommunityCampVerdictSchema),
   questionDrift: CommunityQuestionDriftSchema.optional(),
 }).strict();
 

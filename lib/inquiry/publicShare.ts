@@ -35,13 +35,12 @@ const PublicTrustStateSchema = z.object({
 }).strict();
 // t/285: the public share drops questionDrift.warning until the CL validation gate is met (t/285#7).
 const PublicQuestionDriftSchema = QuestionDriftSchema.omit({ warning: true }).strict();
-// t/285: answer flags are public-safe (fieldClassification: include on all surfaces). Named, not spread, so a new field stays out until classified.
+// t/285#53: the per-camp answer flag and note are stored, not shown, so they are not in the share. Fields are
+// named, not spread, so a new field stays out until classified.
 const PublicCampVerdictSchema = z.object({
   camp: CampSchema,
   verdict: z.string(),
   nodes: z.array(PublicNodeRefSchema),
-  answeredLiteralQuestion: z.boolean().optional(),
-  answerNote: z.string().max(300).optional(),
 }).strict();
 const PublicConvergenceSchema = z.object({ claim: z.string(), nodes: z.array(PublicNodeRefSchema) }).strict();
 const PublicEvidenceLayerSchema = z.object({ title: z.string(), role: z.string(), solves: z.string(), sources: z.array(z.string()) }).strict();
@@ -249,8 +248,6 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       camp: cv.camp,
       verdict: cv.verdict,
       nodes: cv.nodes.map(publicNode),
-      ...(cv.answeredLiteralQuestion !== undefined ? { answeredLiteralQuestion: cv.answeredLiteralQuestion } : {}),
-      ...(cv.answerNote !== undefined ? { answerNote: cv.answerNote } : {}),
     })),
     convergences: result.convergences.map((c) => ({ claim: truncateExcerpt(c.claim), nodes: c.nodes.map(publicNode) })),
     evidenceLayers: result.evidenceLayers.map((e) => ({ title: truncateExcerpt(e.title), role: truncateExcerpt(e.role), solves: truncateExcerpt(e.solves), sources: sanitizeSources(e.sources) })),

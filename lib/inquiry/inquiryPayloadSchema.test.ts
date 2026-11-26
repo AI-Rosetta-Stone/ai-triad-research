@@ -132,6 +132,14 @@ describe('inquiryPayloadSchema with questionDrift (t/285)', () => {
     expect(inquiryPayloadSchema.safeParse({ result: makeDriftedResult(), note: '' }).success).toBe(false);
   });
 
+  it('refuses a result whose camp verdict still carries the gated answer flag or note (TL t/285#53)', () => {
+    const projected = toCommunityInquiryResult(makeDriftedResult() as any);
+    const withFlag = { ...projected, campVerdicts: projected.campVerdicts.map((cv) => ({ ...cv, answeredLiteralQuestion: false })) };
+    const withNote = { ...projected, campVerdicts: projected.campVerdicts.map((cv) => ({ ...cv, answerNote: 'Focused on X.' })) };
+    expect(inquiryPayloadSchema.safeParse({ result: withFlag, note: '' }).success).toBe(false);
+    expect(inquiryPayloadSchema.safeParse({ result: withNote, note: '' }).success).toBe(false);
+  });
+
   it('still accepts a result with no questionDrift block at all', () => {
     expect(inquiryPayloadSchema.safeParse({ result: makeValidResult(), note: '' }).success).toBe(true);
   });

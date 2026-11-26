@@ -35,6 +35,22 @@ describe('t/285 community projection: questionDrift', () => {
   });
 });
 
+describe('t/285 community projection: per-camp answer flags (TL t/285#53)', () => {
+  it('drops each camp’s answeredLiteralQuestion and answerNote, and keeps the verdict', () => {
+    const result = asResult(makeDriftedResult());
+    expect(JSON.stringify(result)).toContain('answerNote'); // the fixture does carry them
+    const out = toCommunityInquiryResult(result);
+    expect(out.campVerdicts.length).toBe(result.campVerdicts.length);
+    for (const cv of out.campVerdicts) {
+      expect(cv).not.toHaveProperty('answeredLiteralQuestion');
+      expect(cv).not.toHaveProperty('answerNote');
+      expect(cv).toHaveProperty('verdict');
+    }
+    // The stored result keeps them for the validation sample.
+    expect(result.campVerdicts[0]).toHaveProperty('answeredLiteralQuestion', false);
+  });
+});
+
 describe('t/285 community projection: directAnswer Condition A', () => {
   it('keeps directAnswer on a healthy run', () => {
     const out = toCommunityInquiryResult(asResult(makeOnQuestionResult()));
@@ -50,7 +66,10 @@ describe('t/285 community projection: directAnswer Condition A', () => {
   it('keeps the rest of the result on a degraded run (only the answer is gated)', () => {
     const degraded = asResult({ ...makeOnQuestionResult(), calibration: censored });
     const out = toCommunityInquiryResult(degraded);
-    expect(out.campVerdicts).toEqual(degraded.campVerdicts);
+    // The camp verdicts survive, minus the gated per-camp flags (TL t/285#53).
+    expect(out.campVerdicts).toEqual(
+      degraded.campVerdicts.map((cv) => ({ camp: cv.camp, verdict: cv.verdict, nodes: cv.nodes })),
+    );
     expect(out.singleRunCaveat).toBe(degraded.singleRunCaveat);
   });
 });

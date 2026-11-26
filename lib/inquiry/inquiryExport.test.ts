@@ -169,7 +169,31 @@ describe('inquiryExport', () => {
       const instruction =
         `export exclusions changed (now: ${nowExcluded.join(', ')}). Update exportableResult in inquiryExport.ts ` +
         'to strip each newly excluded leaf, then list it here.';
-      expect(nowExcluded, instruction).toEqual(['questionDrift.warning']);
+      expect(nowExcluded, instruction).toEqual([
+        'campVerdicts.answerNote',
+        'campVerdicts.answeredLiteralQuestion',
+        'questionDrift.warning',
+      ]);
+    });
+
+    it('the download omits each camp’s answer flag and note: stored, not shown (TL t/285#53)', () => {
+      const base = makeResult();
+      const result = {
+        ...base,
+        campVerdicts: base.campVerdicts.map((cv) => ({ ...cv, answeredLiteralQuestion: false, answerNote: 'Focused on X.' })),
+      } as InquiryResult;
+      expect(result.campVerdicts.length).toBeGreaterThan(0);
+      const json = inquiryToJson(result, { exportedAt: EXPORTED_AT });
+      const parsed = JSON.parse(json);
+      for (const cv of parsed.result.campVerdicts) {
+        expect(cv).not.toHaveProperty('answeredLiteralQuestion');
+        expect(cv).not.toHaveProperty('answerNote');
+        expect(cv).toHaveProperty('verdict');
+      }
+      expect(json).not.toContain('Focused on X.');
+      expect(inquiryToMarkdown(result)).not.toContain('Focused on X.');
+      // The stored result itself is not mutated.
+      expect(result.campVerdicts[0].answerNote).toBe('Focused on X.');
     });
 
     it('the download omits the gated warning but keeps the drift topic and score (t/285, TL p/35#86)', () => {

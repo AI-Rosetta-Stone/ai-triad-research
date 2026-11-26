@@ -9,7 +9,6 @@ import {
   buildQuestionDrift,
   campAnswerFields,
   debatedTopicOf,
-  DRIFT_WARN_THRESHOLD,
 } from './inquirySynthesis.js';
 import { inquirySynthesisPrompt } from './prompts/inquiry.js';
 import { QuestionDriftSchema } from '../inquiry/schema.js';
@@ -44,7 +43,7 @@ describe('t/285 debated topic', () => {
   it('omits an over-long topic rather than truncating it or failing the result (TL t/285#50 item 3)', () => {
     expect(debatedTopicOf('What is harm?', 'a'.repeat(300))).toBe('a'.repeat(300));
     expect(debatedTopicOf('What is harm?', 'a'.repeat(301))).toBeUndefined();
-    const drift = buildQuestionDrift({ debatedTopic: debatedTopicOf('What is harm?', 'a'.repeat(301)), campVerdicts: [] });
+    const drift = buildQuestionDrift({ debatedTopic: debatedTopicOf('What is harm?', 'a'.repeat(301)) });
     expect(drift).not.toHaveProperty('debatedTopic');
     expect(QuestionDriftSchema.safeParse(drift).success).toBe(true);
   });
@@ -76,30 +75,19 @@ describe('t/285 per-camp answer flags', () => {
   });
 });
 
-describe('t/285 question drift warning (post-check)', () => {
-  it('is raised when any camp did not answer the question', () => {
-    const drift = buildQuestionDrift({
-      campVerdicts: [{ answeredLiteralQuestion: true }, { answeredLiteralQuestion: false }],
-    });
-    expect(drift.warning).toBe(true);
-  });
-
-  it('is not raised when every camp answered, or the flags are unknown', () => {
-    expect(buildQuestionDrift({ campVerdicts: [{ answeredLiteralQuestion: true }] }).warning).toBe(false);
-    expect(buildQuestionDrift({ campVerdicts: [{}] }).warning).toBe(false);
-  });
-
-  it('is raised at or over the drift threshold, and not below it', () => {
-    expect(DRIFT_WARN_THRESHOLD).toBe(0.3);
-    expect(buildQuestionDrift({ campVerdicts: [], driftScore: 0.3 }).warning).toBe(true);
-    expect(buildQuestionDrift({ campVerdicts: [], driftScore: 0.29 }).warning).toBe(false);
+describe('t/285 question drift block', () => {
+  it('never carries a warning: a camp flag cannot raise one (TL t/285#53, t/496)', () => {
+    // The builder takes no camp flags at all; a caller that passes them anyway still gets no warning.
+    const withFlags = { debatedTopic: 'Other topic', campVerdicts: [{ answeredLiteralQuestion: false }] };
+    expect(buildQuestionDrift(withFlags)).not.toHaveProperty('warning');
+    expect(buildQuestionDrift({})).not.toHaveProperty('warning');
+    expect(buildQuestionDrift({ driftScore: 0.9 })).not.toHaveProperty('warning');
   });
 
   it('carries the debated topic and score through when present, and is always a block', () => {
-    expect(buildQuestionDrift({ debatedTopic: 'Other topic', campVerdicts: [] })).toEqual({
-      debatedTopic: 'Other topic',
-      warning: false,
-    });
+    expect(buildQuestionDrift({ debatedTopic: 'Other topic' })).toEqual({ debatedTopic: 'Other topic' });
+    expect(buildQuestionDrift({ driftScore: 0.4 })).toEqual({ driftScore: 0.4 });
+    expect(buildQuestionDrift({})).toEqual({});
   });
 });
 

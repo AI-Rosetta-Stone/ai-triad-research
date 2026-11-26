@@ -48,9 +48,6 @@ interface LlmCampVerdict {
   answerNote?: string;
 }
 
-/** Drift score at or above which the question-drift warning is raised (t/284). A Debate Engine policy
- *  constant, deliberately not in the schema. */
-export const DRIFT_WARN_THRESHOLD = 0.3;
 const ANSWER_NOTE_MAX_CHARS = 300;
 const DEBATED_TOPIC_MAX_CHARS = 300;
 
@@ -280,20 +277,15 @@ export function campAnswerFields(cv: LlmCampVerdict): { answeredLiteralQuestion?
 
 /**
  * The question-drift block (t/285). Always present on a new result, so absence keeps meaning "not analyzed".
- * `warning` is true when any camp did not answer the question as asked, or the drift score is at or over
- * DRIFT_WARN_THRESHOLD. A camp with no answer flag does not raise the warning: unknown is not false.
+ * It describes what was debated; it does not judge. `warning` is never set here (TL t/285#53): absent means
+ * not evaluated. The only candidate input is the model's own per-camp `answeredLiteralQuestion`, and t/496
+ * found no method that can tell "did not answer at all" from "answered partly". Set `warning` only once a
+ * method has cleared that bar on t/496 and the TL has ruled on it.
  */
-export function buildQuestionDrift(input: {
-  debatedTopic?: string;
-  campVerdicts: Array<{ answeredLiteralQuestion?: boolean }>;
-  driftScore?: number;
-}): QuestionDrift {
-  const anyNotAnswered = input.campVerdicts.some((cv) => cv.answeredLiteralQuestion === false);
-  const overThreshold = input.driftScore !== undefined && input.driftScore >= DRIFT_WARN_THRESHOLD;
+export function buildQuestionDrift(input: { debatedTopic?: string; driftScore?: number }): QuestionDrift {
   return {
     ...(input.debatedTopic !== undefined && { debatedTopic: input.debatedTopic }),
     ...(input.driftScore !== undefined && { driftScore: input.driftScore }),
-    warning: anyNotAnswered || overThreshold,
   };
 }
 
@@ -389,7 +381,7 @@ export async function synthesizeInquiry(
     singleRunCaveat: parsed.singleRunCaveat || SINGLE_RUN_CAVEAT,
     ...buildHeadlineField(parsed.synthesizedHeadline),
     ...buildDirectAnswerField(parsed.directAnswer),
-    questionDrift: buildQuestionDrift({ debatedTopic, campVerdicts }),
+    questionDrift: buildQuestionDrift({ debatedTopic }),
     calibration,
     derivation,
     grounding,

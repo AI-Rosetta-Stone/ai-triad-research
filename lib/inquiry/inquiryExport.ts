@@ -15,13 +15,12 @@
 
 import type {
   InquiryResult,
-  QuestionDrift,
   Camp,
   CampVerdict,
   CalibrationEntry,
 } from './schema.js';
 import { inquiryDisplayTitle } from './schema.js';
-import { dispositionFor } from './fieldClassification.js';
+import { withoutGatedCampFields, withoutGatedWarning, type ShownCampVerdict, type ShownQuestionDrift } from './gatedFields.js';
 import { deriveTruncation } from './jobStatus.js';
 import { loadPovTagRegistry, type PovName } from '../schema/povTags.js';
 
@@ -314,13 +313,21 @@ ${sections.join('\n')}
 
 /**
  * The export projection (t/285, TL p/35#86): the result minus every leaf the matrix excludes on the export surface.
- * Today that is `questionDrift.warning`, whose gate is in fieldClassification.ts. The owner is a user reading the file.
+ * Today that is `questionDrift.warning` and each camp's `answeredLiteralQuestion` and `answerNote` (TL t/285#53),
+ * whose gates are in fieldClassification.ts. The owner is a user reading the file. The stored result is not mutated.
  */
-export function exportableResult(result: InquiryResult): Omit<InquiryResult, 'questionDrift'> & { questionDrift?: Omit<QuestionDrift, 'warning'> } {
+export type ExportableInquiryResult = Omit<InquiryResult, 'questionDrift' | 'campVerdicts'> & {
+  campVerdicts: ShownCampVerdict[];
+  questionDrift?: ShownQuestionDrift;
+};
+
+export function exportableResult(result: InquiryResult): ExportableInquiryResult {
   const drift = result.questionDrift;
-  if (!drift || dispositionFor('questionDrift.warning', 'export').include) return result;
-  const { warning: _gated, ...rest } = drift;
-  return { ...result, questionDrift: rest };
+  return {
+    ...result,
+    campVerdicts: result.campVerdicts.map(withoutGatedCampFields),
+    ...(drift !== undefined ? { questionDrift: withoutGatedWarning(drift) } : {}),
+  };
 }
 
 export function inquiryToJson(result: InquiryResult, opts?: InquiryExportOptions): string {
