@@ -828,3 +828,29 @@ describe('executeTurnWithRetry', () => {
     expect(result.pipelineResult.stage_diagnostics).toBeDefined();
   });
 });
+
+// ═══════════════════════════════════════════════════════════
+// t/784: concluding-phase COMMIT does not repeat an earlier COMMIT's opening
+// ═══════════════════════════════════════════════════════════
+
+describe('runModeratorSelection concluding COMMIT (t/784)', () => {
+  it("passes the earlier COMMIT's opening sentence into the next COMMIT prompt as not-to-reuse", async () => {
+    const RECAP = 'This debate has focused on how artificial intelligence safety rules affect market fairness and public safety.';
+    const transcript = [
+      makeTranscriptEntry({ speaker: 'accelerationist', type: 'statement' }),
+      makeTranscriptEntry({ speaker: 'safetyist', type: 'statement' }),
+      makeTranscriptEntry({ speaker: 'skeptic', type: 'statement' }),
+      makeTranscriptEntry({ speaker: 'moderator', type: 'intervention', content: `${RECAP} The Accelerationist conceded X.`, intervention_metadata: { move: 'COMMIT' } as never }),
+    ];
+    const input = makeBaseModeratorInput({ phase: 'concluding', round: 15, transcript });
+    const callbacks = makeBaseModeratorCallbacks(JSON.stringify({ text: 'Safetyist, state your final position now.' }));
+
+    await runModeratorSelection(input, callbacks);
+
+    const prompts = (callbacks.generate as ReturnType<typeof vi.fn>).mock.calls.map(c => String(c[0]));
+    const commitPrompt = prompts.find(p => p.includes('Move: COMMIT'));
+    expect(commitPrompt).toBeDefined();
+    expect(commitPrompt).toContain('Do NOT reuse or paraphrase them');
+    expect(commitPrompt).toContain(`- "${RECAP}"`);
+  });
+});

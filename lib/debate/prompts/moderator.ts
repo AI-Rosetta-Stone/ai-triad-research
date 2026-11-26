@@ -242,8 +242,13 @@ export function moderatorInterventionPrompt(
   sourceDocumentSummary?: string,
   resolution?: string,
   resolutionClauses?: string[],
+  /** t/784: opening sentences of COMMITs already given in this concluding phase, not to be repeated. */
+  priorCommitOpenings?: string[],
 ): string {
   const moveSpecificInstructions = getMoveSpecificInstructions(move, targetDebater, sourceClaim);
+  const avoidRepeat = move === 'COMMIT' && priorCommitOpenings && priorCommitOpenings.length > 0
+    ? `\nThe moderator already opened earlier final-position requests with these sentences. Do NOT reuse or paraphrase them:\n${priorCommitOpenings.map(o => `- "${o}"`).join('\n')}\n`
+    : '';
 
   const sourceAnchor = sourceDocumentSummary
     ? `\n=== SOURCE DOCUMENT ANCHOR ===\n${sourceDocumentSummary}\n\nYour intervention must anchor the debate back to concepts in the source material. If a debater has drifted into implementation details or literalized a metaphor, reference specific source-document language in your intervention.\n`
@@ -269,9 +274,11 @@ ${sourceClaim ? `Original claim: "${sourceClaim}"` : ''}${sourceAnchor}${resolut
 ${recentTranscript}
 
 === INSTRUCTIONS ===
-${moveSpecificInstructions}
+${moveSpecificInstructions}${avoidRepeat}
 
-You are procedurally authoritative. Describe what happened in the debate in terms of observable state (who said what, who evaded what, what topics were covered). Do NOT evaluate whether an argument is good, strong, correct, or compelling. The judge handles quality assessment.
+${move === 'COMMIT'
+  ? 'You are procedurally authoritative. Do NOT evaluate whether an argument is good, strong, correct, or compelling. The judge handles quality assessment.'
+  : 'You are procedurally authoritative. Describe what happened in the debate in terms of observable state (who said what, who evaded what, what topics were covered). Do NOT evaluate whether an argument is good, strong, correct, or compelling. The judge handles quality assessment.'}
 
 ${move === 'REVOICE' ? 'For REVOICE: restate the original claim in plain language. The system will verify propositional preservation before insertion.' : ''}
 ${move === 'CHECK' ? 'For CHECK: use a DIRECT QUOTE from the target debater\'s transcript, not a paraphrase.' : ''}
@@ -313,7 +320,8 @@ function getMoveSpecificInstructions(move: InterventionMove, target: string, sou
     case 'COMPRESS':
       return `Ask ${target} for their single most important reason in one sentence (max 40 words).`;
     case 'COMMIT':
-      return `Ask ${target} for their final position. They must state: (1) what they conceded during the debate, (2) what conditions would change their remaining position, (3) their sharpest remaining disagreement with each opponent.`;
+      // t/784 (Design rules): open with the target's name and the commitment asked, no recap, at most 2 sentences.
+      return `Ask ${target} for their final position. Your FIRST sentence must begin with "${target}," and state what you ask them to commit to: (1) what they conceded during the debate, (2) what conditions would change their remaining position, and (3) their sharpest remaining disagreement with each opponent. Write at most 2 sentences in total. Do NOT recap or summarise the debate (never open with "This debate has focused on..." or a list of who conceded what); the synthesis does that.`;
     case 'CRUX_FOCUS':
       return `Focus ${target} on the core disagreement that neither side has been able to resolve. Ask them to name the specific evidence or value commitment that would change their position.`;
   }
