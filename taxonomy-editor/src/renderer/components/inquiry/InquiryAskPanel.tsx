@@ -12,6 +12,8 @@ import {
 } from './InquiryOptionsSummary';
 import { useDialog } from '../shared/useDialog'; // t/4909
 import './InquiryTab.css';
+import { SignInNotice } from '../shared/SignInNotice';
+import { INQUIRY_SESSION_ENDED_LINE } from './inquirySignInCopy';
 
 // t/4751: estimateInquiryDuration's table is still PLACEHOLDER data (TL condition, p/875#4/#10)
 // — Azure's measured p50/p90 (t/4751 step 1) haven't replaced it yet, and the placeholders read
@@ -68,7 +70,7 @@ function OptionsToggleSummary({
 // it only mounts while open, so capturing the trigger on mount / restoring focus on unmount is
 // naturally open/close-symmetric (no separate `open` prop to track).
 export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
-  const { question, debaterModel, temperature, error, setQuestion, setFidelity, setDebaterModel, setEvaluatorModel, setTemperature, tagSelection, setTagSelection, resolvedModels, startInquiry } = useInquiryStore();
+  const { question, debaterModel, temperature, error, signInRequired, setQuestion, setFidelity, setDebaterModel, setEvaluatorModel, setTemperature, tagSelection, setTagSelection, resolvedModels, startInquiry } = useInquiryStore();
   const [submitting, setSubmitting] = useState(false);
   const resolved = resolvedModels();
   // t/4770: one model, used for both debaters and evaluator — the dialog no longer offers a
@@ -193,7 +195,9 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
             </div>
           </div>
 
-          {error && <p className="inquiry-error" role="alert">{error}</p>}
+          {signInRequired
+            ? <SignInNotice line={INQUIRY_SESSION_ENDED_LINE} role="alert" />
+            : error && <p className="inquiry-error" role="alert">{error}</p>}
         </div>
 
         <div className="new-question-actions">

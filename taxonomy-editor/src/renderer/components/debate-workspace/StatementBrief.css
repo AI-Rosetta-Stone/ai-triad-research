@@ -1,0 +1,116 @@
+/* t/701 (docs/ux/debate-statement-density.md): statement density. Tokens only. */
+
+/* §1: the Brief is one claim, in the statement font one step above body size, plus bullets. */
+.debate-brief-claim {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 0 0 var(--sp-2);
+  color: var(--text-primary);
+}
+
+.debate-brief-points {
+  margin: 0;
+  padding-left: 1.25em;
+}
+
+.debate-brief-points li {
+  margin-bottom: 3px;
+}
+
+/* §3 and §8: a text control in link colour. Underlined, so it reads as a link without colour. */
+.debate-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--link-color, var(--focus-ring));
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.debate-link-btn:hover {
+  text-decoration-thickness: 2px;
+}
+
+.debate-link-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.debate-read-more {
+  margin-top: var(--sp-2);
+}
+
+/* §4: the count in "Why · N sources" is secondary, normal weight. */
+.debate-mode-seg-count {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* §5: "{Speaker} · {Kind}" in plain words. The ids live in its title. */
+.debate-statement-kind {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.debate-statement-kind:target {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* §6: turn symbols are decoration in the header, at body size. */
+.debate-turn-symbols {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.debate-turn-symbol {
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: default;
+}
+
+/* §8: a collapsed turn is one row: caret, speaker, kind, claim. The claim takes the rest of
+   the row and is cut at two lines. The whole row opens the turn. */
+.debate-statement-collapsed {
+  padding-top: var(--sp-2);
+  padding-bottom: var(--sp-2);
+}
+
+.debate-statement-collapsed .debate-statement-header {
+  margin-bottom: 0;
+  align-items: baseline;
+  cursor: pointer;
+}
+
+.debate-statement-collapsed-claim {
+  flex: 1 1 0;
+  min-width: 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* Narrow screens: the header wraps, so the labelled tabs (§4) stay whole instead of being cut
+   off, and a collapsed claim drops under the speaker and kind instead of squeezing beside them. */
+@media (max-width: 480px) {
+  .debate-statement-header {
+    flex-wrap: wrap;
+    row-gap: var(--sp-1);
+  }
+  .debate-statement-collapsed-claim {
+    flex-basis: 100%;
+  }
+}

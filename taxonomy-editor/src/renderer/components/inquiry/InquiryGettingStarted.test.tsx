@@ -33,6 +33,18 @@ describe('InquiryGettingStarted (t/4562, t/4637)', () => {
     localStorage.clear();
   });
 
+  it('t/719: for an anonymous visitor the examples give way to the sign-in notice', () => {
+    render(<InquiryGettingStarted hasNoQuestions onPickStarter={vi.fn()} isAnonymous />);
+    expect(screen.getByRole('note')).toHaveTextContent('Sign in to ask your own questions. You can read questions others have shared in Community.');
+    expect(screen.getByRole('link', { name: 'Sign in with GitHub' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sign in with Google' })).toBeInTheDocument();
+    for (const q of QUESTION_STARTERS) expect(screen.queryByRole('button', { name: q })).not.toBeInTheDocument();
+    // Design p/25#205: nothing to hide, so no 'Hide examples' toggle; the heading stays.
+    expect(screen.queryByText('Hide examples')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Get a reasoned answer, not a search result' })).toBeInTheDocument();
+  });
+
   it('renders the card with exactly 3 chips, each drawn from the 15-item pool (AC2)', () => {
     render(<InquiryGettingStarted hasNoQuestions={false} onPickStarter={vi.fn()} />);
     const buttons = screen.getAllByRole('button').filter(b => QUESTION_STARTERS.includes(b.textContent ?? ''));

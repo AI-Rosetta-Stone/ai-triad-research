@@ -184,10 +184,16 @@ function streamErrorFor(event: Record<string, unknown>, setId: string | undefine
 }
 
 /** A finished stream's outcome: the run's error, a pool stop (t/467: the core completed with whatever finished, and
- *  the dialog checks the set and says so), or the created set. Null when the stream gave no answer. */
-function settleRun(streamError: ActionableError | null, stoppedBy: FreePoolCode | null, setId: string | null): { set_id: string } | null {
+ *  the dialog checks the set and says so), or the created set. Null when the stream gave no answer.
+ *  t/741: a pool stop is reported even when the stream ended without 'complete'. The set id is then run_started's
+ *  (t/703) when the server sent one; without it the dialog says some voices may have been saved. Run-status recovery
+ *  would lose the pool code, and an anonymous visitor can't read the run status anyway. */
+function settleRun(streamError: ActionableError | null, stoppedBy: FreePoolCode | null, setId: string | null, startedSetId: string | undefined): { set_id: string } | null {
   if (streamError) throw streamError;
-  if (stoppedBy && setId) throw freePoolError({ code: stoppedBy, midStream: true, setId }, { setId });
+  if (stoppedBy) {
+    const id = setId ?? startedSetId;
+    throw freePoolError({ code: stoppedBy, midStream: true, ...(id ? { setId: id } : {}) }, { setId: id ?? null, completeFrame: setId !== null });
+  }
   return setId ? { set_id: setId } : null;
 }
 
@@ -270,7 +276,7 @@ export async function runOpEdCreate(fetchFn: OpEdFetch, payload: CreateOpEdPaylo
 
   activeAbort = null;
   // Assigned inside the SSE callback, so TS can't see them change; widen explicitly.
-  const settled = settleRun(streamError as ActionableError | null, poolCode as FreePoolCode | null, resolvedSetId as string | null);
+  const settled = settleRun(streamError as ActionableError | null, poolCode as FreePoolCode | null, resolvedSetId as string | null, startedSetId as string | undefined);
   if (settled) return settled;
   // Stream ended cleanly but with no 'complete' frame (rare) — recover the terminal state.
   if (runId) return recoverFromRunStatus(fetchFn, runId);

@@ -385,3 +385,55 @@ describe('shownTier', () => {
     expect(warns[0][0]).toMatchObject({ type: 'system.error', component: 'debate-workspace' });
   });
 });
+
+// ── t/701: statement density helpers ──────────────────────
+import { lengthTier, kindLabel, roundedWordCount, splitTagline, firstSentence } from './utils';
+
+describe('lengthTier (t/701 §2)', () => {
+  it('maps medium to brief and passes every other tier through', () => {
+    expect(lengthTier('medium')).toBe('brief');
+    expect(['brief', 'detailed', 'reasoning', 'claims', 'why', 'terms', 'lineage'].map(lengthTier))
+      .toEqual(['brief', 'detailed', 'reasoning', 'claims', 'why', 'terms', 'lineage']);
+  });
+});
+
+describe('kindLabel (t/701 §5)', () => {
+  it('gives the approved plain-language kinds', () => {
+    expect(['opening', 'statement', 'question', 'intervention', 'reflection', 'answer', 'system'].map(kindLabel))
+      .toEqual(['Opening statement', 'Response', 'Question', 'Intervention', 'Reflection', 'Answer', 'Note']);
+  });
+  it('shows an unknown type as itself', () => {
+    expect(kindLabel('brand-new-type')).toBe('brand-new-type');
+  });
+});
+
+describe('roundedWordCount (t/701 §3)', () => {
+  it('rounds to the nearest 10', () => {
+    const text = (n: number) => Array.from({ length: n }, () => 'w').join(' ');
+    expect(roundedWordCount(text(184))).toBe(180);
+    expect(roundedWordCount(text(185))).toBe(190);
+    expect(roundedWordCount(text(4))).toBe(0);
+    expect(roundedWordCount('  ')).toBe(0);
+  });
+});
+
+describe('splitTagline (t/701 §7)', () => {
+  it('splits a trailing Tagline off, inline or on its own line, with or without emphasis marks', () => {
+    expect(splitTagline('Body text. Tagline: Habit, not proof.')).toEqual({ body: 'Body text.', tagline: 'Habit, not proof.' });
+    expect(splitTagline('Body text.\n\n**Tagline:** Habit, not proof.\n')).toEqual({ body: 'Body text.', tagline: 'Habit, not proof.' });
+    expect(splitTagline('Body text.\n*Tagline: Habit, not proof.*')).toEqual({ body: 'Body text.', tagline: 'Habit, not proof.' });
+  });
+  it('leaves text without a trailing tagline alone', () => {
+    expect(splitTagline('No close here.')).toEqual({ body: 'No close here.', tagline: null });
+    expect(splitTagline('Tagline: early.\nMore text after it.')).toEqual({ body: 'Tagline: early.\nMore text after it.', tagline: null });
+    expect(splitTagline('Body. Tagline:   ')).toEqual({ body: 'Body. Tagline:   ', tagline: null });
+  });
+});
+
+describe('firstSentence (t/701 §8)', () => {
+  it('returns the first sentence, or the whole text when it has no sentence end', () => {
+    expect(firstSentence('One claim here. And more.')).toBe('One claim here.');
+    expect(firstSentence('## Heading\nIs it so? Yes.')).toBe('Is it so?');
+    expect(firstSentence('no terminator')).toBe('no terminator');
+  });
+});

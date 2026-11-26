@@ -167,6 +167,9 @@ export interface LibraryListPageConfig<TMy extends { id: string }, TCommunity ex
 
   searchPlaceholderMy: string;
   searchPlaceholderCommunity: string;
+  /** t/719: what an empty Community list is missing, completing 'No ... yet.' Defaults to the lower-cased title,
+   *  which reads wrongly for a title that is an action ('No ask a question yet.'). */
+  communityEmptyLabel?: string;
   /** Same collapse as `render` — one function, variant-branching inside. */
   filter: (rows: (TMy | TCommunity)[], query: string, variant: LibraryVariant) => (TMy | TCommunity)[];
 

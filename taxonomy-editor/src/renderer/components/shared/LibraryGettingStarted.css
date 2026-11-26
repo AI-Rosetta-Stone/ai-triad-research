@@ -132,6 +132,11 @@
   display: none;
 }
 
+/* t/719 (Design p/25#205): a sign-in notice in place of the chips reads at the card's size. */
+.lib-getting-started-body .source-signin-prompt {
+  font-size: 13px;
+}
+
 .lib-getting-started-why {
   font-size: 13px;
   color: var(--lgs-text-secondary);

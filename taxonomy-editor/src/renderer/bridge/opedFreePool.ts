@@ -3,7 +3,7 @@
 
 // t/467: free-pool and anonymous-limit refusals of an op-ed create, as stable codes the dialog maps to Design's copy
 // (t/467#72, #74, #77). The server's contract (TaxonomyServer p/74#27, #29, #32):
-//   before the stream: 403 free_pool_region; 503 (free_pool_empty, free_pool_unavailable, or none yet); 429
+//   before the stream: 403 free_pool_region; 503 free_pool_empty or free_pool_unavailable; 429
 //   free_pool_exhausted, free_pool_oped_limit, anon_oped_limit.
 //   Design p/25#196: 400 over the anonymous words-per-voice cap (the dialog prevents it; this is the guard), and
 //   503 anon_session_unavailable, which the bridge hands over when the session mint is refused (anonSession.ts).
@@ -34,7 +34,9 @@ export function preStreamFreePoolCode(status: number, data: Record<string, unkno
   // The server sends no code for the word cap, only its sentence (routes/opedAnonLimits.ts). If the sentence
   // changes, this stops matching and the user sees the server's own text, which says the same thing.
   if (status === 400 && typeof error === 'string' && /^Anonymous op-eds allow at most [\d,]+ words per voice/.test(error)) return 'anon_word_cap';
-  if (status === 503) return 'free_pool_unavailable'; // free_pool_empty, free_pool_unavailable, or the older sentence
+  // Only the route's own free-pool 503s (routes/opedFunding.ts, ai/opedPoolAdmission.ts). A 503 without one of
+  // these codes (the ingress, a revision swap) is not a pool refusal and takes the generic path (Quality t/467#84).
+  if (status === 503 && (error === 'free_pool_empty' || error === 'free_pool_unavailable')) return 'free_pool_unavailable';
   if (status !== 429) return null;
   if (error === 'anon_oped_limit') return 'anon_oped_limit';
   if (error === 'free_pool_exhausted') return 'free_pool_exhausted';

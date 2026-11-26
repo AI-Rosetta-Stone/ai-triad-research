@@ -59,12 +59,17 @@ vi.mock('./InquiryAnswerPanel', () => ({ InquiryAnswerPanel: () => <div>answer-s
 
 type FilterRow = { id: string; question?: string; title?: string };
 let capturedOnNew: (() => void) | undefined;
+let capturedAnonymousHasMyContent: boolean | undefined;
+let capturedIntroAnonymous: boolean | undefined;
+const authState = vi.hoisted(() => ({ anonymous: false }));
+vi.mock('../../hooks/useAuthStatus', () => ({ useAuthStatus: () => ({ user: 'u', anonymous: authState.anonymous, idp: 'github' }) }));
 let capturedFilter: ((rows: FilterRow[], q: string) => FilterRow[]) | undefined;
 vi.mock('../shared/LibraryListPage', () => ({
   LibraryListPage: ({ config, intro }: {
-    config: { onNew?: () => void; filter?: (rows: FilterRow[], q: string) => FilterRow[] }; intro?: React.ReactNode;
+    config: { onNew?: () => void; anonymousHasMyContent?: boolean; filter?: (rows: FilterRow[], q: string) => FilterRow[] }; intro?: React.ReactNode;
   }) => {
     capturedOnNew = config.onNew;
+    capturedAnonymousHasMyContent = config.anonymousHasMyContent;
     capturedFilter = config.filter;
     return <div>list-screen{intro}</div>;
   },
@@ -72,8 +77,9 @@ vi.mock('../shared/LibraryListPage', () => ({
 
 let capturedOnPickStarter: ((q: string) => void) | undefined;
 vi.mock('./InquiryGettingStarted', () => ({
-  InquiryGettingStarted: ({ onPickStarter }: { onPickStarter: (q: string) => void }) => {
+  InquiryGettingStarted: ({ onPickStarter, isAnonymous }: { onPickStarter: (q: string) => void; isAnonymous?: boolean }) => {
     capturedOnPickStarter = onPickStarter;
+    capturedIntroAnonymous = isAnonymous;
     return <div>getting-started</div>;
   },
 }));
@@ -84,6 +90,7 @@ describe('InquiryTab (t/4562, t/4666)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockScreen = 'list';
+    authState.anonymous = false;
     capturedOnNew = undefined;
     capturedOnPickStarter = undefined;
     capturedOnClose = undefined;
@@ -95,6 +102,20 @@ describe('InquiryTab (t/4562, t/4666)', () => {
     expect(screen.getByText('list-screen')).toBeInTheDocument();
     expect(screen.getByText('getting-started')).toBeInTheDocument();
     expect(screen.queryByText('ask-dialog')).not.toBeInTheDocument();
+  });
+
+  it('t/719: an anonymous visitor gets no "+ New Question" and no My tab, and the intro is told so', () => {
+    authState.anonymous = true;
+    render(<InquiryTab />);
+    expect(capturedOnNew).toBeUndefined();
+    expect(capturedAnonymousHasMyContent).toBe(false);
+    expect(capturedIntroAnonymous).toBe(true);
+  });
+
+  it('t/719: a signed-in user keeps "+ New Question", and the intro keeps its examples', () => {
+    render(<InquiryTab />);
+    expect(capturedOnNew).toBeTypeOf('function');
+    expect(capturedIntroAnonymous).toBe(false);
   });
 
   it('"+ New Question" (LibraryListPage config.onNew) resets the store and opens the dialog over the list', () => {

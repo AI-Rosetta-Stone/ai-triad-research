@@ -247,6 +247,20 @@ describe('LibraryListPage — search + empty state', () => {
     );
     expect(screen.getByText(/No .* yet\./)).toBeInTheDocument();
   });
+
+  it('t/719: an empty Community list uses the page\'s own wording when it gives one, else the lower-cased title', () => {
+    const emptyPage = (config: LibraryListPageConfig<Row, Row>) => render(
+      <LibraryListPage config={config} myRows={[]} myLoading={false} communityRows={[]} communityLoading={false} onOpenMy={vi.fn()} onOpenCommunity={vi.fn()} />,
+    );
+    const worded = emptyPage(baseConfig({ communityEmptyLabel: 'questions shared' }));
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(screen.getByText('No questions shared yet.')).toBeInTheDocument();
+    worded.unmount();
+
+    emptyPage(baseConfig());
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(screen.getByText('No test page yet.')).toBeInTheDocument();
+  });
 });
 
 describe('LibraryListPage — row interaction', () => {

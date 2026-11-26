@@ -16,7 +16,7 @@ import { getDebateMarkdownComponents, type VocabResolution } from '../../utils/v
 import {
   speakerLabel, speakerColor, pctFmt, focusMainWindowNode,
   fixMarkdownLinks, stripLeadingHeadings,
-  META_TIERS, WHY_TIERS, TIER_LABELS, modeOfTier, shownTier,
+  META_TIERS, WHY_TIERS, TIER_LABELS, modeOfTier, shownTier, lengthTier, kindLabel, splitTagline, countOccurrences,
 } from './utils';
 import type { AnchorHTMLAttributes, HTMLAttributes } from 'react';
 import { parseEntityRef } from '@lib/entities/types';
@@ -38,6 +38,8 @@ import type { DetailTier } from '@lib/debate/comments';
 import { TaxonomyRefsSection, BdiGroundingView } from './TaxonomyRefs';
 import { StatementHowLayout } from './StatementHowLayout';
 import { StatementTierPills, type SetEntryDisplayTier } from './StatementTierPills';
+import { StructuredBrief, ReadMoreLink, HeaderTurnSymbols, structuredBriefOf, structuredBriefText, collapsedClaimOf } from './StatementBrief';
+import { useTurnCollapsed } from './turnCollapse';
 import { StatementSteelmans } from '../shared/Steelman';
 import { useDiagnoseEntry } from './useDiagnoseEntry';
 import { api } from '@bridge';
@@ -216,20 +218,32 @@ export function EntryCommentBadge({ entryId }: { entryId: string }) {
 
 const SUBSTANTIVE_TYPES = new Set(['opening', 'statement', 'fact-check', 'cross_respond']);
 
-function resolveDisplayContent(entry: TranscriptEntry, activeTier: string, isSubstantive: boolean): { displayContent: string; isTruncated: boolean } {
-  const hasSummaries = entry.summaries != null;
-  if (hasSummaries && activeTier === 'brief') return { displayContent: stripLeadingHeadings(entry.summaries!.brief), isTruncated: false };
-  if (hasSummaries && activeTier === 'medium') return { displayContent: stripLeadingHeadings(entry.summaries!.medium), isTruncated: false };
-  if (!hasSummaries && activeTier === 'brief' && isSubstantive) {
-    const sentences = entry.content.split(/(?<=[.!?])\s+/);
-    return { displayContent: stripLeadingHeadings(sentences.slice(0, 2).join(' ')), isTruncated: sentences.length > 2 };
+type StructuredBriefParts = { claim: string; points: string[] };
+
+/** The first two sentences: the Brief of a statement that was never summarized. */
+function leadSentences(content: string): { text: string; shorter: boolean } {
+  const sentences = content.split(/(?<=[.!?])\s+/);
+  return { text: sentences.slice(0, 2).join(' '), shorter: sentences.length > 2 };
+}
+
+/** t/701 §3: whether the card has a Brief that is shorter than the statement itself. Only then
+ *  is there a "Read full statement" / "Show brief" choice to offer. */
+function hasShorterBrief(entry: TranscriptEntry): boolean {
+  return structuredBriefOf(entry) != null || !!entry.summaries?.brief || leadSentences(entry.content).shorter;
+}
+
+/** What the Statement tab shows for a tier. Brief (t/701 §1): the structured claim + points when
+ *  the entry has them, else the `brief` string, else the lead sentences. §7 (Design, t/701#4):
+ *  `Tagline:` only ever appears in a stored `brief` string, so that fallback drops the tagline
+ *  line; a Brief has no sign-off. Anything else: the statement itself, unchanged. */
+function resolveDisplayContent(entry: TranscriptEntry, activeTier: string, isSubstantive: boolean): { displayContent: string; structured: StructuredBriefParts | null } {
+  if (activeTier === 'brief' && isSubstantive) {
+    const structured = structuredBriefOf(entry);
+    if (structured) return { displayContent: structuredBriefText(structured), structured };
+    if (entry.summaries?.brief) return { displayContent: stripLeadingHeadings(splitTagline(entry.summaries.brief).body), structured: null };
+    return { displayContent: stripLeadingHeadings(leadSentences(entry.content).text), structured: null };
   }
-  if (!hasSummaries && activeTier === 'medium' && isSubstantive) {
-    const paraBreak = entry.content.indexOf('\n\n');
-    const text = (paraBreak > 0 && paraBreak < 500) ? entry.content.slice(0, paraBreak) : entry.content.slice(0, 500);
-    return { displayContent: stripLeadingHeadings(text), isTruncated: text.length < entry.content.length };
-  }
-  return { displayContent: stripLeadingHeadings(entry.content), isTruncated: false };
+  return { displayContent: stripLeadingHeadings(entry.content), structured: null };
 }
 
 /** t/4625: the Why tiers render structured views too, same as META_TIERS, but aren't members. */
@@ -289,9 +303,9 @@ function StatementDeleteActions({ entryIndex, totalEntries, deleteConfirm, setDe
 }
 
 /**
- * Collapse chevron (t/2241, DEBATE_CHAT_REDESIGN). Skimming past turns already
- * read is otherwise impossible — the tier system re-summarizes content but never
- * hides it. A native <button> keeps Enter/Space working without key handlers.
+ * Collapse caret (t/701 §8; first added as t/2241). Older turns start collapsed to their
+ * claim so the debate reads like an outline. A native <button> keeps Enter/Space working
+ * without key handlers; a collapsed row is also clickable anywhere (see StatementCardHeader).
  */
 function StatementCollapseToggle({ collapsed, onToggle, entryId }: {
   collapsed: boolean;
@@ -318,7 +332,7 @@ function StatementCardHeader({
   showTierPills, activeTier, setEntryDisplayTier, vocabResolutions, hasLineageRefs,
   qbafEnabled, netDelta, isPover, diagnose,
   entryIndex, totalEntries, deleteConfirm, setDeleteConfirm,
-  collapsible, collapsed, onToggleCollapse, collapsedSummary,
+  collapsible, collapsed, onToggleCollapse, collapsedClaim, turnSymbols, whySourceCount,
 }: {
   entry: TranscriptEntry;
   statementId?: string;
@@ -342,14 +356,17 @@ function StatementCardHeader({
   collapsible: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  collapsedSummary: string;
+  collapsedClaim: string;
+  turnSymbols: { symbol: string; tooltip: string }[] | undefined;
+  whySourceCount: number;
 }) {
   // t/4914 spec §2: the concluding (Synthesis) card's header drops the speaker/id/type
   // row for a plain "SYNTHESIS" eyebrow. The statement id anchor is preserved (still
   // used by cross-references and diagnostics) by moving it onto the eyebrow itself.
   const isConcluding = entry.type === 'concluding';
   return (
-    <div className="debate-statement-header">
+    // A collapsed row opens on a click anywhere in it. Keyboard users have the caret button.
+    <div className="debate-statement-header" onClick={collapsed ? (e) => { e.stopPropagation(); onToggleCollapse(); } : undefined}>
       {collapsible && (
         <StatementCollapseToggle collapsed={collapsed} onToggle={onToggleCollapse} entryId={entry.id} />
       )}
@@ -363,19 +380,22 @@ function StatementCardHeader({
           <span className="debate-statement-speaker" style={color ? { color } : undefined}>
             {speakerLabel(entry.speaker)}
           </span>
-          {statementId && (
-            <span
-              className="debate-statement-id"
-              title={`Statement ${statementId} — stable position in transcript`}
-              id={`stmt-${statementId}`}
-            >
-              {statementId}
-            </span>
-          )}
+          {/* t/701 §5: "{Speaker} · {Kind}". The statement and argument-node ids are internal:
+              they sit in the kind's title, and the stmt- anchor that cross-references and
+              diagnostics scroll to stays on it. */}
+          <span
+            className="debate-statement-kind"
+            id={statementId ? `stmt-${statementId}` : undefined}
+            data-statement-id={statementId}
+            data-an-id={anNodeId ?? undefined}
+            title={[statementId && `Statement ${statementId}`, anNodeId && `argument node ${anNodeId}`].filter(Boolean).join(' · ') || undefined}
+          >
+            <span aria-hidden="true">· </span>{kindLabel(entry.type)}
+          </span>
         </>
       )}
       {collapsed ? (
-        <span className="debate-statement-collapsed-summary">{collapsedSummary}</span>
+        <span className="debate-statement-collapsed-claim">{collapsedClaim}</span>
       ) : (
         <StatementCardHeaderDetail
           entry={entry}
@@ -394,6 +414,8 @@ function StatementCardHeader({
           totalEntries={totalEntries}
           deleteConfirm={deleteConfirm}
           setDeleteConfirm={setDeleteConfirm}
+          turnSymbols={turnSymbols}
+          whySourceCount={whySourceCount}
         />
       )}
     </div>
@@ -410,7 +432,7 @@ function StatementCardHeaderDetail({
   entry, activeDebate, anNodeId, showTierPills, activeTier, setEntryDisplayTier,
   vocabResolutions, hasLineageRefs, qbafEnabled, netDelta, isPover,
   diagnose,
-  entryIndex, totalEntries, deleteConfirm, setDeleteConfirm,
+  entryIndex, totalEntries, deleteConfirm, setDeleteConfirm, turnSymbols, whySourceCount,
 }: {
   entry: TranscriptEntry;
   activeDebate: ActiveDebateT;
@@ -428,22 +450,20 @@ function StatementCardHeaderDetail({
   totalEntries?: number;
   deleteConfirm: 'single' | 'after' | null;
   setDeleteConfirm: (v: 'single' | 'after' | null) => void;
+  turnSymbols: { symbol: string; tooltip: string }[] | undefined;
+  whySourceCount: number;
 }) {
   return (
     <>
+      <HeaderTurnSymbols turnSymbols={turnSymbols} />
       <StatementModelBadge entry={entry} activeDebate={activeDebate} />
-      {entry.type !== 'concluding' && (
-        <span className="debate-statement-type">
-          {entry.type}
-          {anNodeId && <span className="debate-an-id"> · {anNodeId}</span>}
-        </span>
-      )}
       {showTierPills && (
         <StatementTierPills
           entry={entry}
           activeTier={activeTier}
           setEntryDisplayTier={setEntryDisplayTier}
           hasLineageRefs={hasLineageRefs}
+          whySourceCount={whySourceCount}
         />
       )}
       {qbafEnabled && netDelta != null && Math.abs(netDelta) > 0.01 && (
@@ -499,38 +519,6 @@ function StatementDeleteConfirm({ entry, activeDebate, deleteConfirm, setDeleteC
   );
 }
 
-function StatementTurnSymbols({ turnSymbols, showSymbolTooltips, setShowSymbolTooltips }: {
-  turnSymbols: { symbol: string; tooltip: string }[] | undefined;
-  showSymbolTooltips: boolean;
-  setShowSymbolTooltips: (fn: (v: boolean) => boolean) => void;
-}) {
-  if (!(turnSymbols && turnSymbols.length > 0)) return null;
-  return (
-    <>
-      <div className="debate-turn-symbols">
-        {turnSymbols.map((s, i) => (
-          <span
-            key={i}
-            className="debate-turn-symbol"
-            title={s.tooltip}
-            style={{ cursor: 'pointer' }}
-            onClick={() => setShowSymbolTooltips(v => !v)}
-          >
-            {s.symbol}
-          </span>
-        ))}
-      </div>
-      {showSymbolTooltips && (
-        <div className="debate-turn-symbol-tooltips">
-          {turnSymbols.map((s, i) => (
-            <div key={i}>{s.symbol} — {s.tooltip}</div>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
 /** Meta-view header. Why shows BDI | Vocabulary tabs when the statement has resolved terms;
  *  without them it's BDI alone, so a stale 'terms' override is labelled as BDI too. */
 function MetaModeLabel({ entryId, displayedTier, hasVocab, setEntryDisplayTier }: {
@@ -555,7 +543,7 @@ function MetaModeLabel({ entryId, displayedTier, hasVocab, setEntryDisplayTier }
 
 function StatementBody({
   entry, activeDebate, displayedTier, isMetaView, flipKey, flipping, handleFlipEnd,
-  bodyRef, innerRef, contentRef, vocabResolutions, meta, renderedStatementBody, isTruncated, setEntryDisplayTier,
+  bodyRef, innerRef, contentRef, vocabResolutions, meta, renderedStatementBody, readMore, setEntryDisplayTier,
 }: {
   entry: TranscriptEntry;
   activeDebate: ActiveDebateT;
@@ -570,7 +558,8 @@ function StatementBody({
   vocabResolutions: VocabResolution[] | undefined;
   meta: Record<string, unknown> | undefined;
   renderedStatementBody: ReactNode;
-  isTruncated: boolean;
+  /** t/701 §3: the Read full statement / Show brief link, or null when the card has no shorter Brief. */
+  readMore: ReactNode;
   setEntryDisplayTier: SetEntryDisplayTier;
 }) {
   const hasVocab = !!vocabResolutions && vocabResolutions.length > 0;
@@ -611,14 +600,8 @@ function StatementBody({
               stays intact) when a comment's selectedText can't be resolved. */}
           <div className="debate-statement-content markdown-body prose" ref={contentRef}>
             {renderedStatementBody}
-            {isTruncated && (
-              <span
-                className="debate-tier-truncated"
-                onClick={(e) => { e.stopPropagation(); setEntryDisplayTier(entry.id, 'detailed'); }}
-                title="Click to show full content"
-              >... show full</span>
-            )}
           </div>
+          {readMore}
           <CommentOverlay containerRef={contentRef} entryId={entry.id} activeTier={displayedTier as DetailTier} />
         </>
       )}
@@ -699,6 +682,40 @@ function ElapsedTimer({ since, active }: { since: string; active: boolean }) {
   );
 }
 
+// ── t/701 per-card pieces (kept out of StatementCard for its complexity budget) ──
+
+/** §8: whether this turn shows as its one-line claim. A turn holding a find-in-debate match is
+ *  shown open, or the match being stepped to would be invisible. */
+function useCollapsedTurn(entry: TranscriptEntry, activeDebate: ActiveDebateT, findQuery: string) {
+  const { collapsed, toggle } = useTurnCollapsed(activeDebate?.id, activeDebate?.transcript, entry.id);
+  const collapsedClaim = useMemo(() => collapsedClaimOf(entry), [entry]);
+  const hasFindMatch = !!findQuery && countOccurrences(entry.content, findQuery) > 0;
+  // No debate id (a card rendered on its own): there is nothing to key the state by, so no caret.
+  return { collapsible: !!activeDebate?.id, isCollapsed: collapsed && !hasFindMatch, toggleCollapsed: toggle, collapsedClaim };
+}
+
+/** §3: the card's own length link, or null when the card has no shorter Brief or is not on the
+ *  Statement tab. Choosing the debate-wide length clears the card's override rather than
+ *  pinning the card to it. */
+function useReadMore(
+  entry: TranscriptEntry, displayedTier: string, defaultTier: string, isSubstantive: boolean,
+  setEntryDisplayTier: SetEntryDisplayTier,
+): ReactNode {
+  const globalTier = lengthTier(shownTier(defaultTier));
+  const showingFull = displayedTier === 'detailed';
+  const toggleLength = useCallback(() => {
+    const next = showingFull ? 'brief' : 'detailed';
+    setEntryDisplayTier(entry.id, next === globalTier ? undefined : next);
+  }, [showingFull, globalTier, entry.id, setEntryDisplayTier]);
+  if (!(isSubstantive && modeOfTier(displayedTier) === 'text' && hasShorterBrief(entry))) return null;
+  return <ReadMoreLink showingFull={showingFull} content={entry.content} controlsId={`debate-statement-body-${entry.id}`} onToggle={toggleLength} />;
+}
+
+/** §4: how many refs the Why tab lists: the taxonomy refs plus the policy refs BdiGroundingView shows. */
+function whySourceCountOf(entry: TranscriptEntry): number {
+  return entry.taxonomy_refs.length + (metaPolicyRefsOf(entry) || entry.policy_refs || []).length;
+}
+
 // ── Main cards ──────────────────────────────────────────
 
 export function StatementCard({ entry, statementId, findQuery = '', matchOffset = 0, findCurrentIndex = -1, entryIndex, totalEntries }: {
@@ -719,16 +736,13 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
   const { diagnose, notice: diagnoseNotice } = useDiagnoseEntry();
   const deleteTranscriptEntries = useDebateStore(s => s.deleteTranscriptEntries);
   const qbafEnabled = useFlag('release-qbaf-analysis');
-  // Gates the collapse toggle (t/2241) and doubles as the scoping hook for
-  // redesign-only styling (t/2240 prose measure) — CSS can't read a flag, so it
-  // becomes `.debate-redesign` on the card root.
+  // The scoping hook for redesign-only styling (t/2240 prose measure) — CSS can't read a
+  // flag, so it becomes `.debate-redesign` on the card root.
   const chatRedesign = useFlag('DEBATE_CHAT_REDESIGN');
-  // Per-card collapse (t/2241) — deliberately local, not persisted to the debate
-  // store: it is a reading aid for the current scroll session, not debate state.
-  const [collapsed, setCollapsed] = useState(false);
-  const toggleCollapsed = useCallback(() => setCollapsed(c => !c), []);
+  // Per-turn collapse (t/701 §8): older turns start collapsed to their claim. Session-only,
+  // never saved with the debate (see turnCollapse.ts).
+  const { collapsible, isCollapsed, toggleCollapsed, collapsedClaim } = useCollapsedTurn(entry, activeDebate, findQuery);
   const [deleteConfirm, setDeleteConfirm] = useState<'single' | 'after' | null>(null);
-  const [showSymbolTooltips, setShowSymbolTooltips] = useState(false);
   const anNodeId = findAnNodeId(activeDebate, entry.id);
   const meta = entry.metadata as Record<string, unknown> | undefined;
   const netDelta = meta?.qbaf_net_delta as number | undefined;
@@ -744,7 +758,8 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
 
   const isSubstantive = SUBSTANTIVE_TYPES.has(entry.type);
   // t/697: the Convergence view is gone; a saved 'convergence' tier (entry or global) opens on Reasoning.
-  const activeTier = isSubstantive ? shownTier(entry.display_tier ?? defaultTier) : 'detailed';
+  // t/701 §2: Medium is no longer offered; a saved or default 'medium' shows as Brief.
+  const activeTier = isSubstantive ? lengthTier(shownTier(entry.display_tier ?? defaultTier)) : 'detailed';
   const showTierPills = isSubstantive;
 
   // Flip animation: displayedTier lags activeTier — content swaps at the midpoint of the rotateY flip
@@ -801,15 +816,9 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
   }, []);
 
   const isMetaView = isMetaViewTier(displayedTier);
-  const { displayContent, isTruncated } = resolveDisplayContent(entry, displayedTier, isSubstantive);
-
-  // Collapsed cards show a word count so a long turn is still distinguishable
-  // from a one-liner when skimming (t/2241).
-  const collapsedSummary = useMemo(() => {
-    const words = entry.content.trim().split(/\s+/).filter(Boolean).length;
-    return `collapsed · ${words} ${words === 1 ? 'word' : 'words'}`;
-  }, [entry.content]);
-  const isCollapsed = chatRedesign && collapsed;
+  const { displayContent, structured } = resolveDisplayContent(entry, displayedTier, isSubstantive);
+  const readMore = useReadMore(entry, displayedTier, defaultTier, isSubstantive, setEntryDisplayTier);
+  const whySourceCount = whySourceCountOf(entry);
 
   // Memoize the rendered statement body into a reconciliation-stable subtree so
   // CommentOverlay's imperatively-injected [data-comment-highlight] spans survive
@@ -826,8 +835,9 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
     if (entry.type === 'concluding') {
       return <ConcludingSections content={displayContent} mdComponents={mdComponents} />;
     }
+    if (structured) return <StructuredBrief claim={structured.claim} points={structured.points} />;
     return <Markdown remarkPlugins={DEBATE_REMARK_PLUGINS} components={mdComponents}>{fixMarkdownLinks(displayContent)}</Markdown>;
-  }, [findQuery, matchOffset, findCurrentIndex, entry.type, displayContent, displayedTier, mdComponents]);
+  }, [findQuery, matchOffset, findCurrentIndex, entry.type, displayContent, displayedTier, mdComponents, structured?.claim]);
 
   return (
     <div
@@ -855,10 +865,12 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
         totalEntries={totalEntries}
         deleteConfirm={deleteConfirm}
         setDeleteConfirm={setDeleteConfirm}
-        collapsible={chatRedesign}
+        collapsible={collapsible}
         collapsed={isCollapsed}
         onToggleCollapse={toggleCollapsed}
-        collapsedSummary={collapsedSummary}
+        collapsedClaim={collapsedClaim}
+        turnSymbols={turnSymbols}
+        whySourceCount={whySourceCount}
       />
       {diagnoseNotice}
       {!isCollapsed && (
@@ -872,7 +884,6 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
             entryIndex={entryIndex}
             totalEntries={totalEntries}
           />
-          <StatementTurnSymbols turnSymbols={turnSymbols} showSymbolTooltips={showSymbolTooltips} setShowSymbolTooltips={setShowSymbolTooltips} />
           <StatementBody
             entry={entry}
             activeDebate={activeDebate}
@@ -887,7 +898,7 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
             vocabResolutions={vocabResolutions}
             meta={meta}
             renderedStatementBody={renderedStatementBody}
-            isTruncated={isTruncated}
+            readMore={readMore}
             setEntryDisplayTier={setEntryDisplayTier}
           />
           <ElapsedTimer since={entry.timestamp} active={statementId === 'S1' && !!debateGenerating} />

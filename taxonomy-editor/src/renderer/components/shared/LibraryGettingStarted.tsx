@@ -71,6 +71,8 @@ export interface LibraryGettingStartedProps<T> {
   onSelectChip: (value: T) => void;
   /** Optional hint line below the chips (Chat's mode legend is bolded inline text, hence ReactNode). */
   hint?: ReactNode;
+  /** t/719: shown in place of the chips, for a visitor who can't use them (a sign-in notice). */
+  insteadOfChips?: ReactNode;
   /** @deprecated t/4639: no longer changes rendering — an explicit collapse/expand always wins
    *  over this. Kept optional, accepted-but-unused, so existing callers don't need to drop it
    *  from their call sites. Design's t/4639#1 spec: "absent (never chosen) → expanded, for every
@@ -90,14 +92,16 @@ export interface LibraryGettingStartedProps<T> {
  *  LibraryListPage's `intro` slot, between the header row and the My/Community tabs. No entrance
  *  animation — nothing here to gate behind reduced-motion. */
 export function LibraryGettingStarted<T>({
-  storageKey, heading, why, chips, examplePool, exampleCount, onSelectChip, hint,
+  storageKey, heading, why, chips, examplePool, exampleCount, onSelectChip, hint, insteadOfChips,
 }: LibraryGettingStartedProps<T>) {
   // t/4639: `dismissed` persistence is unchanged (same storageKey, same '1'/absent values) — it
   // now drives an accordion's collapsed state instead of gating a full unmount. An explicit
   // toggle always wins; there is no hasNoItems override anymore (Design's t/4639#1 spec: "absent
   // → expanded, for every user" already covers the "no items yet" case that override was for).
   const [dismissed, setDismissed] = useLibraryIntroDismissed(storageKey);
-  const expanded = !dismissed;
+  // t/719: a notice in place of the chips is always shown; the card has no examples to hide, so no toggle.
+  const collapsible = insteadOfChips === undefined;
+  const expanded = !collapsible || !dismissed;
   const headingId = `lib-getting-started-heading-${storageKey}`;
   const bodyId = `lib-getting-started-body-${storageKey}`;
 
@@ -114,36 +118,42 @@ export function LibraryGettingStarted<T>({
   return (
     <div className="lib-getting-started" data-expanded={expanded} role="region" aria-labelledby={headingId}>
       <h2 className="lib-getting-started-heading" id={headingId}>
-        <button
-          type="button"
-          className="lib-getting-started-toggle"
-          aria-expanded={expanded}
-          aria-controls={bodyId}
-          onClick={() => setDismissed(expanded)}
-        >
+        {collapsible ? (
+          <button
+            type="button"
+            className="lib-getting-started-toggle"
+            aria-expanded={expanded}
+            aria-controls={bodyId}
+            onClick={() => setDismissed(expanded)}
+          >
+            <span className="lib-getting-started-title">{heading}</span>
+            <span className="lib-getting-started-toggle-label">
+              {expanded ? 'Hide examples' : 'Show examples'}
+              <svg className="lib-getting-started-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+          </button>
+        ) : (
           <span className="lib-getting-started-title">{heading}</span>
-          <span className="lib-getting-started-toggle-label">
-            {expanded ? 'Hide examples' : 'Show examples'}
-            <svg className="lib-getting-started-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </span>
-        </button>
+        )}
       </h2>
       <div id={bodyId} className="lib-getting-started-body" hidden={!expanded}>
         <p className="lib-getting-started-why">{why}</p>
-        <div className="lib-getting-started-chips">
-          {visibleChips.map(({ label, value }) => (
-            <button
-              key={label}
-              type="button"
-              className="lib-getting-started-chip"
-              onClick={() => onSelectChip(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {insteadOfChips ?? (
+          <div className="lib-getting-started-chips">
+            {visibleChips.map(({ label, value }) => (
+              <button
+                key={label}
+                type="button"
+                className="lib-getting-started-chip"
+                onClick={() => onSelectChip(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         {hint && <p className="lib-getting-started-hint">{hint}</p>}
       </div>
     </div>

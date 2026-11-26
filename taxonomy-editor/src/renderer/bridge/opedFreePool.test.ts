@@ -31,13 +31,25 @@ describe('free-pool refusal codes (t/467)', () => {
     expect(preStreamFreePoolCode(400, { error: 'Anonymous op-eds allow at most 1500 words per voice. Sign in for longer op-eds.' })).toBe('anon_word_cap');
     expect(preStreamFreePoolCode(400, { error: 'Anonymous op-eds allow at most 3 voices. Sign in for more.' })).toBeNull();
     expect(preStreamFreePoolCode(503, { error: 'free_pool_empty' })).toBe('free_pool_unavailable');
-    expect(preStreamFreePoolCode(503, { error: 'Free tier is not available' })).toBe('free_pool_unavailable');
+    expect(preStreamFreePoolCode(503, { error: 'free_pool_unavailable' })).toBe('free_pool_unavailable');
+    // Quality t/467#84: a 503 without a free-pool code is not a pool refusal.
+    expect(preStreamFreePoolCode(503, {})).toBeNull();
+    expect(preStreamFreePoolCode(503, { error: 'Free tier is not available' })).toBeNull();
+    expect(preStreamFreePoolCode(503, { error: 'upstream connect error' })).toBeNull();
     expect(preStreamFreePoolCode(429, { error: 'free_pool_exhausted' })).toBe('free_pool_exhausted');
     expect(preStreamFreePoolCode(429, { error: 'free_pool_oped_limit' })).toBe('free_pool_oped_limit');
     expect(preStreamFreePoolCode(429, { error: 'anon_oped_limit', limit: 10, used: 10 })).toBe('anon_oped_limit');
     expect(preStreamFreePoolCode(429, { error: 'concurrency_limit' })).toBeNull();
     expect(preStreamFreePoolCode(403, { reason: 'anon_route_blocked' })).toBeNull();
     expect(preStreamFreePoolCode(400, { error: 'too many voices' })).toBeNull();
+  });
+
+  it('a 503 with no JSON body (the ingress) is a plain create error, never the add-a-key line', async () => {
+    const res = new Response('upstream connect error or disconnect/reset before headers', { status: 503 });
+    const err = await runOpEdCreate(vi.fn().mockResolvedValue(res), payload).then(() => null, (e: unknown) => e);
+    expect(freePoolRefusalOf(err)).toBeNull();
+    expect((err as { httpStatus?: number }).httpStatus).toBe(503);
+    expect((err as { problem: string }).problem).toBe('Create failed with HTTP 503');
   });
 
   it('maps the mid-stream codes only', () => {
@@ -72,6 +84,19 @@ describe('free-pool refusal codes (t/467)', () => {
     off();
     expect(refusal).toEqual({ code: 'free_pool_exhausted', midStream: true, setId: 'set-9' });
     expect(seen.find((e) => e.voice === 'saf')?.error).toBeUndefined();
+  });
+
+  it('t/741: voices refused by the pool, then the stream ends without complete: still the pool refusal, with no run-status call', async () => {
+    const events = [{ type: 'run_started', runId: 'r1' }, { type: 'voice_start', pov: 'acc' }, { type: 'voice_failed', pov: 'acc', error: 'raw', code: 'FREE_POOL_EXHAUSTED' }];
+    const fetchFn = vi.fn().mockResolvedValue(sse(events));
+    const err = await runOpEdCreate(fetchFn, payload).then(() => null, (e: unknown) => e);
+    expect(freePoolRefusalOf(err)).toEqual({ code: 'free_pool_exhausted', midStream: true });
+    expect(fetchFn).toHaveBeenCalledTimes(1); // the create only; /api/oped-runs is not asked
+  });
+
+  it("t/741: the same, when run_started carried setId: the refusal has it, so the dialog can check the set", async () => {
+    const events = [{ type: 'run_started', runId: 'r1', setId: 'set-7' }, { type: 'voice_failed', pov: 'acc', error: 'raw', code: 'FREE_POOL_EXHAUSTED' }];
+    expect(await refusalFor(sse(events))).toEqual({ code: 'free_pool_exhausted', midStream: true, setId: 'set-7' });
   });
 
   it('a voice_failed without a code (before t/668) stays a generic failure, and the set resolves', async () => {
