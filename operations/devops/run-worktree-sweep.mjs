@@ -31,6 +31,8 @@ import { checkRunningCopy, currencyRefusalMessage, currencyOkLine, REPO_ROOT } f
 
 export const SELF = 'operations/devops/run-worktree-sweep.mjs';
 export const SWEEP_SCRIPT = 'operations/devops/sweep-landed-worktrees.sh';
+/** The line sweep-landed-worktrees.sh prints last, only when it walked the worktrees to the end. */
+export const DONE_LINE = 'sweep-landed-worktrees: done';
 
 /** PURE. Counts and WARN lines from the sweep's output. */
 export function summarize(output) {
@@ -77,7 +79,8 @@ export function resolveSh({ env = process.env, platform = process.platform, exis
     return null;
   };
   const pathVar = env.PATH ?? env.Path ?? '';
-  const onPath = firstExisting(pathVar.split(p.delimiter).filter(Boolean).map((d) => p.join(d, name)));
+  // Absolute entries only: a relative PATH entry would resolve against the spawn's cwd (the repo root).
+  const onPath = firstExisting(pathVar.split(p.delimiter).filter((d) => d && p.isAbsolute(d)).map((d) => p.join(d, name)));
   if (onPath) return { sh: onPath, how: 'path', searched };
   if (!win) return { sh: null, searched };
 
@@ -149,6 +152,19 @@ export async function run({ reportOnly, currency = checkRunningCopy, gitFn = git
   if (r.status !== 0 || r.error) {
     console.error(`run-worktree-sweep: the sweep did not run cleanly (status ${r.status}${r.error ? `, ${r.error.message}` : ''}).`);
     console.log(JSON.stringify({ ok: false, mode, failed: true }));
+    return 1;
+  }
+  // t/727 (SO t/727#3): exit 0 is not enough. The script prints DONE_LINE only after walking every
+  // worktree; without it (no gh, not a repo, a shell that ran nothing) the sweep did not happen.
+  if (!text.split(/\r?\n/).includes(DONE_LINE)) {
+    console.error([
+      'run-worktree-sweep: the sweep did not complete.',
+      `  Goal: run ${SWEEP_SCRIPT} over every worktree.`,
+      `  Problem: it exited 0 without printing its completion line ("${DONE_LINE}"), so nothing can be said about what it did.`,
+      `  Location: ${SWEEP_SCRIPT}; its output was: ${text.trim() ? text.trim().split(/\r?\n/).slice(-3).join(' | ') : '(empty)'}`,
+      '  Next steps: run the script by hand from the repo root with --dry-run; check that gh is on PATH and signed in.',
+    ].join('\n'));
+    console.log(JSON.stringify({ ok: false, mode, failed: true, reason: 'sweep_incomplete' }));
     return 1;
   }
   const s = summarize(text);
