@@ -6,8 +6,8 @@ import path from 'path';
 import os from 'os';
 import type { AiSettings, PromptOverrides } from './analysisTypes.js';
 import { ActionableError } from '../../../lib/debate/errors.js';
-import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 import { DEFAULT_MODEL, loadModelRegistry } from '../../../lib/ai-client/index.js';
+import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 import { app } from 'electron';
 import { resolveRepoRootForApp } from '../../../lib/electron-shared/resolveRepoRootForApp.js';
 import { assertSafeId, assertContainedIn } from '../../../lib/electron-shared/safeId.js';
@@ -427,7 +427,13 @@ function knownRegistryModelIds(): ReadonlySet<string> | null {
   try {
     return new Set(loadModelRegistry(PROJECT_ROOT).models.map((m) => m.id));
   } catch (err) {
-    console.warn(`WARN: could not read ai-models.json to check the saved AI model: ${err instanceof Error ? err.message : String(err)}`);
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'poviewer-settings',
+      level: 'warn',
+      message: 'WARN: could not read ai-models.json to check the saved AI model; skipping the unknown-id check (t/781)',
+      error: { name: (err as Error).name ?? 'Error', message: String(err) },
+    });
     return null;
   }
 }
