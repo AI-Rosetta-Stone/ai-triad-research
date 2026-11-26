@@ -917,25 +917,28 @@ function recordFactCheckTranscriptEntry(
   get: () => any,
   set: (partial: any) => void,
   entryId: string,
+  finding?: { finding?: string; finding_points?: string[]; limit?: string },
 ): void {
   const addEntry = get().addTranscriptEntry;
   const hasWeb = !!webContext && webContext !== '(Web search unavailable)';
-  const webNote = webQueries.length > 0
-    ? `\n\n*Web sources consulted: ${webQueries.slice(0, 3).join(', ')}*`
-    : hasWeb
-      ? '\n\n*Verified against web search results*'
-      : '';
-  const verdictLabel = verdict === 'disputed' ? 'Disputed' : 'Supported';
   if (addEntry) {
     addEntry({
       type: 'fact-check',
       speaker: 'system',
-      content: formatFactCheckContent(verdictLabel, pNode.text, explanation, webNote),
+      content: formatFactCheckContent(pNode.text, explanation),
       taxonomy_refs: [],
       metadata: {
         fact_check: {
           verdict,
           explanation,
+          // t/766: the card's finding; absent when it failed validation (the card falls back to the explanation).
+          ...(finding?.finding
+            ? {
+                finding: finding.finding,
+                finding_points: finding.finding_points,
+                ...(finding.limit ? { limit: finding.limit } : {}),
+              }
+            : {}),
           checked_text: pNode.text,
           web_search_used: hasWeb,
           web_search_queries: webQueries.length ? webQueries : undefined,
@@ -952,7 +955,7 @@ function recordFactCheckTranscriptEntry(
   }
 }
 
-function performFactCheckVerdict(
+export function performFactCheckVerdict(
   pNode: NewAnNode,
   vParsed: { verdict?: string; explanation?: string; evidence?: string; confidence?: string; discrepancy?: unknown },
   webContext: string,
@@ -979,7 +982,7 @@ function performFactCheckVerdict(
   phaseGuardedSet(get, set, {});  // trigger re-render without clobbering phase
 
   if (verdict === 'disputed' || verdict === 'supported') {
-    recordFactCheckTranscriptEntry(verdict, explanation, pNode, webContext, webQueries, webCitations, get, set, entryId);
+    recordFactCheckTranscriptEntry(verdict, explanation, pNode, webContext, webQueries, webCitations, get, set, entryId, validated);
   }
   return true;
 }
@@ -1028,6 +1031,7 @@ async function runInlineFactCheck(newNodes: NewAnNode[], get: () => any, set: (p
           '',
           webContext && webContext !== '(Web search unavailable)' ? `=== WEB SEARCH RESULTS ===\n${webContext}` : '',
           get().activeDebate?.audience,
+          !!webContext && webContext !== '(Web search unavailable)',
         );
         const { text: vText } = await api.generateText(verdictPrompt, fcModel);
         let vParsed = parseAIJson<{ verdict?: string; explanation?: string; evidence?: string; confidence?: string; discrepancy?: unknown }>(vText);

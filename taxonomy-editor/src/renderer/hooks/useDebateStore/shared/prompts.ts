@@ -79,8 +79,9 @@ export function buildFactCheckPrompt(
   taxonomyNodes: string,
   conflictData: string,
   audience?: DebateAudience,
+  webSearchRan?: boolean,
 ): string {
-  return factCheckPrompt(selectedText, statementContext, taxonomyNodes, conflictData, audience);
+  return factCheckPrompt(selectedText, statementContext, taxonomyNodes, conflictData, audience, webSearchRan);
 }
 
 export function buildContextCompressionPrompt(

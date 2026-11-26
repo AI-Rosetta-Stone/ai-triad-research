@@ -13,8 +13,11 @@ export function escapeMarkdownEmphasis(text: string): string {
 }
 
 /** The fact-check transcript entry's markdown `content` string. The quoted claim renders in
- *  italics (`*"..."*`) per the PI request (t/4726) — previously plain roman type. `webNote` is
- *  the caller's own already-formatted web-sources line (or ''), passed through unchanged. */
-export function formatFactCheckContent(verdictLabel: string, claim: string, explanation: string, webNote: string): string {
-  return `**Fact Check: ${verdictLabel}**\n\n*"${escapeMarkdownEmphasis(claim)}"*\n\n${explanation}${webNote}`;
+ *  italics (`*"..."*`) per the PI request (t/4726). t/766 (docs/ux/debate-fact-check-card.md §5):
+ *  no `**Fact Check: {Label}**` title line and no web note; the card shows the verdict and the
+ *  web-search state from `metadata.fact_check`, so `content` is the claim and the explanation. */
+export function formatFactCheckContent(claim: string, explanation: string): string {
+  return `*"${escapeMarkdownEmphasis(claim)}"*
+
+${explanation}`;
 }

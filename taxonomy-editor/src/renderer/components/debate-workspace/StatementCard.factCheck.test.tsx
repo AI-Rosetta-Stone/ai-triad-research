@@ -7,7 +7,8 @@
 // as a caveat rather than a pass.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { FactCheckCard } from './StatementCard';
 import type { TranscriptEntry } from '@lib/debate/types';
 import type { FactDiscrepancy } from '@lib/debate/types';
@@ -17,6 +18,7 @@ vi.mock('remark-gfm', () => ({ default: {} }));
 vi.mock('./utils', () => ({
   speakerLabel: (s: string) => s, speakerColor: () => '#999', pctFmt: (v: number) => `${v}`,
   focusMainWindowNode: vi.fn(), fixMarkdownLinks: (s: string) => s, stripLeadingHeadings: (s: string) => s,
+  kindLabel: (t: string) => t, countOccurrences: () => 0,
 }));
 vi.mock('../../hooks/useDebateStore', () => ({
   useDebateStore: Object.assign((sel: any) => sel({ activeDebate: null }), { getState: () => ({ activeDebate: null, setSelectedRef: vi.fn() }) }),
@@ -37,65 +39,60 @@ const discrepancy: FactDiscrepancy = {
   dimension: 'magnitude', claimed: '12 states', actual: '10 states', source: 'sit-001', severity: 'minor',
 };
 
-describe('FactCheckCard — partially_accurate verdict + discrepancy (t/1716)', () => {
-  it('renders partially_accurate with its own verdict class + human label (not folded into supported)', () => {
-    const { container } = render(<FactCheckCard entry={factCheckEntry({ verdict: 'partially_accurate', discrepancy, explanation: '', checked_text: 'x' })} />);
-    const verdict = container.querySelector('.debate-fact-check-verdict');
-    expect(verdict?.textContent?.trim()).toBe('Partially Accurate');
-    expect(verdict?.classList.contains('debate-fact-check-partially_accurate')).toBe(true);
-    expect(verdict?.classList.contains('debate-fact-check-supported')).toBe(false);
-    // Card border variant too.
-    expect(container.querySelector('.debate-type-fact-check.debate-fact-check-partially_accurate')).toBeTruthy();
+describe('FactCheckCard (t/764)', () => {
+  it('shows the pill text, the checked claim in quotes and the finding', () => {
+    const { container } = render(<FactCheckCard entry={factCheckEntry({
+      verdict: 'supported', explanation: 'Long reasoning.', checked_text: 'Labs help', finding: 'Accurate. A 2017 study agrees.',
+      finding_points: ['Holmes et al., 2017.'], limit: 'One discipline only.',
+    })} />);
+    expect(container.querySelector('.debate-fact-check-verdict')?.textContent).toBe('SUPPORTED');
+    expect(container.querySelector('.debate-fact-check-checked-text')?.textContent).toBe('“Labs help”');
+    expect(container.querySelector('.debate-fact-check-finding')?.textContent).toBe('Accurate. A 2017 study agrees.');
+    expect(container.querySelector('.debate-fact-check-limit-label')?.textContent).toBe('Limit');
+    expect(container.querySelector('.debate-fact-check-limit')?.textContent).toContain('One discipline only.');
   });
 
-  it('surfaces the discrepancy: claimed → actual, dimension, and minor severity', () => {
-    const { container } = render(<FactCheckCard entry={factCheckEntry({ verdict: 'partially_accurate', discrepancy, explanation: '', checked_text: 'x' })} />);
-    const block = container.querySelector('.debate-fact-check-discrepancy');
-    expect(block).toBeTruthy();
-    expect(block?.querySelector('.debate-fact-check-discrepancy-claimed')?.textContent).toBe('12 states');
-    expect(block?.querySelector('.debate-fact-check-discrepancy-actual')?.textContent).toBe('10 states');
-    expect(block?.querySelector('.debate-fact-check-discrepancy-dimension')?.textContent).toBe('Magnitude');
-    expect(block?.textContent).toContain('Minor');
-    expect(block?.classList.contains('debate-fact-check-severity-minor')).toBe(true);
+  it('partially_accurate shows Claimed / Source says instead of the points', () => {
+    const { container } = render(<FactCheckCard entry={factCheckEntry({
+      verdict: 'partially_accurate', discrepancy, explanation: '', checked_text: 'x', finding: 'Partly accurate. Off by two.', finding_points: ['p'],
+    })} />);
+    expect(container.querySelector('.debate-fact-check-verdict')?.textContent).toBe('PARTLY ACCURATE');
+    const pair = container.querySelector('.debate-fact-check-pair');
+    expect(pair?.textContent).toContain('Claimed12 states');
+    expect(pair?.textContent).toContain('Source says10 states');
+    expect(container.querySelector('.debate-fact-check-points')).toBeNull();
   });
 
-  it('major severity is visually distinct and reads as a caveat, not a pass (AC#3)', () => {
-    const major: FactDiscrepancy = { ...discrepancy, severity: 'major' };
-    const { container } = render(<FactCheckCard entry={factCheckEntry({ verdict: 'partially_accurate', discrepancy: major, explanation: '', checked_text: 'x' })} />);
-    const block = container.querySelector('.debate-fact-check-discrepancy');
-    expect(block?.classList.contains('debate-fact-check-severity-major')).toBe(true);
-    expect(block?.textContent).toContain('Major');
-    expect(block?.querySelector('.debate-fact-check-discrepancy-severity')?.textContent).toContain('⚠');
+  it('an old entry uses the first non-"This matters" sentence of the explanation as the finding', () => {
+    const { container } = render(<FactCheckCard entry={factCheckEntry({
+      verdict: 'disputed', explanation: 'This matters because policy follows. Studies disagree on the effect size.', checked_text: 'x',
+    })} />);
+    expect(container.querySelector('.debate-fact-check-finding')?.textContent).toBe('Studies disagree on the effect size.');
   });
 
-  it('does not render a discrepancy block for a plain supported verdict', () => {
-    const { container } = render(<FactCheckCard entry={factCheckEntry({ verdict: 'supported', explanation: '', checked_text: 'x' })} />);
-    expect(container.querySelector('.debate-fact-check-discrepancy')).toBeNull();
-    expect(container.querySelector('.debate-fact-check-verdict')?.textContent?.trim()).toBe('Supported');
-  });
-});
-
-describe('FactCheckContent — italicizing old saved entries (t/4727)', () => {
-  it('wraps a plain "..." quote (pre-t/4726 saved entry) in italics, escaping * and _', () => {
-    const entry = factCheckEntry({ verdict: 'supported', explanation: 'ok', checked_text: 'models trained on *all* the_data' });
-    entry.content = '**Fact Check: Supported**\n\n"models trained on *all* the_data"\n\nok';
-    const { container } = render(<FactCheckCard entry={entry} />);
-    expect(container.textContent).toContain('*"models trained on \\*all\\* the\\_data"*');
-  });
-
-  it('leaves an already-italic quote (post-t/4726 entry) untouched, not doubled', () => {
-    const entry = factCheckEntry({ verdict: 'disputed', explanation: 'no consensus', checked_text: 'AI will take all jobs' });
-    entry.content = '**Fact Check: Disputed**\n\n*"AI will take all jobs"*\n\nno consensus';
-    const { container } = render(<FactCheckCard entry={entry} />);
-    const text = container.textContent ?? '';
-    expect(text).toContain('*"AI will take all jobs"*');
-    expect((text.match(/\*"/g) || []).length).toBe(1);
+  it('Show details expands in place with aria-expanded; the Web Evidence button is gone', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<FactCheckCard entry={factCheckEntry({
+      verdict: 'supported', explanation: 'Full reasoning text.', checked_text: 'x', finding: 'Accurate.',
+      web_search_used: true, web_search_queries: ['q1', 'q2'],
+      web_search_citations: [{ uri: 'https://www.example.org/a', title: 'A study', segments: [] }],
+    })} />);
+    expect(screen.queryByText(/Show Web Evidence/i)).toBeNull();
+    expect(container.querySelector('.debate-fact-check-details')).toBeNull();
+    const btn = screen.getByRole('button', { name: 'Show details' });
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    await user.click(btn);
+    expect(screen.getByRole('button', { name: 'Hide details' }).getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('.debate-fact-check-details')?.textContent).toContain('Full reasoning text.');
+    expect(container.querySelector('.debate-fact-check-details')?.textContent).toContain('Searched: “q1” · “q2”');
   });
 
-  it('applies the truncation fix and the italics fix together for an old plain-quote entry', () => {
-    const entry = factCheckEntry({ verdict: 'disputed', explanation: 'x', checked_text: 'the full untruncated claim text here' });
-    entry.content = '**Fact Check: Disputed**\n\n"the full untr..."\n\nx';
-    const { container } = render(<FactCheckCard entry={entry} />);
-    expect(container.textContent).toContain('*"the full untruncated claim text here"*');
+  it('shows a Sources row with short links and +N beyond three', () => {
+    const cites = ['a', 'b', 'c', 'd', 'e'].map(h => ({ uri: `https://www.${h}.org/x`, title: `Study ${h}`, segments: [] }));
+    const { container } = render(<FactCheckCard entry={factCheckEntry({ verdict: 'supported', explanation: '', checked_text: 'x', finding: 'Accurate.', web_search_citations: cites })} />);
+    const row = container.querySelector('.debate-fact-check-sources-row');
+    expect(row?.querySelectorAll('a').length).toBe(3);
+    expect(row?.textContent).toContain('Study a');
+    expect(row?.textContent).toContain('+2');
   });
 });

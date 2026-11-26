@@ -80,7 +80,7 @@ vi.mock('./TaxonomyRefs', () => ({ TaxonomyRefsSection: () => <div data-testid="
 vi.mock('../../utils/lineageMatcher', () => ({ lineageMarkdownComponents: {}, extractLineageNames: () => [] }));
 vi.mock('../../utils/vocabularyAnnotations', () => ({ getDebateMarkdownComponents: () => ({}) }));
 
-import { StatementCard } from './StatementCard';
+import { StatementCard, FactCheckCard } from './StatementCard';
 import { resetTurnCollapse, expandAllTurns, collapseEarlierTurns, turnIdsOf } from './turnCollapse';
 import { act } from '@testing-library/react';
 import type { TranscriptEntry } from '@lib/debate/types';
@@ -142,12 +142,10 @@ describe('StatementCard collapse: which turns start collapsed (t/701 §8)', () =
     expect(collapsedIds(container)).toEqual(['e1', 'e2', 'e3']);
   });
 
-  it('probing and fact-check cards are not turns and do not count', () => {
+  it('a probing card is not a turn; a fact check is (t/764)', () => {
     const transcript = setTranscript(3);
     transcript.push(makeEntry({ id: 'p1', type: 'probing' }), makeEntry({ id: 'f1', type: 'fact-check' }));
-    expect(turnIdsOf(transcript)).toEqual(['e1', 'e2', 'e3']);
-    const { container } = renderAll(transcript.slice(0, 3));
-    expect(collapsedIds(container)).toEqual([]);
+    expect(turnIdsOf(transcript)).toEqual(['e1', 'e2', 'e3', 'f1']);
   });
 
   it('when a new turn arrives, the third most recent collapses, unless the user opened it by hand', async () => {
@@ -188,6 +186,17 @@ describe('StatementCard collapse: the collapsed row (t/701 §8)', () => {
     expect(row.querySelector('.debate-statement-collapsed-claim')?.textContent).toBe('Old brief first sentence.');
     expect(row.querySelector('.debate-statement-body')).toBeNull();
     expect(row.querySelector('.debate-tier-pills')).toBeNull();
+  });
+
+  it('puts the claim on its own line under speaker and kind (t/761)', () => {
+    const { container } = renderAll(setTranscript(4, (i) => (i === 1 ? { type: 'opening' } : {})));
+    const row = container.querySelector('[data-entry-id="e1"]') as HTMLElement;
+    const line = row.querySelector('.debate-statement-collapsed-line') as HTMLElement;
+    const claim = row.querySelector('.debate-statement-collapsed-claim') as HTMLElement;
+    expect(line.querySelector('.debate-statement-speaker')).not.toBeNull();
+    expect(line.querySelector('.debate-statement-kind')?.textContent).toBe('· Opening statement');
+    expect(line.contains(claim)).toBe(false);
+    expect(claim.parentElement).toBe(line.parentElement);
   });
 
   it('uses brief_claim when the entry has one', () => {
@@ -239,6 +248,34 @@ describe('StatementCard collapse: the collapsed row (t/701 §8)', () => {
   it('a turn holding a find-in-debate match is shown open', () => {
     const { container } = renderAll(setTranscript(4), { findQuery: 'Turn 1' });
     expect(collapsedIds(container)).toEqual(['e2']);
+  });
+});
+
+describe('a collapsed fact check (t/764 §4)', () => {
+  it('is two lines: label, pill and the target on line 1, the finding on line 2; the caret opens it', async () => {
+    const user = userEvent.setup();
+    const turns = setTranscript(4);
+    const fc = makeEntry({
+      id: 'f1', type: 'fact-check', speaker: 'system', content: 'body',
+      metadata: { fact_check: { verdict: 'disputed', explanation: 'Reasoning.', checked_text: 'The claim', finding: 'Disputed. Studies disagree.', target_an_id: 'AN-1' } },
+    });
+    // Two newer turns after it keep it outside "the 2 newest".
+    const transcript = [turns[0], fc, turns[1], turns[2], turns[3]];
+    debateState.activeDebate = { id: 'd1', transcript, speaker_models: {}, argument_network: { nodes: [{ id: 'AN-1', source_entry_id: 'e1' }] } };
+    const { container } = render(<>{transcript.map(e => (e.type === 'fact-check' ? <FactCheckCard key={e.id} entry={e} /> : <StatementCard key={e.id} entry={e} />))}</>);
+    const row = container.querySelector('[data-entry-id="f1"]') as HTMLElement;
+    expect(row.classList.contains('debate-statement-collapsed')).toBe(true);
+    const line = row.querySelector('.debate-statement-collapsed-line') as HTMLElement;
+    expect(line.textContent).toContain('Fact check');
+    expect(line.textContent).toContain('DISPUTED');
+    expect(line.textContent).toContain('of Accelerationist · Response');
+    expect(row.querySelector('.debate-statement-collapsed-claim')?.textContent).toBe('Disputed. Studies disagree.');
+    expect(line.querySelector('button')).toBeNull();
+    await user.click(row.querySelector('.debate-statement-collapse-btn') as HTMLElement);
+    // The open card is a different component, so look the row up again.
+    const open = container.querySelector('[data-entry-id="f1"]') as HTMLElement;
+    expect(open.classList.contains('debate-statement-collapsed')).toBe(false);
+    expect(open.querySelector('.debate-fact-check-finding')?.textContent).toBe('Disputed. Studies disagree.');
   });
 });
 
