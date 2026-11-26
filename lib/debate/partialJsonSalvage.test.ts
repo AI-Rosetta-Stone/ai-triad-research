@@ -108,4 +108,35 @@ describe('synthesis phases salvage (t/774)', () => {
     expect(added[0].content).toContain("**Areas of Agreement:**\n\nAgreements couldn't be read for this synthesis.");
     expect(added[0].content).toContain('**Areas of Disagreement:**\n\n- d');
   });
+
+  it.each([
+    ['areas_of_disagreement', '**Areas of Disagreement:**', "Disagreements couldn't be read for this synthesis."],
+    ['cruxes', '**Cruxes:**', "Cruxes couldn't be read for this synthesis."],
+  ])('an all-malformed %s list says so on the card (Quality, #5603)', async (key, heading, text) => {
+    const lists: Record<string, string> = {
+      areas_of_agreement: '[ { "point": "a", "povers": [] } ]',
+      areas_of_disagreement: '[ { "point": "d", "positions": [] } ]',
+      cruxes: '[ { "question": "c" } ]',
+    };
+    lists[key] = '[ { "x" "y" }, { "x": } ]';
+    const allBadOne = `{ "areas_of_agreement": ${lists.areas_of_agreement}, "areas_of_disagreement": ${lists.areas_of_disagreement}, "cruxes": ${lists.cruxes}, "unresolved_questions": [] }`;
+    const added: { content: string }[] = [];
+    const ctx = {
+      session: { id: 'd1', topic: { final: 'Q?' }, transcript: [] }, config: { model: 'm' }, taxonomy: { policyRegistry: [] },
+      generate: async (_p: string, label: string) => (/Extract/.test(label) ? allBadOne : '{}'), generateWithEvaluator: vi.fn(),
+      addEntry: vi.fn((e) => { added.push(e as never); return { ...e, id: 'c1', timestamp: 't' }; }),
+      recordDiagnostic: vi.fn(), progress: vi.fn(), warn: vi.fn(), checkAborted: vi.fn(),
+    } as unknown as SynthesisContext;
+    await new SynthesisPipeline(ctx).runSynthesis();
+    expect(added[0].content).toContain(`${heading}\n\n${text}`);
+  });
+});
+
+describe('salvageJsonArray: repair of a closed array\'s last item (Quality, #5603)', () => {
+  it('keeps a last item with a missing opening quote when the array is closed, and lists it as repaired', () => {
+    const s = salvageJsonArray('{"xs": [\n {"a": 1},\n {"a": 2,\n  Nb": 3}\n]}', 'xs');
+    expect(s.items).toEqual([{ a: 1 }, { a: 2, Nb: 3 }]);
+    expect(s.repaired).toEqual([1]);
+    expect(s.dropped).toEqual([]);
+  });
 });

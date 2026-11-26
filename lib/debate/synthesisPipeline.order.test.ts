@@ -55,6 +55,8 @@ describe('SynthesisPipeline.runSynthesis ordering (t/769)', () => {
     const warns = record.mock.calls.map(c => c[0]).filter(e => /answers_question/.test(e.message ?? ''));
     expect(warns).toHaveLength(1);
     expect(warns[0].message).toMatch(/missing on 2, invalid on 1/);
+    // t/775 (Quality, #5603): the pipeline passes the session id through to the WARN.
+    expect(warns[0].debate_id).toBe('d1');
     expect((added[0].metadata?.synthesis?.areas_of_agreement as { point: string }[]).map(a => a.point)).toEqual(['three', 'two', 'bad']);
   });
 });
