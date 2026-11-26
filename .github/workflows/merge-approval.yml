@@ -108,6 +108,8 @@ jobs:
             operations/devops/t1-approval-guard-predicate.mjs
             operations/devops/tier-check-predicate.mjs
             operations/devops/role-review-verdicts.mjs
+            operations/devops/design-gate.mjs
+            operations/devops/design-review-scope.mjs
             operations/devops/github-retry.mjs
             .github/ci/tier-paths.json
 

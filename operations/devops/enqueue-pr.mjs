@@ -69,10 +69,12 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { extractTier } from './tier-check-predicate.mjs';
-import { fetchChangedFiles, fetchReview, gateFileChangeVerdict, gateFileRefusalMessage } from './gate-file-change.mjs';
+import { REVIEWER_APP_REST_LOGIN, fetchChangedFiles, fetchReview, gateFileChangeVerdict, gateFileRefusalMessage } from './gate-file-change.mjs';
 import { checkRunningCopy, currencyOkLine, currencyRefusalMessage } from './running-copy-current.mjs';
 import { checkLandingVehicle, vehicleOkLine, vehicleRefusalMessage } from './landing-vehicle.mjs';
 import { pingVehicleRefusal } from './pr-budget-notify.mjs';
+import { designGateVerdict, shownPaths } from './design-gate.mjs';
+import { fetchDesignGateInputs } from './design-gate-fetch.mjs';
 import {
   approvalAtHeadVerdict, approvalFromApiVerdict, classifyT1GuardForEnqueue, fetchApprovalInputs, fetchGuardRun, pickAuthoritativeGuardRun,
 } from './t1-approval-at-head.mjs';
@@ -203,6 +205,29 @@ function enqueueViaMutation(repo, prNumber, headSha, ghFn = gh) {
     'mutation($pullRequestId:ID!,$headSha:GitObjectID!){enablePullRequestAutoMerge(input:{' +
     'pullRequestId:$pullRequestId,mergeMethod:SQUASH,expectedHeadOid:$headSha}){pullRequest{autoMergeRequest{mergeMethod}}}}';
   ghFn(['api', 'graphql', '-f', `query=${mutation}`, '-f', `pullRequestId=${nodeId}`, '-f', `headSha=${headSha}`]);
+}
+
+/**
+ * PURE. The one-line PR comment that attributes a hand enqueue, or null when --by was not given
+ * (the sweeps pass none: their actor is the bot). `by` is a collaborator id, printed as written.
+ */
+export function attributionComment({ by, headSha, state, at = new Date().toISOString() }) {
+  const who = typeof by === 'string' ? by.trim() : '';
+  if (!who) return null;
+  return `enqueue-pr: run by ${who} at ${at} on head ${String(headSha).slice(0, 9)} (${state}).`;
+}
+
+/** Posts attributionComment on the PR. Best effort: a failure WARNs and never undoes the enqueue. */
+export function postAttributionComment(repo, prNumber, { by, headSha, state }, ghFn = gh) {
+  const body = attributionComment({ by, headSha, state });
+  if (!body) return false;
+  try {
+    ghFn(['pr', 'comment', String(prNumber), '-R', repo, '--body', body]);
+    return true;
+  } catch (err) {
+    console.warn(`WARN: enqueue-pr could not post the attribution comment on #${prNumber} on ${repo} (${err?.message ?? err}); the enqueue itself stands. Say who ran it on the ticket.`);
+    return false;
+  }
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -342,6 +367,8 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
       `  Goal:       land #${prNumber} via the merge queue.\n` +
       `  Problem:    ${verdict.reason === 'draft'
         ? 'the PR is still a draft.'
+        : verdict.reason === 'no_tier_line'
+        ? `the PR body has no \`Tier:\` first line, so it is not enqueued (${verdict.detail}).`
         : `the approval read from the API at ${headSha} is ${verdict.reason}${verdict.detail ? ` (${verdict.detail})` : ''}, ` +
           `and the declared tier (${tier ?? 'none'}) requires one.`}\n` +
       '  Location:   operations/devops/enqueue-pr.mjs (approvalFromApiVerdict, t/534).\n' +
@@ -349,6 +376,33 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
       'other than the branch owner, resolve any changes-request, then rerun. This is the same incident class as #4648/#3343/#3364.',
     );
   }
+
+  // t/752: the Design gate, at every tier: a user-facing PR arms only after Design passes it
+  // (docs/review-routing.md). The same helper the sweeps and merge-approval call (design-gate.mjs).
+  // Read from the API at this head; an unreadable input refuses (fail closed).
+  const filesTruncated = changed.listedCount !== changed.expectedCount;
+  const mayBeUserFacing = designGateVerdict({ files: changed.paths, filesTruncated, reviews: [], comments: [], reviewerAppLogin: REVIEWER_APP_REST_LOGIN, headSha });
+  if (mayBeUserFacing.applies) {
+    const di = mayBeUserFacing.paths.length === 0 ? { error: null, reviews: [], comments: [], pushedAtMs: null } : fetchDesignGateInputs(repo, prNumber, headSha, ghFn);
+    if (di.error) console.warn(`WARN: enqueue-pr could not read the Design gate inputs of #${prNumber} on ${repo} at ${headSha} (${di.error.message ?? di.error}); refusing.`);
+    const design = di.error
+      ? { applies: true, pass: false, reason: `the reviews, comments or check runs could not be read (${di.error.message ?? di.error})`, paths: mayBeUserFacing.paths }
+      : designGateVerdict({ files: changed.paths, filesTruncated, reviews: di.reviews, comments: di.comments, reviewerAppLogin: REVIEWER_APP_REST_LOGIN, headSha, pushedAtMs: di.pushedAtMs });
+    if (!design.pass) {
+      throw new Error(
+        `enqueue-pr: refusing to arm/enqueue #${prNumber} on ${repo} (design_gate).\n` +
+        `  Goal:       land #${prNumber} via the merge queue.\n` +
+        `  Problem:    the PR changes user-facing files${design.paths.length ? ` (${shownPaths(design.paths)})` : ''} and the Design gate is not passed: ${design.reason}.\n` +
+        '  Location:   operations/devops/enqueue-pr.mjs (designGateVerdict, t/752; docs/review-routing.md).\n' +
+        `  Next steps: Design posts a reviewer-App review at ${headSha.slice(0, 9)} starting \`Approved (Design):\` or \`Design-exempt (Design): <reason>\`; a Design comment counts only after the head's push. Then rerun.`,
+      );
+    }
+    if (design.applies) console.log(`enqueue-pr: Design gate OK for #${prNumber}: Design ${design.kind} (${shownPaths(design.paths)}).`);
+  }
+
+  // t/739 (t/739#8 gap, #5599): the one shared login arms every PR, so a hand enqueue cannot be told
+  // from a raw arm on GitHub. With --by, say who ran this on the PR itself, after the arm is read back.
+  const attribute = (state) => postAttributionComment(repo, prNumber, { by, headSha, state }, ghFn);
 
   const before = queryQueueState(repo, prNumber, ghFn);
 
@@ -367,9 +421,11 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
     console.log(afterOutcome.state === 'merged'
       ? `enqueue-pr: #${prNumber} on ${repo} merged directly as ${sha} (no merge queue or auto-merge on this repo).`
       : `enqueue-pr: #${prNumber} on ${repo} was already merged (${sha} at ${after.mergedAt}) before this run; nothing to do.`);
+    attribute(afterOutcome.state);
     return { ok: true, usedFallback: false, state: afterOutcome.state, mergeCommit: sha };
   }
   if (afterOutcome.state === 'queued') {
+    attribute('queued');
     return { ok: true, usedFallback: false, state: 'queued' };
   }
   if (afterOutcome.state === 'armed_waiting') {
@@ -377,6 +433,7 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
       `enqueue-pr: #${prNumber} on ${repo} is armed (mergeStateStatus: ${after.mergeStateStatus}); ` +
       'will enter the queue once required checks pass.',
     );
+    attribute('armed_waiting');
     return { ok: true, usedFallback: false, state: 'armed_waiting' };
   }
 
@@ -398,6 +455,7 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
     );
   }
 
+  attribute(fallbackOutcome.state);
   return { ok: true, usedFallback: true, state: fallbackOutcome.state };
 }
 

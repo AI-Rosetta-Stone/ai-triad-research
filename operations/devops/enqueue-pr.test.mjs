@@ -547,7 +547,7 @@ test('t/534 A: an undeclared tier is evaluated as T1 (fail closed): no approval 
     if (r !== undefined) return r;
     throw new Error(`unexpected gh call: ${joined}`);
   };
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, vehicle: VEHICLE_OK, gh: fakeGh }), /\(no_approval\)/);
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, vehicle: VEHICLE_OK, gh: fakeGh }), /\(no_tier_line\)/); // t/751: refused outright, not only for want of an approval
   assert.equal(mergeCalls(fakeGh), 0);
 });
 

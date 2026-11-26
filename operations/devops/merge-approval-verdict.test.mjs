@@ -38,7 +38,7 @@ function pr(over = {}) {
 test('a plain T0 docs PR passes every rule', () => {
   const r = evaluatePullRequest(pr(), { tierConfig: TIER_CONFIG });
   assert.equal(r.ok, true, r.lines.join('\n'));
-  assert.equal(r.lines.length, 4, 'one header line and one line per rule');
+  assert.equal(r.lines.length, 5, 'one header line and one line per rule');
 });
 
 test('missing input fails with the field named, never passes', () => {
@@ -125,19 +125,8 @@ test('A: pickGateApproval takes the latest qualifying review', () => {
 
 const T1 = 'Tier: T1\n\nfeature';
 
-test('B: T0 or no tier passes and says the declared tier', () => {
+test('B: a declared T0 passes and says so', () => {
   assert.deepEqual(ruleT1Approval(pr({ body: 'Tier: T0\n' })), { ok: true, detail: 'not T1 or T2 (declared T0)' });
-  assert.equal(ruleT1Approval(pr({ body: '' })).detail, 'not T1 or T2 (declared no tier)');
-});
-
-// KNOWN GAP, pinned on purpose (t/751; DevOps Lead p/233#242): a PR with no `Tier:` first line, or a
-// malformed one, passes rule B with no approval at all. The t/739 fix leaves this exactly as it was,
-// because Dependabot PRs carry no tier line and merge on this arm by policy (#5508). t/751 makes a
-// missing tier line count as T1 with a checked Dependabot exemption; that change must update this test.
-test('B, known gap t/751: no tier line or a malformed one still passes with no approval', () => {
-  for (const body of ['', 'Bumps the actions group with 5 updates:', 'Tier T1\n\nfeature', 'tier: one']) {
-    assert.deepEqual(ruleT1Approval(pr({ body })), { ok: true, detail: 'not T1 or T2 (declared no tier)' }, JSON.stringify(body));
-  }
 });
 
 test('B: T2 needs the same approval at the head as T1; declaring T2 never skips rule B', () => {

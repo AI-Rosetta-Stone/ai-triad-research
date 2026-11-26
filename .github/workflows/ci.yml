@@ -5030,7 +5030,8 @@ jobs:
               const rawReviews = await withRetry(`pulls.listReviews #${prNumber}`, () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
               const botReviews = rawReviews.map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body, commitId: r.commit_id }));
 
-              const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, headSha: pr.head.sha, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN });
+              const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, headSha: pr.head.sha, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN,
+              dependabot: { authorLogin: pr.user?.login ?? null, headRepo: pr.head.repo?.full_name ?? null, baseRepo: pr.base.repo?.full_name ?? null, commits, commitsTotal: pr.commits } });
               core.info(`t1-approval-guard (merge_group): #${prNumber} tier=${result.tier} pass=${result.pass} reason=${result.reason}${result.blockers ? ' blockers=' + JSON.stringify(result.blockers) : ''}`);
               perPrResults.push({ number: prNumber, result });
             }

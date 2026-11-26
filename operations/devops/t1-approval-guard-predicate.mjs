@@ -354,8 +354,71 @@ export function isT1ReviewerRole(role) {
 
 export const MISSING_HEAD_SHA_SUMMARY ='Missing head SHA (this PR\'s branch predates #4804, so its own t1-approval-guard.yml cannot bind a review to the head): post a PR comment containing `/recheck-guards` or rebase onto main to re-run the guard on main\'s workflow.';
 
-export function evaluateT1ApprovalGuard({ body, headRefName, headSha, lastPushAt, approvalComments, botReviews, reviewerAppLogin }) {
-  const tier = parseTier(body);
+/**
+ * t/751 (t/739): THE Dependabot exemption for a PR with no `Tier:` first line. Dependabot's PR
+ * bodies carry no tier line and merge with no review by policy; every other PR with no tier line
+ * is T1. This predicate is the only place that decides it, and the guard, merge-approval,
+ * enqueue-pr and the Dependabot sweep all call it (it lives here because this file is the one a
+ * workflow can load alone from main's tip; keep it import-free).
+ *
+ * Exempt only when ALL hold; anything unreadable is not exempt (fail closed):
+ *   - the PR's author is `dependabot[bot]` (pulls.get `user.login`);
+ *   - the head is in this repository (not a fork);
+ *   - EVERY commit is verified (`commit.verification.verified === true`), authored by an
+ *     allowlisted login, and committed by `web-flow` (GitHub's own signer: a commit a person signs
+ *     with their key, or authors under the bot's email, has another committer);
+ *   - the commit list is complete (`commitsTotal` is the PR's own `commits` count; the API caps
+ *     the list at 250).
+ * The lockfile-heal commit is unsigned and has no author login (t/751#4), so a healed PR is NOT
+ * exempt and needs a T1 review. Do not add `dependabot-heal[bot]` here: a git author name is
+ * forgeable by any pusher.
+ * `input` is { authorLogin, headRepo, baseRepo, commits, commitsTotal }; returns
+ * { exempt, reason, commitCount }.
+ */
+export const DEPENDABOT_PR_AUTHOR = 'dependabot[bot]';
+export const DEPENDABOT_COMMIT_AUTHORS = Object.freeze(['dependabot[bot]']);
+export const DEPENDABOT_COMMIT_COMMITTERS = Object.freeze(['web-flow']);
+export const PR_COMMITS_LIST_CAP = 250;
+export function dependabotExemption(input) {
+  const no = (reason) => ({ exempt: false, reason, commitCount: 0 });
+  if (!input || typeof input !== 'object') return no('no Dependabot facts were read');
+  const { authorLogin, headRepo, baseRepo, commits, commitsTotal } = input;
+  if (authorLogin !== DEPENDABOT_PR_AUTHOR) return no(`the PR author is ${authorLogin ? `\`${authorLogin}\`` : 'unknown'}, not \`${DEPENDABOT_PR_AUTHOR}\``);
+  if (typeof headRepo !== 'string' || typeof baseRepo !== 'string' || !headRepo || headRepo.toLowerCase() !== baseRepo.toLowerCase()) {
+    return no('the head is not in this repository (a fork, or the repository is unreadable)');
+  }
+  if (!Array.isArray(commits) || commits.length === 0) return no('the commit list is empty or unreadable');
+  if (!Number.isInteger(commitsTotal) || commitsTotal >= PR_COMMITS_LIST_CAP || commits.length !== commitsTotal) {
+    return no(`the commit list may be cut short (listed ${commits.length}, the PR reports ${commitsTotal ?? 'no count'})`);
+  }
+  for (const c of commits) {
+    const sha = String(c?.sha ?? '').slice(0, 9) || '?';
+    if (c?.commit?.verification?.verified !== true) return no(`commit ${sha} is not verified (${c?.commit?.verification?.reason ?? 'no signature data'})`);
+    const author = c?.author?.login ?? null;
+    if (!DEPENDABOT_COMMIT_AUTHORS.includes(author)) return no(`commit ${sha} is by ${author ? `\`${author}\`` : 'no GitHub account'}, not an allowlisted bot`);
+    const committer = c?.committer?.login ?? null;
+    if (!DEPENDABOT_COMMIT_COMMITTERS.includes(committer)) return no(`commit ${sha} was committed by ${committer ? `\`${committer}\`` : 'no GitHub account'}, not GitHub's signer`);
+  }
+  return { exempt: true, reason: `Dependabot PR, ${commits.length} verified commit${commits.length === 1 ? '' : 's'} from an allowlisted bot`, commitCount: commits.length };
+}
+
+/**
+ * t/751: a body with no (or an unreadable) `Tier:` first line is T1 unless the Dependabot
+ * exemption holds; a declared T0 or T2 is as before (T2 is judged by merge-approval, which
+ * rewrites it to T1). Before this, such a body returned `not-t1` and passed with no approval
+ * (#5578, #5599). `input.dependabot` is dependabotExemption's input; absent means not exempt.
+ */
+export function evaluateT1ApprovalGuard(input) {
+  const declared = parseTier(input.body);
+  if (declared !== null) return evaluateDeclaredTier(input, declared);
+  const ex = dependabotExemption(input.dependabot);
+  if (ex.exempt) return { pass: true, tier: null, declaredTier: null, reason: 'no-tier-dependabot-exempt', exemption: ex };
+  const note = `no Tier line: treated as T1 (${ex.reason})`;
+  const r = evaluateDeclaredTier(input, 'T1');
+  return { ...r, declaredTier: null, tierNote: note, ...(r.pass ? {} : { summary: [note, r.summary].filter(Boolean).join('. ') }) };
+}
+
+function evaluateDeclaredTier({ headRefName, headSha, lastPushAt, approvalComments, botReviews, reviewerAppLogin }, tier) {
   if (tier !== 'T1') {
     return { pass: true, tier, reason: 'not-t1' };
   }

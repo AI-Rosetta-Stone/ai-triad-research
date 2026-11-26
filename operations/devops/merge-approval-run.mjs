@@ -29,6 +29,8 @@
 // queue entries change as soon as it merges, so re-reading would only find it gone.
 
 import { failureVerdict, evaluateGroup, CHECK_NAME } from './merge-approval-verdict.mjs';
+import { parseTier } from './t1-approval-guard-predicate.mjs';
+import { earliestCheckRunStartMs } from './design-gate.mjs';
 
 export const EXPECTED_INSTALLATION_REPOS = Object.freeze(['AI-Rosetta-Stone/ai-triad-research']);
 export const GROUP_RELAY_WORKFLOW = 'merge-approval-group-relay';
@@ -208,6 +210,14 @@ export async function fetchPullRequestInput(github, context, prNumber, { retry =
   const files = await retry('pulls.listFiles', () => github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 }));
   const reviews = await retry('pulls.listReviews', () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
   const comments = await retry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
+  // t/751: the Dependabot exemption reads every commit, so list them only for a PR with no Tier line
+  // (the only case that needs them). A list that cannot be read throws: the run fails closed.
+  const commits = parseTier(pr.body ?? '') === null
+    ? await retry('pulls.listCommits', () => github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 }))
+    : null;
+  // t/752: the Design gate's push time, the way the sweeps read it: the earliest check-run start on the
+  // head. A committer date is author-controlled. Unreadable throws (fail closed).
+  const checkRuns = await retry('checks.listForRef', () => github.paginate(github.rest.checks.listForRef, { owner, repo, ref: pr.head?.sha, per_page: 100 }));
   const { data: again } = await retry('pulls.get', () => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
   if (again.head?.sha !== pr.head?.sha) return { moved: true, from: pr.head?.sha, to: again.head?.sha };
   return {
@@ -223,6 +233,8 @@ export async function fetchPullRequestInput(github, context, prNumber, { retry =
       filesTruncated: files.length >= PR_FILES_API_CAP || files.length !== pr.changed_files,
       reviews,
       comments,
+      dependabot: { authorLogin: pr.user?.login ?? null, headRepo: pr.head?.repo?.full_name ?? null, baseRepo: pr.base?.repo?.full_name ?? null, commits, commitsTotal: pr.commits },
+      headPushedAtMs: earliestCheckRunStartMs(checkRuns),
       lastPushAt: null, // not read: a committer date is author-controlled (see merge-approval-verdict.mjs)
       labels: (pr.labels ?? []).map((l) => l?.name).filter(Boolean),
     },
