@@ -80,6 +80,12 @@ export function checkRate(key: string, limit: number, windowMs: number): RateChe
 }
 
 // ── Daily token accumulator ──
+//
+// KNOWN LIMIT (t/731, TL ruling t/721#6): this bucket is a per-PROCESS Map. It is lost on every restart, and
+// prod runs minReplicas 0, so it starts again after every idle gap. The real behaviour of `tokensPerDay` is
+// therefore "per user per warm period", NOT per user per day. Do not rely on it as a daily spend bound; the
+// bounds that hold across restarts are the shared free-pool budget (storage/freePoolBudget.ts) and the
+// anonymous op-ed ledger. t/731 moves this bucket to shared storage; remove this note when it lands.
 
 interface DailyTokenBucket {
   date: string;
