@@ -17,6 +17,13 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({
   getGlobalRecorder: () => ({ record: frRecord }),
 }));
 
+// t/750: spy on the auth log so the suite pins the log line as well as the flight-recorder event.
+const { authWarn, authError } = vi.hoisted(() => ({ authWarn: vi.fn(), authError: vi.fn() }));
+vi.mock('../logger.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../logger.js')>();
+  return { ...actual, log: { ...actual.log, auth: { ...actual.log.auth, warn: authWarn, error: authError } } };
+});
+
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
@@ -32,6 +39,8 @@ const SAVED: Record<string, string | undefined> = {};
 beforeEach(() => {
   for (const k of ENV_KEYS) { SAVED[k] = process.env[k]; delete process.env[k]; }
   frRecord.mockClear();
+  authWarn.mockClear();
+  authError.mockClear();
   mockFetch.mockReset();
   resetPatFallbackWarnState();
   process.env.GITHUB_REPO = 'owner/repo';
@@ -131,6 +140,35 @@ describe('t/653: the hosted PAT fallback is never silent', () => {
     const calls = frCalls();
     expect(calls).toHaveLength(2);
     expect(calls[1].message).toMatch(/mint failed/);
+    // t/750 item 1: one fallback was suppressed under the OLD reason; its count must not ride into the new reason's report.
+    expect(calls[1].message).not.toMatch(/more fallback/);
+    const warnCalls = authWarn.mock.calls.filter((c) => /FALLBACK taken/.test(String(c[1])));
+    expect(warnCalls).toHaveLength(2);
+    expect((warnCalls[1][0] as { suppressedSinceLast: number }).suppressedSinceLast).toBe(0);
+  });
+
+  it('t/750 item 2: each reported fallback also writes the log.auth.warn line, with the reason and no token', async () => {
+    process.env.CONTAINER_APP_NAME = 'taxonomy-editor';
+    await getCredentials();
+    const lines = authWarn.mock.calls.filter((c) => /FALLBACK taken/.test(String(c[1])));
+    expect(lines).toHaveLength(1);
+    expect(lines[0][0]).toMatchObject({ reason: 'GitHub App not configured', repo: 'owner/repo', suppressedSinceLast: 0 });
+    expect(JSON.stringify(authWarn.mock.calls)).not.toContain('pat-env-token');
+  });
+
+  it('t/750 item 2: a suppressed fallback writes no log line, and the staging refusal writes log.auth.error every time', async () => {
+    process.env.CONTAINER_APP_NAME = 'taxonomy-editor';
+    await getCredentials();
+    await getCredentials();
+    expect(authWarn.mock.calls.filter((c) => /FALLBACK taken/.test(String(c[1])))).toHaveLength(1);
+    process.env.CONTAINER_APP_NAME = 'taxonomy-editor-staging';
+    await getCredentials();
+    await getCredentials();
+    expect(authError.mock.calls.filter((c) => /staging refuses/.test(String(c[1])))).toHaveLength(2);
+  });
+
+  it('t/750 item 3: the report interval is pinned at 60 seconds', () => {
+    expect(PAT_FALLBACK_WARN_INTERVAL_MS).toBe(60_000);
   });
 
   it('t/679: the staging refusal is unchanged (every call records an error)', async () => {
