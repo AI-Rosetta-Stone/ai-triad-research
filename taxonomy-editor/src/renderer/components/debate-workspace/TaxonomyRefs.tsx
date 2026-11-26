@@ -644,51 +644,6 @@ function PlanSection({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, ent
   );
 }
 
-/** t/472: disclosure caret in front of an entry id. Decoration only; the button's aria-expanded carries the state. */
-function EntryCaret({ open }: { open: boolean }) {
-  return <span className="debate-reasoning-caret" aria-hidden="true">{open ? '▾' : '▸'}</span>;
-}
-
-function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
-  taxRef: TaxonomyRef;
-  selectedBdiNodeId: string | null;
-  toggleBdiNode: (nodeId: string) => void;
-}) {
-  // A ref may carry its own label (Chat's read-time backfill, t/282); otherwise resolve from the
-  // taxonomy. getNodeLabel() returns the bare id when the node doesn't resolve, and the row's button already
-  // shows that id, so a missing label is rendered as text rather than repeating the id (Design).
-  const resolved = getNodeLabel(taxRef.node_id);
-  const isMissing = !taxRef.label && resolved === taxRef.node_id;
-  const label = taxRef.label || resolved;
-  // Only claim a node is gone once the taxonomy has loaded; while loading, show no label.
-  const taxonomyLoaded = useTaxonomyStore(s => s.accelerationist !== null && s.safetyist !== null && s.skeptic !== null && s.situations !== null);
-  const { colorVar } = nodeIdToTab(taxRef.node_id);
-  const open = selectedBdiNodeId === taxRef.node_id;
-  return (
-    // t/472 (Design p/14#76): the open entry is marked by a caret and a left rule in its POV colour, not by colour alone.
-    // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
-    <div className={`debate-reasoning-item${open ? ' debate-reasoning-item--open' : ''}`} style={open ? { borderLeftColor: colorVar } : undefined}>
-      {/* t/472: the chip row above each group is gone. Its primary marker sits beside the id; its relevance score is not shown (PI decision, p/6#150). Entries stay sorted by it. */}
-      <div className="debate-reasoning-head">
-        {taxRef.primary && <span className="debate-reasoning-primary" title="Primary reference" aria-label="Primary reference">★</span>}
-        <button
-          className="debate-reasoning-node"
-          // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
-          style={{ color: colorVar }}
-          aria-expanded={open}
-          onClick={() => toggleBdiNode(taxRef.node_id)}
-        >
-          <EntryCaret open={open} />{taxRef.node_id}
-        </button>
-      </div>
-      {isMissing
-        ? taxonomyLoaded && <span className="debate-reasoning-label debate-reasoning-label--missing">No longer in the taxonomy</span>
-        : <span className="debate-reasoning-label">{label}</span>}
-      <span className="debate-reasoning-text">{taxRef.relevance}</span>
-    </div>
-  );
-}
-
 /** t/187: BDI groups in Taxonomy-tree order. Situation nodes (`sit-NNN`) carry no BDI
  *  category; they get their own group after Beliefs rather than being dropped. */
 const BDI_GROUPS = [
@@ -720,76 +675,6 @@ function groupRefsByBdi(refs: TaxonomyRef[]): { key: string; label: string; refs
   return BDI_GROUPS
     .map(g => ({ key: g.key, label: g.label, refs: keyed.filter(k => k.key === g.key).map(k => k.ref) }))
     .filter(g => g.refs.length > 0);
-}
-
-function BdiGroup({ label, refs, selectedBdiNodeId, toggleBdiNode }: {
-  label: string;
-  refs: TaxonomyRef[];
-  selectedBdiNodeId: string | null;
-  toggleBdiNode: (nodeId: string) => void;
-}) {
-  return (
-    <div className="taxrefs-bdi-group" role="group" aria-label={`${label}, ${refs.length} node${refs.length === 1 ? '' : 's'}`}>
-      <div className="taxrefs-bdi-group-label">{label} ({refs.length})</div>
-      {refs.map((taxRef) => (
-        <BdiRefItem key={taxRef.node_id} taxRef={taxRef} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
-      ))}
-    </div>
-  );
-}
-
-function PolicyRefsBlock({ polRefs, selectedBdiNodeId, toggleBdiNode }: {
-  polRefs: PolicyRefEntry[];
-  selectedBdiNodeId: string | null;
-  toggleBdiNode: (nodeId: string) => void;
-}) {
-  return (
-    <div className="taxrefs-policy-refs" role="group" aria-label={`Policy actions, ${polRefs.length} ${polRefs.length === 1 ? 'action' : 'actions'}`}>
-      <div className="taxrefs-bdi-group-label">Policy actions ({polRefs.length})</div>
-      {polRefs.map((polRef, i) => {
-        const { id, relevance } = resolvePolRef(polRef);
-        return (
-          <div key={`${id}-${i}`} className={`debate-reasoning-item${selectedBdiNodeId === id ? ' debate-reasoning-item--open taxrefs-item-sit' : ''}`}>
-            <button
-              className="debate-reasoning-node taxrefs-node-sit"
-              aria-expanded={selectedBdiNodeId === id}
-              onClick={() => toggleBdiNode(id)}
-            >
-              <EntryCaret open={selectedBdiNodeId === id} />{id}
-            </button>
-            <span className="debate-reasoning-label">{getPolicyAction(id)}</span>
-            <span className="debate-reasoning-text">{relevance ?? "Policy action referenced by this debater's argument"}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/**
- * The BDI grounding content: per-node entries, and the inline POV detail when a ref is
- * clicked. t/187: grouped Desires → Intentions → Beliefs (→ Situations), policy refs last. No outer disclosure — the Why tab (t/4625) renders it directly since the tab
- * selection is itself the disclosure (t/4625 follow-up: this used to also back a collapsible
- * BDI section inside How→Plan, removed as redundant with the always-visible Why tab).
- */
-function BdiSectionBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode }: {
-  refs: TaxonomyRef[];
-  polRefs: PolicyRefEntry[];
-  selectedBdiNodeId: string | null;
-  setSelectedBdiNodeId: React.Dispatch<React.SetStateAction<string | null>>;
-  toggleBdiNode: (nodeId: string) => void;
-}) {
-  const groups = useMemo(() => groupRefsByBdi(refs), [refs]);
-  return (
-    <div className="debate-reasoning-section-body">
-      {groups.map(g => (
-        <BdiGroup key={g.key} label={g.label} refs={g.refs} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
-      ))}
-      {polRefs.length > 0 && <PolicyRefsBlock polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />}
-      {/* Inline POV detail for the clicked BDI ref (chip or node id). */}
-      {selectedBdiNodeId && <TaxNodeDetail nodeId={selectedBdiNodeId} onClose={() => setSelectedBdiNodeId(null)} />}
-    </div>
-  );
 }
 
 // ── t/778: the debate's compact Why panel ────────────────────────────────
@@ -918,21 +803,19 @@ function CompactBdiBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId
 }
 
 /**
- * t/4625: the standalone "Why" tab — a statement's BDI grounding on its own, via
+ * t/4625, t/778: the standalone "Why" tab — a statement's BDI grounding on its own, via
  * BdiSectionBody. AC5: a statement with no BDI refs (e.g. the System entry) shows a short
  * empty-state line, not an empty pane. (How→Plan used to also show this in a collapsible BDI
  * section; removed as redundant with this always-visible view, t/4625#10.)
  */
-export function BdiGroundingView({ refs, policyRefs, metaPolicyRefs, emptyText = 'No BDI grounding for this statement.', compact = false, stateKey }: {
+export function BdiGroundingView({ refs, policyRefs, metaPolicyRefs, emptyText = 'No BDI grounding for this statement.', stateKey }: {
   refs: TaxonomyRef[];
   policyRefs?: PolicyRefEntry[];
   metaPolicyRefs?: PolicyRefEntry[];
   /** t/187: empty-state line; Chat passes its own wording (t/167#3). */
   emptyText?: string;
-  /** t/778: the debate's compact panel: no BDI group headings, the label beside the id, explanations
-   *  collapsed with Expand all / Collapse all. Chat leaves it off and keeps the grouped view. */
-  compact?: boolean;
-  /** t/778: which statement's open rows to keep for the session (the entry id). */
+  /** t/778: which statement's open rows to keep for the session (the entry id). Without it the
+   *  rows are kept for as long as this panel stays mounted (Chat). */
   stateKey?: string;
 }) {
   const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
@@ -940,12 +823,9 @@ export function BdiGroundingView({ refs, policyRefs, metaPolicyRefs, emptyText =
   const polRefs = metaPolicyRefs || policyRefs || [];
   const listId = useId();
   const rowIds = useMemo(() => [...refs.map(r => r.node_id), ...polRefs.map(p => resolvePolRef(p).id)], [refs, polRefs]);
-  const expl = useWhyExplanations(compact ? stateKey : undefined, rowIds);
+  const expl = useWhyExplanations(stateKey, rowIds);
   if (refs.length === 0 && polRefs.length === 0) {
     return <p className="taxrefs-why-empty">{emptyText}</p>;
-  }
-  if (!compact) {
-    return <BdiSectionBody refs={refs} polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} setSelectedBdiNodeId={setSelectedBdiNodeId} toggleBdiNode={toggleBdiNode} />;
   }
   return (
     <>
