@@ -639,8 +639,14 @@ const exemptFile = (file) => dependabotExemption(depFacts([botCommit()], { files
 
 test('t/796 pnpm-lock: a version bump of an existing package passes (header, integrity, specifier, version, a registry tarball)', () => {
   assert.equal(exemptFile(lock()).exempt, true);
-  const tarball = lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+    resolution: {integrity: ' + INTEG2 + ', tarball: https://registry.npmjs.org/left-pad/-/left-pad-1.0.1.tgz}');
-  assert.equal(exemptFile(lock(tarball)).exempt, true);
+  // (SO p/136#119) a `tarball:` key is refused outright, even a registry URL for the same package: pnpm omits it for registry packages.
+  const sameName = lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+    resolution: {integrity: ' + INTEG2 + ', tarball: https://registry.npmjs.org/left-pad/-/left-pad-1.0.1.tgz}');
+  assert.match(exemptFile(lock(sameName)).reason, /a tarball key is refused/);
+  // ...and the re-pointing attack: lodash@x re-pointed to another published package's tarball with that tarball's own integrity.
+  const repointed = lockPatch('-  lodash@4.17.20:', '+  lodash@4.17.21:', '+    resolution: {integrity: ' + INTEG2 + ', tarball: https://registry.npmjs.org/evil-pkg/-/evil-pkg-1.0.0.tgz}');
+  assert.equal(exemptFile(lock(repointed)).exempt, false);
+  // an integrity-only change is the allowed shape
+  assert.equal(exemptFile(lock(lockPatch('-  lodash@4.17.20:', '+  lodash@4.17.21:', '-    resolution: {integrity: ' + INTEG1 + '}', '+    resolution: {integrity: ' + INTEG2 + '}'))).exempt, true);
   const scoped = lockPatch("-  '@babel/core@7.0.0':", "+  '@babel/core@7.0.1':", '-      ms: 2.1.2', '+      ms: 2.1.3', "-  'react-dom@18.2.0(react@18.2.0)':", "+  'react-dom@18.2.1(react@18.2.1)':");
   assert.equal(exemptFile(lock(scoped)).exempt, true, 'scoped names, snapshot dependency lines and peer-suffixed headers are version changes of existing names');
 });
@@ -722,4 +728,27 @@ test('t/796: lockfile and requirements checks decide adversarial long lines in u
     assert.equal(r.ok, false);
     assert.ok(ms < 50, `requirements took ${ms} ms`);
   }
+});
+
+// ── t/796 (SO p/136#119): the two known gaps, folded in ──
+
+test('t/796 pnpm-lock: the version value is anchored (nothing may follow it) and a specifier must be a plain range', () => {
+  const hdr = ['-  left-pad@1.0.0:', '+  left-pad@1.0.1:'];
+  for (const v of ['1.0.0https://x/y.tgz', '1.0.0 https://x', '1.0.0@evil', '1.0.0;rm', '1.0.1/../../x']) {
+    assert.equal(exemptFile(lock(lockPatch(...hdr, '+      version: ' + v))).exempt, false, `version ${v}`);
+  }
+  for (const v of ['^1.0.0https://x/y.tgz', '^1.0.0 https://x', '1.0.0@evil']) {
+    assert.equal(exemptFile(lock(lockPatch(...hdr, '+      specifier: ' + v))).exempt, false, `specifier ${v}`);
+  }
+  assert.equal(exemptFile(lock(lockPatch(...hdr, '+      version: 1.0.1(react@18.2.0)'))).exempt, true, 'a peer suffix is part of a locked version');
+  assert.equal(exemptFile(lock(lockPatch(...hdr, '+      version: 1.0.1', '+      specifier: ^1.0.1'))).exempt, true);
+});
+
+test('t/796 pnpm-lock: an added snapshot dependency edge is refused; a version change of an existing edge passes', () => {
+  const hdr = ['-  left-pad@1.0.0:', '+  left-pad@1.0.1:'];
+  const added = exemptFile(lock(lockPatch(...hdr, '+      ms: 2.1.3')));
+  assert.equal(added.exempt, false);
+  assert.match(added.reason, /adds a dependency edge to `ms`/);
+  assert.equal(exemptFile(lock(lockPatch(...hdr, '-      ms: 2.1.2', '+      ms: 2.1.3'))).exempt, true);
+  assert.equal(exemptFile(lock(lockPatch(...hdr, '-      ms: 2.1.2', '+      other: 2.1.3'))).exempt, false, 'a different name is an added edge');
 });

@@ -452,11 +452,12 @@ export function packageJsonPatchOk(file) {
 // non-nested patterns on bounded lines), and fail closed on an unreadable patch. Shared rules: the status is modified,
 // every changed line is one of a few known shapes, and the set of package names added is within the set removed (a version
 // change keeps the name; a new package, which could be a typosquat, is not exempt).
-const NPM_REGISTRY_TARBALL = /^https:\/\/registry\.npmjs\.org\/[\w@./%~+-]+$/;
 const INTEGRITY = /^sha(?:512|384|256)-[A-Za-z0-9+/=]+$/;
 const LOCK_HEADER = /^\s*'?((?:@[\w.-]+\/)?[\w.-]+)@([\w.+-]+)(?:\([^\n]*\))?'?:\s*$/;
 const LOCK_RESOLUTION = /^\s*resolution:\s*\{([^{}\n]*)\}\s*$/;
-const LOCK_VERSION = /^\s*(?:version|specifier):\s*'?([^'\s]+(?: [^'\s]+)*)'?\s*$/;
+const LOCK_VERSION = /^\s*(version|specifier):\s*'?([^'\s]+(?: [^'\s]+)*)'?\s*$/;
+// A locked `version:` is one exact version, optionally with a peer suffix like `(react@18.2.0)`; nothing else may follow it.
+const LOCK_EXACT_VERSION = /^\d[\w.+-]*(?:\([\w@./ ()+-]*\))?$/;
 const LOCK_DEP = /^\s{4,}'?((?:@[\w.-]+\/)?[\w.-]+)'?:\s*'?(\d[\w.+-]*(?:\([^\n]*\))?)'?\s*$/;
 const LOCK_META = /^\s*(?:engines|cpu|os|libc|hasBin|deprecated|optional|dev|requiresBuild|peerDependencies|peerDependenciesMeta|transitivePeerDependencies):?(?:\s.*)?$/;
 const LOCK_LINE_MAX = 600;
@@ -477,12 +478,13 @@ function patchChangedLines(file) {
   return { removed, added };
 }
 
-/** pnpm-lock.yaml: only versions, specifiers, integrity and npm-registry tarballs of packages already in the file change. */
+/** pnpm-lock.yaml: only versions, specifiers and integrity hashes of packages and dependency edges already in the file change. */
 export function pnpmLockPatchOk(file) {
   const bad = (why) => ({ ok: false, why });
   const p = patchChangedLines(file);
   if (p.why) return bad(p.why);
   const names = { '-': new Set(), '+': new Set() };
+  const depNames = { '-': new Set(), '+': new Set() };
   for (const [sign, lines] of [['-', p.removed], ['+', p.added]]) {
     for (const line of lines) {
       const res = LOCK_RESOLUTION.exec(line);
@@ -494,25 +496,35 @@ export function pnpmLockPatchOk(file) {
           const key = pair.slice(0, i).trim();
           const val = pair.slice(i + 1).trim();
           if (key === 'integrity' && INTEGRITY.test(val)) integrity = true;
-          else if (key === 'tarball' && NPM_REGISTRY_TARBALL.test(val)) continue;
-          else return bad(`it changes a resolution to \`${pair.slice(0, 80)}\` (only integrity and a registry.npmjs.org tarball are allowed)`);
+          // t/796 (SO p/136#119): pnpm omits `tarball` for a registry package, and ANY registry.npmjs.org path would let a forged
+          // commit re-point `lodash@x` to another published package's tarball together with that tarball's own integrity. So a
+          // `tarball:` key is refused outright: only an integrity-only resolution may change.
+          else return bad(`it changes a resolution to \`${pair.slice(0, 80)}\` (only an integrity hash may change; a tarball key is refused)`);
         }
         if (!integrity) return bad('it changes a resolution that has no integrity hash');
         continue;
       }
       const head = LOCK_HEADER.exec(line);
       if (head) { names[sign].add(head[1]); continue; }
-      if (LOCK_VERSION.test(line)) {
-        const v = LOCK_VERSION.exec(line)[1];
-        if (!/^(?:[\^~<>=v]*\d[\w.+-]*)/.test(v) || /^(?:link|file|workspace|github|git|https?|npm|catalog):/.test(v)) return bad(`it changes a version to a non-registry value (${v.slice(0, 60)})`);
+      const ver = LOCK_VERSION.exec(line);
+      if (ver) {
+        // Anchored: the whole value must be a version (or, for `specifier:`, a version range), so `1.0.0https://x/y.tgz` fails.
+        const ok = ver[1] === 'version' ? LOCK_EXACT_VERSION.test(ver[2]) : isVersionSpec(ver[2]);
+        if (!ok) return bad(`it changes a ${ver[1]} to a value that is not a plain version (${ver[2].slice(0, 60)})`);
         continue;
       }
-      if (LOCK_DEP.test(line) || LOCK_META.test(line)) continue;
+      const dep = LOCK_DEP.exec(line);
+      if (dep) { depNames[sign].add(dep[1]); continue; }
+      if (LOCK_META.test(line)) continue;
       return bad(`it changes a line that is not a version, integrity, registry tarball or package header: ${line.trim().slice(0, 70)}`);
     }
   }
   for (const n of names['+']) {
     if (!names['-'].has(n)) return bad(`it adds the package \`${n}\`, which the file did not have (a new name, not a version change)`);
+  }
+  // A snapshot dependency line may change a version of an existing edge, never add an edge: it needs a removed line for the same name.
+  for (const n of depNames['+']) {
+    if (!depNames['-'].has(n)) return bad(`it adds a dependency edge to \`${n}\` (an added snapshot dependency line needs a removed line for the same name)`);
   }
   return { ok: true, why: '' };
 }
