@@ -46,7 +46,7 @@ Describe 'Test-AIModelId (t/3867)' -Tag 'error-handling' {
         InModuleScope AITriad {
             $Prev = $script:ValidModelIds
             try {
-                $script:ValidModelIds = @('gemini-3.5-flash-lite', 'claude-sonnet-4-5')
+                $script:ValidModelIds = @('gemini-3.5-flash-lite', 'claude-sonnet-4-6')
                 $WarnMsg = $null
                 Test-AIModelId -ModelId 'gemini-3.5-flash-lite' -WarningVariable WarnMsg -WarningAction SilentlyContinue | Should -Be $true
                 $WarnMsg | Should -BeNullOrEmpty

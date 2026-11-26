@@ -24,7 +24,7 @@ BeforeAll {
 
     $script:Key = 'unit-test-key-t4164'
     $script:Haiku = 'claude-haiku-5-5'          # apiModelId claude-haiku-5-5
-    $script:Sonnet45 = 'claude-sonnet-4-5'      # apiModelId claude-sonnet-4-5-20250929
+    $script:Sonnet46 = 'claude-sonnet-4-6'      # apiModelId claude-sonnet-4-6
     $script:DeprecatedBody = '{"type":"error","error":{"type":"invalid_request_error","message":"`temperature` is deprecated for this model."}}'
     $script:OtherBody = '{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: must be greater than 0"}}'
     $script:KeyVars = @('GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDE_API_KEY', 'GROQ_API_KEY', 'OPENAI_API_KEY',
@@ -149,10 +149,10 @@ Describe 'Invoke-AIApi Claude temperature-rejection memo (t/4164)' -Tag 'enrichm
         $script:Calls.Clear()
         script:Set-Replies @((script:New-ClaudeOk 'other'))
 
-        $out = script:Invoke-Call (script:Base $script:Sonnet45)
+        $out = script:Invoke-Call (script:Base $script:Sonnet46)
         $out.Result.Text | Should -Be 'other'
         $script:Calls.Count | Should -Be 1
-        (script:Get-Body 0)['model'] | Should -Be 'claude-sonnet-4-5-20250929'
+        (script:Get-Body 0)['model'] | Should -Be 'claude-sonnet-4-6'
         (script:Get-Body 0)['temperature'] | Should -Be 0.7
     }
 

@@ -117,7 +117,7 @@ LONG DESCRIPTION
     Backend   Default Model                  Env Variable
     -------   -------------------------      ----------------
     Gemini    gemini-3.5-flash-lite-preview  GEMINI_API_KEY
-    Claude    claude-sonnet-4-5              ANTHROPIC_API_KEY
+    Claude    claude-sonnet-4-6              ANTHROPIC_API_KEY
     Groq      groq-openai-gpt-oss-120b       GROQ_API_KEY
 
     The default model is set via $env:AI_MODEL or defaults to
