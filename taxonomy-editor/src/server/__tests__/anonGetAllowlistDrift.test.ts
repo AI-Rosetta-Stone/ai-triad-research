@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url';
 import { extractRoutes } from './extractRoutes.js';
 import { computeIsPublicPath } from '../publicPaths.js';
 import {
-  ANON_GET_ROUTES, routePatternMatches, isAnonGetAllowlisted, anonGetDeniedCounts, resetAnonGetDeniedCounts,
+  ANON_GET_ROUTES, routePatternMatches, isAnonGetAllowlisted, classifyAnonGet, anonGetDeniedCounts, resetAnonGetDeniedCounts,
 } from '../security/anonGetAllowlist.js';
 import { isAnonAllowedRoute } from '../security/accessControl.js';
 
@@ -64,6 +64,55 @@ describe('t/590: every GET route is classified for anonymous callers', () => {
     expect(mismatches).toEqual([]);
   });
 
+  // Quality t/658#16.2: a path that TWO patterns both match (e.g. /api/organizations/by-pov/edges matches
+  // 'by-pov/:pov' and ':id/edges'). The router serves the first registered; the allowlist picks by parameter
+  // count, then table order. sample() never builds such a path, so every unifiable pair is built here.
+  it('for every path two GET patterns both match, the allowlist decision matches the route the router serves', () => {
+    const api = getRoutes.filter((r) => r.startsWith('/api/') && !computeIsPublicPath(sample(r)));
+    const unify = (a: string, b: string): string | null => {
+      const as = a.split('/'); const bs = b.split('/');
+      if (as.length !== bs.length) return null;
+      const out: string[] = [];
+      for (let i = 0; i < as.length; i++) {
+        const ap = as[i].startsWith(':'); const bp = bs[i].startsWith(':');
+        if (!ap && !bp && as[i] !== bs[i]) return null;
+        out.push(!ap ? as[i] : !bp ? bs[i] : 'x1');
+      }
+      return out.join('/');
+    };
+    const overlaps: string[] = [];
+    const mismatches: string[] = [];
+    for (let i = 0; i < api.length; i++) {
+      for (let j = i + 1; j < api.length; j++) {
+        const p = unify(api[i], api[j]);
+        if (p === null) continue;
+        overlaps.push(p);
+        const served = routerChoice(p)!;
+        const want = ANON_GET_ROUTES[served]?.class !== 'deny';
+        const got = isAnonGetAllowlisted(p);
+        if (got.allowed !== want) mismatches.push(`${p}: router serves ${served} (${ANON_GET_ROUTES[served]?.class}), allowlist says ${got.allowed} via ${got.pattern}`);
+      }
+    }
+    expect(overlaps.length, 'the overlap builder found no overlapping patterns; it is not exercising anything').toBeGreaterThan(0);
+    expect(overlaps).toContain('/api/organizations/by-pov/edges');
+    expect(mismatches).toEqual([]);
+  });
+
+  // Quality t/658#16.3: the gate passes every non-/api path, so a data route registered outside /api/ would be
+  // anonymous-readable without ever being classified. Every such GET route must be a declared public path.
+  // The reviewed exceptions are pinned by name, each with what it serves; the list changes only with Security review.
+  const NON_API_ANON_OK: Record<string, string> = {
+    '/third-party-notices': 'static open-source licence text shipped with the app; no user or corpus data',
+  };
+  it('every GET route outside /api/ is a public path or a reviewed static page', () => {
+    const outside = getRoutes.filter((r) => !r.startsWith('/api/'));
+    expect(outside.length).toBeGreaterThan(0);
+    const unclassified = outside.filter((r) => !computeIsPublicPath(sample(r)) && !(r in NON_API_ANON_OK));
+    expect(unclassified, 'a GET route outside /api/ must be a public path (publicPaths.ts), a reviewed entry in NON_API_ANON_OK, or move under /api/ and be classified').toEqual([]);
+    const stale = Object.keys(NON_API_ANON_OK).filter((r) => !outside.includes(r) || computeIsPublicPath(sample(r)));
+    expect(stale, 'remove NON_API_ANON_OK entries that are no longer routed or are now public paths').toEqual([]);
+  });
+
   it('PI t/574#13: full source text and source files are sign-in only; source metadata and summaries stay anonymous', () => {
     expect(ANON_GET_ROUTES['/api/snapshots/:sourceId'].class).toBe('deny');
     expect(ANON_GET_ROUTES['/api/source-documents/:docId/file'].class).toBe('deny');
@@ -103,10 +152,24 @@ describe('t/574: the anonymous GET gate (report-only, then enforced)', () => {
     expect(Object.keys(anonGetDeniedCounts()).sort()).toEqual(['/api/admin/config', '/api/sync/unsynced', '<unrouted>']);
   });
 
-  it('enforced: a literal deny route is not shadowed by a :param allow of the same shape', () => {
-    process.env.ANON_GET_ALLOWLIST_ENFORCE = '1';
-    expect(isAnonAllowedRoute('GET', '/api/taxonomy/synthetic-embeddings')).toBe(false);
-    expect(isAnonAllowedRoute('GET', '/api/keys/has')).toBe(false);
+  // Asserted on the allowlist itself (Quality t/658#16.1): through isAnonAllowedRoute both paths are refused by
+  // earlier checks (the /api/keys prefix, SYNTHETIC_EMBEDDINGS_PATH), so that call never reaches the allowlist.
+  it('a literal deny route is not shadowed by a :param allow of the same shape', () => {
+    for (const p of ['/api/taxonomy/synthetic-embeddings', '/api/keys/has']) {
+      expect(classifyAnonGet(p)?.pattern, p).toBe(p);
+      expect(classifyAnonGet(p)?.entry.class, p).toBe('deny');
+      expect(isAnonGetAllowlisted(p), p).toEqual({ allowed: false, pattern: p });
+    }
+    // The shadowing candidate exists: without the literal entry, the path would match an allowed ':param' route.
+    expect(routePatternMatches('/api/taxonomy/:pov', '/api/taxonomy/synthetic-embeddings')).toBe(true);
+    expect(ANON_GET_ROUTES['/api/taxonomy/:pov'].class).not.toBe('deny');
+  });
+
+  it('every literal deny route classifies as itself and is not allowlisted', () => {
+    const literalDeny = Object.entries(ANON_GET_ROUTES).filter(([p, e]) => e.class === 'deny' && !p.includes(':')).map(([p]) => p);
+    expect(literalDeny.length).toBeGreaterThan(10);
+    const wrong = literalDeny.filter((p) => { const g = isAnonGetAllowlisted(p); return g.allowed || g.pattern !== p; });
+    expect(wrong).toEqual([]);
   });
 
   it('the existing t/579 blocks still hold in report-only mode', () => {

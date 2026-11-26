@@ -44,7 +44,11 @@ async function call(path: string, url: string, params: Record<string, string>): 
 }
 const body = (r: Res) => JSON.parse(String(r.raw));
 
-beforeEach(() => { h.hostedAnon = false; });
+beforeEach(() => {
+  h.hostedAnon = false;
+  vi.mocked(fileIO.loadSnapshot).mockClear();
+  vi.mocked(fileIO.readSourceDocumentPdf).mockClear();
+});
 
 describe('t/677: source snapshots and files are sign-in only', () => {
   for (const [path, url, params] of [
@@ -58,11 +62,16 @@ describe('t/677: source snapshots and files are sign-in only', () => {
       expect(r.headers['x-auth-reason']).toBe('anon_route_blocked');
       expect(body(r)).toMatchObject({ error: 'Sign in required', reason: 'anon_route_blocked' });
       expect(String(r.raw)).not.toMatch(/SECRET/);
+      // The refusal comes BEFORE the read: nothing is loaded for an anonymous caller (Quality t/658#16.4).
+      expect(fileIO.loadSnapshot).not.toHaveBeenCalled();
+      expect(fileIO.readSourceDocumentPdf).not.toHaveBeenCalled();
     });
 
     it(`${path}: signed in (or local operator) gets 200`, async () => {
       const r = await call(path, url, params);
       expect(r.status).toBe(200);
+      // The positive arm of the not-called assertions above: a signed-in call does reach one of the reads.
+      expect(vi.mocked(fileIO.loadSnapshot).mock.calls.length + vi.mocked(fileIO.readSourceDocumentPdf).mock.calls.length).toBeGreaterThan(0);
     });
   }
 });
