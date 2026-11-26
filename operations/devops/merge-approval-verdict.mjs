@@ -41,7 +41,7 @@
 
 import { REVIEWER_APP_REST_LOGIN, gateFileChangeVerdict, isGateFile } from './gate-file-change.mjs';
 import {
-  canonicalRole, evaluateT1ApprovalGuard, latestRoleVerdicts, normalizeRole, ownerSlugFromBranch, parseTier,
+  T1_REVIEWER_ROLES, canonicalRole, evaluateT1ApprovalGuard, latestRoleVerdicts, normalizeRole, ownerSlugFromBranch, parseTier,
 } from './t1-approval-guard-predicate.mjs';
 import { checkR3, evaluateR1Only, extractSchemaChange, extractTier } from './tier-check-predicate.mjs';
 
@@ -162,6 +162,8 @@ export function ruleGateFiles(pr, { reviewerLogin = REVIEWER_APP_REST_LOGIN } = 
 /** PURE. Rule B. */
 export function ruleT1Approval(pr, { reviewerLogin = REVIEWER_APP_REST_LOGIN } = {}) {
   const tier = parseTier(pr.body);
+  // KNOWN GAP (t/751): a body with no `Tier:` first line passes here with no approval. Left as it
+  // is in the t/739 fix, because Dependabot PRs have no tier line and merge on this arm by policy.
   if (tier !== 'T1' && tier !== 'T2') return pass(`not T1 or T2 (declared ${tier ?? 'no tier'})`);
   // t/537 (DevOps Lead): T2 needs at least T1's approval at the head; declaring T2 must never skip
   // rule B. The shared predicate acts only on a `Tier: T1` first line, so a T2 body is passed to
@@ -176,11 +178,18 @@ export function ruleT1Approval(pr, { reviewerLogin = REVIEWER_APP_REST_LOGIN } =
     botReviews: predicateReviews(pr.reviews, reviewerLogin),
     reviewerAppLogin: reviewerLogin,
   });
-  if (r.pass) return pass(`${tier}, approved by ${r.approver?.role ?? 'the reviewer App'} at ${short(pr.headSha)}`);
+  if (r.pass) {
+    // t/739 (decision 6): say WHICH review was counted. The slot carries the review's time, so the
+    // id is read back from the reviewer App's reviews at the head with that time.
+    const counted = pr.reviews.find((x) => x?.user?.login === reviewerLogin && x.commit_id === pr.headSha && x.submitted_at === r.approver?.at);
+    return pass(`${tier}, approved by ${r.approver?.role ?? 'the reviewer App'} (review ${counted?.id ?? 'id not found'}) at ${short(pr.headSha)}`);
+  }
   if (r.reason === 'changes-requested-outstanding') {
     return fail(`${tier}, changes-request outstanding from ${r.blockers.map((b) => `${b.role} (${b.at})`).join(', ')}`);
   }
-  return fail(`${tier}, no reviewer-App approval review at ${short(pr.headSha)} from a role other than the branch owner's (${r.reason})`);
+  const seen = (r.rejected ?? []).map((x) => `${x.role} (${x.why === 'branch_owner_role' ? "the branch owner's own role" : 'not a T1 reviewer role'})`);
+  const sawText = seen.length ? `approvals seen that do not count: ${seen.join(', ')}` : 'no reviewer-App approval review seen at this head';
+  return fail(`${tier}, no reviewer-App approval review at ${short(pr.headSha)} from a T1 reviewer role (${T1_REVIEWER_ROLES.join(', ')}) other than the branch owner's; ${sawText} (${r.reason})`);
 }
 
 /** PURE. Rule C. `tierConfig` is main's .github/ci/tier-paths.json. */

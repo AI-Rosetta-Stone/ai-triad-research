@@ -542,7 +542,8 @@ test('guard script, pull_request_review.dismissed: a dismissed reviewer-App appr
 test('guard script, pull_request_review.dismissed: one of two approvals dismissed -> the other still satisfies the gate', async () => {
   const result = await runGuard({
     payload: reviewPayload('dismissed', 'dismissed'),
-    reviews: [apiReview('DISMISSED', 'Approved (Quality): fine'), apiReview('APPROVED', 'Approved (Design): fine')],
+    // t/739: the surviving approval was Design's until Design stopped being a T1 approver.
+    reviews: [apiReview('DISMISSED', 'Approved (Quality): fine'), apiReview('APPROVED', 'Approved (Tech Lead): fine')],
   });
   assertOneCheck(result, 'success');
 });

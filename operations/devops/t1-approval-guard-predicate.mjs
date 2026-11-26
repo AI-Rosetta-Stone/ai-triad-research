@@ -337,7 +337,22 @@ export function normalizeRole(role) {
   return String(role ?? '').toLowerCase().replace(/[^a-z]/g, '');
 }
 
-export const MISSING_HEAD_SHA_SUMMARY = 'Missing head SHA (this PR\'s branch predates #4804, so its own t1-approval-guard.yml cannot bind a review to the head): post a PR comment containing `/recheck-guards` or rebase onto main to re-run the guard on main\'s workflow.';
+/**
+ * t/739 (t/736): THE list of roles whose `Approved (<role>):` satisfies the T1/T2 approval. One
+ * list for t1-approval-guard, merge-approval rule B, enqueue-pr and the sweeps: they all call
+ * evaluateT1ApprovalGuard. A spelling counts only through the alias table (canonicalRole), so
+ * `Quality-TechLead` is Quality. Design is NOT a T1 reviewer: its approval is the Design gate, a
+ * separate requirement (docs/review-routing.md), and must never be added here or by alias.
+ */
+export const T1_REVIEWER_ROLES = Object.freeze(['Quality', 'Tech Lead', 'Security']);
+const T1_REVIEWER_KEYS = new Set(T1_REVIEWER_ROLES.map((r) => normalizeRole(r)));
+
+/** PURE. True when the role, after the alias table, is exactly one of T1_REVIEWER_ROLES. */
+export function isT1ReviewerRole(role) {
+  return T1_REVIEWER_KEYS.has(normalizeRole(canonicalRole(role)));
+}
+
+export const MISSING_HEAD_SHA_SUMMARY ='Missing head SHA (this PR\'s branch predates #4804, so its own t1-approval-guard.yml cannot bind a review to the head): post a PR comment containing `/recheck-guards` or rebase onto main to re-run the guard on main\'s workflow.';
 
 export function evaluateT1ApprovalGuard({ body, headRefName, headSha, lastPushAt, approvalComments, botReviews, reviewerAppLogin }) {
   const tier = parseTier(body);
@@ -373,12 +388,31 @@ export function evaluateT1ApprovalGuard({ body, headRefName, headSha, lastPushAt
   // past the self-approval check.
   const rawOwnerSlug = ownerSlugFromBranch(headRefName);
   const ownerSlug = rawOwnerSlug ? normalizeRole(canonicalRole(rawOwnerSlug)) : rawOwnerSlug;
+  // t/739 (t/736): an approval counts only from a T1 REVIEWER ROLE. Before this, any role other
+  // than the branch owner's counted, so `Approved (Design):` alone let T1 PR #5553 merge without
+  // Quality's review. Each approval at the head that does not count is kept with its reason, so
+  // the check text can say what was seen and why it was not enough.
+  const rejected = [];
   const approvals = [...slots.values()]
     .filter((s) => s.kind === 'approved' && s.atHead && s.source !== 'human-review')
-    .filter((s) => !(ownerSlug && normalizeRole(s.role).startsWith(ownerSlug))) // self-approval by the owning role
+    .filter((s) => {
+      // The owner rule stays: a listed role that is the branch owner's own still does not count.
+      if (ownerSlug && normalizeRole(s.role).startsWith(ownerSlug)) { rejected.push({ role: s.role, at: s.at, why: 'branch_owner_role' }); return false; }
+      if (!isT1ReviewerRole(s.role)) { rejected.push({ role: s.role, at: s.at, why: 'not_a_t1_reviewer_role' }); return false; }
+      return true;
+    })
     .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
   if (approvals.length > 0) {
     return { pass: true, tier, reason: 'approved-after-push', approver: { role: approvals[0].role, at: approvals[0].at } };
+  }
+  if (rejected.length > 0) {
+    // `reason` stays 'no-post-push-approval': the guard workflow and enqueue-pr key on it (awaiting
+    // review, not a failure). `rejected` and `summary` say why the approvals present did not count.
+    const seen = rejected.map((r) => `${r.role} (${r.why === 'branch_owner_role' ? "the branch owner's own role" : 'not a T1 reviewer role'})`).join(', ');
+    return {
+      pass: false, tier, reason: 'no-post-push-approval', rejected,
+      summary: `No T1 reviewer's approval at the live head. Approvals seen that do not count: ${seen}. A T1 approval must start \`Approved (<role>):\` with <role> one of ${T1_REVIEWER_ROLES.join(', ')}, from a role other than the branch owner's.`,
+    };
   }
   // t/449 (a): an approval-shaped comment the grammar does not read (`Security approval (t/444)...`)
   // used to be silently ignored. Refuse with the exact form the guard reads, and quote the line.
