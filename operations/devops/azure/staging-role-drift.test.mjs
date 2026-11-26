@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { declaredStagingRoles, roleDriftVerdict } from './staging-role-drift.mjs';
 
 const BLOB = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe';
@@ -203,4 +204,55 @@ test('the repository Bicep resolves with nothing unresolved', () => {
   }
   assert.ok(suffixes.some((s) => s.startsWith('/vaults/')), 'staging-keyvault.bicep should declare the vault grant');
   assert.ok(suffixes.every((s) => !s.startsWith('/storageaccounts/')), 'staging must hold no account-scope role (TL p/104#95)');
+});
+
+// The failing arm, proven on a recorded read (TL t/707#5 condition 4). The file beside this test is
+// the live `az role assignment list --assignee <staging principal> --all` of 2026-11-25T23:57Z,
+// reduced to the fields the check reads, with the subscription id zeroed. On that day the staging
+// identity held one grant Bicep did not declare: 237665b7, made by hand on staging-brief-exports
+// (t/92#18). The Bicep of that day is modelled by dropping any staging-brief-exports declaration
+// from the real templates, so the test holds before and after that grant is adopted in main.bicep.
+const RECORDED = new URL('./staging-role-drift.recorded-20261125.json', import.meta.url);
+const HAND_MADE = '237665b7-8bde-42b5-b8d7-7eaa9959f88d';
+const repoBicep = (name) => fileURLToPath(new URL(`../../../deploy/azure/${name}`, import.meta.url));
+
+test('recorded read of 2026-11-25: the hand-made staging-brief-exports grant is the one undeclared assignment', () => {
+  const recorded = JSON.parse(readFileSync(RECORDED, 'utf8'));
+  assert.equal(recorded.length, 5);
+  const sources = ['main.bicep', 'staging-keyvault.bicep'].map((n) => declaredStagingRoles(readFileSync(repoBicep(n), 'utf8'), n));
+  const declared = sources.flatMap((s) => s.declared).filter((d) => d.scopeSuffix !== '/containers/staging-brief-exports');
+  assert.equal(declared.length, 4, 'three staging containers and the staging vault were declared that day');
+
+  const v = roleDriftVerdict({ declared, unresolved: sources.flatMap((s) => s.unresolved), live: recorded });
+  assert.equal(v.ok, false);
+  assert.deepEqual(v.undeclared.map((u) => u.name), [HAND_MADE]);
+  assert.deepEqual(v.missing, [], 'the other four recorded assignments each match a declaration');
+  assert.match(v.summary, /^1 role assignment\(s\) on the staging identity are not declared in Bicep: Storage Blob Data Contributor on .*\/containers\/staging-brief-exports \(237665b7-/);
+});
+
+test('recorded read of 2026-11-25: with the grant declared, the same read is clean', () => {
+  const recorded = JSON.parse(readFileSync(RECORDED, 'utf8'));
+  const sources = ['main.bicep', 'staging-keyvault.bicep'].map((n) => declaredStagingRoles(readFileSync(repoBicep(n), 'utf8'), n));
+  const declared = sources.flatMap((s) => s.declared).filter((d) => d.scopeSuffix !== '/containers/staging-brief-exports');
+  declared.push({ roleId: BLOB, scopeSuffix: '/containers/staging-brief-exports', symbol: 'adopted' });
+  const v = roleDriftVerdict({ declared, live: recorded });
+  assert.equal(v.ok, true);
+  assert.deepEqual(v.missing, []);
+});
+
+// The scheduled job acts on the exit code, so prove that too. Given only the vault template, the
+// recorded container grants are undeclared: the command must exit 1 and name them on stdout.
+test('CLI: an undeclared assignment in the recorded read exits 1 and names it on stdout', () => {
+  const script = fileURLToPath(new URL('./staging-role-drift.mjs', import.meta.url));
+  const run = spawnSync(process.execPath, [script, fileURLToPath(RECORDED), repoBicep('staging-keyvault.bicep')], { encoding: 'utf8' });
+  assert.equal(run.status, 1, run.stderr);
+  assert.match(run.stdout, /4 role assignment\(s\) on the staging identity are not declared in Bicep/);
+  assert.ok(run.stdout.includes(HAND_MADE));
+});
+
+test('CLI: bad input exits 2, never 0 (missing arguments, unreadable live file)', () => {
+  const script = fileURLToPath(new URL('./staging-role-drift.mjs', import.meta.url));
+  assert.equal(spawnSync(process.execPath, [script], { encoding: 'utf8' }).status, 2);
+  const missing = spawnSync(process.execPath, [script, 'no-such-live.json', repoBicep('staging-keyvault.bicep')], { encoding: 'utf8' });
+  assert.equal(missing.status, 2);
 });

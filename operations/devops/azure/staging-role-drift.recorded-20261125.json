@@ -1,0 +1,37 @@
+[
+  {
+    "name": "6865e584-7148-58a9-9704-1ad4c3b55ec4",
+    "principalType": "ServicePrincipal",
+    "roleDefinitionId": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+    "roleDefinitionName": "Storage Blob Data Contributor",
+    "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourcegroups/ai-triad/providers/Microsoft.Storage/storageAccounts/staitriadkvwl3nywge4iw/blobServices/default/containers/staging-user-content"
+  },
+  {
+    "name": "e6a44d38-7ec8-5821-af68-f13c35bcd945",
+    "principalType": "ServicePrincipal",
+    "roleDefinitionId": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+    "roleDefinitionName": "Storage Blob Data Contributor",
+    "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourcegroups/ai-triad/providers/Microsoft.Storage/storageAccounts/staitriadkvwl3nywge4iw/blobServices/default/containers/staging-community"
+  },
+  {
+    "name": "246a17db-601b-5a2f-b1c5-cf89bd2479ab",
+    "principalType": "ServicePrincipal",
+    "roleDefinitionId": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+    "roleDefinitionName": "Storage Blob Data Contributor",
+    "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourcegroups/ai-triad/providers/Microsoft.Storage/storageAccounts/staitriadkvwl3nywge4iw/blobServices/default/containers/staging-analytics"
+  },
+  {
+    "name": "237665b7-8bde-42b5-b8d7-7eaa9959f88d",
+    "principalType": "ServicePrincipal",
+    "roleDefinitionId": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+    "roleDefinitionName": "Storage Blob Data Contributor",
+    "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/ai-triad/providers/Microsoft.Storage/storageAccounts/staitriadkvwl3nywge4iw/blobServices/default/containers/staging-brief-exports"
+  },
+  {
+    "name": "c18f71d7-f56e-501a-aa33-e441bd1c446f",
+    "principalType": "ServicePrincipal",
+    "roleDefinitionId": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/b86a8fe4-44ce-4948-aee5-eccb2c155cd7",
+    "roleDefinitionName": "Key Vault Secrets Officer",
+    "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourcegroups/ai-triad/providers/Microsoft.KeyVault/vaults/kv-ait-stg-kvwl3nywge4iw"
+  }
+]
