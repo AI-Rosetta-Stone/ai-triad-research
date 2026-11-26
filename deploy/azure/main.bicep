@@ -379,14 +379,12 @@ resource keyVault 'Microsoft.KeyVault/vaults@2026-02-01' = {
     softDeleteRetentionInDays: 7
     enablePurgeProtection: true
     publicNetworkAccess: 'Enabled'
-    networkAcls: {
-      // Allow required for consumption-tier ACA — managed identity calls
-      // use unpredictable Azure SNAT IPs that can't be allowlisted, and
-      // ACA is not a Key Vault "trusted service" for bypass purposes.
-      // Still protected by RBAC (only the container app's MSI has access).
-      defaultAction: 'Allow'
-      bypass: 'AzureServices'
-    }
+    // No networkAcls, matching live (t/659): the vault stores none. Its access is Allow, which
+    // consumption-tier ACA needs: managed identity calls come from unpredictable Azure SNAT IPs
+    // that can't be allowlisted, and ACA is not a Key Vault "trusted service" for bypass.
+    // Protection is RBAC. The block this replaced (defaultAction Allow, bypass AzureServices,
+    // no rules) had the same effect, but ARM never stores it, so every what-if showed it as a
+    // Create. If rules are ever added, declare them here in full.
   }
 }
 
@@ -398,10 +396,22 @@ resource kvDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview
   name: 'kv-audit-logs'
   properties: {
     workspaceId: logAnalytics.id
+    // Declared as live has them (t/659), so an apply rewrites this setting unchanged.
+    // Diagnostic settings are written whole, so anything live has that the template omits is
+    // removed on apply. audit stays enabled; allLogs is a disabled entry live carries.
+    logAnalyticsDestinationType: 'AzureDiagnostics'
     logs: [
       {
         categoryGroup: 'audit'
         enabled: true
+        retentionPolicy: {
+          enabled: false
+          days: 0
+        }
+      }
+      {
+        categoryGroup: 'allLogs'
+        enabled: false
         retentionPolicy: {
           enabled: false
           days: 0
@@ -481,7 +491,11 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
       // VNet integration + private endpoints would allow Deny but exceed
       // the $0-5/month cost target. Still protected by shared-key auth.
       defaultAction: 'Allow'
-      bypass: 'AzureServices, Logging, Metrics'
+      bypass: 'Logging, Metrics, AzureServices'   // live's order, so the what-if shows no change (t/659)
+      // ipRules are intentionally NOT declared (TL decision, t/659): live carries two Allow rules,
+      // and one is a personal address that must never be published in this public repo. They have
+      // no effect under defaultAction Allow, and ARM keeps them on apply. If defaultAction ever
+      // becomes Deny, pass them in as a parameter from a GitHub environment variable instead.
     }
   }
 }
@@ -687,6 +701,32 @@ resource envStorageStagingState 'Microsoft.App/managedEnvironments/storages@2024
     }
   }
   dependsOn: [stagingStateShare]
+}
+
+// ── Prod Azure Files — prod-only writable state share (t/617 design A, t/624) ──
+// Prod's class-A state (flags, runtime config, telemetry, flight recorder, calibration logs)
+// moves here off 'taxonomy-data', which staging mounts read-only. ONLY the prod app may
+// reference this storage; tests/BicepProdStateShareIsolation.Tests.ps1 fails if staging does.
+// Phase 1 (this change) creates and mounts it, unused. Phase 3 sets prod's
+// AI_TRIAD_STATE_ROOT and ANON_SESSION_DIR to it, after the in-container copy
+// (deploy/azure/runbooks/prod-state-share-migration.md).
+resource prodStateShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' = {
+  name: '${storageAccount.name}/default/taxonomy-state-prod'
+  properties: { shareQuota: 10 } // GiB; matches the Security-passed runbook (b4e98727b)
+}
+
+resource envStorageProdState 'Microsoft.App/managedEnvironments/storages@2024-03-01' = {
+  parent: containerAppEnv
+  name: 'taxonomy-state-prod'
+  properties: {
+    azureFile: {
+      accountName: storageAccount.name
+      accountKey: storageAccount.listKeys().keys[0].value
+      shareName: 'taxonomy-state-prod'
+      accessMode: 'ReadWrite'
+    }
+  }
+  dependsOn: [prodStateShare]
 }
 
 // Read-only registration of the shared taxonomy-data share.
@@ -942,6 +982,13 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
   identity: {
     type: 'SystemAssigned'
   }
+  // t/624: the 'prod-state' volume names its storage by string, which creates no implicit
+  // dependency, so without this the app update can run before 'taxonomy-state-prod' is
+  // registered and be refused (the same reason as the staging app's dependsOn below).
+  // 'taxonomy-data' is not listed: that registration is managed outside this template
+  // (see "Staging Azure Files" above), so there is no resource here to depend on.
+  // tests/BicepProdStateShareIsolation.Tests.ps1 fails if a volume's in-template storage is missing here.
+  dependsOn: [envStorageProdState]
   properties: {
     managedEnvironmentId: containerAppEnv.id
     configuration: {
@@ -1039,6 +1086,12 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
               volumeName: 'shared-data'
               mountPath: '/mnt/shared'
             }
+            // t/624 phase 1: the prod-only state share, mounted but not yet used. Phase 3 points
+            // AI_TRIAD_STATE_ROOT and ANON_SESSION_DIR here (prod only).
+            {
+              volumeName: 'prod-state'
+              mountPath: '/mnt/prod-state'
+            }
           ]
         }
       ]
@@ -1049,6 +1102,12 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           // References the managed-environment storage 'taxonomy-data'
           // (Azure Files share on staitriadkvwl3nywge4iw, accessMode ReadWrite).
           storageName: 'taxonomy-data'
+        }
+        {
+          name: 'prod-state'
+          storageType: 'AzureFile'
+          // t/624: prod-only. Never reference 'taxonomy-state-prod' from the staging app.
+          storageName: 'taxonomy-state-prod'
         }
       ]
       scale: {
