@@ -161,6 +161,20 @@ describe('StatementCard collapse: which turns start collapsed (t/701 §8)', () =
     const { container } = renderAll(setTranscript(5));
     expect(collapsedIds(container)).toEqual(['e1', 'e3']);
   });
+
+  it('a turn appended to the same transcript array is counted: the third most recent collapses', () => {
+    // The store can add a turn by mutating the transcript in place, so the array identity
+    // the cards hold does not change. The rule must still see the new length.
+    const transcript = setTranscript(4);
+    const { container, rerender } = renderAll(transcript);
+    expect(collapsedIds(container)).toEqual(['e1', 'e2']);
+
+    transcript.push(makeEntry({ id: 'e5', content: 'Turn 5 claim. More detail follows here.' }));
+    expect(debateState.activeDebate.transcript).toBe(transcript);
+    rerender(<>{transcript.map(e => <StatementCard key={e.id} entry={e} />)}</>);
+
+    expect(collapsedIds(container)).toEqual(['e1', 'e2', 'e3']);
+  });
 });
 
 describe('StatementCard collapse: the collapsed row (t/701 §8)', () => {
