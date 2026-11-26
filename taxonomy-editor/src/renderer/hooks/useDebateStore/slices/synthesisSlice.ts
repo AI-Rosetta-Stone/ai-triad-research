@@ -876,12 +876,16 @@ function buildFactCheckMainPrompt(
   webContext: string,
   audience: DebateSession['audience'],
 ): string {
+  // t/766: a failed search leaves the '(Web search unavailable)' sentinel; it is neither appended as a
+  // results block nor reported as a search that ran (Design ruling 3, no false provenance).
+  const webSearchRan = !!webContext && webContext !== '(Web search unavailable)';
   return buildFactCheckPrompt(
     selectedText,
     statementContext,
     allNodes.join('\n'),
-    conflictLines.slice(0, 15).join('\n') + (webContext ? `\n\n=== WEB SEARCH RESULTS ===\n${webContext}` : ''),
+    conflictLines.slice(0, 15).join('\n') + (webSearchRan ? `\n\n=== WEB SEARCH RESULTS ===\n${webContext}` : ''),
     audience,
+    webSearchRan,
   );
 }
 

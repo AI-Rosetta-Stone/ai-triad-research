@@ -11,6 +11,7 @@ import { makeSession, mockApi } from './storeTestHarness';
 import { useDebateStore } from '../../useDebateStore';
 import { performFactCheckVerdict } from '../shared/argumentNetwork';
 import { vi } from 'vitest';
+import { factCheckPrompt } from '../../../prompts/debate';
 
 function setupDebate(content = 'The measure passed in 12 states across the country last year.') {
   const entry = {
@@ -102,6 +103,33 @@ describe('fact-check card fields (t/766)', () => {
     expect(meta).not.toHaveProperty('finding');
     expect(meta).not.toHaveProperty('finding_points');
     expect(meta).not.toHaveProperty('limit');
+  });
+
+  it('manual path: a failed web search is not reported to the model as a search that ran', async () => {
+    const claim = setupDebate();
+    vi.mocked(factCheckPrompt).mockClear();
+    mockApi.generateTextWithSearch.mockRejectedValueOnce(new Error('search down'));
+    mockApi.generateText.mockResolvedValue({
+      text: JSON.stringify({ verdict: 'supported', explanation: 'confirmed', sources: [] }),
+    });
+    await useDebateStore.getState().factCheckSelection(claim, 'entry-1');
+    const args = vi.mocked(factCheckPrompt).mock.calls.at(-1) as unknown[];
+    expect(args[3]).not.toContain('=== WEB SEARCH RESULTS ===');
+    expect(args[3]).not.toContain('Web search unavailable');
+    expect(args[5]).toBe(false);
+  });
+
+  it('manual path: a successful web search is passed through as ran, with its results block', async () => {
+    const claim = setupDebate();
+    vi.mocked(factCheckPrompt).mockClear();
+    mockApi.generateTextWithSearch.mockResolvedValueOnce({ text: 'Ten states enacted it.', searchQueries: ['q'], citations: [] });
+    mockApi.generateText.mockResolvedValue({
+      text: JSON.stringify({ verdict: 'supported', explanation: 'confirmed', sources: [] }),
+    });
+    await useDebateStore.getState().factCheckSelection(claim, 'entry-1');
+    const args = vi.mocked(factCheckPrompt).mock.calls.at(-1) as unknown[];
+    expect(args[3]).toContain('=== WEB SEARCH RESULTS ===\nTen states enacted it.');
+    expect(args[5]).toBe(true);
   });
 
   function runInline(extra: Record<string, unknown>) {
