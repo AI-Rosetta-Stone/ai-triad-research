@@ -9,6 +9,8 @@
 import { describe, it, expect } from 'vitest';
 import { makeSession, mockApi } from './storeTestHarness';
 import { useDebateStore } from '../../useDebateStore';
+import { performFactCheckVerdict } from '../shared/argumentNetwork';
+import { vi } from 'vitest';
 
 function setupDebate(content = 'The measure passed in 12 states across the country last year.') {
   const entry = {
@@ -22,9 +24,19 @@ function setupDebate(content = 'The measure passed in 12 states across the count
   return content;
 }
 
+type FcMeta = {
+  verdict: string; finding?: string; finding_points?: string[]; limit?: string; explanation?: string;
+};
+
+const FINDING = {
+  finding: 'Accurate. Ten states passed the measure last year, as the claim says.',
+  finding_points: ['The state legislative record lists ten enactments.'],
+  limit: 'Only the legislative record was checked.',
+};
+
 function factCheckMeta() {
   const fc = useDebateStore.getState().activeDebate?.transcript.find(e => e.type === 'fact-check');
-  return fc?.metadata?.fact_check as { verdict: string; discrepancy?: Record<string, unknown> } | undefined;
+  return fc?.metadata?.fact_check as (FcMeta & { discrepancy?: Record<string, unknown> }) | undefined;
 }
 
 describe('factCheckSelection — live FactVerdict gate (t/1828)', () => {
@@ -60,5 +72,65 @@ describe('factCheckSelection — live FactVerdict gate (t/1828)', () => {
     });
     await useDebateStore.getState().factCheckSelection(claim, 'entry-1');
     expect(factCheckMeta()?.verdict).toBe('supported');
+  });
+});
+
+describe('fact-check card fields (t/766)', () => {
+  it('manual path stores finding, finding_points and limit; content has no title line or web note', async () => {
+    const claim = setupDebate();
+    mockApi.generateText.mockResolvedValue({
+      text: JSON.stringify({ verdict: 'supported', explanation: 'confirmed', sources: [], ...FINDING }),
+    });
+    await useDebateStore.getState().factCheckSelection(claim, 'entry-1');
+    const meta = factCheckMeta();
+    expect(meta).toMatchObject(FINDING);
+    const entry = useDebateStore.getState().activeDebate?.transcript.find(e => e.type === 'fact-check');
+    expect(entry?.content).not.toContain('Fact Check:');
+    expect(entry?.content).not.toContain('Web sources');
+    expect(entry?.content.endsWith('confirmed')).toBe(true);
+  });
+
+  it('manual path: an old-shape response stores no card fields and still has verdict + explanation', async () => {
+    const claim = setupDebate();
+    mockApi.generateText.mockResolvedValue({
+      text: JSON.stringify({ verdict: 'supported', explanation: 'confirmed', sources: [] }),
+    });
+    await useDebateStore.getState().factCheckSelection(claim, 'entry-1');
+    const meta = factCheckMeta();
+    expect(meta?.verdict).toBe('supported');
+    expect(meta?.explanation).toBe('confirmed');
+    expect(meta).not.toHaveProperty('finding');
+    expect(meta).not.toHaveProperty('finding_points');
+    expect(meta).not.toHaveProperty('limit');
+  });
+
+  function runInline(extra: Record<string, unknown>) {
+    const addTranscriptEntry = vi.fn(() => 'e');
+    const get = () => ({ addTranscriptEntry, activeDebate: null });
+    const set = vi.fn();
+    const pNode = { id: 'p1', text: 'Ten states passed the measure.' } as never;
+    performFactCheckVerdict(
+      pNode, { verdict: 'supported', explanation: 'confirmed', ...extra }, '', [], [], get, set, 'entry-1', 'session-1',
+    );
+    return (addTranscriptEntry.mock.calls[0] as unknown as [{ content: string; metadata: { fact_check: FcMeta } }])[0];
+  }
+
+  it('inline path stores finding, finding_points and limit; content has no title line or web note', () => {
+    const entry = runInline(FINDING);
+    expect(entry.metadata.fact_check).toMatchObject(FINDING);
+    expect(entry.content).not.toContain('Fact Check:');
+    expect(entry.content.endsWith('confirmed')).toBe(true);
+  });
+
+  it('inline path: an old-shape response stores no card fields', () => {
+    const fc = runInline({}).metadata.fact_check;
+    expect(fc.verdict).toBe('supported');
+    expect(fc).not.toHaveProperty('finding');
+    expect(fc).not.toHaveProperty('finding_points');
+  });
+
+  it('inline path: a finding whose opener contradicts the verdict is dropped', () => {
+    const fc = runInline({ ...FINDING, finding: 'Disputed. Ten states passed the measure last year.' }).metadata.fact_check;
+    expect(fc).not.toHaveProperty('finding');
   });
 });

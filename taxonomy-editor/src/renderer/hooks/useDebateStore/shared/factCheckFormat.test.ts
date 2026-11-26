@@ -26,25 +26,21 @@ describe('escapeMarkdownEmphasis', () => {
   });
 });
 
-describe('formatFactCheckContent (t/4726)', () => {
+describe('formatFactCheckContent (t/4726, t/766)', () => {
   it('wraps the claim in italics with the quote marks inside the emphasis', () => {
-    const content = formatFactCheckContent('Disputed', 'AI will take all jobs', 'No consensus exists.', '');
-    expect(content).toBe('**Fact Check: Disputed**\n\n*"AI will take all jobs"*\n\nNo consensus exists.');
+    const content = formatFactCheckContent('AI will take all jobs', 'No consensus exists.');
+    expect(content).toBe('*"AI will take all jobs"*\n\nNo consensus exists.');
   });
 
   it('a claim containing * or _ still renders as valid, unbroken emphasis', () => {
-    const content = formatFactCheckContent('Supported', 'models trained on *all* the_data', 'Explanation.', '');
+    const content = formatFactCheckContent('models trained on *all* the_data', 'Explanation.');
     expect(content).toContain('*"models trained on \\*all\\* the\\_data"*');
   });
 
-  it('appends the caller\'s webNote unchanged after the explanation', () => {
-    const webNote = '\n\n*Web sources consulted: a, b*';
-    const content = formatFactCheckContent('Disputed', 'claim', 'explanation', webNote);
-    expect(content.endsWith(webNote)).toBe(true);
-  });
-
-  it('matches the exact shape both call sites build (bold verdict, blank line, italic quote, blank line, explanation)', () => {
-    const content = formatFactCheckContent('Supported', 'x', 'y', '');
-    expect(content.split('\n\n')).toEqual(['**Fact Check: Supported**', '*"x"*', 'y']);
+  it('writes no title line and no web note (t/766, card spec section 5)', () => {
+    const content = formatFactCheckContent('x', 'y');
+    expect(content).not.toContain('Fact Check');
+    expect(content).not.toContain('Web sources');
+    expect(content.split('\n\n')).toEqual(['*"x"*', 'y']);
   });
 });

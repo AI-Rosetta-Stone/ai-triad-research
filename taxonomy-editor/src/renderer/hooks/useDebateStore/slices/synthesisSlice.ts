@@ -712,14 +712,6 @@ function addFactCheckTranscriptEntry(
   },
 ): void {
   const { selectedText, validated, result, webContext, searchQueries, webCitations } = params;
-  const verdictLabels: Record<string, string> = {
-    supported: 'Supported',
-    partially_accurate: 'Partially Accurate',
-    disputed: 'Disputed',
-    unverifiable: 'Unverifiable',
-    false: 'False',
-  };
-
   const sources = (Array.isArray(result.sources) ? result.sources : []) as Record<string, unknown>[];
   const sourceRefs = sources
     .filter((s) => s.node_id || s.conflict_id)
@@ -728,22 +720,24 @@ function addFactCheckTranscriptEntry(
       relevance: s.conflict_id ? `Conflict: ${s.conflict_id}` : '',
     }));
 
-  const webNote = searchQueries.length > 0
-    ? `\n\n*Web sources consulted: ${searchQueries.slice(0, 3).join(', ')}*`
-    : webContext && webContext !== '(Web search unavailable)'
-      ? '\n\n*Verified against web search results*'
-      : '';
-
   addTranscriptEntry({
     type: 'fact-check',
     speaker: 'system',
-    content: formatFactCheckContent(verdictLabels[validated.verdict] || validated.verdict, selectedText, validated.explanation, webNote),
+    content: formatFactCheckContent(selectedText, validated.explanation),
     taxonomy_refs: sourceRefs,
     metadata: {
       fact_check: {
         verdict: validated.verdict,
         explanation: validated.explanation,
         ...(validated.discrepancy ? { discrepancy: validated.discrepancy } : {}),
+        // t/766: the card's finding; absent when it failed validation (the card falls back to the explanation).
+        ...(validated.finding
+          ? {
+              finding: validated.finding,
+              finding_points: validated.finding_points,
+              ...(validated.limit ? { limit: validated.limit } : {}),
+            }
+          : {}),
         sources: result.sources,
         checked_text: selectedText,
         web_search_used: !!webContext && webContext !== '(Web search unavailable)',
