@@ -83,3 +83,20 @@ export function isRetryableFailureOf(err: unknown): boolean {
   const e = err as { httpStatus?: number; problem?: unknown; message?: unknown };
   return isRetryableFailure(e.httpStatus, bodyFromProblem(`${String(e.problem ?? '')} ${String(e.message ?? '')}`));
 }
+
+// ── The server's Quick take shape ──
+
+export interface QuickTakeSessionShape {
+  protocol_id?: string;
+  adaptive_staging?: { step_mode?: boolean; phase_bounds_override?: { maxConfrontationRounds?: number; maxArgumentationRounds?: number; maxConcludingRounds?: number } };
+}
+
+/** The server's Quick take shape (t/724#4 check A): protocol `structured`, each phase at most 1 round, no step mode. A missing
+ *  protocol or round override is not a Quick take: the server refuses it rather than defaulting. */
+export function isQuickTakeShaped(session: QuickTakeSessionShape): boolean {
+  const staging = session.adaptive_staging;
+  const bounds = staging?.phase_bounds_override;
+  if (session.protocol_id !== 'structured' || staging?.step_mode === true || !bounds) return false;
+  return [bounds.maxConfrontationRounds, bounds.maxArgumentationRounds, bounds.maxConcludingRounds]
+    .every(n => typeof n === 'number' && n <= 1);
+}
