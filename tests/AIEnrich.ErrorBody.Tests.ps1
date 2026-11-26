@@ -35,7 +35,7 @@ Describe 'Invoke-AIApi error-body capture (t/3196)' -Tag 'enrichment' {
         }
 
         $warn = @()
-        Invoke-AIApi -Prompt 'test' -Model 'claude-sonnet-4-5' -ApiKey 'sk-secret-explicit-key-xyz' `
+        Invoke-AIApi -Prompt 'test' -Model 'claude-sonnet-4-6' -ApiKey 'sk-secret-explicit-key-xyz' `
             -WarningVariable warn -WarningAction SilentlyContinue 3>$null 2>$null | Out-Null
 
         $msg = ($warn | ForEach-Object { $_.ToString() }) -join ' '
