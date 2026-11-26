@@ -31,6 +31,7 @@ if [ "$1" = "api" ]; then
   url=""; for a in "$@"; do case "$a" in repos/*) url="$a" ;; esac; done
   case "$url" in
     *"/commits?sha="*) cat "$F/commits"; exit 0 ;;
+    *"/commits/"*) cat "$F/fullsha"; exit 0 ;;   # t/754: the short-SHA expansion
     *"/workflows/ci.yml/runs?head_sha="*) s=${url##*head_sha=}; s=${s%%&*}; cat "$F/runs.$s" 2>/dev/null || true; exit 0 ;;
     *"/actions/runs/"*"/jobs"*) id=${url#*/actions/runs/}; id=${id%%/*}; cat "$F/job.$id" 2>/dev/null || true; exit 0 ;;
     *"/compare/"*) cat "$F/compare" 2>/dev/null || echo 0; exit 0 ;;
@@ -57,7 +58,8 @@ fail=0
 setup() { FIX="$TMP/$1"; mkdir -p "$FIX"; echo "$SHA" > "$FIX/commits"; : > "$FIX/.sleeps"; }
 run() { # <expected exit>
   local code=0
-  OUT=$(FIX="$FIX" PATH="$TMP:$PATH" DEPLOY_SHA="$SHA" GH_REPO=o/r RL_NOW="$NOW" RL_SLEEP="$TMP/sleeprec" RUN_WATCH="$TMP/watch" \
+  # Per-case overrides (t/754): RUN_SHA (the SHA passed in), WATCH_CMD (the watch stand-in), WHAT (VERIFY_RERUN_WHAT).
+  OUT=$(FIX="$FIX" PATH="$TMP:$PATH" DEPLOY_SHA="${RUN_SHA:-$SHA}" GH_REPO=o/r RL_NOW="$NOW" RL_SLEEP="$TMP/sleeprec" RUN_WATCH="${WATCH_CMD:-$TMP/watch}" VERIFY_RERUN_WHAT="${WHAT:-}" \
         bash "$SCRIPT_DIR/verify-deploy-ci.sh" 2>&1) || code=$?
   SLEEPS=$(tr '\n' ' ' < "$FIX/.sleeps" 2>/dev/null || true)
   if [ "$code" -ne "$1" ]; then echo "FAIL [$CASE]: expected exit $1, got $code. Output: $OUT"; fail=1; return 1; fi
@@ -212,6 +214,81 @@ if run 1; then ok '[ "$SLEEPS" = "3 6 " ]' "should back off 3 then 6"; ok 'echo 
 # 13. No CI run on the SHA or any ancestor -> blocked (unchanged message).
 CASE=no-runs; setup $CASE
 if run 1; then ok 'echo "$OUT" | grep -q "No CI run found for commit"' "unchanged no-run message"; fi
+
+# ── t/754: container.yml's ci-gate runs this script too ──
+# A watch stand-in that fails the way `gh run watch` did in the incident (run 45732963219), after
+# the CI run has in fact finished.
+cat > "$TMP/watchfail" <<'W'
+#!/usr/bin/env bash
+echo "$1" >> "$FIX/.watched"
+[ -f "$FIX/job.$1.after" ] && cp "$FIX/job.$1.after" "$FIX/job.$1"
+echo "failed to get run: HTTP 403: API rate limit exceeded for installation." >&2
+exit 1
+W
+chmod +x "$TMP/watchfail"
+
+# 14. THE t/754 INCIDENT: CI is still running, the watch dies on a rate limit, CI ends green -> pass.
+#     The watch's exit code decides nothing; the job read after it does.
+CASE=t754-watch-ratelimit-ci-green; setup $CASE
+row 700 push in_progress "" main > "$FIX/runs.$SHA"
+echo in_progress > "$FIX/job.700"; echo success > "$FIX/job.700.after"
+if WATCH_CMD="$TMP/watchfail" WHAT="this job" run 0; then
+  ok '[ "$(cat "$FIX/.watched")" = "700" ]' "should have waited for run 700"
+  ok 'echo "$OUT" | grep -q "test-container: success in CI run 700"' "should pass on the job read after the failed watch"
+  ok '! echo "$OUT" | grep -qi "failed"' "must not say failed anywhere"
+fi
+
+# 15. The watch dies on a rate limit AND every read after it is rate-limited -> cannot verify, never "CI failed".
+CASE=t754-ratelimit-every-read; setup $CASE
+row 701 push in_progress "" main > "$FIX/runs.$SHA"
+echo in_progress > "$FIX/job.701"; echo success > "$FIX/job.701.after"
+printf 'ok\nok\nratelimit\nratelimit\n' > "$FIX/fail"; echo "0 $((NOW + 60))" > "$FIX/probe"
+if WATCH_CMD="$TMP/watchfail" WHAT="this job" run 1; then
+  ok 'echo "$OUT" | grep -q "cannot verify CI (rate limit, resets at"' "should say cannot verify with the reset time"
+  ok 'echo "$OUT" | grep -q "re-run this job after the reset"' "should tell the reader to re-run this job"
+  ok '! echo "$OUT" | grep -qE "CI run [0-9]+ .*finished with|CI failed"' "must not report a CI failure"
+  ok '[ "$SLEEPS" = "65 " ]' "should wait for the reset exactly once"
+fi
+
+# 16. CI really failed -> blocked, and the message says CI's own result.
+CASE=t754-ci-really-failed; setup $CASE
+row 702 push in_progress "" main > "$FIX/runs.$SHA"
+echo in_progress > "$FIX/job.702"; echo failure > "$FIX/job.702.after"
+if WATCH_CMD="$TMP/watchfail" WHAT="this job" run 1; then
+  ok "echo \"\$OUT\" | grep -q \"CI run 702 (push on main) finished with test-container 'failure'\"" "should report the real failure"
+  ok '! echo "$OUT" | grep -q "cannot verify"' "a real failure is not 'cannot verify'"
+fi
+
+# 17. A short SHA is expanded through the retrying reader, then judged as usual.
+CASE=t754-short-sha; setup $CASE
+echo "$SHA" > "$FIX/fullsha"
+row 703 push completed success main > "$FIX/runs.$SHA"; echo success > "$FIX/job.703"
+if RUN_SHA=aaaaaaa run 0; then
+  ok 'echo "$OUT" | grep -q "Expanded short SHA aaaaaaa to $SHA"' "should expand the short SHA"
+  ok 'echo "$OUT" | grep -q "test-container: success in CI run 703"' "should judge the full SHA"
+fi
+
+# 18. A rate limit while expanding a short SHA is 'cannot verify', not 'cannot resolve the SHA'.
+CASE=t754-short-sha-ratelimit; setup $CASE
+echo "$SHA" > "$FIX/fullsha"
+printf 'ratelimit\nratelimit\n' > "$FIX/fail"; echo "0 $((NOW + 60))" > "$FIX/probe"
+if RUN_SHA=aaaaaaa WHAT="this job" run 1; then
+  ok 'echo "$OUT" | grep -q "cannot verify CI (rate limit"' "should say cannot verify"
+  ok '! echo "$OUT" | grep -qi "resolve"' "must not blame the SHA"
+fi
+
+# 19. Something that is not a SHA is refused before any API read.
+CASE=t754-not-a-sha; setup $CASE
+if RUN_SHA='main; echo x' run 1; then
+  ok 'echo "$OUT" | grep -q "is not a commit SHA"' "should refuse a non-hex value"
+  ok '[ ! -f "$FIX/.reads" ]' "no API read for a non-SHA"
+fi
+
+# 20. The default wording is unchanged for the deploy preflight.
+CASE=t754-default-wording; setup $CASE
+row 990 push completed success main > "$FIX/runs.$SHA"
+printf 'ratelimit\nratelimit\n' > "$FIX/fail"; echo "0 $((NOW + 60))" > "$FIX/probe"
+if run 1; then ok 'echo "$OUT" | grep -q "re-run the deploy after the reset"' "the deploy preflight still says 're-run the deploy'"; fi
 
 if [ "$fail" -ne 0 ]; then exit 1; fi
 echo "PASS: trusted green run wins over a newer queued pull_request run (the incident); PR runs never count; rate limit waits once or says 'cannot verify', never 'CI failed'; skipped, docs-only, wait-for-in-progress and fail-closed arms hold."
