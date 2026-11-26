@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEPENDABOT_COMMIT_AUTHORS, dependabotExemption, evaluateT1ApprovalGuard, isVersionSpec, packageJsonPatchOk,
+  DEPENDABOT_COMMIT_AUTHORS, dependabotExemption, evaluateT1ApprovalGuard, isVersionSpec, packageJsonPatchOk, pnpmLockPatchOk, requirementsPatchOk,
 } from './t1-approval-guard-predicate.mjs';
 import { evaluateGroup, evaluatePullRequest, ruleDesignGate, ruleT1Approval } from './merge-approval-verdict.mjs';
 import { designGateVerdict } from './design-gate.mjs';
@@ -41,7 +41,17 @@ const healCommit = () => ({
 const humanCommit = (over = {}) => botCommit({ sha: 'e'.repeat(40), author: { login: 'jpsnover' }, committer: { login: 'jpsnover' }, ...over });
 const BUMP_PATCH = '@@ -5,3 +5,3 @@\n   "dependencies": {\n-    "left-pad": "^1.0.0",\n+    "left-pad": "^1.0.1",\n   }';
 const pkg = (filename, patch = BUMP_PATCH, over = {}) => ({ filename, status: 'modified', patch, ...over });
-const BUMP_FILES = [pkg('taxonomy-editor/package.json'), { filename: 'pnpm-lock.yaml' }];
+const INTEG1 = 'sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+const INTEG2 = 'sha512-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB==';
+const lockPatch = (...changed) => ['@@ -10,8 +10,8 @@', ' packages:', ...changed, ' snapshots:'].join('\n');
+const LOCK_PATCH = lockPatch(
+  '-  left-pad@1.0.0:', '+  left-pad@1.0.1:',
+  '-    resolution: {integrity: ' + INTEG1 + '}', '+    resolution: {integrity: ' + INTEG2 + '}',
+  '-      specifier: ^1.0.0', '+      specifier: ^1.0.1', '-      version: 1.0.0', '+      version: 1.0.1');
+const lock = (patch = LOCK_PATCH, over = {}) => ({ filename: 'pnpm-lock.yaml', status: 'modified', patch, ...over });
+const REQ_PATCH = '@@ -1,3 +1,3 @@\n requests==2.0.0\n-flask==2.0.0\n+flask==2.0.1';
+const req = (filename = 'scripts/requirements.txt', patch = REQ_PATCH, over = {}) => ({ filename, status: 'modified', patch, ...over });
+const BUMP_FILES = [pkg('taxonomy-editor/package.json'), lock()];
 const depFacts = (commits, over = {}) => ({
   authorLogin: 'dependabot[bot]', headRepo: FULL, baseRepo: FULL, commits, commitsTotal: commits?.length, files: BUMP_FILES, filesTotal: BUMP_FILES.length, ...over,
 });
@@ -505,7 +515,7 @@ test('t/776 exemption: a forged-author verified commit that touches source is no
 
 test('t/776 exemption: a manifest-and-lockfile-only PR still passes (npm and pip)', () => {
   assert.equal(dependabotExemption(depFacts([botCommit()])).exempt, true);
-  const pip = { files: [{ filename: 'scripts/requirements.txt' }, { filename: 'scripts/requirements-dev.txt' }], filesTotal: 2 };
+  const pip = { files: [req('scripts/requirements.txt'), req('scripts/requirements-dev.txt')], filesTotal: 2 };
   assert.equal(dependabotExemption(depFacts([botCommit()], pip)).exempt, true);
 });
 
@@ -620,5 +630,96 @@ test('t/776 packageJsonPatchOk: adversarial patch lines are decided in under 50 
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
     assert.equal(r.ok, l.startsWith(' '.repeat(5000)), `${l.slice(0, 20)}...`);
     assert.ok(ms < 50, `${l.slice(0, 20)}... took ${ms} ms`);
+  }
+});
+
+// ── t/796: pnpm-lock.yaml and requirements*.txt content checks ──
+
+const exemptFile = (file) => dependabotExemption(depFacts([botCommit()], { files: [file], filesTotal: 1 }));
+
+test('t/796 pnpm-lock: a version bump of an existing package passes (header, integrity, specifier, version, a registry tarball)', () => {
+  assert.equal(exemptFile(lock()).exempt, true);
+  const tarball = lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+    resolution: {integrity: ' + INTEG2 + ', tarball: https://registry.npmjs.org/left-pad/-/left-pad-1.0.1.tgz}');
+  assert.equal(exemptFile(lock(tarball)).exempt, true);
+  const scoped = lockPatch("-  '@babel/core@7.0.0':", "+  '@babel/core@7.0.1':", '-      ms: 2.1.2', '+      ms: 2.1.3', "-  'react-dom@18.2.0(react@18.2.0)':", "+  'react-dom@18.2.1(react@18.2.1)':");
+  assert.equal(exemptFile(lock(scoped)).exempt, true, 'scoped names, snapshot dependency lines and peer-suffixed headers are version changes of existing names');
+});
+
+test('t/796 pnpm-lock: a resolution re-pointed to another host, a git or directory resolution, or one with no integrity is refused', () => {
+  for (const bad of [
+    '+    resolution: {integrity: ' + INTEG2 + ', tarball: https://evil.example/left-pad-1.0.1.tgz}',
+    '+    resolution: {integrity: ' + INTEG2 + ', tarball: http://registry.npmjs.org/left-pad/-/left-pad-1.0.1.tgz}',
+    '+    resolution: {integrity: ' + INTEG2 + ', tarball: https://registry.npmjs.org.evil.example/x.tgz}',
+    '+    resolution: {tarball: https://registry.npmjs.org/left-pad/-/left-pad-1.0.1.tgz}',
+    '+    resolution: {type: git, repo: https://github.com/x/y, commit: abcdef}',
+    '+    resolution: {directory: ../local, type: directory}',
+    '+    resolution: {integrity: not-a-hash}',
+  ]) {
+    const r = exemptFile(lock(lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', bad)));
+    assert.equal(r.exempt, false, bad);
+    assert.match(r.reason, /resolution/, bad);
+  }
+});
+
+test('t/796 pnpm-lock: an added package, and a version that points off the registry, are refused', () => {
+  assert.match(exemptFile(lock(lockPatch('+  evil-pkg@1.0.0:', '+    resolution: {integrity: ' + INTEG2 + '}'))).reason, /adds the package `evil-pkg`/);
+  assert.equal(exemptFile(lock(lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+      version: link:../evil'))).exempt, false);
+  assert.equal(exemptFile(lock(lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+      version: github:x/y'))).exempt, false);
+  assert.equal(exemptFile(lock(lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+    hooks: {postinstall: node evil.js}'))).exempt, false, 'an unknown key is refused');
+  assert.equal(exemptFile(lock(lockPatch('+  lockfileVersion: 9.0'))).exempt, false);
+});
+
+test('t/796 pnpm-lock: no patch, a non-modified status, an empty patch or an over-long line fails closed', () => {
+  assert.equal(exemptFile(lock(undefined, { patch: undefined })).exempt, false);
+  assert.equal(exemptFile(lock('')).exempt, false);
+  assert.equal(exemptFile(lock(LOCK_PATCH, { status: 'added' })).exempt, false);
+  assert.equal(exemptFile(lock('@@ -1 +1 @@\n context only')).exempt, false);
+  assert.equal(exemptFile(lock(lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+    deprecated: ' + 'x'.repeat(700)))).exempt, false);
+});
+
+test('t/796 requirements: a pin bump of an existing name passes, with hash lines', () => {
+  assert.equal(exemptFile(req()).exempt, true);
+  const hashed = '@@ -1,4 +1,4 @@\n-flask==2.0.0 \\\n-    --hash=sha256:' + 'a'.repeat(64) + '\n+flask==2.0.1 \\\n+    --hash=sha256:' + 'b'.repeat(64);
+  assert.equal(exemptFile(req('scripts/requirements.txt', hashed)).exempt, true);
+});
+
+test('t/796 requirements: an index URL, a URL or VCS requirement, a new name, and an unpinned line are refused', () => {
+  for (const [name, patch] of [
+    ['--index-url', '@@ -1 +1,2 @@\n flask==2.0.0\n+--index-url https://evil.example/simple'],
+    ['--extra-index-url', '@@ -1 +1,2 @@\n flask==2.0.0\n+--extra-index-url https://evil.example/simple'],
+    ['-i', '@@ -1 +1,2 @@\n flask==2.0.0\n+-i https://evil.example/simple'],
+    ['url requirement', '@@ -1 +1 @@\n-flask==2.0.0\n+flask @ https://evil.example/flask.tar.gz'],
+    ['vcs requirement', '@@ -1 +1 @@\n-flask==2.0.0\n+git+https://github.com/x/flask.git#egg=flask'],
+    ['new name', '@@ -1 +1,2 @@\n flask==2.0.0\n+evilpkg==1.0.0'],
+    ['unpinned', '@@ -1 +1 @@\n-flask==2.0.0\n+flask>=2.0.0'],
+    ['-r include', '@@ -1 +1,2 @@\n flask==2.0.0\n+-r other.txt'],
+  ]) {
+    const r = exemptFile(req('scripts/requirements.txt', patch));
+    assert.equal(r.exempt, false, name);
+  }
+  assert.match(exemptFile(req('scripts/requirements.txt', '@@ -1 +1,2 @@\n flask==2.0.0\n+evilpkg==1.0.0')).reason, /adds the package `evilpkg`/);
+  assert.equal(exemptFile(req('scripts/requirements.txt', undefined, { patch: undefined })).exempt, false, 'no patch fails closed');
+});
+
+test('t/796: lockfile and requirements checks decide adversarial long lines in under 50 ms', () => {
+  const longs = [
+    lockPatch('+  ' + 'a'.repeat(5000) + '@1.0.0:'),
+    lockPatch('+    resolution: {' + 'integrity: x, '.repeat(400) + '}'),
+    lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+      version: ' + '1 '.repeat(2500)),
+    lockPatch('+' + ' '.repeat(5000) + 'x'),
+  ];
+  for (const p of longs) {
+    const t0 = process.hrtime.bigint();
+    const r = pnpmLockPatchOk({ status: 'modified', patch: p });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.equal(r.ok, false);
+    assert.ok(ms < 50, `pnpm-lock took ${ms} ms`);
+  }
+  for (const p of ['@@ -1 +1 @@\n+' + 'a'.repeat(5000) + '==1', '@@ -1 +1 @@\n+flask==' + '1'.repeat(5000), '@@ -1 +1 @@\n+flask==1 ;' + ' '.repeat(5000) + 'x']) {
+    const t0 = process.hrtime.bigint();
+    const r = requirementsPatchOk({ status: 'modified', patch: p });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.equal(r.ok, false);
+    assert.ok(ms < 50, `requirements took ${ms} ms`);
   }
 });

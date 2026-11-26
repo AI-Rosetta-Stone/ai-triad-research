@@ -445,6 +445,101 @@ export function packageJsonPatchOk(file) {
   }
   return { ok: true, why: '' };
 }
+// ── t/796 (SO p/136#115): content checks for pnpm-lock.yaml and requirements*.txt ──────────────────────────────────
+// A forged bot commit that touches only a lockfile can re-point an existing dependency's resolution (tarball URL or
+// integrity) with no package.json change, and `pnpm install --frozen-lockfile` accepts it: install-time code execution.
+// requirements*.txt can add a package or an index URL. Both checks read the file's PATCH, are linear (anchored,
+// non-nested patterns on bounded lines), and fail closed on an unreadable patch. Shared rules: the status is modified,
+// every changed line is one of a few known shapes, and the set of package names added is within the set removed (a version
+// change keeps the name; a new package, which could be a typosquat, is not exempt).
+const NPM_REGISTRY_TARBALL = /^https:\/\/registry\.npmjs\.org\/[\w@./%~+-]+$/;
+const INTEGRITY = /^sha(?:512|384|256)-[A-Za-z0-9+/=]+$/;
+const LOCK_HEADER = /^\s*'?((?:@[\w.-]+\/)?[\w.-]+)@([\w.+-]+)(?:\([^\n]*\))?'?:\s*$/;
+const LOCK_RESOLUTION = /^\s*resolution:\s*\{([^{}\n]*)\}\s*$/;
+const LOCK_VERSION = /^\s*(?:version|specifier):\s*'?([^'\s]+(?: [^'\s]+)*)'?\s*$/;
+const LOCK_DEP = /^\s{4,}'?((?:@[\w.-]+\/)?[\w.-]+)'?:\s*'?(\d[\w.+-]*(?:\([^\n]*\))?)'?\s*$/;
+const LOCK_META = /^\s*(?:engines|cpu|os|libc|hasBin|deprecated|optional|dev|requiresBuild|peerDependencies|peerDependenciesMeta|transitivePeerDependencies):?(?:\s.*)?$/;
+const LOCK_LINE_MAX = 600;
+
+function patchChangedLines(file) {
+  if (!file || typeof file.patch !== 'string' || file.patch === '') return { why: 'its patch was not readable' };
+  if (file.status !== 'modified') return { why: `its status is ${file.status ?? 'unknown'}, not modified` };
+  const removed = [];
+  const added = [];
+  for (const line of file.patch.split('\n')) {
+    if (line.startsWith('@@') || line.startsWith('\\') || line === '' || line.startsWith(' ')) continue;
+    const sign = line[0];
+    if (sign !== '+' && sign !== '-') return { why: 'its patch has an unreadable line' };
+    if (line.length > LOCK_LINE_MAX) return { why: 'it changes a line over the length cap' };
+    (sign === '-' ? removed : added).push(line.slice(1));
+  }
+  if (removed.length === 0 && added.length === 0) return { why: 'its patch changes nothing' };
+  return { removed, added };
+}
+
+/** pnpm-lock.yaml: only versions, specifiers, integrity and npm-registry tarballs of packages already in the file change. */
+export function pnpmLockPatchOk(file) {
+  const bad = (why) => ({ ok: false, why });
+  const p = patchChangedLines(file);
+  if (p.why) return bad(p.why);
+  const names = { '-': new Set(), '+': new Set() };
+  for (const [sign, lines] of [['-', p.removed], ['+', p.added]]) {
+    for (const line of lines) {
+      const res = LOCK_RESOLUTION.exec(line);
+      if (res) {
+        const pairs = res[1].split(',').map((x) => x.trim());
+        let integrity = false;
+        for (const pair of pairs) {
+          const i = pair.indexOf(':');
+          const key = pair.slice(0, i).trim();
+          const val = pair.slice(i + 1).trim();
+          if (key === 'integrity' && INTEGRITY.test(val)) integrity = true;
+          else if (key === 'tarball' && NPM_REGISTRY_TARBALL.test(val)) continue;
+          else return bad(`it changes a resolution to \`${pair.slice(0, 80)}\` (only integrity and a registry.npmjs.org tarball are allowed)`);
+        }
+        if (!integrity) return bad('it changes a resolution that has no integrity hash');
+        continue;
+      }
+      const head = LOCK_HEADER.exec(line);
+      if (head) { names[sign].add(head[1]); continue; }
+      if (LOCK_VERSION.test(line)) {
+        const v = LOCK_VERSION.exec(line)[1];
+        if (!/^(?:[\^~<>=v]*\d[\w.+-]*)/.test(v) || /^(?:link|file|workspace|github|git|https?|npm|catalog):/.test(v)) return bad(`it changes a version to a non-registry value (${v.slice(0, 60)})`);
+        continue;
+      }
+      if (LOCK_DEP.test(line) || LOCK_META.test(line)) continue;
+      return bad(`it changes a line that is not a version, integrity, registry tarball or package header: ${line.trim().slice(0, 70)}`);
+    }
+  }
+  for (const n of names['+']) {
+    if (!names['-'].has(n)) return bad(`it adds the package \`${n}\`, which the file did not have (a new name, not a version change)`);
+  }
+  return { ok: true, why: '' };
+}
+
+/** requirements*.txt: only `name==version` (and hash) lines change, for names already present; no index URL, URL, VCS or new name. */
+export function requirementsPatchOk(file) {
+  const bad = (why) => ({ ok: false, why });
+  const p = patchChangedLines(file);
+  if (p.why) return bad(p.why);
+  const REQ = /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[A-Za-z0-9,._-]+\])?==([\w.+!-]+)(?:\s*;[^\n]*)?(?:\s*\\)?\s*$/;
+  const HASH = /^\s*--hash=sha256:[0-9a-f]{64}(?:\s*\\)?\s*$/;
+  const names = { '-': new Set(), '+': new Set() };
+  for (const [sign, lines] of [['-', p.removed], ['+', p.added]]) {
+    for (const line of lines) {
+      if (HASH.test(line)) continue;
+      if (line.trim().startsWith('#')) continue;
+      const m = REQ.exec(line);
+      if (!m || line.includes('://') || line.includes(' @ ')) return bad(`it changes a line that is not a plain \`name==version\` pin (no index URL, URL or VCS requirement): ${line.trim().slice(0, 70)}`);
+      names[sign].add(m[1].toLowerCase());
+    }
+  }
+  for (const n of names['+']) {
+    if (!names['-'].has(n)) return bad(`it adds the package \`${n}\`, which the file did not have (a new name, not a version change)`);
+  }
+  return { ok: true, why: '' };
+}
+
 export function dependabotExemption(input) {
   const no = (reason) => ({ exempt: false, reason, commitCount: 0 });
   if (!input || typeof input !== 'object') return no('no Dependabot facts were read');
@@ -475,10 +570,11 @@ export function dependabotExemption(input) {
     for (const p of [f?.filename, ...(f?.previous_filename ? [f.previous_filename] : [])]) {
       if (!isDependabotBumpPath(p)) return no(`the PR changes \`${String(p).slice(0, 80)}\`, which is not a package manifest or lockfile`);
     }
-    if (String(f?.filename).endsWith('package.json')) {
-      const pj = packageJsonPatchOk(f);
-      if (!pj.ok) return no(`${f.filename}: ${pj.why}`);
-    }
+    const base = String(f?.filename).slice(String(f?.filename).lastIndexOf('/') + 1);
+    const content = base === 'package.json' ? packageJsonPatchOk(f)
+      : base === 'pnpm-lock.yaml' ? pnpmLockPatchOk(f)
+        : /^requirements[A-Za-z0-9._-]*\.txt$/.test(base) ? requirementsPatchOk(f) : { ok: true };
+    if (!content.ok) return no(`${f.filename}: ${content.why}`);
   }
   return { exempt: true, reason: `Dependabot PR, ${commits.length} verified commit${commits.length === 1 ? '' : 's'} from an allowlisted bot, only manifests and lockfiles changed`, commitCount: commits.length };
 }
