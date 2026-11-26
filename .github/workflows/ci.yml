@@ -335,6 +335,8 @@ jobs:
               - '.github/ci/vitest-retry-report.sh'
               # test-electron-coverage runs this script (t/391, SO p/59#58): a devops-only change to it must run the consumer
               - 'operations/devops/check-vitest-shard-blobs.sh'
+              # packed-extract-check runs this script (t/660): a devops-only change to it must run the consumer
+              - 'operations/devops/packed-extract-gate.mjs'
               - 'scripts/AITriad/Prompts/**'  # promptCatalog.lint validates this dir; must re-run when prompts change here (t/2915)
               # tests/fixtures/** (t/4367) — lib/sourceIndex/sourceIdentityFixture.test.ts (run by
               # test-electron's vitest) reads tests/fixtures/source-identity-cases.json, a shared
@@ -2020,6 +2022,76 @@ jobs:
       - name: Verify package provenance signatures
         continue-on-error: true
         run: pnpm audit
+
+  # ── Packed-build extraction check (t/660, for t/631) ──
+  # Packs the desktop app the way release.yml does (build, then electron-builder), but unpacked
+  # (--dir) and for Linux only, then runs Shared Lib's lib/extraction/packed-extract-check.cjs
+  # through the PACKED app's own binary with ELECTRON_RUN_AS_NODE=1. t/631 broke PDF and DOCX
+  # extraction in the packed app only; every other test runs against source or dist/, so none saw it.
+  #
+  # NEVER-GATING (gate-signal-integrity §3): not in ci-gate's needs, so it cannot block a merge.
+  # The job itself goes red on FAIL (extraction broken in the packed app). GATE-UNREADABLE (no
+  # packed build, or the check script is not in the checkout) leaves it green with a warning and
+  # the verdict in the step outputs and summary. Adding it to ci-gate's needs is a separate T2
+  # change after real PASS verdicts on main, and must restore its merge_group condition.
+  packed-extract-check:
+    needs: [changes]
+    # Not on merge_group (see "never-gating jobs and the merge queue" in ci-gate): this job can
+    # fail, but it is not in ci-gate's needs. It still runs on PRs and pushes that touch its
+    # paths, and on the nightly schedule.
+    if: >-
+      always() && !cancelled() &&
+      github.event_name != 'merge_group' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25  # no history yet (t/660): set from the first runs' wall time, 2x, min 10 (p/331#2639)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
+        with:
+          version: '11.20.0'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+
+      - name: Install dependencies (retry on transient network failures, as test-electron does)
+        timeout-minutes: 8
+        run: |
+          for i in 1 2 3; do
+            timeout 2m pnpm install --frozen-lockfile --side-effects-cache && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
+
+      - name: Build app
+        working-directory: taxonomy-editor
+        run: pnpm run build
+
+      - name: Pack for Linux, unpacked (electron-builder --dir)
+        working-directory: taxonomy-editor
+        run: |
+          start=$(date +%s)
+          pnpm exec electron-builder --linux --dir --publish never
+          echo "pack wall time: $(( $(date +%s) - start ))s"
+          echo "Pack wall time: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Packed extraction check (t/660; FAIL fails this job, never ci-gate)
+        id: packed-extract
+        run: |
+          node operations/devops/packed-extract-gate.mjs \
+            --unpacked taxonomy-editor/release/linux-unpacked \
+            --check lib/extraction/packed-extract-check.cjs \
+            --fixtures lib/extraction/packed-fixtures
 
   # ── Quality gates: 5MB byte-guard + CSS LOC ceiling (t/1292, B-408; ADR-007) ──
   # ENFORCING (t/1692): .ts/.tsx LOC is now owned by ESLint max-lines, co-located
@@ -4371,11 +4443,13 @@ jobs:
     name: ci-gate
     needs: [changes, test-powershell, test-electron, test-electron-vitest, test-electron-coverage, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget, merge-queue-f4-shim-test, gate-self-health, container-var-isolation]
     # ── never-gating jobs and the merge queue ──
-    # Seven jobs are deliberately NOT in the needs above, so their result cannot hold a
-    # merge-queue batch back: verify-config, dependency-audit, pov-tag-orphan-check, schema-drift,
-    # schema-validation, debate-eval, action-pin-resolution. They used to run on every merge_group
-    # run anyway (ten jobs per batch, counting dependency-audit's four-app matrix, for a result the
-    # queue ignores), so each now skips on merge_group. Each still runs on its PR and push
+    # Eight jobs are deliberately NOT in the needs above, so their result cannot hold a
+    # merge-queue batch back: verify-config, dependency-audit, packed-extract-check,
+    # pov-tag-orphan-check, schema-drift,
+    # schema-validation, debate-eval, action-pin-resolution. All but packed-extract-check (t/660,
+    # which started this way) used to run on every merge_group run anyway (ten jobs per batch,
+    # counting dependency-audit's four-app matrix, for a result the queue ignores), so each now
+    # skips on merge_group. Each still runs on its PR and push
     # conditions and on the nightly schedule. A job promoted to blocking (added to the needs
     # above) MUST get its merge_group condition back in the same PR, or the queue would treat its
     # skip as satisfied.
