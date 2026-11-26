@@ -7,6 +7,7 @@
  */
 
 import { orderSynthesisLists } from './synthesisOrder.js';
+import { factCheckExportLines } from './factCheckExport.js';
 
 // ── Minimal types (avoids importing full renderer types) ──
 
@@ -83,6 +84,18 @@ function formatTimestamp(iso: string): string {
   });
 }
 
+/** One transcript entry's body in the text export. A fact check's verdict lives in metadata, not content (t/771). */
+function textEntryBody(entry: TranscriptEntry): string[] {
+  return entry.type === 'fact-check' ? factCheckExportLines(entry, 'text') : [entry.content];
+}
+
+/** One transcript entry's body in the Markdown export. A fact check's verdict lives in metadata, not content (t/771). */
+function markdownEntryBody(entry: TranscriptEntry): string[] {
+  if (entry.type === 'fact-check') return factCheckExportLines(entry, 'markdown');
+  if (entry.speaker === 'system') return [`> *${entry.content}*`];
+  return [`**${speakerName(entry.speaker)}:**`, '', entry.content];
+}
+
 function entryTypeLabel(type: string): string {
   const map: Record<string, string> = {
     opening: 'Opening Statement',
@@ -125,7 +138,7 @@ export function debateToText(session: ExportableDebateSession, options?: DebateE
     lines.push('');
     lines.push(`[${speakerName(entry.speaker)} — ${entryTypeLabel(entry.type)}]`);
     lines.push('');
-    lines.push(entry.content);
+    lines.push(...textEntryBody(entry));
 
     if (opts.includeTaxonomyRefs && entry.taxonomy_refs && entry.taxonomy_refs.length > 0) {
       lines.push('');
@@ -210,14 +223,7 @@ export function debateToMarkdown(session: ExportableDebateSession, options?: Deb
     }
 
     lines.push('');
-    const label = speakerName(entry.speaker);
-    if (entry.speaker === 'system') {
-      lines.push(`> *${entry.content}*`);
-    } else {
-      lines.push(`**${label}:**`);
-      lines.push('');
-      lines.push(entry.content);
-    }
+    lines.push(...markdownEntryBody(entry));
 
     if (opts.includeTaxonomyRefs && entry.taxonomy_refs && entry.taxonomy_refs.length > 0) {
       lines.push('');
