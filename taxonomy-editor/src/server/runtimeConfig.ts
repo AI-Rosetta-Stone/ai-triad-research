@@ -208,7 +208,7 @@ const DEFAULTS: RuntimeConfig = {
     anonOpEdRetentionMs: 86_400_000,
     anonOpEdLiveSetLimit: 10,
     anonOpEdByteCap: 106_496,
-    anonOpEdMaxVoices: 3,
+    anonOpEdMaxVoices: 1,
     anonOpEdMaxWords: 1_500,
   },
   analytics: {

@@ -56,13 +56,14 @@ export function anonDebateLimitsApply(): boolean {
   return isHostedAnonymousRequest();
 }
 
-export type AnonDebateLimitCode = 'anon_debate_kind' | 'anon_debate_turns' | 'anon_debate_unsaved';
+export type AnonDebateLimitCode = 'anon_debate_kind' | 'anon_debate_turns' | 'anon_debate_unsaved' | 'anon_oped_voices';
 export interface AnonDebateViolation { code: AnonDebateLimitCode; detail: string; limit?: number }
 
 const MESSAGES: Record<AnonDebateLimitCode, string> = {
   anon_debate_kind: 'Without an account you can run Quick Take debates. Sign in to use Deep dive and Socratic.',
   anon_debate_turns: 'This debate is longer than a Quick Take. Sign in to continue it.',
   anon_debate_unsaved: 'This debate is not available to continue. Start a new Quick Take, or sign in.',
+  anon_oped_voices: 'Without an account an op-ed has one voice. Sign in to write with more.',
 };
 
 function kind(detail: string): AnonDebateViolation { return { code: 'anon_debate_kind', detail }; }

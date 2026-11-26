@@ -3,8 +3,8 @@
 
 // t/500 part C (t/666): the limits on a STORED anonymous op-ed, all checked before any spend and all from runtime config
 // (sessions.*, t/500 rulings):
-//   - admission shape (TL t/500#27): at most anonOpEdMaxVoices voices (3) and anonOpEdMaxWords words per voice (1,500),
-//     the same shape a signed-in user gets. More is a 400.
+//   - admission shape (TL t/500#27): at most anonOpEdMaxVoices voices (1, t/723) and anonOpEdMaxWords words per voice (1,500),
+//     More voices is a 403 anon_oped_voices (t/723); more words is a 400.
 //   - live sets (PI, t/500#4): at most anonOpEdLiveSetLimit (10) live sets per visitor; the next create is 429
 //     anon_oped_limit and nothing is written. Expired sets don't count (the store drops them on list).
 //   - byte cap (TL t/500#60): the run's worst-case stored size must fit anonOpEdByteCap (106,496 B) at admission, so a
@@ -17,6 +17,7 @@ import { listOpedSets, getOpedSetsQuotaStatus } from '../storage/opedStore.js';
 import { isAnonymousUser } from '../security/userContext.js';
 import { resolveOutletBand } from '../../../../lib/oped/outletBands.js';
 import { log } from '../logger.js';
+import { refuseAnonLimit } from './anonDebateLimits.js';
 
 /** Stored bytes per body word (measured 6.2 on a real set, t/500#59), rounded up. */
 export const ANON_OPED_BYTES_PER_WORD = 7;
@@ -34,15 +35,13 @@ export function anonOpEdWorstCaseBytes(voices: number, words: number): number {
 }
 
 /** Refuse (400, before any spend) an anonymous request over the admission shape or the byte cap. True when written.
- *  Each refusal carries a stable `code` (anon_oped_too_many_voices, anon_oped_too_many_words, anon_oped_too_large), so
+ *  Each refusal carries a stable `code` (anon_oped_voices (403), anon_oped_too_many_words, anon_oped_too_large), so
  *  the client never matches on the sentence (Rosetta Stone p/74#36). */
 export function refuseAnonOpEdShape(res: ServerResponse, voices: number, wordCount: number, outlet: string | undefined): boolean {
   const s = getConfig().sessions;
   const words = effectiveWords(wordCount, outlet);
-  if (voices > s.anonOpEdMaxVoices) {
-    error(res, `Anonymous op-eds allow at most ${s.anonOpEdMaxVoices} voices. Sign in for more.`, 400, undefined, { code: 'anon_oped_too_many_voices', limit: s.anonOpEdMaxVoices });
-    return true;
-  }
+  // t/723 (PI 2026-11-26): more voices than the limit is a sign-in limit, so 403 anon_oped_voices (shared refusal shape).
+  if (voices > s.anonOpEdMaxVoices) return refuseAnonLimit(res, 'POST /api/oped-sets', { code: 'anon_oped_voices', detail: `voices=${voices}`, limit: s.anonOpEdMaxVoices });
   if (words > s.anonOpEdMaxWords) {
     error(res, `Anonymous op-eds allow at most ${s.anonOpEdMaxWords} words per voice. Sign in for longer op-eds.`, 400, undefined, { code: 'anon_oped_too_many_words', limit: s.anonOpEdMaxWords });
     return true;
