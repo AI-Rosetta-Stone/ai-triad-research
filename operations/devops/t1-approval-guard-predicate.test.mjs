@@ -80,9 +80,18 @@ test('a T2 PR is never checked by this gate (it has its own consult-hold mechani
   assert.equal(r.reason, 'not-t1');
 });
 
-test('a missing or malformed Tier line is never checked by this gate (tier-check.yml flags that separately)', () => {
-  assert.equal(evaluateT1ApprovalGuard({ body: 'no tier line here', headRefName: 'x', lastPushAt: PUSH, approvalComments: [] }).pass, true);
-  assert.equal(evaluateT1ApprovalGuard({ body: '', headRefName: 'x', lastPushAt: PUSH, approvalComments: [] }).pass, true);
+test('t/751: a missing or malformed Tier line is T1, not a pass (#5578, #5599)', () => {
+  for (const body of ['no tier line here', '', 'Tier T1', 'Summary first\nTier: T1']) {
+    const r = evaluateT1ApprovalGuard({ body, headRefName: 'x', lastPushAt: PUSH, approvalComments: [] });
+    assert.equal(r.pass, false, JSON.stringify(body));
+    assert.equal(r.tier, 'T1');
+    assert.equal(r.declaredTier, null);
+    assert.match(r.tierNote, /^no Tier line: treated as T1 \(no Dependabot facts were read\)$/);
+    assert.match(r.summary, /no Tier line: treated as T1/);
+  }
+  // A declared T0 or T2 is as before.
+  assert.equal(evaluateT1ApprovalGuard({ body: 'Tier: T0', headRefName: 'x', lastPushAt: PUSH, approvalComments: [] }).pass, true);
+  assert.equal(evaluateT1ApprovalGuard({ body: 'Tier: T2', headRefName: 'x', lastPushAt: PUSH, approvalComments: [] }).reason, 'not-t1');
 });
 
 test('an approval added by EDITING an older comment (updatedAt after the push, createdAt before) -> pass', () => {
@@ -143,7 +152,7 @@ test('a non-approval comment (no "Approved (...):" prefix) is ignored, not mista
 
 test('empty/undefined input never throws', () => {
   assert.doesNotThrow(() => evaluateT1ApprovalGuard({}));
-  assert.equal(evaluateT1ApprovalGuard({}).pass, true);
+  assert.equal(evaluateT1ApprovalGuard({}).pass, false); // no tier line is T1 (t/751), and nothing approves it
 });
 
 // ── t/4096 Reviewer switch-over: a real bot APPROVED review also satisfies the gate ──

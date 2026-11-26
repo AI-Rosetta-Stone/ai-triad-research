@@ -16,6 +16,9 @@
 //      outstanding changes-request (latestRoleVerdicts, gate mode) also fails it: a second
 //      reader's approval does not stand while another reader still objects.
 //   B. T1/T2 approval. A PR declaring `Tier: T1` or `Tier: T2` (parseTier) must pass evaluateT1ApprovalGuard.
+//   B (t/751). A body with no `Tier:` line is T1, unless it is a Dependabot PR with every commit verified
+//      and from an allowlisted bot (dependabotExemption). Only a declared T0 needs no approval.
+//   D (t/752). Design gate: a user-facing change needs Design's reviewer-App verdict at the head (design-gate.mjs).
 //   C. tier honesty. tier-check's R1 path floor (evaluateR1Only) and R3's breaking-schema floor,
 //      from main's .github/ci/tier-paths.json, must not require a higher tier than declared.
 //
@@ -43,6 +46,7 @@ import { REVIEWER_APP_REST_LOGIN, gateFileChangeVerdict, isGateFile } from './ga
 import {
   T1_REVIEWER_ROLES, canonicalRole, evaluateT1ApprovalGuard, latestRoleVerdicts, normalizeRole, ownerSlugFromBranch, parseTier,
 } from './t1-approval-guard-predicate.mjs';
+import { designGateVerdict, shownPaths } from './design-gate.mjs';
 import { checkR3, evaluateR1Only, extractSchemaChange, extractTier } from './tier-check-predicate.mjs';
 
 export const CHECK_NAME = 'merge-approval';
@@ -161,14 +165,16 @@ export function ruleGateFiles(pr, { reviewerLogin = REVIEWER_APP_REST_LOGIN } = 
 
 /** PURE. Rule B. */
 export function ruleT1Approval(pr, { reviewerLogin = REVIEWER_APP_REST_LOGIN } = {}) {
-  const tier = parseTier(pr.body);
-  // KNOWN GAP (t/751): a body with no `Tier:` first line passes here with no approval. Left as it
-  // is in the t/739 fix, because Dependabot PRs have no tier line and merge on this arm by policy.
-  if (tier !== 'T1' && tier !== 'T2') return pass(`not T1 or T2 (declared ${tier ?? 'no tier'})`);
+  const declared = parseTier(pr.body);
+  // t/751 (t/739, #5578, #5599): a body with no (or an unreadable) `Tier:` first line is T1, unless it
+  // is a Dependabot PR whose every commit is verified and from an allowlisted bot (dependabotExemption,
+  // in the shared predicate, read from `pr.dependabot`). Only a declared T0 needs no approval here.
+  if (declared === 'T0') return pass('not T1 or T2 (declared T0)');
+  const tier = declared ?? 'no Tier line: treated as T1';
   // t/537 (DevOps Lead): T2 needs at least T1's approval at the head; declaring T2 must never skip
   // rule B. The shared predicate acts only on a `Tier: T1` first line, so a T2 body is passed to
   // it with that first line rewritten (the rest of the body unchanged).
-  const guardBody = tier === 'T2' ? String(pr.body ?? '').replace(/^(\s*Tier:\s*)T2\b/i, '$1T1') : pr.body;
+  const guardBody = declared === 'T2' ? String(pr.body ?? '').replace(/^(\s*Tier:\s*)T2\b/i, '$1T1') : pr.body;
   const r = evaluateT1ApprovalGuard({
     body: guardBody,
     headRefName: pr.headRefName,
@@ -177,7 +183,11 @@ export function ruleT1Approval(pr, { reviewerLogin = REVIEWER_APP_REST_LOGIN } =
     approvalComments: predicateComments(pr.comments),
     botReviews: predicateReviews(pr.reviews, reviewerLogin),
     reviewerAppLogin: reviewerLogin,
+    dependabot: pr.dependabot,
   });
+  if (r.reason === 'no-tier-dependabot-exempt') {
+    return pass(`no Tier line: Dependabot PR, exempt (${r.exemption.commitCount} verified commit${r.exemption.commitCount === 1 ? '' : 's'})`);
+  }
   if (r.pass) {
     // t/739 (decision 6): say WHICH review was counted. The slot carries the review's time, so the
     // id is read back from the reviewer App's reviews at the head with that time.
@@ -189,7 +199,28 @@ export function ruleT1Approval(pr, { reviewerLogin = REVIEWER_APP_REST_LOGIN } =
   }
   const seen = (r.rejected ?? []).map((x) => `${x.role} (${x.why === 'branch_owner_role' ? "the branch owner's own role" : 'not a T1 reviewer role'})`);
   const sawText = seen.length ? `approvals seen that do not count: ${seen.join(', ')}` : 'no reviewer-App approval review seen at this head';
-  return fail(`${tier}, no reviewer-App approval review at ${short(pr.headSha)} from a T1 reviewer role (${T1_REVIEWER_ROLES.join(', ')}) other than the branch owner's; ${sawText} (${r.reason})`);
+  const whyNotExempt = declared === null && r.tierNote ? ` [${r.tierNote}]` : '';
+  return fail(`${tier}, no reviewer-App approval review at ${short(pr.headSha)} from a T1 reviewer role (${T1_REVIEWER_ROLES.join(', ')}) other than the branch owner's; ${sawText} (${r.reason})${whyNotExempt}`);
+}
+
+/**
+ * PURE. Rule D (t/752): the Design gate, at every tier. A change to a user-facing file
+ * (design-review-scope.mjs) needs the Design role's `Approved (Design):` or `Design-exempt (Design):`
+ * from the reviewer App, by the same helper the sweeps and enqueue-pr call (design-gate.mjs). The
+ * push time is `pr.headPushedAtMs` (the earliest check-run start on the head, read by
+ * merge-approval-run.mjs); when it is missing only a review bound to the head counts. It is separate
+ * from rule B: Design's approval is never the T1 review, and a T1 reviewer's is never Design's.
+ */
+export function ruleDesignGate(pr, { reviewerLogin = REVIEWER_APP_REST_LOGIN } = {}) {
+  const g = designGateVerdict({
+    files: pr.files, filesTruncated: pr.filesTruncated,
+    reviews: predicateReviews(pr.reviews, reviewerLogin), comments: predicateComments(pr.comments),
+    reviewerAppLogin: reviewerLogin, headSha: pr.headSha, pushedAtMs: pr.headPushedAtMs ?? null,
+  });
+  if (!g.applies) return pass('no user-facing files changed');
+  const shown = g.paths.length ? `user-facing (${shownPaths(g.paths)}); ` : '';
+  if (g.pass) return pass(`${shown}Design ${g.kind} at ${short(pr.headSha)}`);
+  return fail(`${shown}needs a reviewer-App review at ${short(pr.headSha)} starting "Approved (Design):" or "Design-exempt (Design): <reason>" (${g.reason})`);
 }
 
 /** PURE. Rule C. `tierConfig` is main's .github/ci/tier-paths.json. */
@@ -219,6 +250,7 @@ export function evaluatePullRequest(pr, { tierConfig, reviewerLogin = REVIEWER_A
     ['A gate-files', ruleGateFiles(pr, { reviewerLogin })],
     ['B t1-approval', ruleT1Approval(pr, { reviewerLogin })],
     ['C tier-honesty', ruleTierHonesty(pr, tierConfig)],
+    ['D design-gate', ruleDesignGate(pr, { reviewerLogin })],
   ];
   const ok = rules.every(([, r]) => r.ok);
   return {

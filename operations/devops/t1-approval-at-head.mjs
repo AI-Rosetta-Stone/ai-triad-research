@@ -36,7 +36,7 @@
 // approvalAtHeadVerdict) stay for display and for their existing tests; no enqueue path calls them.
 
 import { execFileSync } from 'node:child_process';
-import { evaluateT1ApprovalGuard } from './t1-approval-guard-predicate.mjs';
+import { dependabotExemption, evaluateT1ApprovalGuard } from './t1-approval-guard-predicate.mjs';
 
 function gh(args, options = {}) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options });
@@ -92,8 +92,10 @@ export function fetchApprovalInputs(repo, prNumber, expectedHeadSha, ghFn = gh) 
  * `commits` is still read and checked by fetchApprovalInputs (a cut-short list fails closed), but
  * its committer date is deliberately not used: the PR author controls it.
  */
-export function toPredicateInputs({ pr, comments, reviews }) {
+export function toPredicateInputs({ pr, comments, reviews, commits }) {
   return {
+    // t/751: the facts the Dependabot exemption reads (dependabotExemption), for a PR with no Tier line.
+    dependabot: { authorLogin: pr.user?.login ?? null, headRepo: pr.head?.repo?.full_name ?? null, baseRepo: pr.base?.repo?.full_name ?? null, commits, commitsTotal: pr.commits },
     body: pr.body ?? '',
     headRefName: pr.head.ref,
     headSha: pr.head.sha,
@@ -111,7 +113,7 @@ export function toPredicateInputs({ pr, comments, reviews }) {
 function bodyAsT1(body, tier) {
   if (tier === 'T1') return body;
   if (tier === 'T2') return String(body).replace(/^(\s*Tier:\s*)T2\b/i, '$1T1');
-  return `Tier: T1\n${body}`; // undeclared or unreadable tier: evaluated as T1 (fail closed)
+  return body; // no (or unreadable) Tier line: the predicate itself judges it (t/751: T1 unless Dependabot-exempt)
 }
 
 /**
@@ -141,6 +143,15 @@ export function approvalFromApiVerdict({ tier, isDraft, headSha, inputs, tierChe
     base = toPredicateInputs(inputs);
   } catch (err) {
     return { allow: false, reason: 'approval_lookup_error', warn: null, detail: `unreadable API data (${err.message ?? err})` };
+  }
+  // t/751 (TL p/9#701 item 5): a PR with no Tier line is refused outright, whatever its approvals,
+  // unless the Dependabot exemption holds (every commit verified, from an allowlisted bot). The
+  // reason word is 'no_tier_line'; the sweeps read it as a policy refusal (classifyEnqueueFailure).
+  if (tier === null || tier === undefined) {
+    const ex = dependabotExemption(base.dependabot);
+    return ex.exempt
+      ? { allow: true, reason: 'dependabot_exempt', warn: null, detail: ex.reason }
+      : { allow: false, reason: 'no_tier_line', warn: null, detail: `no Tier line: treated as T1, and a PR with no Tier line is not enqueued (${ex.reason}); add \`Tier: T0\`, \`T1\` or \`T2\` as the first line of the body` };
   }
   if (base.headSha !== headSha) return { allow: false, reason: 'approval_lookup_error', warn: null, detail: `the API read is for ${base.headSha}, not ${headSha}` };
   let r;

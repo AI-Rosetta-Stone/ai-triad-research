@@ -43,7 +43,7 @@ import { classifyBranch, ROUTE_REASONS as BUDGET_SKIP_REASONS } from './landing-
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { ejectedBatchVerdict, listMergeGroupRuns, listRunJobs, readJobLog } from './ejected-batch.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
-import { isUserFacing } from './design-review-scope.mjs';
+import { designGateVerdict } from './design-gate.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
 import { BRANCH_PREFIX as REPIN_BRANCH_PREFIX, classifyRepinTier } from './docker/repin-tier.mjs';
 
@@ -188,8 +188,11 @@ export function sharedSkipReason(pr, { declares, tierName, afterConflict = null 
       headSha: pr.headRefOid, lastPushAt: headPushedAt(pr.contexts),
     });
     const changesRequestedBy = [...verdicts.entries()].find(([, v]) => v.kind === 'changes_requested');
-    const designVerdict = verdicts.get('Design');
-    const designPasses = designVerdict?.kind === 'approved' || designVerdict?.kind === 'exempt';
+    // t/752: the Design gate is one helper (design-gate.mjs), shared with enqueue-pr and merge-approval.
+    const design = designGateVerdict({
+      files: pr.files ?? [], reviews: pr.reviews, comments: pr.comments, reviewerAppLogin: REVIEWER_APP_LOGIN,
+      headSha: pr.headRefOid, pushedAtMs: headPushedAt(pr.contexts),
+    });
     if (changesRequestedBy) {
       const [role, v] = changesRequestedBy;
       // Quality, p/780#46: a reviewer-App body that says "changes requested" but doesn't match
@@ -200,7 +203,7 @@ export function sharedSkipReason(pr, { declares, tierName, afterConflict = null 
         ? `WARN: changes requested by ${role} (unparsed reviewer-App body -- check its exact wording against the grammar)`
         : `changes requested by ${role}`;
     }
-    else if (isUserFacing(pr.files) && !designPasses) reason = 'awaiting Design gate';
+    else if (design.applies && !design.pass) reason = 'awaiting Design gate';
   }
   if (!reason) {
     for (const name of REQUIRED_CONTEXTS) {

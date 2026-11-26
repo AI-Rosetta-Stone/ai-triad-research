@@ -45,6 +45,7 @@ function fakeWorld({ prs = {}, queue = null, installRepos = [FULL], fail = {}, o
     return {
       number: n, state: p.state ?? 'open', body: p.body ?? 'Tier: T0\n', base: { ref: p.base ?? 'main' },
       head: { sha: p.head, ref: p.ref ?? 'devops/x', repo: { full_name: FULL } },
+      user: { login: p.author ?? 'jpsnover' }, commits: (p.commits ?? []).length,
       labels: (p.labels ?? []).map((name) => ({ name })),
       changed_files: p.changed_files ?? (p.files ?? [{ filename: 'docs/a.md' }]).length,
     };
@@ -52,16 +53,19 @@ function fakeWorld({ prs = {}, queue = null, installRepos = [FULL], fail = {}, o
   const rest = {
     pulls: {
       get: async ({ pull_number }) => { maybeFail('pulls.get'); onRead?.('pulls.get', pull_number); return { data: prData(pull_number) }; },
-      listFiles: Symbol('listFiles'), listReviews: Symbol('listReviews'),
+      listFiles: Symbol('listFiles'), listReviews: Symbol('listReviews'), listCommits: Symbol('listCommits'),
     },
     issues: { listComments: Symbol('listComments') },
     repos: { listPullRequestsAssociatedWithCommit: Symbol('assoc') },
     checks: {
+      listForRef: Symbol('listForRef'),
       create: async (args) => { maybeFail('checks.create'); posts.push(args); return { data: { id: posts.length } }; },
     },
   };
   const paginate = async (route, params) => {
     if (route === rest.pulls.listFiles) { maybeFail('listFiles'); return prs[params.pull_number].files ?? [{ filename: 'docs/a.md' }]; }
+    if (route === rest.pulls.listCommits) { maybeFail('listCommits'); return prs[params.pull_number].commits ?? []; }
+    if (route === rest.checks.listForRef) { maybeFail('listForRef'); const p = Object.values(prs).find((x) => x.head === params.ref); return p?.checkRuns ?? []; }
     if (route === rest.pulls.listReviews) { maybeFail('listReviews'); return prs[params.pull_number].reviews ?? []; }
     if (route === rest.issues.listComments) { maybeFail('listComments'); return prs[params.issue_number].comments ?? []; }
     if (route === rest.repos.listPullRequestsAssociatedWithCommit) {

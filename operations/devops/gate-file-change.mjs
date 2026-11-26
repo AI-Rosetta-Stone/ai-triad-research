@@ -47,6 +47,8 @@ export const GATE_SCRIPTS = [
   'operations/devops/pr-contexts.mjs',
   'operations/devops/ejected-batch.mjs',
   'operations/devops/design-review-scope.mjs',
+  'operations/devops/design-gate.mjs',        // t/752: the Design gate the sweeps, enqueue-pr and merge-approval share
+  'operations/devops/design-gate-fetch.mjs',  // t/752: enqueue-pr's reads for it
   'operations/devops/docker/repin-tier.mjs',
   // t/543: loaded by a workflow-run script (check-code-root-allowlist.mjs), found by the import walk.
   'operations/devops/code-root-allowlist-predicate.mjs',
