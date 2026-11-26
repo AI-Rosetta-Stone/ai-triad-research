@@ -379,6 +379,19 @@ export const DEPENDABOT_PR_AUTHOR = 'dependabot[bot]';
 export const DEPENDABOT_COMMIT_AUTHORS = Object.freeze(['dependabot[bot]']);
 export const DEPENDABOT_COMMIT_COMMITTERS = Object.freeze(['web-flow']);
 export const PR_COMMITS_LIST_CAP = 250;
+export const PR_FILES_LIST_CAP = 3000;
+/**
+ * t/776 (SO condition 1 on #5601): a verified, bot-authored commit is forgeable by anyone with write
+ * access (a contents-API commit is signed by web-flow and its author can be set to the bot's noreply
+ * email). So the exemption also needs every changed path to be a package manifest or lockfile: the
+ * files a version bump touches. Any other path (source, a Dockerfile, a workflow, a gate file) needs
+ * T1 review. Basenames only; a path with `..` or a leading slash is never allowed.
+ */
+export function isDependabotBumpPath(path) {
+  if (typeof path !== 'string' || !path || path.startsWith('/') || path.split('/').includes('..')) return false;
+  const base = path.slice(path.lastIndexOf('/') + 1);
+  return base === 'package.json' || base === 'pnpm-lock.yaml' || /^requirements[A-Za-z0-9._-]*\.txt$/.test(base);
+}
 export function dependabotExemption(input) {
   const no = (reason) => ({ exempt: false, reason, commitCount: 0 });
   if (!input || typeof input !== 'object') return no('no Dependabot facts were read');
@@ -399,7 +412,18 @@ export function dependabotExemption(input) {
     const committer = c?.committer?.login ?? null;
     if (!DEPENDABOT_COMMIT_COMMITTERS.includes(committer)) return no(`commit ${sha} was committed by ${committer ? `\`${committer}\`` : 'no GitHub account'}, not GitHub's signer`);
   }
-  return { exempt: true, reason: `Dependabot PR, ${commits.length} verified commit${commits.length === 1 ? '' : 's'} from an allowlisted bot`, commitCount: commits.length };
+  // t/776: every changed path must be a manifest or lockfile, and the file list must be complete.
+  const { files, filesTotal } = input;
+  if (!Array.isArray(files) || files.length === 0) return no('the changed-file list is empty or unreadable');
+  if (!Number.isInteger(filesTotal) || filesTotal >= PR_FILES_LIST_CAP || files.length !== filesTotal) {
+    return no(`the changed-file list may be cut short (listed ${files.length}, the PR reports ${filesTotal ?? 'no count'})`);
+  }
+  for (const f of files) {
+    for (const p of [f?.filename, ...(f?.previous_filename ? [f.previous_filename] : [])]) {
+      if (!isDependabotBumpPath(p)) return no(`the PR changes \`${String(p).slice(0, 80)}\`, which is not a package manifest or lockfile`);
+    }
+  }
+  return { exempt: true, reason: `Dependabot PR, ${commits.length} verified commit${commits.length === 1 ? '' : 's'} from an allowlisted bot, only manifests and lockfiles changed`, commitCount: commits.length };
 }
 
 /**

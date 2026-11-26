@@ -39,8 +39,9 @@ const healCommit = () => ({
   commit: { author: { name: 'dependabot-heal[bot]' }, verification: { verified: false, reason: 'unsigned' } },
 });
 const humanCommit = (over = {}) => botCommit({ sha: 'e'.repeat(40), author: { login: 'jpsnover' }, committer: { login: 'jpsnover' }, ...over });
+const BUMP_FILES = [{ filename: 'taxonomy-editor/package.json' }, { filename: 'pnpm-lock.yaml' }];
 const depFacts = (commits, over = {}) => ({
-  authorLogin: 'dependabot[bot]', headRepo: FULL, baseRepo: FULL, commits, commitsTotal: commits?.length, ...over,
+  authorLogin: 'dependabot[bot]', headRepo: FULL, baseRepo: FULL, commits, commitsTotal: commits?.length, files: BUMP_FILES, filesTotal: BUMP_FILES.length, ...over,
 });
 
 const review = ({ body = 'Approved (Quality): fine', commit = HEAD, at = AFTER, state = 'APPROVED', id = 1 } = {}) => ({
@@ -194,8 +195,8 @@ test('t/751 enqueue-pr: no Tier line is refused outright, even with a Quality ap
 
 test('t/751 enqueue-pr: a clean Dependabot PR with no Tier line is allowed; with a human commit it is refused', () => {
   const dep = (commits) => apiInputs({
-    pr: { body: 'Bumps x.', head: { sha: HEAD, ref: 'dependabot/x', repo: { full_name: FULL } }, base: { repo: { full_name: FULL } }, user: { login: 'dependabot[bot]' }, commits: commits.length },
-    commits,
+    pr: { body: 'Bumps x.', head: { sha: HEAD, ref: 'dependabot/x', repo: { full_name: FULL } }, base: { repo: { full_name: FULL } }, user: { login: 'dependabot[bot]' }, commits: commits.length, changed_files: 2 },
+    commits, files: BUMP_FILES,
   });
   assert.equal(approvalFromApiVerdict({ tier: null, isDraft: false, headSha: HEAD, inputs: dep([botCommit()]) }).reason, 'dependabot_exempt');
   const refused = approvalFromApiVerdict({ tier: null, isDraft: false, headSha: HEAD, inputs: dep([botCommit(), humanCommit()]) });
@@ -376,6 +377,7 @@ function enqueueFake({ body, files, reviews = [], comments = [], commits = [huma
     const joined = args.join(' ');
     const last = args[args.length - 1];
     if (joined.includes('{changed_files}')) return JSON.stringify({ changed_files: files.length });
+    if (joined.includes('/files?per_page=100') && args.includes('--slurp')) return JSON.stringify([files.map((x) => ({ filename: x }))]); // t/776
     if (joined.includes('/files?per_page=100')) return files.map((f) => JSON.stringify([f, ''])).join('\n');
     if (joined.includes('pr view') && joined.includes('headRefOid,body,isDraft')) return JSON.stringify({ headRefOid: HEAD, body, isDraft: false, labels: [] });
     if (args.includes('--slurp')) {
@@ -385,7 +387,7 @@ function enqueueFake({ body, files, reviews = [], comments = [], commits = [huma
       if (/check-runs/.test(last)) return JSON.stringify([{ check_runs: checkRuns }]);
     }
     if (args[0] === 'api' && /^repos\/[^/]+\/[^/]+\/pulls\/\d+$/.test(last)) {
-      return JSON.stringify({ body, head: { sha: HEAD, ref, repo: { full_name: FULL } }, base: { repo: { full_name: FULL } }, user: { login: prAuthor }, commits: commits.length });
+      return JSON.stringify({ body, head: { sha: HEAD, ref, repo: { full_name: FULL } }, base: { repo: { full_name: FULL } }, user: { login: prAuthor }, commits: commits.length, changed_files: files.length });
     }
     if (joined.includes('check_name=tier-check')) return JSON.stringify({ check_runs: [] });
     if (args[0] === 'pr' && args[1] === 'comment') { if (commentFails) throw new Error('gh: HTTP 403'); return ''; }
@@ -489,4 +491,40 @@ test('t/739 attributionComment: null without --by, one line with it', () => {
   assert.equal(attributionComment({ by: null, headSha: HEAD, state: 'queued' }), null);
   assert.equal(postAttributionComment('o/r', 1, { by: null, headSha: HEAD, state: 'queued' }, () => { throw new Error('must not be called'); }), false);
   assert.ok(!attributionComment({ by: 'abc', headSha: HEAD, state: 'queued', at: 'T' }).includes('\n'));
+});
+
+// ── t/776: the exemption also needs every changed path to be a manifest or lockfile ──
+
+test('t/776 exemption: a forged-author verified commit that touches source is not exempt', () => {
+  const r = dependabotExemption(depFacts([botCommit()], { files: [{ filename: 'package.json' }, { filename: 'taxonomy-editor/src/server/authGates.ts' }], filesTotal: 2 }));
+  assert.equal(r.exempt, false);
+  assert.match(r.reason, /authGates.ts.*not a package manifest or lockfile/);
+});
+
+test('t/776 exemption: a manifest-and-lockfile-only PR still passes (npm and pip)', () => {
+  assert.equal(dependabotExemption(depFacts([botCommit()])).exempt, true);
+  const pip = { files: [{ filename: 'scripts/requirements.txt' }, { filename: 'scripts/requirements-dev.txt' }], filesTotal: 2 };
+  assert.equal(dependabotExemption(depFacts([botCommit()], pip)).exempt, true);
+});
+
+test('t/776 exemption: a Dockerfile, a workflow, a rename out of a manifest, or a traversal path is not exempt', () => {
+  for (const files of [
+    [{ filename: 'taxonomy-editor/Dockerfile' }],
+    [{ filename: '.github/workflows/ci.yml' }],
+    [{ filename: 'package.json', previous_filename: 'lib/evil.mjs' }],
+    [{ filename: '../package.json' }],
+    [{ filename: '/package.json' }],
+    [{ filename: 'package.json.bak' }],
+  ]) {
+    assert.equal(dependabotExemption(depFacts([botCommit()], { files, filesTotal: files.length })).exempt, false, JSON.stringify(files));
+  }
+});
+
+test('t/776 exemption: an unreadable, empty or cut-short file list fails closed', () => {
+  assert.equal(dependabotExemption(depFacts([botCommit()], { files: undefined })).exempt, false);
+  assert.equal(dependabotExemption(depFacts([botCommit()], { files: [] , filesTotal: 0 })).exempt, false);
+  assert.equal(dependabotExemption(depFacts([botCommit()], { filesTotal: 3 })).exempt, false);
+  assert.equal(dependabotExemption(depFacts([botCommit()], { filesTotal: undefined })).exempt, false);
+  const many = Array.from({ length: 3000 }, (_, i) => ({ filename: `p${i}/package.json` }));
+  assert.equal(dependabotExemption(depFacts([botCommit()], { files: many, filesTotal: 3000 })).exempt, false);
 });
