@@ -336,30 +336,59 @@ describe('toolbar', () => {
     expect(screen.getByText('Why')).toBeInTheDocument();
     expect(screen.getByText('How')).toBeInTheDocument();
     expect(screen.queryByText('Analysis')).not.toBeInTheDocument();
-    expect(screen.getByText('Brief')).toBeInTheDocument();
-    expect(screen.getByText('Medium')).toBeInTheDocument();
-    expect(screen.getByText('Detailed')).toBeInTheDocument();
+    // t/701 §2: two lengths, not three.
+    expect(screen.getByRole('button', { name: 'Brief' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Full' })).toBeInTheDocument();
+    expect(screen.queryByText('Medium')).not.toBeInTheDocument();
+    expect(screen.queryByText('Detailed')).not.toBeInTheDocument();
   });
 
-  it('renders 3 mode segments + a value dropdown with the text-tier options (t/2274 §13, t/4625)', () => {
+  it('on Text: 3 mode segments + a Brief | Full toggle in place of the length dropdown (t/701 §2)', () => {
     const { container } = render(<DebateWorkspace />);
-    // Mode toggle = 3 neutral segments; value selector is now a <select>, not pills.
-    expect(container.querySelectorAll('.debate-mode-seg').length).toBe(3);
-    const select = container.querySelector('select.debate-value-dropdown') as HTMLSelectElement;
-    expect(select).toBeTruthy();
-    const opts = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
-    expect(opts).toEqual(['Brief', 'Medium', 'Detailed']);
+    expect(screen.getAllByRole('radio').map((r) => r.textContent)).toEqual(['Text', 'Why', 'How']);
+    const group = screen.getByRole('group', { name: 'Statement length' });
+    expect(Array.from(group.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Brief', 'Full']);
+    expect(container.querySelector('select.debate-value-dropdown')).toBeNull();
   });
 
-  it('marks Text mode active and reflects the current value in the dropdown (t/2274 §13)', () => {
-    mockStore.responseLength = 'brief';
-    const { container } = render(<DebateWorkspace />);
-    // Only the mode toggle carries an active segment now (no accent-filled value pill).
-    const activeSegs = container.querySelectorAll('.debate-mode-seg-active');
-    expect(activeSegs.length).toBe(1);
-    expect(activeSegs[0].textContent).toBe('Text');
-    const select = container.querySelector('select.debate-value-dropdown') as HTMLSelectElement;
-    expect(select.value).toBe('brief');
+  it('t/701 §2: a stored medium shows as Brief, a stored detailed as Full', () => {
+    mockStore.defaultDisplayTier = 'medium';
+    const first = render(<DebateWorkspace />);
+    expect(screen.getByRole('radio', { name: 'Text' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('button', { name: 'Brief' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Full' })).toHaveAttribute('aria-pressed', 'false');
+    first.unmount();
+    mockStore.defaultDisplayTier = 'detailed';
+    render(<DebateWorkspace />);
+    expect(screen.getByRole('button', { name: 'Full' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Brief' })).toHaveAttribute('aria-pressed', 'false');
+    mockStore.defaultDisplayTier = undefined;
+  });
+
+  it('t/701 §2: Full sets detailed; Brief reaches the store even when Brief is already on, so per-card overrides are cleared', () => {
+    mockStore.defaultDisplayTier = 'brief';
+    render(<DebateWorkspace />);
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }));
+    expect(mockStore.setDefaultDisplayTier).toHaveBeenLastCalledWith('detailed');
+    fireEvent.click(screen.getByRole('button', { name: 'Brief' }));
+    expect(mockStore.setDefaultDisplayTier).toHaveBeenLastCalledWith('brief');
+    expect(mockStore.setDefaultDisplayTier).toHaveBeenCalledTimes(2);
+    mockStore.defaultDisplayTier = undefined;
+  });
+
+  it('t/701 §8: the toolbar offers Expand all turns only when a debate has more than 3 turns', () => {
+    const turn = (i: number) => ({ id: `e${i}`, type: 'statement', speaker: 'accelerationist', content: `Turn ${i}.`, taxonomy_refs: [], timestamp: '2026-01-01T00:00:00Z' });
+    mockStore.activeDebate = makeDebate({ id: 'collapse-toolbar', transcript: [1, 2, 3].map(turn) });
+    const first = render(<DebateWorkspace />);
+    expect(screen.queryByRole('button', { name: 'Expand all turns' })).toBeNull();
+    first.unmount();
+    mockStore.activeDebate = makeDebate({ id: 'collapse-toolbar', transcript: [1, 2, 3, 4, 5].map(turn) });
+    // The cards are mocked in this file; which turns collapse is covered in StatementCard.collapse.test.tsx.
+    render(<DebateWorkspace />);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all turns' }));
+    expect(screen.queryByRole('button', { name: 'Expand all turns' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse earlier turns' }));
+    expect(screen.getByRole('button', { name: 'Expand all turns' })).toBeInTheDocument();
   });
 
   // t/4625: global Why mode.

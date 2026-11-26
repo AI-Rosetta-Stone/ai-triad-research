@@ -1,11 +1,11 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/2241 — per-turn collapse toggle, gated on DEBATE_CHAT_REDESIGN. The tier
-// system re-summarizes content but never hides it, so skimming past turns
-// already read required scrolling the full body. These tests pin both arms of
-// the flag: off = the card renders exactly as before (no chevron), on = a
-// keyboard-reachable chevron collapses the card to its identity row.
+// t/701 §8 (docs/ux/debate-statement-density.md): older turns collapse to their claim. In a
+// debate with more than 3 turns, every turn except the 2 most recent starts collapsed to one
+// row: caret, speaker, kind, claim. A hand-made choice wins, and nothing is saved with the
+// debate. This replaces the flag-gated `collapsed · N words` chevron of t/2241: the caret is
+// no longer behind DEBATE_CHAT_REDESIGN.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -23,7 +23,7 @@ vi.mock('@lib/flight-recorder/index', () => ({
 }));
 
 const debateState = {
-  activeDebate: { transcript: [], speaker_models: {} },
+  activeDebate: { id: 'd1', transcript: [] as TranscriptEntry[], speaker_models: {} },
   responseLength: 'detailed',
   setEntryDisplayTier: vi.fn(),
   askQuestion: vi.fn(),
@@ -81,6 +81,8 @@ vi.mock('../../utils/lineageMatcher', () => ({ lineageMarkdownComponents: {}, ex
 vi.mock('../../utils/vocabularyAnnotations', () => ({ getDebateMarkdownComponents: () => ({}) }));
 
 import { StatementCard } from './StatementCard';
+import { resetTurnCollapse, expandAllTurns, collapseEarlierTurns, turnIdsOf } from './turnCollapse';
+import { act } from '@testing-library/react';
 import type { TranscriptEntry } from '@lib/debate/types';
 
 // ── Fixtures ─────────────────────────────────────────────────
@@ -101,97 +103,147 @@ function makeEntry(over: Partial<TranscriptEntry> = {}): TranscriptEntry {
 beforeEach(() => {
   vi.clearAllMocks();
   delete mockFlags.DEBATE_CHAT_REDESIGN;
+  resetTurnCollapse();
+  debateState.activeDebate = { id: 'd1', transcript: [], speaker_models: {} };
   // jsdom lacks matchMedia; StatementCard's tier-change effect reads it.
   if (!window.matchMedia) {
     window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }) as unknown as typeof window.matchMedia;
   }
 });
 
-// ── Flag off ─────────────────────────────────────────────────
+/** A debate of n statement turns, e1..en, each with its own text. */
+function setTranscript(n: number, over: (i: number) => Partial<TranscriptEntry> = () => ({})): TranscriptEntry[] {
+  const transcript = Array.from({ length: n }, (_, k) => makeEntry({ id: `e${k + 1}`, content: `Turn ${k + 1} claim. More detail follows here.`, ...over(k + 1) }));
+  debateState.activeDebate = { id: 'd1', transcript, speaker_models: {} };
+  return transcript;
+}
+function renderAll(transcript: TranscriptEntry[], props: Record<string, unknown> = {}) {
+  return render(<>{transcript.map(e => <StatementCard key={e.id} entry={e} {...props} />)}</>);
+}
+const collapsedIds = (container: HTMLElement) =>
+  Array.from(container.querySelectorAll('.debate-statement-collapsed')).map(el => el.getAttribute('data-entry-id'));
 
-describe('StatementCard collapse — flag off', () => {
-  it('renders no collapse control and leaves the body visible', () => {
-    const { container } = render(<StatementCard entry={makeEntry()} />);
+describe('StatementCard collapse: which turns start collapsed (t/701 §8)', () => {
+  it('3 turns or fewer: every turn is open, each with a caret', () => {
+    const { container } = renderAll(setTranscript(3));
+    expect(collapsedIds(container)).toEqual([]);
+    expect(screen.getAllByRole('button', { name: /collapse this turn/i })).toHaveLength(3);
+  });
 
-    expect(screen.queryByRole('button', { name: /collapse this turn/i })).toBeNull();
-    expect(container.querySelector('.debate-statement-body')).toBeTruthy();
-    expect(container.querySelector('.debate-statement-collapsed')).toBeNull();
+  it('more than 3 turns: all but the 2 newest start collapsed', () => {
+    const { container } = renderAll(setTranscript(5));
+    expect(collapsedIds(container)).toEqual(['e1', 'e2', 'e3']);
+    expect(container.querySelectorAll('.debate-statement-body')).toHaveLength(2);
+  });
+
+  it('is not behind DEBATE_CHAT_REDESIGN: the same with the flag on', () => {
+    mockFlags.DEBATE_CHAT_REDESIGN = true;
+    const { container } = renderAll(setTranscript(5));
+    expect(collapsedIds(container)).toEqual(['e1', 'e2', 'e3']);
+  });
+
+  it('probing and fact-check cards are not turns and do not count', () => {
+    const transcript = setTranscript(3);
+    transcript.push(makeEntry({ id: 'p1', type: 'probing' }), makeEntry({ id: 'f1', type: 'fact-check' }));
+    expect(turnIdsOf(transcript)).toEqual(['e1', 'e2', 'e3']);
+    const { container } = renderAll(transcript.slice(0, 3));
+    expect(collapsedIds(container)).toEqual([]);
+  });
+
+  it('when a new turn arrives, the third most recent collapses, unless the user opened it by hand', async () => {
+    const user = userEvent.setup();
+    const first = renderAll(setTranscript(4));
+    expect(collapsedIds(first.container)).toEqual(['e1', 'e2']);
+    // The user opens e2 by hand; e3 is open only because it is one of the 2 newest.
+    await user.click(screen.getAllByRole('button', { name: /expand this turn/i })[1]);
+    expect(collapsedIds(first.container)).toEqual(['e1']);
+    first.unmount();
+    const { container } = renderAll(setTranscript(5));
+    expect(collapsedIds(container)).toEqual(['e1', 'e3']);
   });
 });
 
-// ── Flag on ──────────────────────────────────────────────────
-
-describe('StatementCard collapse — flag on (t/2241)', () => {
-  beforeEach(() => { mockFlags.DEBATE_CHAT_REDESIGN = true; });
-
-  it('renders an expanded card with a collapse control by default', () => {
-    const { container } = render(<StatementCard entry={makeEntry()} />);
-
-    const btn = screen.getByRole('button', { name: /collapse this turn/i });
-    expect(btn).toHaveAttribute('aria-expanded', 'true');
-    expect(container.querySelector('.debate-statement-body')).toBeTruthy();
+describe('StatementCard collapse: the collapsed row (t/701 §8)', () => {
+  it('shows speaker, kind and the claim, and no body', () => {
+    const transcript = setTranscript(4, (i) => (i === 1 ? { type: 'opening', summaries: { brief: 'Old brief first sentence. Second sentence.', medium: 'm' } } : {}));
+    const { container } = renderAll(transcript);
+    const row = container.querySelector('[data-entry-id="e1"]') as HTMLElement;
+    expect(row.querySelector('.debate-statement-speaker')?.textContent).toBe('Accelerationist');
+    expect(row.querySelector('.debate-statement-kind')?.textContent).toBe('· Opening statement');
+    // An old debate has no brief_claim: the claim is the first sentence of the brief string.
+    expect(row.querySelector('.debate-statement-collapsed-claim')?.textContent).toBe('Old brief first sentence.');
+    expect(row.querySelector('.debate-statement-body')).toBeNull();
+    expect(row.querySelector('.debate-tier-pills')).toBeNull();
   });
 
-  it('collapses to the identity row on click, hiding the body', async () => {
-    const user = userEvent.setup();
-    const { container } = render(<StatementCard entry={makeEntry()} />);
-
-    await user.click(screen.getByRole('button', { name: /collapse this turn/i }));
-
-    expect(container.querySelector('.debate-statement-body')).toBeNull();
-    expect(container.querySelector('.debate-statement-collapsed')).toBeTruthy();
-    // Speaker identity survives so a collapsed card is still scannable.
-    expect(container.querySelector('.debate-statement-speaker')?.textContent).toBe('Accelerationist');
+  it('uses brief_claim when the entry has one', () => {
+    const transcript = setTranscript(4, (i) => (i === 1 ? { summaries: { brief: 'b', medium: 'm', brief_claim: 'The structured claim.', brief_points: ['p1', 'p2'] } as TranscriptEntry['summaries'] } : {}));
+    const { container } = renderAll(transcript);
+    expect(container.querySelector('[data-entry-id="e1"] .debate-statement-collapsed-claim')?.textContent).toBe('The structured claim.');
   });
 
-  it('shows a word count while collapsed so long turns stay distinguishable', async () => {
-    const user = userEvent.setup();
-    render(<StatementCard entry={makeEntry()} />);
-
-    await user.click(screen.getByRole('button', { name: /collapse this turn/i }));
-
-    expect(screen.getByText('collapsed · 5 words')).toBeInTheDocument();
+  it('an unsummarized turn falls back to the first sentence of the statement', () => {
+    const { container } = renderAll(setTranscript(4));
+    expect(container.querySelector('[data-entry-id="e1"] .debate-statement-collapsed-claim')?.textContent).toBe('Turn 1 claim.');
   });
 
-  it('expands again on a second activation', async () => {
+  it('the caret says the row is collapsed (aria-expanded) and opens it on click', async () => {
     const user = userEvent.setup();
-    const { container } = render(<StatementCard entry={makeEntry()} />);
-
-    await user.click(screen.getByRole('button', { name: /collapse this turn/i }));
-    await user.click(screen.getByRole('button', { name: /expand this turn/i }));
-
-    expect(container.querySelector('.debate-statement-body')).toBeTruthy();
-    expect(container.querySelector('.debate-statement-collapsed')).toBeNull();
+    const { container } = renderAll(setTranscript(4));
+    const caret = screen.getAllByRole('button', { name: /expand this turn/i })[0];
+    expect(caret).toHaveAttribute('aria-expanded', 'false');
+    await user.click(caret);
+    expect(collapsedIds(container)).toEqual(['e2']);
+    expect(screen.getAllByRole('button', { name: /collapse this turn/i })[0]).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('toggles from the keyboard (AC: Enter/Space on the chevron)', async () => {
+  it('a click anywhere on the collapsed row opens it', async () => {
     const user = userEvent.setup();
-    const { container } = render(<StatementCard entry={makeEntry()} />);
+    const { container } = renderAll(setTranscript(4));
+    await user.click(container.querySelector('[data-entry-id="e1"] .debate-statement-collapsed-claim') as HTMLElement);
+    expect(collapsedIds(container)).toEqual(['e2']);
+  });
 
+  it('toggles from the keyboard: Enter and Space on the caret', async () => {
+    const user = userEvent.setup();
+    const { container } = renderAll(setTranscript(4));
     await user.tab();
-    expect(screen.getByRole('button', { name: /collapse this turn/i })).toHaveFocus();
-
+    expect(screen.getAllByRole('button', { name: /expand this turn/i })[0]).toHaveFocus();
     await user.keyboard('{Enter}');
-    expect(container.querySelector('.debate-statement-body')).toBeNull();
-
+    expect(collapsedIds(container)).toEqual(['e2']);
     await user.keyboard(' ');
-    expect(container.querySelector('.debate-statement-body')).toBeTruthy();
+    expect(collapsedIds(container)).toEqual(['e1', 'e2']);
   });
 
-  it('keeps collapse independent per card', async () => {
+  it('an open turn can be collapsed by hand, also one of the 2 newest', async () => {
     const user = userEvent.setup();
-    const { container } = render(
-      <>
-        <StatementCard entry={makeEntry({ id: 'e1' })} />
-        <StatementCard entry={makeEntry({ id: 'e2', speaker: 'skeptic' })} />
-      </>,
-    );
+    const { container } = renderAll(setTranscript(2));
+    await user.click(screen.getAllByRole('button', { name: /collapse this turn/i })[1]);
+    expect(collapsedIds(container)).toEqual(['e2']);
+  });
 
-    const [first] = screen.getAllByRole('button', { name: /collapse this turn/i });
-    await user.click(first);
+  it('a turn holding a find-in-debate match is shown open', () => {
+    const { container } = renderAll(setTranscript(4), { findQuery: 'Turn 1' });
+    expect(collapsedIds(container)).toEqual(['e2']);
+  });
+});
 
-    const cards = container.querySelectorAll('.debate-statement');
-    expect(cards[0].classList.contains('debate-statement-collapsed')).toBe(true);
-    expect(cards[1].classList.contains('debate-statement-collapsed')).toBe(false);
+describe('Expand all turns / Collapse earlier turns (t/701 §8)', () => {
+  it('expand all opens every turn; collapse earlier restores the rule', () => {
+    const transcript = setTranscript(5);
+    const { container } = renderAll(transcript);
+    act(() => expandAllTurns('d1', turnIdsOf(transcript)));
+    expect(collapsedIds(container)).toEqual([]);
+    act(() => collapseEarlierTurns('d1'));
+    expect(collapsedIds(container)).toEqual(['e1', 'e2', 'e3']);
+  });
+
+  it('the state belongs to one debate and is not written to the entries', () => {
+    const transcript = setTranscript(5);
+    act(() => expandAllTurns('other-debate', turnIdsOf(transcript)));
+    const { container } = renderAll(transcript);
+    expect(collapsedIds(container)).toEqual(['e1', 'e2', 'e3']);
+    expect(debateState.setEntryDisplayTier).not.toHaveBeenCalled();
+    expect(Object.keys(transcript[0])).not.toContain('collapsed');
   });
 });

@@ -9,6 +9,9 @@ Reference inventory for the DebateWorkspace scope. Behavioral norms live in `AGE
 | `DebateWorkspace.tsx` | Root component — phase routing, toolbar, transcript, find, auto-save/compress |
 | `DebateActionBar.tsx` | Action bar (input, cross-respond, synthesis), token budget indicator, phase progress |
 | `StatementCard.tsx` | Transcript entry cards (statements, probing questions, fact checks) |
+| `StatementBrief.tsx` / `.css` | Statement density pieces (t/701): structured Brief, read-more link, header turn symbols, collapsed-turn claim |
+| `GlobalModeControl.tsx` | Toolbar display control: Text \| Why \| How, Brief \| Full, Expand all turns |
+| `turnCollapse.ts` | Session-only collapse state for older turns (t/701 §8) |
 | `ClarificationPanel.tsx` | Topic refinement UI — clarification questions, refined topic editor, score comparison |
 | `OpeningPanel.tsx` | Opening statement controls — depth selection, error/retry bar |
 | `ClaimsView.tsx` | Claims display and interaction during debates |

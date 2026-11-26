@@ -3,39 +3,42 @@
 
 // Extracted from StatementCard.tsx (ADR-007 line-slice, t/4625 — added here to keep
 // StatementCard.tsx under the file's max-lines budget). The per-statement view-mode
-// toggle: Text | Why | How ('analysis' tier id unchanged — How is a label-only rename).
+// toggle: Statement | Why · N sources | How ('analysis' tier id unchanged — How is a label-only
+// rename). t/701 §4 made the labels say what is behind them; §2 removed the per-card length
+// dropdown (each card has a Read full statement link instead), so only How keeps a dropdown.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptEntry } from '../../types/debate';
 import type { useDebateStore } from '../../hooks/useDebateStore';
 import { TIER_LABELS, modeOfTier, type DisplayMode } from './utils';
+import './StatementBrief.css';
 
 export type SetEntryDisplayTier = ReturnType<typeof useDebateStore.getState>['setEntryDisplayTier'];
 
-type TextTier = 'brief' | 'medium' | 'detailed';
+type TextTier = 'brief' | 'detailed';
 type AnalysisTier = 'reasoning' | 'lineage' | 'claims';
 type WhyTier = 'why' | 'terms';
-const TEXT_TIERS: TextTier[] = ['brief', 'medium', 'detailed'];
 // t/4625: Text | Why | How; `analysis` id unchanged (label-only rename).
-const MODE_IDS = [{ id: 'text', label: 'Text' }, { id: 'why', label: 'Why' }, { id: 'analysis', label: 'How' }] as const;
+const MODE_IDS = [{ id: 'text', label: 'Statement' }, { id: 'why', label: 'Why' }, { id: 'analysis', label: 'How' }] as const;
 
 export const TIER_TITLES: Record<string, string> = {
-  brief: '2-3 sentences', medium: '1-2 paragraphs', detailed: 'Full response',
   reasoning: 'Brief, plan & BDI (replaces text)', claims: 'Argument network claims',
   terms: 'Vocabulary disambiguation', lineage: 'Intellectual lineage references',
   why: "This statement's BDI grounding",
 };
 
-export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, hasLineageRefs }: {
+export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, hasLineageRefs, whySourceCount = 0 }: {
   entry: TranscriptEntry;
   activeTier: string;
   setEntryDisplayTier: SetEntryDisplayTier;
   hasLineageRefs: boolean;
+  /** How many BDI grounding refs the Why tab lists; 0 shows a bare `Why`. */
+  whySourceCount?: number;
 }) {
   const activeMode = modeOfTier(activeTier);
 
   const [lastText, setLastText] = useState<TextTier>(
-    activeMode === 'text' ? (activeTier as TextTier) : 'detailed'
+    activeMode === 'text' ? (activeTier as TextTier) : 'brief'
   );
   const [lastAnalysis, setLastAnalysis] = useState<AnalysisTier>(
     activeMode === 'analysis' ? (activeTier as AnalysisTier) : 'reasoning'
@@ -52,7 +55,6 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, has
     () => (['reasoning', 'lineage', 'claims'] as AnalysisTier[]).filter(t => t !== 'lineage' || hasLineageRefs),
     [hasLineageRefs],
   );
-  const subTiers: readonly string[] = activeMode === 'text' ? TEXT_TIERS : analysisOptions;
   const isOverridden = entry.display_tier != null;
 
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -65,9 +67,8 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, has
   }, [activeMode, lastText, lastAnalysis, entry.id, setEntryDisplayTier]);
 
   const handleSubSelect = useCallback((tier: string) => {
-    setEntryDisplayTier(entry.id, tier as TextTier | AnalysisTier | WhyTier);
-    if (activeMode === 'text') setLastText(tier as TextTier);
-    else if (activeMode === 'analysis') setLastAnalysis(tier as AnalysisTier);
+    setEntryDisplayTier(entry.id, tier as AnalysisTier | WhyTier);
+    if (activeMode === 'analysis') setLastAnalysis(tier as AnalysisTier);
   }, [activeMode, entry.id, setEntryDisplayTier]);
 
   const handleModeKey = useCallback((e: { key: string; preventDefault(): void }, idx: number) => {
@@ -98,17 +99,21 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, has
             onKeyDown={(e) => handleModeKey(e, i)}
           >
             {label}
+            {id === 'why' && whySourceCount > 0 && (
+              <span className="debate-mode-seg-count"> · {whySourceCount} {whySourceCount === 1 ? 'source' : 'sources'}</span>
+            )}
           </button>
         ))}
       </span>
       {/* Value selector — native <select> styled as a dropdown button (t/2274 §13).
-          Override → dot on the button + "Match global default" item. Why has none: its
-          BDI | Vocabulary choice lives in the panel's own tabs (t/4904#2). */}
-      {activeMode !== 'why' && (
+          Override → dot on the button + "Match global default" item. How only: Why's
+          BDI | Vocabulary choice lives in the panel's own tabs (t/4904#2), and Statement's
+          length is the card's Read full statement link (t/701 §2, §3). */}
+      {activeMode === 'analysis' && (
       <span className="debate-value-dropdown-wrap">
         <select
           className="debate-detail-dropdown debate-value-dropdown"
-          aria-label={activeMode === 'text' ? 'Text detail level' : 'How view'}
+          aria-label="How view"
           value={activeTier}
           title={TIER_TITLES[activeTier]}
           onClick={(e) => e.stopPropagation()}
@@ -119,7 +124,7 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, has
             else handleSubSelect(v);
           }}
         >
-          {subTiers.map(tier => (
+          {analysisOptions.map(tier => (
             <option key={tier} value={tier}>{TIER_LABELS[tier]}</option>
           ))}
           {isOverridden && <option value="__match_global__">Match global default</option>}

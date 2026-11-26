@@ -105,9 +105,10 @@ beforeEach(() => {
 });
 
 describe('StatementCard view-mode toggle — Text | Why | How (t/4625)', () => {
-  it('shows Text, Why and How — never Analysis', () => {
+  it('shows Statement, Why and How — never Text or Analysis (t/701 §4)', () => {
     render(<StatementCard entry={makeEntry()} />);
-    expect(screen.getByRole('radio', { name: 'Text' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Statement' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Text' })).not.toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Why' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'How' })).toBeInTheDocument();
     expect(screen.queryByText('Analysis')).not.toBeInTheDocument();
@@ -143,9 +144,9 @@ describe('StatementCard view-mode toggle — Text | Why | How (t/4625)', () => {
     expect(screen.getByRole('radio', { name: 'Why' })).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('an entry with no display_tier override and no global default falls back to Text (AC4)', () => {
+  it('an entry with no display_tier override and no global default falls back to Statement (AC4)', () => {
     render(<StatementCard entry={makeEntry({ display_tier: undefined })} />);
-    expect(screen.getByRole('radio', { name: 'Text' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'Statement' })).toHaveAttribute('aria-checked', 'true');
   });
 });
 
@@ -200,9 +201,9 @@ describe('Why panel: BDI | Vocabulary tabs', () => {
     expect(screen.getByRole('tab', { name: 'Vocabulary' })).toBeInTheDocument();
   });
 
-  it('Text and How keep their value dropdowns', () => {
+  it('How keeps its value dropdown; Statement has no length dropdown (t/701 §2)', () => {
     const { unmount } = render(<StatementCard entry={makeEntry({ display_tier: 'detailed' })} />);
-    expect(screen.getByRole('combobox', { name: 'Text detail level' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     unmount();
     render(<StatementCard entry={makeEntry({ display_tier: 'reasoning' })} />);
     expect(screen.getByRole('combobox', { name: 'How view' })).toBeInTheDocument();
