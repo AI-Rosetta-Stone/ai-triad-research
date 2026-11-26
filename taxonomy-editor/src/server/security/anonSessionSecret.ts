@@ -14,6 +14,15 @@
  *   (mode 0600), created on first use with a WARN. Single-user, so a local secret only has to be stable.
  *
  * The secret value is never logged, returned or put in an error.
+ *
+ * Rotation (a new `anon-session-hmac` version in the environment's vault, read at the next boot) has two effects;
+ * state both when a rotation is called:
+ * 1. Every anonymous session cookie signed with the old secret stops verifying, so those visitors start a new
+ *    anonymous session and no longer reach their previous anon-<uuid> store.
+ * 2. Community display pseudonyms change (t/693): the pseudonym key is a one-way subkey of this secret
+ *    (deriveCommunityPseudonymKey). Items already published keep their stored pseudonym; items published after
+ *    the rotation get a new one, so one contributor can appear under two names. Pseudonyms stable across a
+ *    rotation would need a dedicated secret, which is a PI credential decision.
  */
 
 import fs from 'fs';
