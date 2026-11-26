@@ -1,0 +1,40 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 889 >>
+stream
+BT /F1 11 Tf 56 760 Td (Fixture document for the AI Triad op-ed source check.) Tj ET
+BT /F1 11 Tf 56 738 Td (This text was written for a test and is not a real source document.) Tj ET
+BT /F1 11 Tf 56 716 Td (Compute thresholds are one way a regulator could decide which frontier models need extra review.) Tj ET
+BT /F1 11 Tf 56 694 Td (Supporters say a threshold is simple to measure and hard to game in the short run.) Tj ET
+BT /F1 11 Tf 56 672 Td (Critics say capability does not track compute closely, and that a fixed number ages quickly.) Tj ET
+BT /F1 11 Tf 56 650 Td (A middle position pairs a compute trigger with evaluations of what the model can actually do.) Tj ET
+BT /F1 11 Tf 56 628 Td (Whatever the rule, the review should be public, time-limited and open to appeal.) Tj ET
+BT /F1 11 Tf 56 606 Td (This paragraph exists only to give the extractor enough words to count.) Tj ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000317 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1257
+%%EOF
