@@ -27,6 +27,7 @@ import { computeExtractionCoverage } from './calibrationLogger.js';
 import { runNeutralEvaluation, buildSpeakerMapping, resolveEvaluatorModel } from './neutralEvaluator.js';
 import { buildMediumTierSummary, buildDistantTierSummary } from './tieredCompression.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { prepareSynthesisLists } from './synthesisOrder.js';
 import { computeNodeEngagement, type EngagementTranscriptEntry } from './reflectionScope.js';
 import { POV_PREFIXES } from './nodeIdUtils.js';
 
@@ -78,7 +79,8 @@ export class SynthesisPipeline {
       this.ctx.config.usageDeps,
     );
 
-    const concludingData = result.data;
+    // t/769: lists in relevance order before anything is built from them (the card shows the top 3).
+    const concludingData = prepareSynthesisLists(result.data, this.ctx.session.id);
     const elapsed = result.elapsed_ms;
 
     // Format readable content

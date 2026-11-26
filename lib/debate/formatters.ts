@@ -8,6 +8,7 @@
 
 import type { DebateSession, SpeakerId, TranscriptEntry } from './types.js';
 import { POVER_INFO, normalizeVerdict } from './types.js';
+import { orderSynthesisLists } from './synthesisOrder.js';
 import {
   extractConflictCandidates,
   extractSteelmanCandidates,
@@ -155,7 +156,9 @@ export function formatDebateMarkdown(session: DebateSession): string {
     lines.push('');
 
     // Use the structured synthesis data if available for proper markdown formatting
-    const synthData = (synthesis.metadata as Record<string, unknown>)?.synthesis as Record<string, unknown> | undefined;
+    const rawSynth = (synthesis.metadata as Record<string, unknown>)?.synthesis as Record<string, unknown> | undefined;
+    // t/769: the same relevance order the synthesis card shows.
+    const synthData = orderSynthesisLists(rawSynth);
     if (synthData) {
       // Areas of Agreement
       const agreements = synthData.areas_of_agreement as { point: string; povers: string[] }[] | undefined;

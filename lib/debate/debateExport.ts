@@ -6,6 +6,8 @@
  * Used by both Electron (main process) and web (browser) builds.
  */
 
+import { orderSynthesisLists } from './synthesisOrder.js';
+
 // ── Minimal types (avoids importing full renderer types) ──
 
 interface TaxonomyRef {
@@ -136,6 +138,8 @@ export function debateToText(session: ExportableDebateSession, options?: DebateE
   }
 
   if (session.synthesis) {
+    // t/769: the same relevance order the synthesis card shows.
+    const synth = orderSynthesisLists(session.synthesis as unknown as Record<string, unknown>) as unknown as typeof session.synthesis;
     lines.push('');
     lines.push(thinSep);
     lines.push('  SYNTHESIS');
@@ -146,18 +150,18 @@ export function debateToText(session: ExportableDebateSession, options?: DebateE
       lines.push(session.synthesis.summary);
     }
 
-    if (session.synthesis.areas_of_agreement && session.synthesis.areas_of_agreement.length > 0) {
+    if (synth.areas_of_agreement && synth.areas_of_agreement.length > 0) {
       lines.push('');
       lines.push('Areas of Agreement:');
-      for (const item of session.synthesis.areas_of_agreement) {
+      for (const item of synth.areas_of_agreement) {
         lines.push(`  - ${typeof item === 'string' ? item : JSON.stringify(item)}`);
       }
     }
 
-    if (session.synthesis.areas_of_disagreement && session.synthesis.areas_of_disagreement.length > 0) {
+    if (synth.areas_of_disagreement && synth.areas_of_disagreement.length > 0) {
       lines.push('');
       lines.push('Areas of Disagreement:');
-      for (const item of session.synthesis.areas_of_disagreement) {
+      for (const item of synth.areas_of_disagreement) {
         lines.push(`  - ${typeof item === 'string' ? item : JSON.stringify(item)}`);
       }
     }
@@ -226,6 +230,8 @@ export function debateToMarkdown(session: ExportableDebateSession, options?: Deb
   }
 
   if (session.synthesis) {
+    // t/769: the same relevance order the synthesis card shows.
+    const synth = orderSynthesisLists(session.synthesis as unknown as Record<string, unknown>) as unknown as typeof session.synthesis;
     lines.push('');
     lines.push('---');
     lines.push('');
@@ -236,20 +242,20 @@ export function debateToMarkdown(session: ExportableDebateSession, options?: Deb
       lines.push(session.synthesis.summary);
     }
 
-    if (session.synthesis.areas_of_agreement && session.synthesis.areas_of_agreement.length > 0) {
+    if (synth.areas_of_agreement && synth.areas_of_agreement.length > 0) {
       lines.push('');
       lines.push('### Areas of Agreement');
       lines.push('');
-      for (const item of session.synthesis.areas_of_agreement) {
+      for (const item of synth.areas_of_agreement) {
         lines.push(`- ${typeof item === 'string' ? item : JSON.stringify(item)}`);
       }
     }
 
-    if (session.synthesis.areas_of_disagreement && session.synthesis.areas_of_disagreement.length > 0) {
+    if (synth.areas_of_disagreement && synth.areas_of_disagreement.length > 0) {
       lines.push('');
       lines.push('### Areas of Disagreement');
       lines.push('');
-      for (const item of session.synthesis.areas_of_disagreement) {
+      for (const item of synth.areas_of_disagreement) {
         lines.push(`- ${typeof item === 'string' ? item : JSON.stringify(item)}`);
       }
     }
