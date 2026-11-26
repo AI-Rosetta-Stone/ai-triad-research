@@ -60,96 +60,37 @@ jobs:
   ci-gate:
     runs-on: ubuntu-latest
     permissions:
-      actions: write   # required for gh workflow run (dispatch CI on docs-only tips)
+      actions: read    # reads CI runs and their jobs; no longer dispatches CI (t/754)
       contents: read
     steps:
+      # t/754: this gate is operations/devops/verify-deploy-ci.sh, the same script and rules as the
+      # deploy preflight (t/591), tested by test-verify-deploy-ci.sh with a shimmed gh. It replaced
+      # an inline script that reported ANY failure of `gh run watch` as "CI run failed": on
+      # 2026-11-26 a rate-limit 403 blocked a build whose CI was green (run 45732963219).
+      #   - CI is judged by test-container's result in a completed run from a trusted event, read
+      #     through the API; the watch's exit code decides nothing.
+      #   - A rate limit waits for the reset once (up to RL_MAX_WAIT_S), then says "cannot verify
+      #     CI ... re-run this job". It never says CI failed. Still fail closed: no verified green
+      #     CI, no build.
+      #   - A docs-only tip with no CI run is judged by its nearest ancestor that has one (every
+      #     file changed since must be one ci.yml ignores). This job no longer dispatches CI.
+      # The script comes from the DEFAULT BRANCH, never from the SHA being built, so the commit
+      # under test cannot change its own gate.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            operations/devops/verify-deploy-ci.sh
+
       - name: Verify container-relevant CI passed for this commit
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TARGET_SHA: ${{ inputs.sha || github.sha }}
-        run: |
-          echo "Checking CI status for ${TARGET_SHA}..."
-
-          # Normalize short SHA to full 40-char SHA (GitHub head_sha filter requires full SHA)
-          if [ ${#TARGET_SHA} -lt 40 ]; then
-            FULL_SHA=$(gh api "repos/${{ github.repository }}/commits/${TARGET_SHA}" --jq '.sha' 2>/dev/null || echo "")
-            if [ -z "$FULL_SHA" ]; then
-              echo "::error::Cannot resolve '${TARGET_SHA}' to a commit. Check the SHA and try again."
-              exit 1
-            fi
-            echo "Expanded short SHA ${TARGET_SHA} → ${FULL_SHA}"
-            TARGET_SHA="$FULL_SHA"
-          fi
-
-          # Get the latest CI run for this commit
-          RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${TARGET_SHA}&per_page=1" \
-            --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
-
-          if [ -z "$RUN_ID" ]; then
-            # No CI run found — likely a docs-only tip that paths-ignore skipped.
-            # Dispatch CI manually and wait for it rather than failing with an
-            # unhelpful "push to main" instruction that no longer applies.
-            echo "No CI run found for ${TARGET_SHA} (docs-only tip skipped by paths-ignore). Dispatching CI..."
-            gh workflow run ci.yml --repo "${{ github.repository }}" --ref main
-            # Allow ~20s for the dispatched run to register in GitHub's API
-            sleep 20
-            for i in $(seq 1 18); do
-              RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${TARGET_SHA}&per_page=1" \
-                --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
-              [ -n "$RUN_ID" ] && break
-              echo "  waiting for run to appear (${i}/18)..."; sleep 10
-            done
-            if [ -z "$RUN_ID" ]; then
-              echo "::error::CI run did not appear within ~3 min after dispatch. Trigger manually: gh workflow run ci.yml --ref main"
-              exit 1
-            fi
-            echo "CI run ${RUN_ID} started — waiting for completion..."
-            gh run watch "${RUN_ID}" --exit-status || {
-              echo "::error::CI run ${RUN_ID} failed. Container build blocked until CI passes."
-              exit 1
-            }
-          fi
-
-          # If the run is still in progress (found via fast path, not dispatched here),
-          # wait for it to complete before checking individual job conclusions.
-          RUN_STATUS=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}" \
-            --jq '.status' 2>/dev/null || echo "")
-          if [ "$RUN_STATUS" = "in_progress" ] || [ "$RUN_STATUS" = "queued" ]; then
-            echo "CI run ${RUN_ID} is still ${RUN_STATUS} — waiting for completion..."
-            gh run watch "${RUN_ID}" --exit-status || {
-              echo "::error::CI run ${RUN_ID} failed. Container build blocked until CI passes."
-              exit 1
-            }
-          fi
-
-          # Check only test-container — it needs: [test-powershell, test-electron]
-          # so if it passed, all upstream jobs passed too. Checking test-electron
-          # by name fails because the matrix creates per-app jobs (e.g. "test-electron (taxonomy-editor)").
-          # "skipped" is also acceptable: the dorny/paths-filter gate skips test-container
-          # when no container-relevant files changed, meaning the code being containerized
-          # has been validated by prior successful runs. test-powershell failures do not
-          # block container builds.
-          for JOB in test-container; do
-            # --paginate + per_page=100: the jobs API returns 30 per page by default and CI has
-            # more than 30 jobs (35 on 2026-10-06), so an unpaginated lookup could not see
-            # test-container and refused every build as "not found".
-            STATUS=$(gh api --paginate "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?per_page=100" \
-              --jq ".jobs[] | select(.name == \"${JOB}\") | .conclusion // .status" 2>/dev/null || echo "")
-            if [ "$STATUS" = "success" ] || [ "$STATUS" = "skipped" ]; then
-              echo "  ${JOB}: ${STATUS}"
-            elif [ -z "$STATUS" ]; then
-              echo "::error::Job '${JOB}' not found in CI run ${RUN_ID}."
-              exit 1
-            elif [ "$STATUS" = "in_progress" ] || [ "$STATUS" = "queued" ]; then
-              echo "::error::Job '${JOB}' is still ${STATUS} in CI run ${RUN_ID}. Wait for CI to complete."
-              exit 1
-            else
-              echo "::error::Job '${JOB}' status is '${STATUS}' in CI run ${RUN_ID}. Container-relevant CI must pass before building."
-              exit 1
-            fi
-          done
-          echo "Container-relevant CI passed for ${TARGET_SHA}"
+          DEPLOY_SHA: ${{ inputs.sha || github.sha }}   # read from env by the script, which checks it is hex
+          VERIFY_RERUN_WHAT: this job
+          RL_MAX_WAIT_S: '900'   # t/562: wait for the rate-limit reset once, up to 15 min
+        run: bash operations/devops/verify-deploy-ci.sh
 
   build-and-push:
     needs: [ci-gate]
