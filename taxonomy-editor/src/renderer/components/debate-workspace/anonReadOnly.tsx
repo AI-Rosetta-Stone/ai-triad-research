@@ -8,24 +8,12 @@
 
 import { SignInNotice } from '../shared/SignInNotice';
 import { useAuthStatus } from '../../hooks/useAuthStatus';
+import { isQuickTakeShaped, type QuickTakeSessionShape as SessionShape } from '../../bridge/anonLimit';
 
 export const ANON_READ_ONLY_NOTICE_ID = 'debate-anon-readonly-note';
 export const ANON_READ_ONLY_LINE = "This debate can't be continued without signing in. You can still read it and rename it.";
 
-interface SessionShape {
-  protocol_id?: string;
-  adaptive_staging?: { step_mode?: boolean; phase_bounds_override?: { maxConfrontationRounds?: number; maxArgumentationRounds?: number; maxConcludingRounds?: number } };
-}
-
-/** The server's Quick take shape (t/724#4 check A): protocol `structured`, each phase at most 1 round, no step mode. A missing
- *  protocol or round override is not a Quick take: the server refuses it rather than defaulting. */
-export function isQuickTakeShaped(session: SessionShape): boolean {
-  const staging = session.adaptive_staging;
-  const bounds = staging?.phase_bounds_override;
-  if (session.protocol_id !== 'structured' || staging?.step_mode === true || !bounds) return false;
-  return [bounds.maxConfrontationRounds, bounds.maxArgumentationRounds, bounds.maxConcludingRounds]
-    .every(n => typeof n === 'number' && n <= 1);
-}
+export { isQuickTakeShaped };
 
 /** True when an anonymous visitor may not continue this debate. Signed-in users and Quick takes never are. */
 export function isAnonReadOnly(isAnonymous: boolean, session: SessionShape): boolean {

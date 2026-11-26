@@ -17,6 +17,7 @@ import type {
 } from '../../../types/debate';
 import { POVER_INFO, AI_POVERS, POV_KEYS, normalizeActivePovers, migrateSpeakerId } from '../../../types/debate';
 import { api, setActiveDebateId, isElectronMode } from '@bridge';
+import { persistRename } from '../shared/renameSave';
 import { anonRefusalOf, anonRefusalLine, isRetryableFailureOf, RETRYABLE_FAILURE_LINE } from '../../../bridge/anonLimit';
 import { isCircuitOpenError, getCircuitCooldownMs } from '../../../bridge/resilience';
 import { buildDebateDelta } from './buildDebateDelta';
@@ -1064,9 +1065,7 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
       const raw = await api.loadDebateSession(id);
       const session = raw as DebateSession;
       session.active_povers = normalizeActivePovers(session.active_povers);
-      session.title = newTitle;
-      session.updated_at = nowISO();
-      await api.saveDebateSession(session, 'renameDebate');
+      await persistRename(session, newTitle);
       if (get().activeDebateId === id) {
         set({ activeDebate: session });
       }
