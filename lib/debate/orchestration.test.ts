@@ -852,5 +852,7 @@ describe('runModeratorSelection concluding COMMIT (t/784)', () => {
     expect(commitPrompt).toBeDefined();
     expect(commitPrompt).toContain('Do NOT reuse or paraphrase them');
     expect(commitPrompt).toContain(`- "${RECAP}"`);
+    // t/784 tweak: the target's own latest turn is passed in (the 4-entry window often lacks it).
+    expect(commitPrompt).toContain("=== ACCELERATIONIST'S MOST RECENT TURN ===\nTest statement content about AI governance.");
   });
 });

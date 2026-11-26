@@ -244,11 +244,13 @@ export function moderatorInterventionPrompt(
   resolutionClauses?: string[],
   /** t/784: opening sentences of COMMITs already given in this concluding phase, not to be repeated. */
   priorCommitOpenings?: string[],
+  /** t/784: the COMMIT target's own most recent turn, so the request presses a point that is theirs. */
+  targetRecentTurn?: string,
 ): string {
   const moveSpecificInstructions = getMoveSpecificInstructions(move, targetDebater, sourceClaim);
-  const avoidRepeat = move === 'COMMIT' && priorCommitOpenings && priorCommitOpenings.length > 0
-    ? `\nThe moderator already opened earlier final-position requests with these sentences. Do NOT reuse or paraphrase them:\n${priorCommitOpenings.map(o => `- "${o}"`).join('\n')}\n`
-    : '';
+  const { avoidRepeat, targetTurn } = move === 'COMMIT'
+    ? commitBlocks(targetDebater, priorCommitOpenings, targetRecentTurn)
+    : { avoidRepeat: '', targetTurn: '' };
 
   const sourceAnchor = sourceDocumentSummary
     ? `\n=== SOURCE DOCUMENT ANCHOR ===\n${sourceDocumentSummary}\n\nYour intervention must anchor the debate back to concepts in the source material. If a debater has drifted into implementation details or literalized a metaphor, reference specific source-document language in your intervention.\n`
@@ -272,7 +274,7 @@ ${sourceClaim ? `Original claim: "${sourceClaim}"` : ''}${sourceAnchor}${resolut
 
 === RECENT TRANSCRIPT ===
 ${recentTranscript}
-
+${targetTurn}
 === INSTRUCTIONS ===
 ${moveSpecificInstructions}${avoidRepeat}
 
@@ -287,6 +289,15 @@ Respond ONLY with a JSON object (no markdown, no code fences):
 {
   "text": "the intervention text"${resolution ? ',\n  "clause_in_scope": "1" | "2" | ... | "redirect" | "none"' : ''}${move === 'REVOICE' ? ',\n  "original_claim_text": "the verbatim original claim being revoiced"' : ''}
 }`;
+}
+
+/** t/784: the COMMIT-only prompt blocks: earlier openings not to reuse, and the target's own latest turn. */
+function commitBlocks(target: string, priorOpenings?: string[], targetRecentTurn?: string): { avoidRepeat: string; targetTurn: string } {
+  const avoidRepeat = priorOpenings?.length
+    ? `\nThe moderator already opened earlier final-position requests with these sentences. Do NOT reuse or paraphrase them, and do not reuse their wording:\n${priorOpenings.map(o => `- "${o}"`).join('\n')}\n`
+    : '';
+  const targetTurn = targetRecentTurn ? `\n=== ${target.toUpperCase()}'S MOST RECENT TURN ===\n${targetRecentTurn}\n` : '';
+  return { avoidRepeat, targetTurn };
 }
 
 function getMoveSpecificInstructions(move: InterventionMove, target: string, sourceClaim?: string): string {
@@ -321,7 +332,7 @@ function getMoveSpecificInstructions(move: InterventionMove, target: string, sou
       return `Ask ${target} for their single most important reason in one sentence (max 40 words).`;
     case 'COMMIT':
       // t/784 (Design rules): open with the target's name and the commitment asked, no recap, at most 2 sentences.
-      return `Ask ${target} for their final position. Your FIRST sentence must begin with "${target}," and state what you ask them to commit to: (1) what they conceded during the debate, (2) what conditions would change their remaining position, and (3) their sharpest remaining disagreement with each opponent. Write at most 2 sentences in total. Do NOT recap or summarise the debate (never open with "This debate has focused on..." or a list of who conceded what); the synthesis does that.`;
+      return `Ask ${target} for their final position by pressing ONE specific point that is recognisably theirs: the disagreement ${target} pressed hardest, or a concession ${target} made but has not reconciled with their position. Take it from ${target}'s own turns (their most recent turn is shown above) and name it concretely. Your FIRST sentence must begin with "${target}," and put that point to them. Ask them to commit: will they hold, qualify or give it up, and what would change their mind. Word this naturally around the point; do NOT list numbered asks or use a fixed formula. Write at most 2 sentences in total. Do NOT recap or summarise the debate (never open with "This debate has focused on..." or a list of who conceded what); the synthesis does that.`;
     case 'CRUX_FOCUS':
       return `Focus ${target} on the core disagreement that neither side has been able to resolve. Ask them to name the specific evidence or value commitment that would change their position.`;
   }

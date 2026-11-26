@@ -3,9 +3,10 @@
 
 // t/784: concluding-phase COMMITs must not repeat one shared debate recap.
 
-import { describe, it, expect } from 'vitest';
-import { priorCommitOpenings } from './commitOpenings.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { priorCommitOpenings, latestTurnOf, sharedWordRun, commitRepeat, warnOnCommitRepeat } from './commitOpenings.js';
 import { moderatorInterventionPrompt } from './prompts.js';
+import { setGlobalRecorder, clearGlobalRecorder, type FlightRecorder, type RecordInput } from '../flight-recorder/index.js';
 
 const RECAP = 'This debate has focused on how artificial intelligence safety rules affect market fairness and public safety.';
 
@@ -52,5 +53,64 @@ describe('COMMIT prompt (Design rules, t/784)', () => {
   it('never adds the do-not-repeat block to other moves', () => {
     const p = moderatorInterventionPrompt('PIN', 'elicitation', 'Safetyist', 'r', undefined, 't', undefined, undefined, undefined, undefined, [RECAP]);
     expect(p).not.toContain('Do NOT reuse or paraphrase them');
+  });
+});
+
+describe('latestTurnOf (t/784)', () => {
+  it("returns the target's most recent statement or opening, skipping other speakers and interventions", () => {
+    const t = [
+      { type: 'opening', speaker: 'safetyist', content: 'S opening' },
+      { type: 'statement', speaker: 'safetyist', content: 'S latest' },
+      { type: 'statement', speaker: 'skeptic', content: 'K latest' },
+      { type: 'intervention', speaker: 'moderator', content: 'M' },
+    ];
+    expect(latestTurnOf(t, 'safetyist')).toBe('S latest');
+    expect(latestTurnOf(t, 'accelerationist')).toBeUndefined();
+  });
+});
+
+describe("Design's 6-word repetition check (t/784)", () => {
+  const A = 'Safetyist, you must state your final position on the six-month pause by addressing three points.';
+  const B = 'Accelerationist, you must state your final position on the six-month pause by addressing three points.';
+  const C = 'Accelerationist, will you still hold that open compute beats registries if the audit data says otherwise?';
+
+  it('finds a shared 6-word run, ignoring case and punctuation', () => {
+    expect(sharedWordRun(A, B)).toBe('you must state your final position');
+    expect(sharedWordRun(A, C)).toBeUndefined();
+    expect(sharedWordRun('one two three four five', 'one two three four five')).toBeUndefined();
+  });
+
+  it('commitRepeat compares against every earlier COMMIT', () => {
+    const t = [{ type: 'intervention', content: A, intervention_metadata: { move: 'COMMIT' } }];
+    expect(commitRepeat(B, t)).toEqual({ run: 'you must state your final position' });
+    expect(commitRepeat(C, t)).toBeUndefined();
+  });
+
+  describe('warnOnCommitRepeat', () => {
+    afterEach(() => clearGlobalRecorder());
+    it('WARNs with the shared run, and stays silent otherwise', () => {
+      const record = vi.fn<(e: RecordInput) => void>();
+      setGlobalRecorder({ record } as unknown as FlightRecorder);
+      const t = [{ type: 'intervention', content: A, intervention_metadata: { move: 'COMMIT' } }];
+      warnOnCommitRepeat(C, t, 15);
+      expect(record).not.toHaveBeenCalled();
+      warnOnCommitRepeat(B, t, 15);
+      expect(record.mock.calls[0][0]).toMatchObject({ level: 'warn', message: expect.stringMatching(/round 15\) shares a 6-word run.*you must state your final position/) });
+    });
+  });
+});
+
+describe('COMMIT prompt presses a point that is the target\'s own (t/784 tweak)', () => {
+  it("includes the target's latest turn and asks for one specific point, without a numbered list", () => {
+    const p = moderatorInterventionPrompt('COMMIT', 'synthesis', 'Safetyist', 'r', undefined, 't', undefined, undefined, undefined, undefined, [], 'Registries cannot track open weights.');
+    expect(p).toContain("=== SAFETYIST'S MOST RECENT TURN ===\nRegistries cannot track open weights.");
+    expect(p).toContain('pressing ONE specific point that is recognisably theirs');
+    expect(p).toContain('do NOT list numbered asks');
+    expect(p).not.toContain('(1) what they conceded');
+  });
+
+  it('adds no target-turn block for other moves', () => {
+    const p = moderatorInterventionPrompt('PIN', 'elicitation', 'Safetyist', 'r', undefined, 't', undefined, undefined, undefined, undefined, [], 'X');
+    expect(p).not.toContain('MOST RECENT TURN');
   });
 });
