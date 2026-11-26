@@ -1,6 +1,6 @@
 # Per-statement HOW: Layout A
 
-Status: approved layout (human, 2026-11-23), amended 2026-11-24: Planned moves show their text; Convergence is removed. Owner: Design. Build: DebateWorkspace.
+Status: approved layout (human, 2026-11-23), amended 2026-11-24: Planned moves show their text; Convergence is removed. Amended 2026-11-25: the Convergence pill leaves the pill row (human, p/109#5). Owner: Design. Build: DebateWorkspace.
 Reference: the Openings How → Plan claim map (t/331, #5073; fixes #5127 and t/421).
 Data source: DebateWorkspace measurements over 327 debate sessions, 2,779 statements (t/469, p/14#40 to #44).
 
@@ -124,8 +124,8 @@ are shown under their own names, below.
 
 - The Reasoning, Claims and Vocabulary pills keep their meaning and remain the switch.
 - The HOW body is one scroll under the pills.
-- The Convergence pill is removed from the HOW body with the section. Whether it also leaves the pill row is a
-  separate decision, noted under Open questions.
+- The Convergence pill is removed from the pill row (human, 2026-11-25, p/109#5). The other pills keep their
+  order, and Lineage still shows only when the statement has lineage refs. A pill with no body is a dead control.
 
 ## Shared rules
 
@@ -142,13 +142,12 @@ are shown under their own names, below.
 - The steelman link and the verified count (t/329#4; t/388 steps 3 and 4).
 - The Openings view. It stays as it is.
 - Lineage, until a statement in the corpus yields lineage names.
-- Convergence, removed 2026-11-24.
+- Convergence: the section was removed 2026-11-24, and its pill 2026-11-25.
 - Layout B. It is the fallback if live data turns out to resemble the calibration batches.
 
 ## Open questions
 
-1. **Convergence pill:** remove it from the pill row as well as the body? Design's default is yes, since
-   a pill with no body would be empty. Awaiting the human.
+None. The Convergence pill question was answered yes on 2026-11-25 (p/109#5).
 
 ## Evidence needed before build sign-off
 
