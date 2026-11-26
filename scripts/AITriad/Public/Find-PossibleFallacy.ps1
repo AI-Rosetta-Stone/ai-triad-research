@@ -45,7 +45,7 @@ function Find-PossibleFallacy {
         Find-PossibleFallacy -Id acc-desires-001, saf-desires-001
         # Analyse specific nodes
     .EXAMPLE
-        Find-PossibleFallacy -Force -Model 'gemini-2.5-pro'
+        Find-PossibleFallacy -Force -Model 'gemini-3.8-flash'
         # Re-analyse all nodes with a more capable model
     .EXAMPLE
         Get-Tax -Id acc-desires-001 | Select-Object -ExpandProperty GraphAttributes | Select-Object -ExpandProperty possible_fallacies

@@ -171,7 +171,7 @@ const MODEL_ALIASES: Record<string, string> = {
   haiku: 'claude-haiku-4-5',
   sonnet: 'claude-sonnet-4-6',
   gemini: DEFAULT_MODEL,
-  'gemini-flash': 'gemini-2.5-flash',
+  'gemini-flash': 'gemini-3.5-flash-lite',
   'gemini-lite': DEFAULT_MODEL,
   groq: 'groq-openai-gpt-oss-120b',
   llama: 'groq-openai-gpt-oss-120b',

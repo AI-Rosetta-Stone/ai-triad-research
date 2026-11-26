@@ -2,7 +2,7 @@
   "scenario": "colloquial-term-missing-status",
   "host": [
     "[Cyan] \n▶  Validating environment",
-    "[Green]    ✓  Model       : gemini-2.5-flash",
+    "[Green]    ✓  Model       : gemini-3.6-flash",
     "[Green]    ✓  Temperature : 0.3",
     "[Yellow]    ⚠  DRY RUN — no API call, no file writes",
     "[Cyan] \n▶  Preparing health data",

@@ -12,7 +12,7 @@
     "[Gray]    →  accelerationist / Beliefs: 2 nodes",
     "[Cyan] \n▶  Bucket 1/1: accelerationist / Beliefs (2 nodes)",
     "[Green]    ✓  Clustering produced 2 clusters",
-    "[Gray]    →  Calling gemini-2.5-flash ...",
+    "[Gray]    →  Calling gemini-3.6-flash ...",
     "[Green]    ✓  Response in <elapsed>s",
     "[Green]    ✓  Proposed 1 parents, 2 children, 0 outliers",
     "[Cyan] \n▶  Done",
@@ -51,7 +51,7 @@
     {
       "call": "ai",
       "bucket": "accelerationist/Beliefs",
-      "model": "gemini-2.5-flash",
+      "model": "gemini-3.6-flash",
       "apiKey": "",
       "temperature": 0.3,
       "maxTokens": 65536,
@@ -67,8 +67,8 @@
   "tree": {
     "taxonomy/": "(dir)",
     "taxonomy/hierarchy-proposals/": "(dir)",
-    "taxonomy/hierarchy-proposals/hierarchy-proposal-2026-01-02-030405.json": "{\n  \"generated_at\": \"2026-01-02T03:04:05.0000000Z\",\n  \"model\": \"gemini-2.5-flash\",\n  \"buckets\": [\n    {\n      \"pov\": \"accelerationist\",\n      \"category\": \"Beliefs\",\n      \"parents\": [\n        {\n          \"label\": \"New parent\",\n          \"description\": \"No promoted_from key.\",\n          \"children\": [\n            {\n              \"node_id\": \"acc-b-1\",\n              \"relationship\": \"is_a\",\n              \"rationale\": \"r1\"\n            },\n            {\n              \"node_id\": \"acc-b-2\",\n              \"relationship\": \"is_a\",\n              \"rationale\": \"r2\"\n            }\n          ]\n        }\n      ],\n      \"outliers\": [],\n      \"_metadata\": {\n        \"generated_at\": \"2026-01-02T03:04:05.0000000Z\",\n        \"model\": \"gemini-2.5-flash\",\n        \"temperature\": 0.3,\n        \"min_similarity\": 0.4,\n        \"node_count\": 2,\n        \"cluster_count\": 2,\n        \"missing_nodes\": []\n      }\n    }\n  ]\n}\n",
-    "taxonomy/hierarchy-proposals/hierarchy-review-2026-01-02-030405.md": "# Hierarchy Proposal Review — 2026-01-02-030405\n\n**Model:** gemini-2.5-flash | **Generated:** 2026-01-02 03:04\n\n---\n\n## accelerationist / Beliefs\n\n### Parent 1: New parent [NEW]\n\n> No promoted_from key.\n\n| Child ID | Label | Relationship | Rationale |\n|----------|-------|-------------|-----------|\n| acc-b-1 | Label acc-b-1 | is_a | r1 |\n| acc-b-2 | Label acc-b-2 | is_a | r2 |\n\n**Verdict:** [ ] Accept  [ ] Modify  [ ] Reject\n\n",
+    "taxonomy/hierarchy-proposals/hierarchy-proposal-2026-01-02-030405.json": "{\n  \"generated_at\": \"2026-01-02T03:04:05.0000000Z\",\n  \"model\": \"gemini-3.6-flash\",\n  \"buckets\": [\n    {\n      \"pov\": \"accelerationist\",\n      \"category\": \"Beliefs\",\n      \"parents\": [\n        {\n          \"label\": \"New parent\",\n          \"description\": \"No promoted_from key.\",\n          \"children\": [\n            {\n              \"node_id\": \"acc-b-1\",\n              \"relationship\": \"is_a\",\n              \"rationale\": \"r1\"\n            },\n            {\n              \"node_id\": \"acc-b-2\",\n              \"relationship\": \"is_a\",\n              \"rationale\": \"r2\"\n            }\n          ]\n        }\n      ],\n      \"outliers\": [],\n      \"_metadata\": {\n        \"generated_at\": \"2026-01-02T03:04:05.0000000Z\",\n        \"model\": \"gemini-3.6-flash\",\n        \"temperature\": 0.3,\n        \"min_similarity\": 0.4,\n        \"node_count\": 2,\n        \"cluster_count\": 2,\n        \"missing_nodes\": []\n      }\n    }\n  ]\n}\n",
+    "taxonomy/hierarchy-proposals/hierarchy-review-2026-01-02-030405.md": "# Hierarchy Proposal Review — 2026-01-02-030405\n\n**Model:** gemini-3.6-flash | **Generated:** 2026-01-02 03:04\n\n---\n\n## accelerationist / Beliefs\n\n### Parent 1: New parent [NEW]\n\n> No promoted_from key.\n\n| Child ID | Label | Relationship | Rationale |\n|----------|-------|-------------|-----------|\n| acc-b-1 | Label acc-b-1 | is_a | r1 |\n| acc-b-2 | Label acc-b-2 | is_a | r2 |\n\n**Verdict:** [ ] Accept  [ ] Modify  [ ] Reject\n\n",
     "taxonomy/Origin/": "(dir)",
     "taxonomy/Origin/accelerationist.json": "sha256:866fc0e82c48027fd05179b0e09ae64b96b75f42699ae0eca4047b962030a282 (307 chars)",
     "taxonomy/Origin/embeddings.json": "sha256:c30331756b20ec6ba8b8fd6a06e4464f6524d1646e09246d34a255ca3198c644 (350 chars)",

@@ -214,7 +214,7 @@ LONG DESCRIPTION
 
   EXAMPLE: BATCH OPERATIONS
     # Summarize all pending documents
-    Invoke-BatchSummary -Model 'gemini-2.5-flash' -Temperature 0.1
+    Invoke-BatchSummary -Model 'gemini-3.5-flash-lite' -Temperature 0.1
 
     # Re-resolve unmapped concepts after adding taxonomy nodes
     Repair-UnmappedConcepts

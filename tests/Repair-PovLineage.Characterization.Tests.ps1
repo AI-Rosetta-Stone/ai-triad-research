@@ -51,7 +51,7 @@ $script:Scenarios = @(
     # Default mode: one AI batch, fenced response with trailing text, URL validation with Wikipedia
     # fallback and clearing, the Jaccard dedup guard, whitespace and rich entries left alone.
     @{ Name = 'enrich'; Tax = 'basic'
-       Params = @{ Model = 'gemini-2.5-flash' }
+       Params = @{ Model = 'gemini-3.6-flash' }
        Ai = @($script:EnrichResponse)
        ValidUrls = @('https://ea.example/ok', 'https://en.wikipedia.org/wiki/Utilitarianism') }
 
@@ -67,57 +67,57 @@ $script:Scenarios = @(
 
     # The separate URL-validation pass over cache entries that have no url_status yet.
     @{ Name = 'url-phase'; Tax = 'urlphase'; Cache = 'nostatus'
-       Params = @{ Model = 'gemini-2.5-flash' }
+       Params = @{ Model = 'gemini-3.6-flash' }
        ValidUrls = @('https://c.example/ok', 'https://en.wikipedia.org/wiki/Dee') }
 
     # -Force turns rich entries back into bare strings, then re-applies them from the cache.
     @{ Name = 'force'; Tax = 'rich'; Cache = 'rich'
-       Params = @{ Model = 'gemini-2.5-flash'; Force = $true; SkipUrlValidation = $true } }
+       Params = @{ Model = 'gemini-3.6-flash'; Force = $true; SkipUrlValidation = $true } }
 
     # Node filter from the pipeline (Id property, a blank id dropped). The apply step is not filtered.
     @{ Name = 'node-filter'; Tax = 'basic'; Cache = 'full'; Pipe = @('acc-2', ' ')
-       Params = @{ Model = 'gemini-2.5-flash'; SkipUrlValidation = $true } }
+       Params = @{ Model = 'gemini-3.6-flash'; SkipUrlValidation = $true } }
 
     # Embedding dedup: base-then-qualified merge, frequency merge, a value with no embedding.
     @{ Name = 'dedup-a'; Tax = 'dedupA'; Cache = 'dedupA'; Embeddings = 'dedupA'
-       Params = @{ Model = 'gemini-2.5-flash'; SkipUrlValidation = $true } }
+       Params = @{ Model = 'gemini-3.6-flash'; SkipUrlValidation = $true } }
 
     # Embedding dedup: qualified-then-base (self map) and two qualified variants of one base.
     @{ Name = 'dedup-b'; Tax = 'dedupB'; Cache = 'dedupB'; Embeddings = 'dedupB'
-       Params = @{ Model = 'gemini-2.5-flash'; SkipUrlValidation = $true } }
+       Params = @{ Model = 'gemini-3.6-flash'; SkipUrlValidation = $true } }
 
     # Two POV files both get rewritten (write order follows a hashtable; see normalizations).
     @{ Name = 'multi-pov'; Tax = 'multi'; Cache = 'multi'
-       Params = @{ Model = 'gemini-2.5-flash'; SkipUrlValidation = $true } }
+       Params = @{ Model = 'gemini-3.6-flash'; SkipUrlValidation = $true } }
 
     # -POV restricts collection; another POV's bare strings stay bare.
     @{ Name = 'pov-filter'; Tax = 'multi'; Cache = 'multi'
-       Params = @{ Model = 'gemini-2.5-flash'; SkipUrlValidation = $true; POV = 'skeptic' } }
+       Params = @{ Model = 'gemini-3.6-flash'; SkipUrlValidation = $true; POV = 'skeptic' } }
 
     @{ Name = 'whatif'; Tax = 'many'; Cache = 'partial'; Embeddings = 'many'
-       Params = @{ Model = 'gemini-2.5-flash'; WhatIf = $true } }
-    @{ Name = 'no-values'; Tax = 'none'; Params = @{ Model = 'gemini-2.5-flash' } }
+       Params = @{ Model = 'gemini-3.6-flash'; WhatIf = $true } }
+    @{ Name = 'no-values'; Tax = 'none'; Params = @{ Model = 'gemini-3.6-flash' } }
 
-    @{ Name = 'fixurls-empty-cache'; Tax = 'basic'; Params = @{ Model = 'gemini-2.5-flash'; FixUrls = $true } }
+    @{ Name = 'fixurls-empty-cache'; Tax = 'basic'; Params = @{ Model = 'gemini-3.6-flash'; FixUrls = $true } }
     @{ Name = 'fixurls'; Tax = 'fixurls'; Cache = 'fixurls'
-       Params = @{ Model = 'gemini-2.5-flash'; FixUrls = $true }
+       Params = @{ Model = 'gemini-3.6-flash'; FixUrls = $true }
        ValidUrls = @('https://gt.example/now-ok', 'https://en.wikipedia.org/wiki/Longtermism') }
     @{ Name = 'fixurls-whatif'; Tax = 'fixurls'; Cache = 'fixurls'
-       Params = @{ Model = 'gemini-2.5-flash'; FixUrls = $true; WhatIf = $true } }
+       Params = @{ Model = 'gemini-3.6-flash'; FixUrls = $true; WhatIf = $true } }
 
     # -RegenerateContent: two batches; one long description replaces, one short does not, a node
     # with an empty array and a node missing from the response count as failed.
     @{ Name = 'regen'; Tax = 'regen'
-       Params = @{ Model = 'gemini-2.5-flash'; RegenerateContent = $true; POV = 'accelerationist'; NodeBatchSize = 2 }
+       Params = @{ Model = 'gemini-3.6-flash'; RegenerateContent = $true; POV = 'accelerationist'; NodeBatchSize = 2 }
        Ai = @('REGEN1', 'REGEN2') }
     # -RegenerateContent failure arms: no response, throw, then success. Claude backend.
     @{ Name = 'regen-failures'; Tax = 'regen'
        Params = @{ Model = 'claude-haiku-4-5'; RegenerateContent = $true; NodeBatchSize = 1 }
        Ai = @('NULL', 'THROW:500 Internal Server Error', 'REGEN-R5') }
     @{ Name = 'regen-no-key'; Tax = 'regen'; NoKey = $true
-       Params = @{ Model = 'gemini-2.5-flash'; RegenerateContent = $true } }
+       Params = @{ Model = 'gemini-3.6-flash'; RegenerateContent = $true } }
     @{ Name = 'regen-whatif'; Tax = 'regen6'
-       Params = @{ Model = 'gemini-2.5-flash'; RegenerateContent = $true; WhatIf = $true } }
+       Params = @{ Model = 'gemini-3.6-flash'; RegenerateContent = $true; WhatIf = $true } }
 )
 
 BeforeAll {
@@ -668,7 +668,7 @@ Describe 'Repair-PovLineage characterization (t/3910)' -Tag 'taxonomy' {
             $u = [double[]]::new(24); $u[$i - 1] = 0.95; $u[$i + 11] = 0.3122498999; $vec["Thing $i (variant)"] = $u
         }
         $script:ManySpec = $vec
-        $s = @{ Name = 'dedup-many'; Tax = 'none'; Params = @{ Model = 'gemini-2.5-flash'; SkipUrlValidation = $true; WhatIf = $true } }
+        $s = @{ Name = 'dedup-many'; Tax = 'none'; Params = @{ Model = 'gemini-3.6-flash'; SkipUrlValidation = $true; WhatIf = $true } }
         $root = script:New-LineageFixture $s
         script:Write-FixtureFile (Join-Path $root 'taxonomy' 'Origin' 'accelerationist.json') (script:ConvertTo-FixtureJson @{ nodes = @( (script:LinNode 'acc-1' $vals) ) })
         Mock Get-TaxonomyDir -ModuleName AITriad { Join-Path $root 'taxonomy' 'Origin' }

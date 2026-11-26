@@ -733,9 +733,9 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             script:Set-HostReplies 'api.anthropic.com' @((script:New-HttpError 500 'claude down'))
             script:Set-HostReplies 'generativelanguage' @((script:New-OkEnvelope 'gemini' -Text 'gemini answered'))
             $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; MaxRetries = 1
-                FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash', 'groq-openai-gpt-oss-20b') }
+                FallbackModels = @('claude-haiku-4-5', 'gemini-3.6-flash', 'groq-openai-gpt-oss-20b') }
             $out.Result.Text | Should -BeExactly 'gemini answered'
-            $out.Result.Model | Should -BeExactly 'gemini-2.5-flash'
+            $out.Result.Model | Should -BeExactly 'gemini-3.6-flash'
             $out.Result.Backend | Should -BeExactly 'gemini'
             # t/4078: the claude link's 500 is retried (its MaxRetries 2) BEFORE the cascade moves to gemini.
             @($script:RestCalls | ForEach-Object { ([uri]$_.Uri).Host }) -join ',' | Should -BeExactly 'api.groq.com,api.anthropic.com,api.anthropic.com,generativelanguage.googleapis.com'
@@ -746,7 +746,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
                 "claude: HTTP 500 $($script:D) retrying in 5s (attempt 1/2)"
                 "claude: API call failed (HTTP 500) $($script:D) claude down"
                 "claude: Server error $($script:D) the API may be temporarily unavailable."
-                'Cascade: falling back to gemini-2.5-flash (gemini)'
+                'Cascade: falling back to gemini-3.6-flash (gemini)'
             ) -join "`n")
         }
 
@@ -805,10 +805,10 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $env:GEMINI_API_KEY = 'gemini-test-value'
             script:Set-HostReplies 'api.groq.com' @((script:New-HttpError 400 'x'))
             script:Set-HostReplies 'generativelanguage' @((script:New-OkEnvelope 'gemini'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash') }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5', 'gemini-3.6-flash') }
             $out.Result.Backend | Should -BeExactly 'gemini'
             @($script:RestCalls | Where-Object { $_.Uri -like '*anthropic*' }).Count | Should -Be 0
-            @($out.Warnings | Where-Object { $_ -like 'Cascade:*' }) -join "`n" | Should -BeExactly 'Cascade: falling back to gemini-2.5-flash (gemini)'
+            @($out.Warnings | Where-Object { $_ -like 'Cascade:*' }) -join "`n" | Should -BeExactly 'Cascade: falling back to gemini-3.6-flash (gemini)'
         }
 
         It 'returns $null when every fallback fails' {
@@ -828,13 +828,13 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             Mock Invoke-AIApi -ModuleName AIEnrich -MockWith {
                 $copy = @{}; foreach ($k in $PesterBoundParameters.Keys) { $copy[$k] = $PesterBoundParameters[$k] }
                 $inner.Add($copy)
-                if ($Model -eq 'gemini-2.5-flash') { $sentinelResult } else { $null }
+                if ($Model -eq 'gemini-3.6-flash') { $sentinelResult } else { $null }
             }
             $logger = { }
             $out = script:Invoke-CharacterizedCall @{ Prompt = 'the prompt'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey
                 SystemInstruction = 'sys'; JsonMode = $true; ResponseSchema = $script:GoldenSchema; Temperature = 0.7; MaxTokens = 333
                 TimeoutSec = 55; MaxRetries = 4; RetryDelays = @(1, 1); CallLogger = $logger
-                FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash', 'groq-openai-gpt-oss-20b') }
+                FallbackModels = @('claude-haiku-4-5', 'gemini-3.6-flash', 'groq-openai-gpt-oss-20b') }
             [object]::ReferenceEquals($out.Result, $sentinelResult) | Should -BeTrue
             $inner.Count | Should -Be 2 -Because 'a $null result moves on; the first non-null result is returned'
             $p = $inner[0]
@@ -855,7 +855,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             @($p.FallbackModels).Count | Should -Be 0
             [bool]$p.SkipTokenCheck | Should -BeTrue
             [object]::ReferenceEquals($p.CallLogger, $logger) | Should -BeTrue
-            $inner[1].Model | Should -BeExactly 'gemini-2.5-flash'
+            $inner[1].Model | Should -BeExactly 'gemini-3.6-flash'
             $inner[1].ApiKey | Should -BeExactly 'gemini-test-value'
         }
 
@@ -906,15 +906,15 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             # a retry does not ALWAYS clear it (it clears often enough to be worth trying first).
             script:Set-HostReplies 'generativelanguage' @($blocked)
             script:Set-HostReplies 'api.anthropic.com' @((script:New-OkEnvelope 'claude'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'gemini-2.5-flash'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5') }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'gemini-3.6-flash'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5') }
             $out.Result.Text | Should -BeExactly 'hello'
             $out.Result.Backend | Should -BeExactly 'claude'
             @($script:RestCalls | ForEach-Object { ([uri]$_.Uri).Host }) -join ',' | Should -BeExactly 'generativelanguage.googleapis.com,generativelanguage.googleapis.com,api.anthropic.com'
             $out.Warnings -join "`n" | Should -BeExactly (@(
                 'Gemini: generation stopped with finishReason=SAFETY (content may have been blocked)'
-                'gemini: retrying gemini-2.5-flash once after finishReason=SAFETY (content may have been blocked)'
+                'gemini: retrying gemini-3.6-flash once after finishReason=SAFETY (content may have been blocked)'
                 'Gemini: generation stopped with finishReason=SAFETY (content may have been blocked)'
-                'gemini: retry also blocked (SAFETY) for gemini-2.5-flash — falling back'
+                'gemini: retry also blocked (SAFETY) for gemini-3.6-flash — falling back'
                 'Cascade: falling back to claude-haiku-4-5 (claude)'
             ) -join "`n")
         }
@@ -923,12 +923,12 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $blocked = [pscustomobject]@{ candidates = @([pscustomobject]@{ finishReason = 'RECITATION' }) }
             $ok = script:New-OkEnvelope 'gemini' -Text 'cleared on retry'
             script:Set-RestSequence @($blocked, $ok)
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'gemini-2.5-flash'; ApiKey = $script:TestKey; FallbackModels = @() }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'gemini-3.6-flash'; ApiKey = $script:TestKey; FallbackModels = @() }
             $out.Result.Text | Should -BeExactly 'cleared on retry'
             $out.Result.Backend | Should -BeExactly 'gemini'
             $out.Warnings -join "`n" | Should -BeExactly (@(
                 'Gemini: generation stopped with finishReason=RECITATION (content may have been blocked)'
-                'gemini: retrying gemini-2.5-flash once after finishReason=RECITATION (content may have been blocked)'
+                'gemini: retrying gemini-3.6-flash once after finishReason=RECITATION (content may have been blocked)'
             ) -join "`n")
         }
 
@@ -1047,9 +1047,9 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             # A thinking model (gemini-3.1-pro-preview under the probe's -MaxTokens 5) spends the budget before any text.
             $env = [pscustomobject]@{ candidates = @($Candidate)
                 usageMetadata = [pscustomobject]@{ promptTokenCount = 3; totalTokenCount = 8 }; modelVersion = 'm'; responseId = 'r' }
-            $out = script:Invoke-Envelope 'gemini-2.5-flash' $env
+            $out = script:Invoke-Envelope 'gemini-3.6-flash' $env
             $out.Result | Should -BeNullOrEmpty
-            $out.Warnings -join "`n" | Should -BeExactly "Google Gemini: response had no text (backend gemini, model gemini-2.5-flash, finishReason=MAX_TOKENS). Returning `$null so a fallback can be tried."
+            $out.Warnings -join "`n" | Should -BeExactly "Google Gemini: response had no text (backend gemini, model gemini-3.6-flash, finishReason=MAX_TOKENS). Returning `$null so a fallback can be tried."
         }
 
         It 'Gemini: a blocking finishReason (<Reason>) retries once (t/4854), then returns $null with no fallback configured' -ForEach @(@{ Reason = 'SAFETY' }, @{ Reason = 'RECITATION' }, @{ Reason = 'OTHER' }) {
@@ -1057,13 +1057,13 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             # script:Invoke-Envelope passes FallbackModels = @() -- the retry (t/4854) still sees the
             # same blocked envelope (Set-RestSequence re-peeks its last item), so there is still no
             # fallback chain to try; the net result is unchanged ($null), but two attempts were made.
-            $out = script:Invoke-Envelope 'gemini-2.5-flash' $env
+            $out = script:Invoke-Envelope 'gemini-3.6-flash' $env
             $out.Result | Should -BeNullOrEmpty
             $out.Warnings -join "`n" | Should -BeExactly (@(
                 "Gemini: generation stopped with finishReason=$Reason (content may have been blocked)"
-                "gemini: retrying gemini-2.5-flash once after finishReason=$Reason (content may have been blocked)"
+                "gemini: retrying gemini-3.6-flash once after finishReason=$Reason (content may have been blocked)"
                 "Gemini: generation stopped with finishReason=$Reason (content may have been blocked)"
-                "gemini: retry also blocked ($Reason) for gemini-2.5-flash — falling back"
+                "gemini: retry also blocked ($Reason) for gemini-3.6-flash — falling back"
             ) -join "`n")
         }
 
@@ -1071,7 +1071,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $env = [pscustomobject]@{
                 candidates    = @([pscustomobject]@{ content = [pscustomobject]@{ parts = @([pscustomobject]@{ text = 'ok' }) } })
                 usageMetadata = [pscustomobject]@{ promptTokenCount = 1; candidatesTokenCount = 2; totalTokenCount = 3 } }
-            $out = script:Invoke-Envelope 'gemini-2.5-flash' $env
+            $out = script:Invoke-Envelope 'gemini-3.6-flash' $env
             $out.Result.Text | Should -BeExactly 'ok'
             $out.Result.Truncated | Should -BeFalse
             $out.Result.Usage.CachedTokens | Should -Be 0
@@ -1082,7 +1082,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             # the first part's text.
             $env = [pscustomobject]@{ candidates = @([pscustomobject]@{ finishReason = 'STOP'; content = [pscustomobject]@{ parts = @(
                 [pscustomobject]@{ text = 'thinking...'; thought = $true }, [pscustomobject]@{ text = 'the answer' }) } }) }
-            $out = script:Invoke-Envelope 'gemini-2.5-flash' $env
+            $out = script:Invoke-Envelope 'gemini-3.6-flash' $env
             $out.Result.Text | Should -BeExactly 'thinking...'
         }
 
@@ -1188,7 +1188,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             # Set-RestSequence re-peeks the last item once its queue is down to one: the retry sees
             # the same blocked envelope again, so the hook fires a second time (t/4854).
             script:Set-RestSequence @([pscustomobject]@{ candidates = @([pscustomobject]@{ finishReason = 'SAFETY' }) })
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'gemini-2.5-flash'; ApiKey = $script:TestKey; FallbackModels = @(); CallLogger = $script:Logger }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'gemini-3.6-flash'; ApiKey = $script:TestKey; FallbackModels = @(); CallLogger = $script:Logger }
             $out.Result | Should -BeNullOrEmpty
             $script:Logged.Count | Should -Be 2
             $script:Logged[0][1] | Should -BeExactly '200'

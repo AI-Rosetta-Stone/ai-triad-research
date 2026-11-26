@@ -118,7 +118,7 @@ server.tool(
   'Run a debate via CLI subprocess (blocking). Returns the completed session JSON.',
   {
     topic: z.string().describe('Debate topic or question'),
-    model: z.string().optional().describe('AI model to use (default: gemini-2.5-flash)'),
+    model: z.string().optional().describe('AI model to use (default: gemini-3.5-flash-lite)'),
     rounds: z.number().optional().describe('Number of rounds (default: 3)'),
     activePovers: z.array(z.string()).optional().describe('Active perspectives (default: all three)'),
     audience: z.string().optional().describe('Target audience'),
@@ -129,7 +129,7 @@ server.tool(
   async (params) => {
     const configObj: Record<string, unknown> = {
       topic: params.topic,
-      model: params.model ?? 'gemini-2.5-flash',
+      model: params.model ?? 'gemini-3.5-flash-lite',
       rounds: params.rounds ?? 3,
       activePovers: params.activePovers ?? ['accelerationist', 'safetyist', 'skeptic'],
       responseLength: params.responseLength ?? 'medium',
@@ -193,7 +193,7 @@ server.tool(
   'Start a debate using the native engine (async). Returns immediately with a debate_id for polling.',
   {
     topic: z.string().describe('Debate topic or question'),
-    model: z.string().optional().describe('AI model to use (default: gemini-2.5-flash)'),
+    model: z.string().optional().describe('AI model to use (default: gemini-3.5-flash-lite)'),
     rounds: z.number().optional().describe('Number of rounds (default: 3)'),
     activePovers: z.array(z.string()).optional().describe('Active perspectives (default: all three)'),
     audience: z.string().optional().describe('Target audience'),
@@ -218,7 +218,7 @@ server.tool(
       topic: params.topic,
       sourceType: 'topic',
       activePovers: (params.activePovers ?? ['accelerationist', 'safetyist', 'skeptic']) as DebateConfig['activePovers'],
-      model: params.model ?? 'gemini-2.5-flash',
+      model: params.model ?? 'gemini-3.5-flash-lite',
       rounds: params.rounds ?? 3,
       responseLength: params.responseLength ?? 'medium',
       enableClarification: params.enableClarification,

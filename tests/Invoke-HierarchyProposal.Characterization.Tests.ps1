@@ -91,31 +91,31 @@ $script:LongCycle = @'
 
 $script:Scenarios = @(
     @{ Name = 'rich'; Tax = 'rich'; Embeddings = 'rich'; Edges = 'rich'
-       Params = @{ Model = 'gemini-2.5-flash' }
+       Params = @{ Model = 'gemini-3.6-flash' }
        Responses = @{ 'accelerationist/Beliefs' = $script:RichAccBeliefs; 'safetyist/Beliefs' = $script:RichSafBeliefs
                       'situations/(none — situations)' = $script:RichSituations } }
     @{ Name = 'sizes'; Tax = 'sizes'; Embeddings = 'sizes'
        Params = @{ Model = 'groq-openai-gpt-oss-20b'; Temperature = 0.7; MinSimilarity = 0.5; ApiKey = 'explicit-key' } }
-    @{ Name = 'dryrun'; Tax = 'small'; Embeddings = 'small'; Params = @{ Model = 'gemini-2.5-flash'; DryRun = $true } }
+    @{ Name = 'dryrun'; Tax = 'small'; Embeddings = 'small'; Params = @{ Model = 'gemini-3.6-flash'; DryRun = $true } }
     @{ Name = 'whatif'; Tax = 'small'; Embeddings = 'small'; OutputDir = 'out/custom'
-       Params = @{ Model = 'gemini-2.5-flash'; WhatIf = $true } }
-    @{ Name = 'explicit-output-dir'; Tax = 'small'; Embeddings = 'small'; OutputDir = 'out/custom'; Params = @{ Model = 'gemini-2.5-flash' } }
+       Params = @{ Model = 'gemini-3.6-flash'; WhatIf = $true } }
+    @{ Name = 'explicit-output-dir'; Tax = 'small'; Embeddings = 'small'; OutputDir = 'out/custom'; Params = @{ Model = 'gemini-3.6-flash' } }
     @{ Name = 'err-no-key-claude'; Tax = 'small'; NoKey = $true; Params = @{ Model = 'claude-haiku-4-5'; ApiKey = 'explicit-key' } }
     @{ Name = 'err-no-key-unknown-prefix'; Tax = 'small'; NoKey = $true; Params = @{ Model = 'xai-grok-4-6' } }
-    @{ Name = 'no-buckets'; Tax = 'none'; Params = @{ Model = 'gemini-2.5-flash' } }
+    @{ Name = 'no-buckets'; Tax = 'none'; Params = @{ Model = 'gemini-3.6-flash' } }
     @{ Name = 'bad-inputs-api-throws'; Tax = 'skeptic'; Embeddings = 'invalid'; Edges = 'invalid'
        Params = @{ Model = 'claude-haiku-4-5'; POV = 'skeptic'; Category = 'Desires' }
        Responses = @{ 'skeptic/Desires' = 'THROW:503 Service Unavailable' } }
-    @{ Name = 'situations-with-category'; Tax = 'rich'; Params = @{ Model = 'gemini-2.5-flash'; POV = 'situations'; Category = 'Beliefs' } }
+    @{ Name = 'situations-with-category'; Tax = 'rich'; Params = @{ Model = 'gemini-3.6-flash'; POV = 'situations'; Category = 'Beliefs' } }
     @{ Name = 'parse-fail-and-validation-throw'; Tax = 'small'; Embeddings = 'small'
-       Params = @{ Model = 'gemini-2.5-flash' }
+       Params = @{ Model = 'gemini-3.6-flash' }
        Responses = @{ 'accelerationist/Beliefs' = 'this is not json at all'
                       'safetyist/Beliefs' = '{"pov":"safetyist","category":"Beliefs","parents":[],"outliers":[{"reason":"no node id"}]}' } }
     @{ Name = 'md-parent-missing-promoted-from'; Tax = 'small'; Embeddings = 'small'
-       Params = @{ Model = 'gemini-2.5-flash'; POV = 'accelerationist' }
+       Params = @{ Model = 'gemini-3.6-flash'; POV = 'accelerationist' }
        Responses = @{ 'accelerationist/Beliefs' = $script:MissingPromotedFrom } }
     @{ Name = 'cycle-long'; Tax = 'small'; Embeddings = 'small'
-       Params = @{ Model = 'gemini-2.5-flash'; POV = 'accelerationist' }
+       Params = @{ Model = 'gemini-3.6-flash'; POV = 'accelerationist' }
        Responses = @{ 'accelerationist/Beliefs' = $script:LongCycle } }
 )
 

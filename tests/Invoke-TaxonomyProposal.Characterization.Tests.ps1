@@ -88,14 +88,14 @@ $script:ExistingProposals = @'
 $script:Scenarios = @(
     # Fixture text travels in the scenario data: a script variable set here (discovery) is $null in BeforeAll (run).
     @{ Name = 'rich'; Health = 'rich'; PassHealth = $true; Dictionary = 'rich'; HarvestQueue = 'mixed'; Existing = 'rich'; ExistingText = $script:ExistingProposals
-       Params = @{ Model = 'gemini-2.5-flash'; IncludeHarvestQueue = $true }; Response = $script:FullResponse }
+       Params = @{ Model = 'gemini-3.6-flash'; IncludeHarvestQueue = $true }; Response = $script:FullResponse }
     @{ Name = 'fresh-health-fallback-unmapped'; Health = 'sparse'
        Params = @{ Model = 'claude-haiku-4-5'; ApiKey = 'explicit-key'; Temperature = 0.9 }
        Response = '{"proposals":[{"action":"NEW","suggested_id":"acc-intentions-901","label":"Open Weights","pov":"accelerationist","category":"Intentions","target_node_id":null,"rationale":"r"}]}' }
     @{ Name = 'dryrun'; Health = 'rich'; PassHealth = $true; Dictionary = 'rich'; HarvestQueue = 'none-queued'; LongSystemPrompt = $true
-       Params = @{ Model = 'gemini-2.5-flash'; DryRun = $true; IncludeHarvestQueue = $true } }
+       Params = @{ Model = 'gemini-3.6-flash'; DryRun = $true; IncludeHarvestQueue = $true } }
     @{ Name = 'whatif'; Health = 'rich'; PassHealth = $true
-       Params = @{ Model = 'gemini-2.5-flash'; WhatIf = $true }
+       Params = @{ Model = 'gemini-3.6-flash'; WhatIf = $true }
        Response = '{"proposals":[{"action":"NEW","suggested_id":"acc-beliefs-902","label":"WhatIf New","pov":"accelerationist","category":"Beliefs","target_node_id":null,"rationale":"r"}]}' }
     @{ Name = 'explicit-output-file'; Health = 'rich'; PassHealth = $true; Dictionary = 'std-only'; OutputFile = 'out/custom/my-proposal.json'; Existing = 'empty-dir'
        Params = @{ Model = 'groq-openai-gpt-oss-20b' }
@@ -103,37 +103,37 @@ $script:Scenarios = @(
     @{ Name = 'err-no-key-claude'; Health = 'rich'; PassHealth = $true; NoKey = $true; Params = @{ Model = 'claude-haiku-4-5' } }
     @{ Name = 'err-no-key-groq'; Health = 'rich'; PassHealth = $true; NoKey = $true; Params = @{ Model = 'groq-openai-gpt-oss-20b' } }
     @{ Name = 'err-no-key-unknown-prefix'; Health = 'rich'; PassHealth = $true; NoKey = $true; Params = @{ Model = 'xai-grok-4-6' } }
-    @{ Name = 'err-repo-root-missing'; Health = 'rich'; PassHealth = $true; MissingRepoRoot = $true; Params = @{ Model = 'gemini-2.5-flash' } }
+    @{ Name = 'err-repo-root-missing'; Health = 'rich'; PassHealth = $true; MissingRepoRoot = $true; Params = @{ Model = 'gemini-3.6-flash' } }
     @{ Name = 'parse-repair'; Health = 'rich'; PassHealth = $true
-       Params = @{ Model = 'gemini-2.5-flash' }
+       Params = @{ Model = 'gemini-3.6-flash' }
        Response = '{"proposals":[{"action":"RELABEL","suggested_id":null,"label":"Repaired","pov":"skeptic","category":"Beliefs","target_node_id":"skp-b-1","rationale":"cut off"}' }
     @{ Name = 'parse-fail-debug-file'; Health = 'rich'; PassHealth = $true
-       Params = @{ Model = 'gemini-2.5-flash' }; Response = 'this is not json at all' }
-    @{ Name = 'api-returns-null'; Health = 'rich'; PassHealth = $true; Params = @{ Model = 'gemini-2.5-flash' }; Response = 'NULL' }
-    @{ Name = 'api-throws'; Health = 'rich'; PassHealth = $true; Params = @{ Model = 'gemini-2.5-flash' }; Response = 'THROW:503 Service Unavailable' }
-    @{ Name = 'missing-proposals-array'; Health = 'rich'; PassHealth = $true; Params = @{ Model = 'gemini-2.5-flash' }; Response = '{"notes":"nothing to propose"}' }
+       Params = @{ Model = 'gemini-3.6-flash' }; Response = 'this is not json at all' }
+    @{ Name = 'api-returns-null'; Health = 'rich'; PassHealth = $true; Params = @{ Model = 'gemini-3.6-flash' }; Response = 'NULL' }
+    @{ Name = 'api-throws'; Health = 'rich'; PassHealth = $true; Params = @{ Model = 'gemini-3.6-flash' }; Response = 'THROW:503 Service Unavailable' }
+    @{ Name = 'missing-proposals-array'; Health = 'rich'; PassHealth = $true; Params = @{ Model = 'gemini-3.6-flash' }; Response = '{"notes":"nothing to propose"}' }
     @{ Name = 'write-fails'; Health = 'rich'; PassHealth = $true; FailWrite = $true
-       Params = @{ Model = 'gemini-2.5-flash' }; Response = '{"proposals":[]}' }
+       Params = @{ Model = 'gemini-3.6-flash' }; Response = '{"proposals":[]}' }
     # Formerly pinned defects, fixed in t/4076 (the names are kept so the goldens' history stays readable).
     @{ Name = 'bug-proposal-missing-pov'; Health = 'rich'; PassHealth = $true
-       Params = @{ Model = 'gemini-2.5-flash' }
+       Params = @{ Model = 'gemini-3.6-flash' }
        Response = '{"proposals":[{"action":"NEW","suggested_id":"x-1","label":"No pov key","category":"Beliefs","rationale":"r"}]}' }
     @{ Name = 'bug-display-merge-without-suggested-id'; Health = 'rich'; PassHealth = $true
-       Params = @{ Model = 'gemini-2.5-flash' }
+       Params = @{ Model = 'gemini-3.6-flash' }
        Response = '{"proposals":[{"action":"MERGE","label":"Merge","pov":"skeptic","category":"Beliefs","rationale":"r","merge_node_ids":["skp-b-1","skp-b-2"],"surviving_node_id":"skp-b-1"}]}' }
     @{ Name = 'bug-dictionary-term-missing-field'; Health = 'rich'; PassHealth = $true; Dictionary = 'std-missing-field'
-       Params = @{ Model = 'gemini-2.5-flash'; DryRun = $true } }
+       Params = @{ Model = 'gemini-3.6-flash'; DryRun = $true } }
     # t/4076: crash paths no earlier golden reached.
     @{ Name = 'merge-without-label-with-existing'; Health = 'rich'; PassHealth = $true; Existing = 'rich'; ExistingText = $script:ExistingProposals
-       Params = @{ Model = 'gemini-2.5-flash' }
+       Params = @{ Model = 'gemini-3.6-flash' }
        Response = '{"proposals":[{"action":"MERGE","pov":"accelerationist","rationale":"r","merge_node_ids":["acc-d-1","acc-d-9"],"surviving_node_id":"acc-d-1"}]}' }
     @{ Name = 'proposal-missing-action'; Health = 'rich'; PassHealth = $true
-       Params = @{ Model = 'gemini-2.5-flash' }
+       Params = @{ Model = 'gemini-3.6-flash' }
        Response = '{"proposals":[{"label":"No action key","pov":"skeptic","category":"Beliefs","rationale":"r"},{"action":"NEW","suggested_id":"skp-beliefs-903","label":"Kept","pov":"skeptic","category":"Beliefs","rationale":"r"}]}' }
     # Not named proposals-*: .gitignore ignores proposals-*.json, which would drop the golden.
-    @{ Name = 'null-proposals-key'; Health = 'rich'; PassHealth = $true; Params = @{ Model = 'gemini-2.5-flash' }; Response = '{"proposals":null}' }
+    @{ Name = 'null-proposals-key'; Health = 'rich'; PassHealth = $true; Params = @{ Model = 'gemini-3.6-flash' }; Response = '{"proposals":null}' }
     @{ Name = 'colloquial-term-missing-status'; Health = 'rich'; PassHealth = $true; Dictionary = 'col-missing-status'
-       Params = @{ Model = 'gemini-2.5-flash'; DryRun = $true } }
+       Params = @{ Model = 'gemini-3.6-flash'; DryRun = $true } }
 )
 
 BeforeAll {

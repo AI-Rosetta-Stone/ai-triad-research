@@ -43,7 +43,7 @@ function Invoke-POVSummary {
         When used, -DocId is ignored.
     .PARAMETER ModelEscalation
         Model to use for re-extraction of under-extracted documents.
-        Default: "gemini-2.5-flash".
+        Default: "gemini-3.5-flash-lite".
     .EXAMPLE
         Invoke-POVSummary -DocId "altman-2024-agi-path"
     .EXAMPLE
@@ -92,7 +92,7 @@ function Invoke-POVSummary {
 
         [ValidateScript({ Test-AIModelId $_ })]
         [ArgumentCompleter({ param($cmd, $param, $word) $script:ValidModelIds | Where-Object { $_ -like "$word*" } })]
-        [string]$ModelEscalation = "gemini-2.5-flash",
+        [string]$ModelEscalation = "gemini-3.5-flash-lite",
 
         [int]$RagMaxTotal = 300,
 

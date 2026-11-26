@@ -4,7 +4,7 @@
     "[Cyan] === Regenerate Lineage Content ===",
     "[default]   Nodes to process: 3",
     "[default]   Batch size: 2 nodes/batch",
-    "[default]   Model: gemini-2.5-flash",
+    "[default]   Model: gemini-3.6-flash",
     "[default]   Total batches: 2",
     "[Gray][nn]   Batch 1/2 (2 nodes: r-1, r-2)...",
     "[Green]  done (2 nodes)",
@@ -37,7 +37,7 @@
     {
       "call": "ai",
       "index": 1,
-      "model": "gemini-2.5-flash",
+      "model": "gemini-3.6-flash",
       "apiKey": "",
       "temperature": 0.3,
       "maxTokens": 16384,
@@ -53,7 +53,7 @@
     {
       "call": "ai",
       "index": 2,
-      "model": "gemini-2.5-flash",
+      "model": "gemini-3.6-flash",
       "apiKey": "",
       "temperature": 0.3,
       "maxTokens": 16384,

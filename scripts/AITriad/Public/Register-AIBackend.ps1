@@ -89,7 +89,6 @@ function Register-AIBackend {
     # 'id =', not 'model =' / -Model), so the guard is the backstop against drift.
     $Models = @(
         @{ id = 'gemini-3.5-flash-lite';          label = 'Gemini 3.5 Flash Lite (default)'; backend = 'gemini' }
-        @{ id = 'gemini-2.5-pro';                 label = 'Gemini 2.5 Pro';                  backend = 'gemini' }
         @{ id = 'claude-opus-4-8';                label = 'Claude Opus 4.8';                 backend = 'claude' }
         @{ id = 'claude-sonnet-4-5';              label = 'Claude Sonnet 4.5';               backend = 'claude' }
         @{ id = 'claude-haiku-4-5';               label = 'Claude Haiku 4.5';                backend = 'claude' }
@@ -221,11 +220,9 @@ function Register-AIBackend {
       <li>Select or create a Google Cloud project</li>
       <li>Copy the generated key and paste it above</li>
     </ol>
-    <p>The free tier includes generous rate limits for <code>gemini-3.5-flash-lite</code> and
-       <code>gemini-3.5-flash-lite</code>. The <code>gemini-2.5-pro</code> model
-       requires a paid plan for higher usage.</p>
+    <p>The free tier includes generous rate limits for <code>gemini-3.5-flash-lite</code>. Larger models may require a paid plan for higher usage.</p>
     <p><strong>Models available:</strong> Gemini 3.1 Flash Lite (fastest, cheapest),
-       Gemini 2.5 Flash (balanced), Gemini 2.5 Flash Lite, Gemini 2.5 Pro (most capable).</p>
+       Gemini 3.5 Flash Lite, Gemini 3.8 Flash.</p>
   </div>
 </div>
 
