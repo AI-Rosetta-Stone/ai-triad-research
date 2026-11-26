@@ -102,10 +102,11 @@ param stagingLoadTestSize bool = false
 // (freeTierGeminiKeyStaging, secret free-tier-gemini-key-staging). Staging's calls now draw on its
 // own pool, not prod's. The cap is '300': room for staging's smoke/acceptance runs, still well under
 // the code default (1500), and a bound on the staging key's own spend (the PI owns this number).
-// If freeTierGeminiKeyStaging is empty, staging falls back to the shared pool (the deploy WARNs).
-// The cap then has to protect prod's quota again, so stagingFreePoolCap below drops back to the
-// interim '200' (SO condition 1, t/261). Test-StagingEnvCliDrift compares against this param's
-// default, so in that fallback arm it reports a Mismatch, a deliberate visible signal.
+// If freeTierGeminiKeyStaging is empty, staging has NO free-tier key (t/654: it never draws on
+// prod's pool key; the deploy WARNs). stagingFreePoolCap below still drops to the interim '200' in
+// that arm (SO condition 1, t/261), though with no key behind it the cap bounds nothing.
+// Test-StagingEnvCliDrift compares against this param's default, so in that no-key arm it reports
+// a Mismatch, a deliberate visible signal.
 @description('FREE_POOL_DAILY_CALLS_CAP override for staging (t/4732). Staging has its own Gemini free-tier key; this bounds that key\'s daily calls. A staging-only value goes here, in Bicep, never by CLI (t/4728).')
 param freePoolDailyCallsCapStaging string = '300'
 
@@ -265,6 +266,19 @@ param githubAppPrivateKeySecretNameStaging string = 'github-app-private-key-stag
 ])
 param stagingKeyVaultUrl string = 'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net/'
 
+// t/669 (PI yes, t/669#11): each app's EasyAuth session cookie is encrypted and signed with OUR keys
+// from ITS OWN vault (easyauth-encryption-key, easyauth-signing-key; openssl rand -hex 32, generated
+// in the vault by Azure so no one sees them), instead of platform keys that may change per revision
+// and sign every user out at each deploy. One switch per app, so staging goes first and proves the
+// key format and a session surviving a revision; prod follows. ORDERING: a Key Vault-referenced
+// secret that does not exist makes ACA reject the WHOLE apply (prod included), so a switch may only
+// be true once that environment's pair exists in its vault (Azure's read-back on t/669).
+// tests/BicepEasyAuthKeys.Tests.ps1 pins each app to its own vault.
+@description('t/669: staging uses its own EasyAuth cookie keys from kv-ait-stg. True only after both secrets exist there.')
+param easyAuthOwnKeysStaging bool = true
+@description('t/669: prod uses its own EasyAuth cookie keys from kv-ait. True only after both secrets exist there, and after staging proved them.')
+param easyAuthOwnKeysProd bool = false
+
 @secure()
 @description('Optional GITHUB_TOKEN (PAT) fallback when no App is registered. Prefer the App for production.')
 param githubToken string = ''
@@ -278,7 +292,7 @@ param githubWebhookSecret string = ''
 param freeTierGeminiKey string = ''
 
 @secure()
-@description('Staging-only Gemini free-tier key (t/4732, PI decision 2026-11-10), in its own pool so staging no longer draws on prod\'s. When set, ONLY the staging app gets it, as secret free-tier-gemini-key-staging. Empty falls back to the shared freeTierGeminiKey, and the deploy logs a WARN.')
+@description('Staging-only Gemini free-tier key (t/4732, PI decision 2026-11-10), in its own pool so staging no longer draws on prod\'s. When set, ONLY the staging app gets it, as secret free-tier-gemini-key-staging. Empty leaves staging with no free-tier key at all (t/654: there is no fallback to prod\'s freeTierGeminiKey), and the deploy logs a WARN.')
 param freeTierGeminiKeyStaging string = ''
 
 @secure()
@@ -326,7 +340,8 @@ var freeTierEnabled = !empty(freeTierGeminiKey)
 var freeTierSecretName = 'free-tier-gemini-key'
 var freeTierStagingKeyProvided = !empty(freeTierGeminiKeyStaging)
 var freeTierStagingSecretName = 'free-tier-gemini-key-staging'
-// t/4732 SO condition 1: the higher cap applies only on staging's own key. On the shared-pool fallback it's the interim 200.
+// t/4732 SO condition 1: the higher cap applies only on staging's own key. Without that key staging has no
+// free-tier key at all (t/654: no fallback to prod's pool), so the '200' then caps a pool with no key behind it.
 var stagingFreePoolCap = freeTierStagingKeyProvided ? freePoolDailyCallsCapStaging : '200'
 var paidTierEnabled = !empty(geminiPaidKey)
 var paidTierSecretName = 'gemini-paid-key'
@@ -337,18 +352,54 @@ var sharedOauthSecrets = concat(
   githubTokenProvided ? [ { name: githubTokenSecretName, value: githubToken } ] : [],
   githubWebhookSecretProvided ? [ { name: githubWebhookSecretName, value: githubWebhookSecret } ] : []
 )
-var oauthSecrets = concat(sharedOauthSecrets,
+// t/669: the EasyAuth key secrets are Key Vault references read by the app's system identity, so no
+// value is in this template. Prod reads the shared vault (keyVault, below); staging reads ONLY its own
+// vault (stagingKeyVaultUrl, pinned by @allowed). Same names in both vaults; different values.
+var easyAuthEncryptionSecretName = 'easyauth-encryption-key'
+var easyAuthSigningSecretName = 'easyauth-signing-key'
+var easyAuthKeySecretsProd = easyAuthOwnKeysProd ? [
+  { name: easyAuthEncryptionSecretName, keyVaultUrl: '${keyVault.properties.vaultUri}secrets/${easyAuthEncryptionSecretName}', identity: 'system' }
+  { name: easyAuthSigningSecretName, keyVaultUrl: '${keyVault.properties.vaultUri}secrets/${easyAuthSigningSecretName}', identity: 'system' }
+] : []
+var easyAuthKeySecretsStaging = easyAuthOwnKeysStaging ? [
+  { name: easyAuthEncryptionSecretName, keyVaultUrl: '${stagingKeyVaultUrl}secrets/${easyAuthEncryptionSecretName}', identity: 'system' }
+  { name: easyAuthSigningSecretName, keyVaultUrl: '${stagingKeyVaultUrl}secrets/${easyAuthSigningSecretName}', identity: 'system' }
+] : []
+var easyAuthEncryptionSettingsProd = easyAuthOwnKeysProd ? {
+  containerAppAuthEncryptionSecretName: easyAuthEncryptionSecretName
+  containerAppAuthSigningSecretName: easyAuthSigningSecretName
+} : {}
+var easyAuthEncryptionSettingsStaging = easyAuthOwnKeysStaging ? {
+  containerAppAuthEncryptionSecretName: easyAuthEncryptionSecretName
+  containerAppAuthSigningSecretName: easyAuthSigningSecretName
+} : {}
+var oauthSecrets = concat(sharedOauthSecrets, easyAuthKeySecretsProd,
   freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : [],
   paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : []
 )
-// t/269: the staging app gets its own free-tier key and no longer holds the shared one. Only when
-// the staging key is empty does staging fall back to the shared key, because its FREE_TIER_GEMINI_KEY
-// then still references it. Prod's `secrets:` stays oauthSecrets, so prod can never reference
-// free-tier-gemini-key-staging (tests/BicepStagingFreeTierKey.Tests.ps1 asserts this).
-var stagingFallbackFreeTier = freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : []
-var stagingSecrets = concat(sharedOauthSecrets,
-  paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : [],
-  freeTierStagingKeyProvided ? [ { name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging } ] : stagingFallbackFreeTier)
+// t/654 (t/92 B2; PI 2026-11-25, TL p/12#265/#267): staging holds NO prod secret except the three
+// sign-in OAuth client secrets, which the PI accepted as a risk (t/92#73, review 2027-02-25).
+//   - no gemini-paid-key: staging uses the free tier only (env reference gone now; the secret entry
+//     goes in step 2, see stagingPaidKeyRetained);
+//   - no github-sync-token or github-webhook-secret, ever;
+//   - no fallback to prod's free-tier-gemini-key: staging's FREE_TIER_GEMINI_KEY comes only from its own
+//     key (t/269). With the staging key empty, staging has no free-tier key and deploy-azure WARNs.
+// Prod's `secrets:` stays oauthSecrets, so prod can never reference free-tier-gemini-key-staging.
+// tests/BicepStagingNoProdSecrets.Tests.ps1 pins the allow-list.
+var stagingOauthSecrets = concat(
+  googleEnabled ? [ { name: googleClientSecretName, value: googleClientSecret } ] : [],
+  githubEnabled ? [ { name: githubClientSecretName, value: githubClientSecret } ] : [],
+  aadEnabled ? [ { name: aadClientSecretName, value: aadClientSecret } ] : []
+)
+// STEP 1 of 2: staging's env stops referencing gemini-paid-key (stagingContainerEnv below), but the secret
+// itself stays for now. ACA rejects an apply that drops a secret an ACTIVE revision still references, and
+// that one apply also deploys prod (deploy-azure.yml, t/4732 SO condition 3). Step 2 removes this entry
+// once no active staging revision references it (t/654).
+var stagingPaidKeyRetained = paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : []
+// t/669: staging's OWN EasyAuth cookie keys (its vault, per environment) are allowed; never prod's.
+var stagingSecrets = concat(stagingOauthSecrets, easyAuthKeySecretsStaging,
+  stagingPaidKeyRetained,
+  freeTierStagingKeyProvided ? [ { name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging } ] : [])
 
 // ── Log Analytics ──
 
@@ -968,11 +1019,11 @@ var stagingBaseEnv = concat(
   filter(baseEnv, e => !contains(stagingOverriddenKeys, e.name)),
   stagingEnvOverrides
 )
-// Same secret entries as prod, so staging stays a faithful pre-prod proxy (same oauth/ai
-// secrets, different write path). The one exception (t/4732) is FREE_TIER_GEMINI_KEY, which points
-// at staging's own key when one is provided. Empty keeps the shared prod pool key.
-var stagingExtraFreeTier = freeTierStagingKeyProvided ? [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierStagingSecretName } ] : extraFreeTier
-var stagingContainerEnv = concat(stagingBaseEnv, extraGithubToken, extraGithubWebhook, stagingExtraFreeTier, extraPaidTier)
+// t/654 (t/92 B2): staging's env references no prod secret. FREE_TIER_GEMINI_KEY points at staging's own
+// key (t/4732) and nothing else: no fallback to prod's pool key. No GEMINI_PAID_KEY (PI: staging is
+// free tier only), and no GITHUB_TOKEN or GITHUB_WEBHOOK_SECRET.
+var stagingExtraFreeTier = freeTierStagingKeyProvided ? [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierStagingSecretName } ] : []
+var stagingContainerEnv = concat(stagingBaseEnv, stagingExtraFreeTier)
 
 // API 2025-01-01 (was 2024-03-01): first GA version whose Scale type has cooldownPeriod (t/4249).
 resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
@@ -1383,6 +1434,8 @@ resource authConfig 'Microsoft.App/containerApps/authConfigs@2024-10-02-preview'
     globalValidation: {
       unauthenticatedClientAction: 'AllowAnonymous'
     }
+    // t/669: our own cookie keys from this app's own vault when its switch is on; {} = platform keys.
+    encryptionSettings: easyAuthEncryptionSettingsProd
     identityProviders: {
       google: {
         enabled: googleEnabled
@@ -1456,6 +1509,8 @@ resource authConfigStaging 'Microsoft.App/containerApps/authConfigs@2024-10-02-p
     globalValidation: {
       unauthenticatedClientAction: 'AllowAnonymous'
     }
+    // t/669: our own cookie keys from this app's own vault when its switch is on; {} = platform keys.
+    encryptionSettings: easyAuthEncryptionSettingsStaging
     identityProviders: {
       google: {
         enabled: googleEnabled

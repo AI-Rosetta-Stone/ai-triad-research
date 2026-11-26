@@ -21,7 +21,7 @@ const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
 import { generateKeyPairSync } from 'node:crypto';
-import { getCredentials } from '../security/githubAppAuth.js';
+import { getCredentials, resetPatFallbackWarnState, PAT_FALLBACK_WARN_INTERVAL_MS } from '../security/githubAppAuth.js';
 
 // One real key for every test: githubAppAuth caches the first private key it loads.
 const TEST_PEM = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' }).toString();
@@ -33,6 +33,7 @@ beforeEach(() => {
   for (const k of ENV_KEYS) { SAVED[k] = process.env[k]; delete process.env[k]; }
   frRecord.mockClear();
   mockFetch.mockReset();
+  resetPatFallbackWarnState();
   process.env.GITHUB_REPO = 'owner/repo';
   process.env.GITHUB_TOKEN = 'pat-env-token';
 });
@@ -93,5 +94,48 @@ describe('t/653: the hosted PAT fallback is never silent', () => {
     const creds = await getCredentials();
     expect(creds).toEqual({ repo: 'owner/repo', token: 'app-install-token', mode: 'app' });
     expect(frRecord).not.toHaveBeenCalled();
+  });
+
+  it('t/679: 100 fallbacks with the same reason give one report, then one summary with the suppressed count after the interval', async () => {
+    process.env.CONTAINER_APP_NAME = 'taxonomy-editor';
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-11-26T00:00:00Z'));
+      for (let i = 0; i < 100; i++) expect((await getCredentials())?.mode).toBe('pat');
+      expect(frCalls()).toHaveLength(1);
+      vi.setSystemTime(new Date(Date.now() + PAT_FALLBACK_WARN_INTERVAL_MS));
+      await getCredentials();
+      const calls = frCalls();
+      expect(calls).toHaveLength(2);
+      expect(calls[1].message).toContain('99 more fallback(s) since the last report');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('t/679: a change of reason is reported at once, inside the interval', async () => {
+    process.env.CONTAINER_APP_NAME = 'taxonomy-editor';
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(Date.now() + 2 * 3600_000); // past any install token an earlier test cached; all 3 calls share this instant
+      await getCredentials(); // App not configured: reported
+      await getCredentials(); // same reason, same instant: suppressed
+      process.env.GITHUB_APP_ID = '1';
+      process.env.GITHUB_APP_INSTALLATION_ID = '2';
+      process.env.GITHUB_APP_PRIVATE_KEY = TEST_PEM;
+      mockFetch.mockRejectedValue(new Error('network down'));
+      await getCredentials(); // mint failed: a new reason, same instant
+    } finally {
+      vi.useRealTimers();
+    }
+    const calls = frCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[1].message).toMatch(/mint failed/);
+  });
+
+  it('t/679: the staging refusal is unchanged (every call records an error)', async () => {
+    process.env.CONTAINER_APP_NAME = 'taxonomy-editor-staging';
+    for (let i = 0; i < 3; i++) expect(await getCredentials()).toBeNull();
+    expect(frCalls().filter((c) => c.error.name === 'StagingPatFallbackRefused')).toHaveLength(3);
   });
 });

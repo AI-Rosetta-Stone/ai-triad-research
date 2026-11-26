@@ -502,8 +502,8 @@ jobs:
             echo "::error::vars.IDENTITY_MAP contains a quote, backtick or \$ — not supported (t/4326)."
             exit 1
           fi
-          # t/4732: staging's dedicated free-tier key. Empty falls back to the shared prod pool key
-          # (main.bicep stagingExtraFreeTier, cap back to 200), so say so instead of falling back silently.
+          # t/4732: staging's dedicated free-tier key. Empty leaves staging with NO free-tier key: since t/654
+          # (t/92 B2) staging never falls back to prod's pool key (main.bicep stagingExtraFreeTier), so say so.
           # SO condition 3 (t/261): once the staging app HOLDS free-tier-gemini-key-staging, an empty
           # secret would make this apply drop a secret its active revision references. ACA rejects that,
           # and the rejection would fail the PROD deploy too (one apply). Fail here, before any change.
@@ -517,7 +517,7 @@ jobs:
               echo "::error::t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty, but the staging app already holds secret free-tier-gemini-key-staging. Applying would drop a secret its active revision references, and ACA would reject the whole apply, prod included. Restore the GitHub secret before deploying."
               exit 1
             fi
-            echo "::warning::WARN t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty — staging falls back to the SHARED prod free-tier key pool (free-tier-gemini-key), at the interim cap of 200."
+            echo "::warning::WARN t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty — staging gets NO free-tier key (t/654: it never falls back to prod's free-tier-gemini-key), so staging AI calls on the free pool will fail until the staging key is set."
           fi
           echo "Previewing infrastructure changes..."
           RESULT=$(az deployment group what-if \
