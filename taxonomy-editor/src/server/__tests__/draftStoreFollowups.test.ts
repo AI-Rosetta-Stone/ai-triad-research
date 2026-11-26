@@ -125,6 +125,79 @@ describe('DraftStore follow-ups (t/507)', () => {
     expect(files.has(normalize('community/_drafts/claims/drf_badexp.json'))).toBe(false);
   });
 
+  const warned = (text: string) => vi.mocked(log.server.warn).mock.calls.some(c => String(c[0]).includes(text));
+  const DRAFT = normalize('community/_drafts/drf_x.json');
+  const CLAIM = normalize('community/_drafts/claims/drf_x.json');
+
+  it.each([['', 'empty'], ['  \n', 'whitespace-only']])('t/738: a draft that reads as %j (%s) is kept, with a WARN', async (content) => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    files.set(DRAFT, content);
+    files.set(CLAIM, content);
+    expect((await store.sweepExpiredDrafts()).deleted).toBe(0);
+    expect(files.has(DRAFT)).toBe(true);
+    expect(files.has(CLAIM)).toBe(true);
+    expect(warned('draft community/_drafts/drf_x.json read as empty (kept')).toBe(true);
+    expect(warned('claim marker community/_drafts/claims/drf_x.json read as empty (kept')).toBe(true);
+  });
+
+  it('t/738: a truncated read of a live draft does not delete it (the second read differs)', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    const live = JSON.stringify({ draftId: 'drf_x', expiresAt: new Date(9_000_000).toISOString() });
+    files.set(DRAFT, live);
+    let reads = 0;
+    (mockBackend.readFile as any).mockImplementation(async (p: string) => {
+      const full = files.get(normalize(p)) ?? null;
+      return normalize(p) === DRAFT && reads++ === 0 && full ? full.slice(0, 20) : full; // first read is torn
+    });
+    expect((await store.sweepExpiredDrafts()).deleted).toBe(0);
+    expect(files.get(DRAFT)).toBe(live);
+    expect(warned('read as corrupt, but a second read differed (kept')).toBe(true);
+    expect(mockBackend.deleteFile).not.toHaveBeenCalled();
+  });
+
+  it('t/738: a record that vanishes between the two reads is not deleted', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    files.set(CLAIM, '{bad');
+    let reads = 0;
+    (mockBackend.readFile as any).mockImplementation(async (p: string) =>
+      (normalize(p) === CLAIM && reads++ > 0 ? null : files.get(normalize(p)) ?? null));
+    expect((await store.sweepExpiredDrafts()).deleted).toBe(0);
+    expect(mockBackend.deleteFile).not.toHaveBeenCalled();
+  });
+
+  it('t/738: a corrupt draft is deleted only after two identical reads, and the delete is logged with path and reason', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    files.set(DRAFT, '{bad');
+    expect((await store.sweepExpiredDrafts()).deleted).toBe(1);
+    expect(files.has(DRAFT)).toBe(false);
+    expect(vi.mocked(mockBackend.readFile).mock.calls.filter(c => normalize(String(c[0])) === DRAFT)).toHaveLength(2);
+    expect(warned('deleting draft community/_drafts/drf_x.json on sight, reason corrupt')).toBe(true);
+  });
+
+  it('t/738: a claim marker with a bad expiresAt is deleted after two identical reads, logged with path and reason', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    files.set(CLAIM, JSON.stringify({ draftId: 'drf_x', expiresAt: 'not-a-date' }));
+    expect((await store.sweepExpiredDrafts()).deleted).toBe(1);
+    expect(warned('deleting claim marker community/_drafts/claims/drf_x.json on sight, reason bad_expiry')).toBe(true);
+  });
+
+  it('t/738: an expired record is deleted on one read with no delete-on-sight WARN, and a live one is kept', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 5_000_000 });
+    files.set(DRAFT, JSON.stringify({ draftId: 'drf_x', expiresAt: new Date(1_000_000).toISOString() }));
+    files.set(CLAIM, JSON.stringify({ draftId: 'drf_x', expiresAt: new Date(9_000_000).toISOString() }));
+    expect((await store.sweepExpiredDrafts()).deleted).toBe(1);
+    expect(files.has(DRAFT)).toBe(false);
+    expect(files.has(CLAIM)).toBe(true);
+    expect(warned('on sight')).toBe(false);
+  });
+
+  it('t/738: the record content is never written to the log', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    files.set(DRAFT, '{"secret-payload-marker": ');
+    await store.sweepExpiredDrafts();
+    expect(warned('secret-payload-marker')).toBe(false);
+  });
+
   it('item 4: a failed draft read carries the original error as innerError', async () => {
     const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
     const created = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'c-read' });

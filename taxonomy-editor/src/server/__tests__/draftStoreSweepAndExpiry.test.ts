@@ -162,7 +162,7 @@ describe('DraftStore expiry, sweep and logging (t/185 TL t/185#44)', () => {
     (mockBackend.deleteFile as any).mockImplementationOnce(async () => { throw new Error('delete boom'); });
     const { deleted } = await store.sweepExpiredDrafts();
     expect(deleted).toBe(0);
-    expect(vi.mocked(log.server.warn).mock.calls.some(c => String(c[0]).includes('could not delete dead draft'))).toBe(true);
+    expect(vi.mocked(log.server.warn).mock.calls.some(c => String(c[0]).includes('could not sweep draft community/_drafts/') && String(c[0]).includes('delete boom'))).toBe(true);
   });
 
   it('an unparseable record is swept as dead, not left in place', async () => {

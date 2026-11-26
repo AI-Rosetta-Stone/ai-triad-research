@@ -639,20 +639,7 @@ class DraftStoreImpl implements DraftStore {
       const files = await this.backend.listDirectory('community/_drafts');
       for (const file of files) {
         if (!file.endsWith('.json')) continue;
-        const draftPath = `community/_drafts/${file}`;
-        try {
-          const data = await this.backend.readFile(draftPath);
-          if (data !== null && this.isDeadRecord(data)) {
-            try {
-              await this.backend.deleteFile(draftPath);
-              deleted++;
-            } catch (err) {
-              log.server.warn(`sweepExpiredDrafts: could not delete dead draft ${draftPath}: ${(err as any)?.message} (skipped; retried on next sweep)`);
-            }
-          }
-        } catch (err) {
-          log.server.warn(`sweepExpiredDrafts: could not read ${draftPath}: ${(err as any)?.message} (skipped)`);
-        }
+        if (await this.sweepRecord(`community/_drafts/${file}`, 'draft')) deleted++;
       }
       // Claim markers live in claims/ (listDirectory is not recursive). They carry expiresAt, so the same rule applies.
       await this.sweepExpiredClaimMarkers((n) => { deleted += n; });
@@ -668,19 +655,53 @@ class DraftStoreImpl implements DraftStore {
     return { deleted };
   }
 
-  // A record is dead when it cannot be parsed or its expiresAt is not a date, or when it is past its expiry.
-  // Dead records are swept. Corrupt records have no age on the StorageBackend interface, so they are not
-  // quarantined by age; they cannot be finalized or honoured, so they are removed on sight (t/507, SO follow-up).
-  private isDeadRecord(data: string): boolean {
-    let rec: { expiresAt?: unknown };
+  // What one read of a record says about it. `empty` is never grounds for a delete: an empty or
+  // whitespace-only read is how a failed or racing read looks, and the record may be live (t/738).
+  private classifyRecord(data: string): 'live' | 'expired' | 'empty' | 'corrupt' | 'bad_expiry' {
+    if (data.trim() === '') return 'empty';
+    let rec: { expiresAt?: unknown } | null;
     try {
       rec = JSON.parse(data);
     } catch {
-      /* telemetry — silent by design (a corrupt record is swept as dead; the sweep logs its delete) */
-      return true;
+      /* telemetry — silent by design (the caller logs what it does with a corrupt record) */
+      return 'corrupt';
     }
-    const expiry = new Date(rec.expiresAt as string).getTime();
-    return Number.isNaN(expiry) || expiry < this.now();
+    const expiry = new Date((rec as { expiresAt?: unknown } | null)?.expiresAt as string).getTime();
+    if (Number.isNaN(expiry)) return 'bad_expiry';
+    return expiry < this.now() ? 'expired' : 'live';
+  }
+
+  // Sweeps one draft or claim-marker record; true when it was deleted. Never throws.
+  // - expired: deleted (the ordinary TTL path).
+  // - empty read: kept, with a WARN.
+  // - corrupt or bad expiresAt: such a record has no age on the StorageBackend interface, so it cannot be
+  //   quarantined by age, and it can never be finalized or honoured. It is deleted on sight, but only after
+  //   a second read returns the identical content (one truncated or torn read must not delete a live
+  //   record), and every such delete is logged with its path and reason (t/507 SO follow-up; t/738, Security).
+  private async sweepRecord(recordPath: string, kind: 'draft' | 'claim marker'): Promise<boolean> {
+    try {
+      const data = await this.backend.readFile(recordPath);
+      if (data === null) return false;
+      const verdict = this.classifyRecord(data);
+      if (verdict === 'live') return false;
+      if (verdict === 'empty') {
+        log.server.warn(`sweepExpiredDrafts: ${kind} ${recordPath} read as empty (kept; an empty read is not proof the record is dead)`);
+        return false;
+      }
+      if (verdict !== 'expired') {
+        const again = await this.backend.readFile(recordPath);
+        if (again !== data) {
+          log.server.warn(`sweepExpiredDrafts: ${kind} ${recordPath} read as ${verdict}, but a second read differed (kept; retried on next sweep)`);
+          return false;
+        }
+        log.server.warn(`sweepExpiredDrafts: deleting ${kind} ${recordPath} on sight, reason ${verdict} (two identical reads, ${data.length} chars)`);
+      }
+      await this.backend.deleteFile(recordPath);
+      return true;
+    } catch (err) {
+      log.server.warn(`sweepExpiredDrafts: could not sweep ${kind} ${recordPath}: ${(err as any)?.message} (skipped; retried on next sweep)`);
+      return false;
+    }
   }
 
   private async sweepExpiredClaimMarkers(addDeleted: (n: number) => void): Promise<void> {
@@ -693,17 +714,7 @@ class DraftStoreImpl implements DraftStore {
     }
     for (const file of files) {
       if (!file.endsWith('.json')) continue;
-      const claimPath = `community/_drafts/claims/${file}`;
-      try {
-        const data = await this.backend.readFile(claimPath);
-        if (data === null) continue;
-        if (this.isDeadRecord(data)) {
-          await this.backend.deleteFile(claimPath);
-          addDeleted(1);
-        }
-      } catch (err) {
-        log.server.warn(`sweepExpiredDrafts: could not sweep claim marker ${claimPath}: ${(err as any)?.message} (skipped)`);
-      }
+      if (await this.sweepRecord(`community/_drafts/claims/${file}`, 'claim marker')) addDeleted(1);
     }
   }
 
