@@ -445,6 +445,17 @@ function respondAiSearchError(res: http.ServerResponse, err: unknown): void {
   error(res, String(err), 500, err);
 }
 
+/** t/748: the first problem with a compute body's `texts` (already known to be an array) and optional `ids`, as a
+ *  message naming the index, or null when every element is a string. */
+export function firstBadEmbeddingInput(texts: unknown[], ids: unknown): string | null {
+  const badText = texts.findIndex(t => typeof t !== 'string');
+  if (badText >= 0) return `texts[${badText}] must be a string`;
+  if (ids === undefined || ids === null) return null;
+  if (!Array.isArray(ids)) return 'ids must be an array of strings';
+  const badId = ids.findIndex(i => typeof i !== 'string');
+  return badId >= 0 ? `ids[${badId}] must be a string` : null;
+}
+
 export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
   const { get, post } = r;
 
@@ -774,6 +785,12 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       error(res, `Batch too large (${count}) — max ${MAX_EMBED_BATCH} texts per request`, 413);
       return;
     }
+    // t/748: a non-string element is the caller's mistake (400 naming the first bad index), not a worker failure (500).
+    const badInput = firstBadEmbeddingInput(texts, ids);
+    if (badInput) {
+      error(res, badInput, 400, undefined, { code: 'INVALID_EMBEDDING_INPUT' });
+      return;
+    }
     try {
       const gate = freeTierEmbeddingGate(req, res);
       if (gate.blocked) return;
@@ -869,6 +886,11 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
         res.end(JSON.stringify({ error: 'Embedding compute timed out — retry after backoff', retryable: true, retryAfterMs: 5000 }));
         return;
       }
+      // t/748: the lib rejects a non-string text before the worker with this stable code (#5595); the chain-exhaustion error keeps it.
+      if ((err as { code?: unknown }).code === 'INVALID_EMBEDDING_INPUT') {
+        error(res, `Invalid embedding input: ${(err as Error).message}`, 400, undefined, { code: 'INVALID_EMBEDDING_INPUT' });
+        return;
+      }
       error(res, String(err), 500, err);
     }
     });
@@ -878,6 +900,10 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
   // semantic search finishes the cheap query-embedding step (not just the corpus one).
   post('/api/embeddings/query', (req, res, body) => withEndpointTimeout(res, 35_000, 'embeddings-query', async () => {
     const { text } = body as { text: string };
+    if (typeof text !== 'string') { // t/748: same gap as /compute
+      error(res, 'text must be a string', 400, undefined, { code: 'INVALID_EMBEDDING_INPUT' });
+      return;
+    }
     try {
       const gate = freeTierEmbeddingGate(req, res);
       if (gate.blocked) return;
