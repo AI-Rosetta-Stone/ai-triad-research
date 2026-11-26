@@ -99,7 +99,9 @@ export function LibraryGettingStarted<T>({
   // toggle always wins; there is no hasNoItems override anymore (Design's t/4639#1 spec: "absent
   // → expanded, for every user" already covers the "no items yet" case that override was for).
   const [dismissed, setDismissed] = useLibraryIntroDismissed(storageKey);
-  const expanded = !dismissed;
+  // t/719: a notice in place of the chips is always shown; the card has no examples to hide, so no toggle.
+  const collapsible = insteadOfChips === undefined;
+  const expanded = !collapsible || !dismissed;
   const headingId = `lib-getting-started-heading-${storageKey}`;
   const bodyId = `lib-getting-started-body-${storageKey}`;
 
@@ -116,21 +118,25 @@ export function LibraryGettingStarted<T>({
   return (
     <div className="lib-getting-started" data-expanded={expanded} role="region" aria-labelledby={headingId}>
       <h2 className="lib-getting-started-heading" id={headingId}>
-        <button
-          type="button"
-          className="lib-getting-started-toggle"
-          aria-expanded={expanded}
-          aria-controls={bodyId}
-          onClick={() => setDismissed(expanded)}
-        >
+        {collapsible ? (
+          <button
+            type="button"
+            className="lib-getting-started-toggle"
+            aria-expanded={expanded}
+            aria-controls={bodyId}
+            onClick={() => setDismissed(expanded)}
+          >
+            <span className="lib-getting-started-title">{heading}</span>
+            <span className="lib-getting-started-toggle-label">
+              {expanded ? 'Hide examples' : 'Show examples'}
+              <svg className="lib-getting-started-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+          </button>
+        ) : (
           <span className="lib-getting-started-title">{heading}</span>
-          <span className="lib-getting-started-toggle-label">
-            {expanded ? 'Hide examples' : 'Show examples'}
-            <svg className="lib-getting-started-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </span>
-        </button>
+        )}
       </h2>
       <div id={bodyId} className="lib-getting-started-body" hidden={!expanded}>
         <p className="lib-getting-started-why">{why}</p>

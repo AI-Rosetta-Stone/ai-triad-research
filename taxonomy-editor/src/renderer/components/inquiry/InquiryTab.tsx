@@ -286,6 +286,7 @@ export function InquiryTab() {
     },
     searchPlaceholderMy: 'Search my questions…',
     searchPlaceholderCommunity: 'Search questions from the community…',
+    communityEmptyLabel: 'questions shared', // Design p/25#205: 'No questions shared yet.'
     // t/84: also match the displayed (possibly renamed) title, not just the original question.
     filter: (rows, q) => rows.filter(r => !q
       || inquiryRowDisplayTitle(r).toLowerCase().includes(q.toLowerCase())
