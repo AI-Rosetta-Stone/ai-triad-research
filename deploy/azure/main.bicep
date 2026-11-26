@@ -102,10 +102,11 @@ param stagingLoadTestSize bool = false
 // (freeTierGeminiKeyStaging, secret free-tier-gemini-key-staging). Staging's calls now draw on its
 // own pool, not prod's. The cap is '300': room for staging's smoke/acceptance runs, still well under
 // the code default (1500), and a bound on the staging key's own spend (the PI owns this number).
-// If freeTierGeminiKeyStaging is empty, staging falls back to the shared pool (the deploy WARNs).
-// The cap then has to protect prod's quota again, so stagingFreePoolCap below drops back to the
-// interim '200' (SO condition 1, t/261). Test-StagingEnvCliDrift compares against this param's
-// default, so in that fallback arm it reports a Mismatch, a deliberate visible signal.
+// If freeTierGeminiKeyStaging is empty, staging has NO free-tier key (t/654: it never draws on
+// prod's pool key; the deploy WARNs). stagingFreePoolCap below still drops to the interim '200' in
+// that arm (SO condition 1, t/261), though with no key behind it the cap bounds nothing.
+// Test-StagingEnvCliDrift compares against this param's default, so in that no-key arm it reports
+// a Mismatch, a deliberate visible signal.
 @description('FREE_POOL_DAILY_CALLS_CAP override for staging (t/4732). Staging has its own Gemini free-tier key; this bounds that key\'s daily calls. A staging-only value goes here, in Bicep, never by CLI (t/4728).')
 param freePoolDailyCallsCapStaging string = '300'
 
