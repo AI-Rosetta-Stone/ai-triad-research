@@ -62,8 +62,14 @@ Describe 'staging holds no prod secret except the accepted OAuth three (t/654)' 
 
     It 't/669: staging''s EasyAuth keys come from STAGING''s vault, never the prod vault' {
         $script:EasyAuthStagingBody | Should -Match 'easyAuthEncryptionSecretName'
-        $script:EasyAuthStagingBody | Should -Match 'stagingKeyVaultUrl'
-        $script:EasyAuthStagingBody | Should -Not -Match 'keyVault.properties'
+        # t/711: EVERY keyVaultUrl, as written, starts with the staging vault's URL. One positive match plus a
+        # not-match on 'keyVault.properties' passed with a single key on the prod vault's literal URL.
+        # The failing arm is in BicepEasyAuthKeys.Tests.ps1.
+        $urls = @([regex]::Matches($script:EasyAuthStagingBody, 'keyVaultUrl:\s*(''[^'']*''|[^,}\r\n]+)') | ForEach-Object { $_.Groups[1].Value.Trim() })
+        $urls.Count | Should -Be 2 -Because 'the parse must see both keys (not vacuous)'
+        $foreign = @($urls | Where-Object { -not $_.StartsWith("'`${stagingKeyVaultUrl}secrets/", [StringComparison]::Ordinal) })
+        $foreign | Should -BeNullOrEmpty -Because 'a staging EasyAuth key is not read from the staging vault'
+        $script:EasyAuthStagingBody | Should -Not -Match 'keyVault\.properties'
     }
 
     It 'every var concatenated into stagingSecrets is expanded by this test (no silent gap)' {
