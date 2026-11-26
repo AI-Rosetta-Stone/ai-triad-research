@@ -43,10 +43,22 @@ test('pickExecutable: none or several candidates is an error naming them, never 
 // ── evaluatePackedExtract: the three verdicts ──
 
 test('PASS: exit 0 with an extraction line', () => {
-  const v = evaluatePackedExtract({ status: 0, ms: 812, output: 't276-fixture-text.pdf: OK format=pdf words=12\nt276-fixture-image-only.pdf: THREW code=NO_TEXT problem=no text layer inner=\n' });
+  const v = evaluatePackedExtract({ status: 0, ms: 812, output: 't276-fixture-text.pdf: OK format=pdf words=12\nt276-fixture-text.docx: OK format=docx words=9\nt276-fixture-image-only.pdf: THREW code=NO_TEXT problem=no text layer inner=\n' });
   assert.equal(v.verdict, 'PASS');
   assert.equal(v.gate, GATE);
-  assert.match(v.reason, /1 fixture\(s\) extracted through the packed app in 812 ms/);
+  assert.match(v.reason, /2 fixture\(s\) extracted through the packed app in 812 ms/);
+});
+
+test('FAIL: exit 0 with only the pdf line is not a pass (docx missing, by name)', () => {
+  const v = evaluatePackedExtract({ status: 0, output: 't276-fixture-text.pdf: OK format=pdf words=12\n' });
+  assert.equal(v.verdict, 'FAIL');
+  assert.match(v.reason, /OK format=docx/);
+});
+
+test('FAIL: exit 0 with only the docx line is not a pass (pdf missing, by name)', () => {
+  const v = evaluatePackedExtract({ status: 0, output: 't276-fixture-text.docx: OK format=docx words=9\n' });
+  assert.equal(v.verdict, 'FAIL');
+  assert.match(v.reason, /OK format=pdf/);
 });
 
 test('FAIL: a non-zero exit, with the THREW line in the reason', () => {
@@ -126,6 +138,7 @@ if (process.env.ELECTRON_RUN_AS_NODE !== '1') { console.log('FATAL ELECTRON_RUN_
 const [resources, fixtures] = process.argv.slice(2);
 if (!resources || !fixtures) { console.log('FATAL missing args'); process.exit(1); }
 console.log('t276-fixture-text.pdf: OK format=pdf words=12');
+console.log('t276-fixture-text.docx: OK format=docx words=9');
 `;
 const CHECK_THREW = `console.log("t276-fixture-text.pdf: THREW code=PARSER_UNAVAILABLE problem=Cannot find package 'pdfjs-dist' inner="); process.exitCode = 1;`;
 
