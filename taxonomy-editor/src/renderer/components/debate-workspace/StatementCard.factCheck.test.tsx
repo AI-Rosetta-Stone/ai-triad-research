@@ -88,11 +88,11 @@ describe('FactCheckCard (t/764)', () => {
   });
 
   it('shows a Sources row with short links and +N beyond three', () => {
-    const cites = ['a', 'b', 'c', 'd', 'e'].map(h => ({ uri: `https://www.${h}.org/x`, title: h, segments: [] }));
+    const cites = ['a', 'b', 'c', 'd', 'e'].map(h => ({ uri: `https://www.${h}.org/x`, title: `Study ${h}`, segments: [] }));
     const { container } = render(<FactCheckCard entry={factCheckEntry({ verdict: 'supported', explanation: '', checked_text: 'x', finding: 'Accurate.', web_search_citations: cites })} />);
     const row = container.querySelector('.debate-fact-check-sources-row');
     expect(row?.querySelectorAll('a').length).toBe(3);
-    expect(row?.textContent).toContain('a.org');
+    expect(row?.textContent).toContain('Study a');
     expect(row?.textContent).toContain('+2');
   });
 });

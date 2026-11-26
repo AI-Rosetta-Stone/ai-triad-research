@@ -84,13 +84,17 @@ function hostOf(uri: string): string | null {
   return m ? m[1].replace(/^www\./i, '') : null;
 }
 
-/** §1.6: a short label per citation: the publisher (the domain) when the uri has one, else the
- *  title cut to 30 characters. */
+/** A grounding title that is only a domain ("nature.com") says no more than the link does. */
+const looksLikeDomain = (t: string): boolean => !/\s/.test(t) && /\.[a-z]{2,}$/i.test(t);
+
+/** §1.6 (Design, t/764): a short title when the citation has a real one, else the publisher (the
+ *  domain). A title is cut at 30 characters. The year shows when the title carries one. */
 export function sourceLinksOf(citations: readonly { uri: string; title: string }[]): { shown: SourceLink[]; more: number } {
   const all = citations.map(c => {
     const host = c.uri ? hostOf(c.uri) : null;
     const title = (c.title ?? '').trim();
-    const label = host ?? (title.length > 30 ? `${title.slice(0, 29)}…` : title);
+    const short = title.length > 30 ? `${title.slice(0, 29)}…` : title;
+    const label = title && !looksLikeDomain(title) ? short : host ?? short;
     return { label: label || 'Source', uri: c.uri, title: title || c.uri };
   });
   return { shown: all.slice(0, SOURCE_LINKS_SHOWN), more: Math.max(0, all.length - SOURCE_LINKS_SHOWN) };

@@ -1004,13 +1004,6 @@ type FactCheckMeta = {
 };
 type FactCheckCitation = NonNullable<FactCheckMeta['web_search_citations']>[number];
 
-function FactCheckCitationMeta({ segments }: { segments: FactCheckCitation['segments'] }) {
-  const withConf = segments.filter(s => typeof s.confidence === 'number');
-  if (withConf.length === 0) return null;
-  const max = Math.max(...withConf.map(s => s.confidence as number));
-  return <>{`, max confidence ${max.toFixed(2)}`}</>;
-}
-
 function FactCheckReasoning({ reasoning, findQuery, matchOffset, findCurrentIndex }: {
   reasoning: string; findQuery: string; matchOffset: number; findCurrentIndex: number;
 }) {
@@ -1034,12 +1027,6 @@ function FactCheckCitationList({ citations }: { citations: FactCheckCitation[] }
       {citations.map((c, i) => (
         <li key={c.uri || i} id={`fact-check-source-${i + 1}`}>
           {c.uri ? <a href={c.uri} target="_blank" rel="noreferrer noopener">{c.title}</a> : <span>{c.title}</span>}
-          {c.segments.length > 0 && (
-            <span className="debate-fact-check-source-meta">
-              {' '}— {c.segments.length} grounded span{c.segments.length === 1 ? '' : 's'}
-              <FactCheckCitationMeta segments={c.segments} />
-            </span>
-          )}
         </li>
       ))}
     </ol>
