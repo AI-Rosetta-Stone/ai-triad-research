@@ -291,7 +291,7 @@ param githubWebhookSecret string = ''
 param freeTierGeminiKey string = ''
 
 @secure()
-@description('Staging-only Gemini free-tier key (t/4732, PI decision 2026-11-10), in its own pool so staging no longer draws on prod\'s. When set, ONLY the staging app gets it, as secret free-tier-gemini-key-staging. Empty falls back to the shared freeTierGeminiKey, and the deploy logs a WARN.')
+@description('Staging-only Gemini free-tier key (t/4732, PI decision 2026-11-10), in its own pool so staging no longer draws on prod\'s. When set, ONLY the staging app gets it, as secret free-tier-gemini-key-staging. Empty leaves staging with no free-tier key at all (t/654: there is no fallback to prod\'s freeTierGeminiKey), and the deploy logs a WARN.')
 param freeTierGeminiKeyStaging string = ''
 
 @secure()
@@ -339,7 +339,8 @@ var freeTierEnabled = !empty(freeTierGeminiKey)
 var freeTierSecretName = 'free-tier-gemini-key'
 var freeTierStagingKeyProvided = !empty(freeTierGeminiKeyStaging)
 var freeTierStagingSecretName = 'free-tier-gemini-key-staging'
-// t/4732 SO condition 1: the higher cap applies only on staging's own key. On the shared-pool fallback it's the interim 200.
+// t/4732 SO condition 1: the higher cap applies only on staging's own key. Without that key staging has no
+// free-tier key at all (t/654: no fallback to prod's pool), so the '200' then caps a pool with no key behind it.
 var stagingFreePoolCap = freeTierStagingKeyProvided ? freePoolDailyCallsCapStaging : '200'
 var paidTierEnabled = !empty(geminiPaidKey)
 var paidTierSecretName = 'gemini-paid-key'
