@@ -113,7 +113,23 @@ Describe 'deploy-azure.yml deploy job reads no git history beyond rev-parse / me
                 ($script:DeployJob -split '\r?\n' | Where-Object { -not $_.Trim().StartsWith('#') }) -join "`n",
                 '\./((?:operations|scripts)/[\w./-]+\.ps1)') |
             ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+        # t/674 item 1: the full text of every `git ... cat-file <args>` call, so the ONE allowed form can be pinned.
+        $script:CatFilePattern = '(?:^|[;&|({=]|\$\()\s*(?:&\s*)?git(?:\s+-[Cc]\s+\S+)*\s+cat-file\b([^\r\n]*)'
+        function Get-CatFileArgs([string]$Text) {
+            $Text = [regex]::Replace($Text, '(?s)<#.*?#>', '')
+            @($Text -split '\r?\n' |
+                Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') } |
+                ForEach-Object { [regex]::Matches($_, $script:CatFilePattern) } |
+                ForEach-Object { $_.Groups[1].Value.Trim() })
+        }
+        # Only `cat-file -e <rev>^{commit}` (an exit-status lookup of a commit, never a blob read); an optional
+        # `2>$null` tail is ignored. `-p`, `blob`, `-s`, `-t`, `--batch` and a bare object all fail this.
+        $script:CatFileAllowed = '^-e\s+"?[^\s"]+\^\{commit\}"?(?:\s+2>\$null)?\s*$'
         $root = Join-Path $PSScriptRoot '..'
+        $script:CatFileCalls = @(
+            @(Get-CatFileArgs $script:DeployJob) +
+            @($script:InvokedScripts | ForEach-Object { Get-CatFileArgs (Get-Content -Raw (Join-Path $root $_)) })
+        )
         $script:GitSubcommands = @(
             @(Get-GitSubcommands $script:DeployJob) +
             @($script:InvokedScripts | ForEach-Object { Get-GitSubcommands (Get-Content -Raw (Join-Path $root $_)) }) |
@@ -142,10 +158,29 @@ Describe 'deploy-azure.yml deploy job reads no git history beyond rev-parse / me
         # blobs of the running commit's changed files, which blob:none fetches lazily: a handful of
         # blobs (5 files for the t/579 hotfix), not the history-wide reads WP6 guards against.
         # read-tree and log read trees and commits only.
-        $allowed = @('rev-parse', 'merge-base', 'diff', 'apply', 'read-tree', 'log')
+        # cat-file (t/674 item 1) is allowed ONLY as `cat-file -e <rev>^{commit}`; the next It pins that form.
+        $allowed = @('rev-parse', 'merge-base', 'diff', 'apply', 'read-tree', 'log', 'cat-file')
         foreach ($sub in $script:GitSubcommands) {
             $sub | Should -BeIn $allowed -Because "git $sub in the deploy job could read blobs under filter: blob:none"
         }
+    }
+
+    It 't/674: every cat-file in the deploy job and its scripts is the commit-existence form (-e <rev>^{commit}), never a blob read' {
+        $script:CatFileCalls.Count | Should -BeGreaterThan 0 -Because 'Test-DeployChangesContained checks the running commit first (t/674 item 1)'
+        foreach ($call in $script:CatFileCalls) {
+            $call | Should -Match $script:CatFileAllowed -Because "git cat-file $call could read a blob under filter: blob:none"
+        }
+    }
+
+    It 'FIRE ARM (t/674): cat-file -p, blob, -s, -t, --batch and a bare object are refused; the commit form is accepted' {
+        foreach ($bad in '-p HEAD~1:README.md', 'blob abc123', '-s HEAD:x', '-t HEAD', '--batch', '-e HEAD:README.md', '-e "$Running"', '-e abc^{tree}', '-p "$Running^{commit}"') {
+            $bad | Should -Not -Match $script:CatFileAllowed -Because "'$bad' must be refused"
+        }
+        foreach ($ok in '-e "$Running^{commit}" 2>$null', '-e abc123^{commit}') {
+            $ok | Should -Match $script:CatFileAllowed -Because "'$ok' is the allowed form"
+        }
+        @(Get-CatFileArgs '          git -C ./repo cat-file -p HEAD~1:x').Count | Should -Be 1
+        @(Get-CatFileArgs '          & git -C $RepoPath cat-file -e "$Running^{commit}" 2>$null') | Should -Be @('-e "$Running^{commit}" 2>$null')
     }
 
     It 't/670: the blob-reading commands (diff, apply) appear only in the containment function, never in the workflow itself' {
