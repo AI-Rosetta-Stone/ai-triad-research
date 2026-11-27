@@ -402,18 +402,40 @@ export const DEPENDABOT_PACKAGE_JSON_PATHS = Object.freeze(['package.json', 'tax
 // anchored, non-nested pattern; the whole value is length-capped first.
 const VERSION_SPEC_MAX = 200;
 const VERSION_TOKEN = /^[\^~<>=v]*\d[\w.+-]*$/;
+/**
+ * t/806 (Security p/131#138): a spec must also have a CONCRETE LOWER BOUND. An open-ended spec (`>=0`, `>0`, `>=0.0.0`, `0.x`, `^0`, `~0`, `0.0.0-0`,
+ * `<2` alone) accepts any old version, so as an override it can quietly re-admit the vulnerable range an override exists to exclude. Each `||` alternative
+ * needs at least one lower-bound token (bare, `=`, `^`, `~`, `>`, `>=`, or the first end of a hyphen range) whose version has a non-zero component before
+ * any wildcard; `<` and `<=` tokens and the upper end of a hyphen range never count. `0.x` is refused on purpose: it has no lower bound beyond 0. `1.x`,
+ * `^0.5.1`, `~0.5.1`, `^0.0.3` and `>=7.0.0 <11.0.1` are fine. `*`, `x` and the empty string have no digit and were already refused by VERSION_TOKEN.
+ * `isVersionSpec` is shared with the t/776 package.json and lockfile checks; the repo's real dependency, override and lockfile specifiers were all checked against it.
+ */
+function lowerBoundIsConcrete(token) {
+  const m = /^([\^~<>=v]*)(.*)$/.exec(token);
+  if (m[1].includes('<')) return false;                       // an upper bound
+  const core = m[2].split(/[-+]/)[0];                          // drop a prerelease or build tag
+  for (const part of core.split('.')) {
+    if (!/^\d+$/.test(part)) break;                           // a wildcard (x, X, *) ends the numeric part
+    if (Number(part) > 0) return true;
+  }
+  return false;
+}
+
 export function isVersionSpec(value) {
   if (typeof value !== 'string' || value.length === 0 || value.length > VERSION_SPEC_MAX) return false;
   for (const alt of value.split('||')) {
     const tokens = alt.trim().split(/\s+/);
     if (tokens.length === 1 && tokens[0] === '') return false;
+    let concreteLower = false;
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i];
       // A hyphen range joins two versions ('1.0.0 - 2.0.0'): `-` alone is valid only between two version tokens.
       if (t === '-') {
         if (i === 0 || i === tokens.length - 1 || !VERSION_TOKEN.test(tokens[i - 1]) || !VERSION_TOKEN.test(tokens[i + 1])) return false;
       } else if (!VERSION_TOKEN.test(t)) return false;
+      else if (!(i > 0 && tokens[i - 1] === '-') && lowerBoundIsConcrete(t)) concreteLower = true;   // the upper end of a hyphen range is not a lower bound
     }
+    if (!concreteLower) return false;
   }
   return true;
 }
