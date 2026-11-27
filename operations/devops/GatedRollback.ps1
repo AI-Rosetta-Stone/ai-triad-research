@@ -206,6 +206,84 @@ function Get-GatedRollbackExitCode {
     1
 }
 
+<#
+.SYNOPSIS
+    t/588: deactivate ONE previous revision through the REAL traffic guard, with the rollback target bound so it cannot be shadowed.
+.DESCRIPTION
+    THE BUG THIS EXISTS FOR (DeployAzure's staging test): PowerShell resolves variables DYNAMICALLY, so a scriptblock that runs inside
+    Invoke-GuardedDeactivate sees THAT function's $RevisionName (the revision being deactivated), not the rollback target the script had in
+    $RevisionName. The verdict block passed the rollback target by that script-level name as the serving revision, so the guard was told "the serving revision is the previous
+    revision itself" and always answered is-serving-revision: -DeactivatePrevious deactivated nothing. The blocks below therefore read ONLY
+    their own parameters and the three variables set here, whose names no callee uses: $guardServingTarget, $guardAppName,
+    $guardResourceGroup. Never read $RevisionName (or any name a callee declares) inside them.
+    az is called as a command so a test can stub it; the guard is the real Get-RevisionDeactivationVerdict.
+#>
+function Invoke-PreviousRevisionDeactivation {
+    param(
+        [Parameter(Mandatory)][string] $PreviousRevision,
+        [Parameter(Mandatory)][string] $ServingTarget,
+        [Parameter(Mandatory)][string] $AppName,
+        [Parameter(Mandatory)][string] $ResourceGroup
+    )
+    $guardServingTarget = $ServingTarget
+    $guardAppName = $AppName
+    $guardResourceGroup = $ResourceGroup
+    Invoke-GuardedDeactivate -RevisionName $PreviousRevision -GetVerdict {
+        param($Rev)
+        $raw = az containerapp revision show -n $guardAppName -g $guardResourceGroup --revision $Rev -o json | ConvertFrom-Json
+        $app = az containerapp show -n $guardAppName -g $guardResourceGroup -o json | ConvertFrom-Json
+        $entries = if ($app.properties.configuration.ingress.PSObject.Properties['traffic']) { @($app.properties.configuration.ingress.traffic) } else { $null }
+        $ingress = Get-IngressTrafficWeightForRevision -RevisionName $Rev -TrafficEntries $entries -LatestRevisionName $app.properties.latestRevisionName
+        $weight = if ($raw.properties.PSObject.Properties['trafficWeight']) { $raw.properties.trafficWeight } else { $null }
+        Get-RevisionDeactivationVerdict -RevisionName $Rev -TrafficWeight $weight -Active ([bool]$raw.properties.active) `
+            -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic -ServingRevisionName $guardServingTarget
+    } -Deactivate {
+        param($Rev)
+        az containerapp revision deactivate -n $guardAppName -g $guardResourceGroup --revision $Rev -o none
+        if ($LASTEXITCODE -ne 0) { throw "az containerapp revision deactivate exited $LASTEXITCODE" }
+    }
+}
+
+<#
+.SYNOPSIS
+    t/588: the whole post-shift -DeactivatePrevious step, as ONE function the script and the tests call with the same arguments.
+.DESCRIPTION
+    Decision -> (dot-source the verdict script) -> per previous revision Invoke-PreviousRevisionDeactivation -> the record (printed, appended to
+    $env:GITHUB_STEP_SUMMARY, kept on $Result as PreviousDeactivated / PreviousNotDeactivated). The script runs it inside Invoke-PostShiftStepSafely, so
+    nothing it throws can fail the script or change the exit code. $TargetRevision is the rollback target the script passes from ITS $RevisionName,
+    evaluated in the script's own scope. Returns the record.
+#>
+function Invoke-DeactivatePreviousStep {
+    param(
+        [Parameter(Mandatory)] $Result,
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]] $PreviousRevisions,
+        [Parameter(Mandatory)][string] $TargetRevision,
+        [Parameter(Mandatory)][string] $AppName,
+        [Parameter(Mandatory)][string] $ResourceGroup,
+        [switch] $ReadFailed,
+        [switch] $DeactivatePrevious,
+        [string] $VerdictScriptPath
+    )
+    $dec = Get-DeactivatePreviousDecision -Result $Result -PreviousRevisions $PreviousRevisions -TargetRevision $TargetRevision -ReadFailed:$ReadFailed -DeactivatePrevious:$DeactivatePrevious
+    if ($dec.Skip) {
+        Write-Host "  deactivate-previous: NOT deactivating: $($dec.Reason)"
+        return $null
+    }
+    if ($VerdictScriptPath) { . $VerdictScriptPath }
+    $deactResults = @()
+    foreach ($prevRev in $dec.Revisions) {
+        $d = Invoke-PreviousRevisionDeactivation -PreviousRevision $prevRev -ServingTarget $TargetRevision -AppName $AppName -ResourceGroup $ResourceGroup
+        $deactResults += $d
+        if ($d.Warning) { Write-Warning "WARN: deactivate-previous: '$prevRev' was NOT deactivated: $($d.Warning). The shift stands; deactivate it by hand when ready." }
+    }
+    $rec = Format-DeactivatePreviousRecord -Results $deactResults
+    foreach ($line in $rec.Lines) { Write-Host "  $line" }
+    if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ($rec.Lines -join [Environment]::NewLine) }
+    $Result | Add-Member -NotePropertyName PreviousDeactivated -NotePropertyValue @($rec.Deactivated) -Force
+    $Result | Add-Member -NotePropertyName PreviousNotDeactivated -NotePropertyValue @($rec.NotDeactivated) -Force
+    $rec
+}
+
 function Invoke-GatedRollbackCore {
     param(
         [Parameter(Mandatory)][string] $RevisionName,
