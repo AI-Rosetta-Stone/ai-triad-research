@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ServerResponse } from 'http';
 
 const h = vi.hoisted(() => ({ warn: vi.fn(), anon: true, cap: 106_496 }));
-vi.mock('../logger.js', () => ({ log: { server: { info: vi.fn(), warn: h.warn, error: vi.fn(), debug: vi.fn() } }, getRequestId: () => 'r' }));
+vi.mock('../logger.js', () => ({ log: { api: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() }, server: { info: vi.fn(), warn: h.warn, error: vi.fn(), debug: vi.fn() } }, getRequestId: () => 'r' }));
 vi.mock('../security/userContext.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../security/userContext.js')>()),
   isAnonymousUser: () => h.anon,
@@ -28,15 +28,15 @@ function fakeRes(): ServerResponse & { status: number; body: string } {
 beforeEach(() => { h.warn.mockClear(); h.anon = true; h.cap = 106_496; });
 
 describe('t/500: anonymous op-ed byte cap', () => {
-  it('at the defaults (3 voices x 1,500 words) the worst case fits the 106,496 B cap', () => {
-    expect(anonOpEdWorstCaseBytes(3, 1500)).toBeLessThanOrEqual(106_496);
-    expect(refuseAnonOpEdShape(fakeRes(), 3, 1500, undefined)).toBe(false);
+  it('at the defaults (1 voice x 1,500 words) the worst case fits the 106,496 B cap', () => {
+    expect(anonOpEdWorstCaseBytes(1, 1500)).toBeLessThanOrEqual(106_496);
+    expect(refuseAnonOpEdShape(fakeRes(), 1, 1500, undefined)).toBe(false);
   });
 
   it('a lower cap refuses at admission (400) a run whose worst case cannot fit', () => {
     h.cap = 20_000;
     const res = fakeRes();
-    expect(refuseAnonOpEdShape(res, 3, 1500, undefined)).toBe(true);
+    expect(refuseAnonOpEdShape(res, 1, 1500, undefined)).toBe(true);
     expect(res.status).toBe(400);
     expect(JSON.parse(res.body)).toMatchObject({ code: 'anon_oped_too_large' });
   });
@@ -44,9 +44,9 @@ describe('t/500: anonymous op-ed byte cap', () => {
   // Rosetta Stone p/74#36: the client maps on a stable code, never on the sentence.
   it('the voice and word refusals carry a stable code and the limit', () => {
     const voices = fakeRes();
-    expect(refuseAnonOpEdShape(voices, 4, 800, undefined)).toBe(true);
-    expect(voices.status).toBe(400);
-    expect(JSON.parse(voices.body)).toMatchObject({ code: 'anon_oped_too_many_voices', limit: 3 });
+    expect(refuseAnonOpEdShape(voices, 2, 800, undefined)).toBe(true);
+    expect(voices.status).toBe(403);
+    expect(JSON.parse(voices.body)).toMatchObject({ reason: 'anon_limit', code: 'anon_oped_voices', signInRequired: true, limit: 1 });
     const words = fakeRes();
     expect(refuseAnonOpEdShape(words, 1, 1501, undefined)).toBe(true);
     expect(words.status).toBe(400);
@@ -55,7 +55,7 @@ describe('t/500: anonymous op-ed byte cap', () => {
 
   it('the default outlet with no word count is not refused (its target is the 1,500 cap, not above it)', () => {
     expect(refuseAnonOpEdShape(fakeRes(), 1, 0, undefined)).toBe(false);
-    expect(refuseAnonOpEdShape(fakeRes(), 3, 0, 'TechPolicyPress')).toBe(false);
+    expect(refuseAnonOpEdShape(fakeRes(), 1, 0, 'TechPolicyPress')).toBe(false);
   });
 
   it('a saved set over two thirds of the cap logs a WARN with size and voice count, no content', () => {

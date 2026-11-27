@@ -50,6 +50,7 @@ vi.mock('../security/userContext.js', () => ({
   getCurrentUser: vi.fn(() => ({ principalName: 'testuser', idp: 'aad' })),
   getCurrentUserId: vi.fn(() => 'testuser'),
   getStorageUserId: vi.fn(() => 'testuser'),
+  isHostedAnonymousRequest: vi.fn(() => false), // t/723: signed-in caller, the anonymous debate limits don't apply
   isAuthDisabledMode: () => process.env.AUTH_DISABLED === '1' && process.env.NODE_ENV !== 'production',
 }));
 

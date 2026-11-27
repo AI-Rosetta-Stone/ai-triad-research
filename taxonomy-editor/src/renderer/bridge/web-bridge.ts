@@ -6,7 +6,7 @@
  * Centralizes timeout, retry, error normalization, and 429/503 handling (t/4763, moved from taxonomy-editor/AGENTS.md).
  */
 import type { AppAPI, SourceDocumentResolution, DebateDelta, UserPreferences, BriefExportJobView, BriefExportRecord, StartInquiryRequest, InquiryStatusResponse, InquiryResultSummary, InquiryResult, RefreshModelsResponse } from './types';
-import { pullDataUpdatesRest } from './dataUpdatesPull';
+import { pullDataUpdatesRest } from './dataUpdatesPull'; import { sessionForUpload, deltaForUpload } from './anonUpload'; // t/725
 import { submitAskToCommunityRest } from './communityAskSubmit';
 import { createTaxonomyVersions } from './taxonomyVersions';
 import { exportInquiryToFileWeb } from './inquiryExportWeb';
@@ -1012,8 +1012,8 @@ const rawApi: AppAPI = {
   listDebateSessions: () => get('/api/debates'),
   listDebateSessionsMeta: () => get('/api/debates/list'),
   loadDebateSession: (id) => get(`/api/debates/${encodeURIComponent(id)}`),
-  saveDebateSession: (session, _caller) => put('/api/debates', session, { timeoutMs: DEBATE_SAVE_TIMEOUT_MS }).then(() => {}),
-  saveDebateDelta: (delta) => patchDebateDelta(delta),
+  saveDebateSession: async (session, _caller) => { await put('/api/debates', await sessionForUpload(session), { timeoutMs: DEBATE_SAVE_TIMEOUT_MS }); }, // t/725: an anonymous save drops what the server drops
+  saveDebateDelta: async (delta) => patchDebateDelta(await deltaForUpload(delta)),
   deleteDebateSession: (id) => del(`/api/debates/${encodeURIComponent(id)}`).then(() => {}),
   loadDebateComments: (id) => get(`/api/debates/${encodeURIComponent(id)}/comments`),
   saveDebateComments: (id, data) => put(`/api/debates/${encodeURIComponent(id)}/comments`, data).then(() => {}),

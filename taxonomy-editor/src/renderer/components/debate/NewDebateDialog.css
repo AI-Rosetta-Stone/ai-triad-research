@@ -1403,3 +1403,7 @@
   border-bottom-color: var(--focus-ring, #4a90d9);
   font-weight: 600;
 }
+
+/* t/725: what an anonymous visitor can't use stays visible but fixed (aria-disabled, focusable). */
+.ndd-preset-card--locked { color: var(--text-muted); cursor: not-allowed; }
+.ndd-settings-field [aria-disabled='true'], .ndd-settings-toggle-row [aria-disabled='true'] { cursor: not-allowed; }

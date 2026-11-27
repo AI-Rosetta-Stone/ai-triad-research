@@ -297,6 +297,7 @@ describe('/api/oped-sets routes (t/2573)', () => {
 describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
   let handlers: Record<string, Handler>;
   const validBody = { topic: 'AI safety', params: { model: 'gemini-2.5-flash', wordCount: 800 }, povs: ['accelerationist', 'safetyist'] };
+  const oneVoice = { ...validBody, povs: ['accelerationist'] }; // t/723: an anonymous visitor gets one voice
   beforeEach(() => {
     isAnonymousUser.mockReset().mockReturnValue(false);
     getStorageUserId.mockReset().mockReturnValue('user-1');
@@ -334,7 +335,7 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     getOpedSetsQuotaStatus.mockResolvedValue({ allowed: false, resource: 'opeds', current: 15, limit: 15 });
     const anonReq = { url: '/api/oped-sets', headers: {}, socket: { remoteAddress: '127.0.0.1' } } as unknown as IncomingMessage;
     const res = fakeRes();
-    await handlers['POST /api/oped-sets'](anonReq, res, validBody);
+    await handlers['POST /api/oped-sets'](anonReq, res, oneVoice);
     expect(res._status).not.toBe(403);
     expect(JSON.parse(res._body ?? '{}')).not.toMatchObject({ error: 'Sign in to create op-eds' });
     expect(getOpedSetsQuotaStatus).toHaveBeenCalled(); // reached quota ⇒ the gate was passed
@@ -414,7 +415,7 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     getOpedSetsQuotaStatus.mockResolvedValue({ allowed: true, resource: 'opeds', current: 0, limit: 15 });
     fetchUrlContent.mockResolvedValue({ content: '', error: 'blocked host' }); // fail fast: 502 before any SSE
     const anonReq = () => ({ url: '/api/oped-sets', headers: {}, socket: { remoteAddress: '198.51.100.23' } } as unknown as IncomingMessage);
-    const withUrl = { ...validBody, url: 'https://example.com/a' };
+    const withUrl = { ...oneVoice, url: 'https://example.com/a' };
     for (let i = 0; i < 5; i++) {
       const res = fakeRes();
       await handlers['POST /api/oped-sets'](anonReq(), res, withUrl);
@@ -653,16 +654,17 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     const anon = () => { isAnonymousUser.mockReturnValue(true); getStorageUserId.mockReturnValue('anon-0f8fad5b-d9cb-469f-a165-8c7c0e2c1a11'); };
     const create = async (body: unknown) => { const res = fakeRes(); await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, body); return res; };
 
-    it('more than 3 voices is 400, nothing generated', async () => {
+    it('more than 1 voice is 403 anon_oped_voices (t/723), nothing generated', async () => {
       anon();
-      const res = await create({ ...validBody, povs: ['accelerationist', 'safetyist', 'skeptic', 'cross-cutting'] });
-      expect(res._status).toBe(400);
+      const res = await create(validBody);
+      expect(res._status).toBe(403);
+      expect(JSON.parse(String(res._body))).toMatchObject({ reason: 'anon_limit', code: 'anon_oped_voices', signInRequired: true, limit: 1 });
       expect(generateOpEdSet).not.toHaveBeenCalled();
     });
 
     it('more than 1,500 words per voice is 400, nothing generated', async () => {
       anon();
-      const res = await create({ ...validBody, params: { ...validBody.params, wordCount: 1501 } });
+      const res = await create({ ...oneVoice, params: { ...oneVoice.params, wordCount: 1501 } });
       expect(res._status).toBe(400);
       expect(generateOpEdSet).not.toHaveBeenCalled();
     });
@@ -670,7 +672,7 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     it('the 11th live set is 429 anon_oped_limit, nothing written or generated', async () => {
       anon();
       listOpedSets.mockResolvedValue(Array.from({ length: 10 }, (_, i) => ({ set_id: `s${i}` })));
-      const res = await create(validBody);
+      const res = await create(oneVoice);
       expect(res._status).toBe(429);
       expect(JSON.parse(String(res._body))).toMatchObject({ error: 'anon_oped_limit', limit: 10, used: 10 });
       expect(generateOpEdSet).not.toHaveBeenCalled();

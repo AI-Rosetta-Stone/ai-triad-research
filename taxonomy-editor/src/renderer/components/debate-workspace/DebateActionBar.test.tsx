@@ -104,6 +104,12 @@ vi.mock('../../hooks/useFeatureFlags', () => ({
   },
 }));
 
+// t/725: whether the visitor is anonymous (an anonymous visitor's non-Quick-take debate is read-only).
+const authState = vi.hoisted(() => ({ anonymous: false }));
+vi.mock('../../hooks/useAuthStatus', () => ({
+  useAuthStatus: () => ({ user: 'u', anonymous: authState.anonymous, idp: 'github' }),
+}));
+
 afterEach(() => { vi.clearAllMocks(); });
 
 // ── ProgressIndicator ───────────────────────────────────────
@@ -497,5 +503,70 @@ describe('DebateActions — exhaustion error banner', () => {
     fireEvent.click(addKey);
     expect(useSettingsDialog.getState().isOpen).toBe(true);
     useSettingsDialog.setState({ isOpen: false });
+  });
+});
+
+
+// ── t/725 step 4: an anonymous visitor's non-Quick-take debate is read-only ─────────
+
+describe('DebateActions — read-only for an anonymous visitor (t/725)', () => {
+  const noop = () => {};
+  const actionsProps = { showParamHistory: false, setShowParamHistory: noop, showEvaluation: false, setShowEvaluation: noop };
+  const NOTICE = "This debate can't be continued without signing in. You can still read it and rename it.";
+  const quick = { protocol_id: 'structured', adaptive_staging: { enabled: true, pacing: 'moderate', phase_bounds_override: { maxConfrontationRounds: 1, maxArgumentationRounds: 1, maxConcludingRounds: 1 } } };
+  const deep = { protocol_id: 'deliberation', adaptive_staging: { enabled: true, pacing: 'moderate', phase_bounds_override: { maxConfrontationRounds: 1, maxArgumentationRounds: 3, maxConcludingRounds: 1 } } };
+
+  afterEach(() => { authState.anonymous = false; });
+
+  const prime = (shape: Record<string, unknown>) => {
+    mockStore.activeDebate = { phase: 'active', active_povers: ['accelerationist', 'safetyist'], transcript: [], neutral_evaluations: [], ...shape };
+    mockStore.debateGenerating = null;
+    mockStore.debateError = null;
+    mockStore.debateRetryAction = null;
+    mockStore.dailyLimitPaused = false;
+    mockStore.toggleStepMode = vi.fn();
+    mockStore.setDebatePhase = vi.fn();
+    mockStore.setError = vi.fn();
+  };
+
+  it('anonymous + Deep dive: a static notice above the bar, and the composer controls are disabled and point at it', () => {
+    authState.anonymous = true;
+    prime(deep);
+    const { container } = render(<DebateActions {...actionsProps} />);
+    const notice = screen.getByText(NOTICE);
+    expect(notice.closest('[role="alert"]')).toBeNull(); // static, not an alert
+    expect(screen.getByRole('link', { name: 'Sign in with GitHub' })).toBeTruthy();
+    const composer = container.querySelector('.debate-composer')!;
+    expect(composer.getAttribute('aria-describedby')).toBe(notice.closest('#debate-anon-readonly-note')!.id);
+    expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(true);
+    // the notice comes before the composer in the document
+    expect(notice.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('anonymous + Socratic or step mode: also read-only', () => {
+    authState.anonymous = true;
+    prime({ protocol_id: 'socratic', adaptive_staging: { enabled: true, pacing: 'moderate', step_mode: true, phase_bounds_override: { maxConfrontationRounds: 2, maxArgumentationRounds: 4, maxConcludingRounds: 2 } } });
+    render(<DebateActions {...actionsProps} />);
+    expect(screen.getByText(NOTICE)).toBeTruthy();
+  });
+
+  it('anonymous + Quick take: no notice', () => {
+    authState.anonymous = true;
+    prime(quick);
+    render(<DebateActions {...actionsProps} />);
+    expect(screen.queryByText(NOTICE)).toBeNull();
+  });
+
+  it('signed in + Deep dive: no notice', () => {
+    prime(deep);
+    render(<DebateActions {...actionsProps} />);
+    expect(screen.queryByText(NOTICE)).toBeNull();
+  });
+
+  it('anonymous + a debate with no protocol or rounds recorded is read-only (the server refuses a missing shape)', () => {
+    authState.anonymous = true;
+    prime({});
+    render(<DebateActions {...actionsProps} />);
+    expect(screen.getByText(NOTICE)).toBeTruthy();
   });
 });

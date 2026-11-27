@@ -283,6 +283,9 @@ export class InMemoryJsonDocStore extends CasJsonDocStore {
   /** Test helper: put raw text under a name, bypassing JSON, to model a corrupt document. */
   _setRawForTest(name: string, body: string): void { this.docs.set(name, { body, etag: '"mem-raw"' }); }
 
+  /** Test helper: the names of the documents held. */
+  _namesForTest(): string[] { return [...this.docs.keys()]; }
+
   /** Test helper: how many documents are held. */
   _sizeForTest(): number { return this.docs.size; }
 }

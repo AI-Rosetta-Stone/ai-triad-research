@@ -39,6 +39,7 @@ import {
 } from '../ai/freePoolBudgetGate.js';
 
 import * as fileIO from '../storage/fileIO.js';
+import { anonDebateLimitsApply, refuseAnonDebateCall } from './anonDebateLimits.js';
 import { beginEmbeddingCompute, endEmbeddingCompute, embeddingLoadSnapshot, evaluateEmbeddingLoadShed, isEmbeddingModelWarm, markEmbeddingModelWarm } from '../embeddingsLoad.js';
 
 // Pure mirror of the server.ts parseCookies helper (used by the logout /
@@ -562,6 +563,9 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // Enforce access controls: anon debates, backend allowlist, rate limits.
       // Each guard returns true if access was denied (response already written).
       if (enforceGenerateAccess(res, tier, backend, debateId, isFree, limitKey)) return;
+      // t/723: a hosted anonymous debate call must belong to the caller's own saved Quick Take (401 on the shared
+      // '_local' arm, else 403 anon_limit), after the flag and rate limits and before any key, reserve or provider call.
+      if (anonDebateLimitsApply() && await refuseAnonDebateCall(res, typeof debateId === 'string' ? debateId : undefined, (id) => fileIO.loadDebateSession(id))) return;
 
       // Key injection: free tier → server FREE_TIER_GEMINI_KEY, geo-gated (t/4486, 403 if no
       // keys or restricted region); platform → server-side keys; BYOK → client key, with a
