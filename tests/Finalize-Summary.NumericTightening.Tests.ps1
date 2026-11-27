@@ -112,9 +112,24 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
             Invoke-NumericDrop "It cost $Big dollars." "It cost $Big dollars." @{ Scale = $true } | Should -Be 1
         }
         It 'a scaled source figure that overflows a decimal does not throw and grounds only its plain number (t/780)' {
-            $Big = '99999999999999999999999999 billion'
-            { Invoke-NumericDrop 'It cost 5 dollars.' "It cost $Big dollars and 5 more." @{ Scale = $true } } | Should -Not -Throw
-            Invoke-NumericDrop 'It cost 5 dollars.' "It cost $Big dollars and 5 more." @{ Scale = $true } | Should -Be 0
+            # The source has no other copy of the number, so only the plain number of the overflowing figure can
+            # ground the claim (Quality, t/780: with another plain 5 in the source the key was not needed).
+            $Src = 'It cost 99999999999999999999999999 billion dollars.'
+            { Invoke-NumericDrop 'It cost 99999999999999999999999999 dollars.' $Src @{ Scale = $true } } | Should -Not -Throw
+            Invoke-NumericDrop 'It cost 99999999999999999999999999 dollars.' $Src @{ Scale = $true } | Should -Be 0
+            Invoke-NumericDrop 'It cost 7 dollars.' $Src @{ Scale = $true } | Should -Be 1
+        }
+        It 'the overflow writes a WARN naming the figure (t/780)' {
+            $Warn = & (Get-Module AITriad) {
+                $Saved = @{} + $script:NumericGroundingFeatures
+                $script:NumericGroundingFeatures['Scale'] = $true
+                try {
+                    $All = @(Get-NumericGroundingKeys -Text 'It cost 99999999999999999999999999 billion dollars.' 3>&1)
+                    ($All | Where-Object { $_ -is [System.Management.Automation.WarningRecord] } | ForEach-Object { "$_" }) -join "`n"
+                }
+                finally { foreach ($K in $Saved.Keys) { $script:NumericGroundingFeatures[$K] = $Saved[$K] } }
+            }
+            $Warn | Should -Match "could not scale '99999999999999999999999999 billion'"
         }
     }
 
@@ -144,6 +159,10 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
             @{ Source = 'more about AI (r=.48), suggesting' }, @{ Source = 'a delta (95% CI [.48,.111])' }
         ) {
             Invoke-NumericDrop 'The correlation was 0.48.' $Source @{ LeadingDot = $true } | Should -Be 0
+        }
+        # Known limit, accepted by CL (t/384): pinned so a change to it is seen and goes back to CL.
+        It 'known limit: a section number glued to the next word reads as a decimal' {
+            Invoke-NumericDrop 'The effect was 0.3 overall.' 'SeeSectionB.3onextensions of the attack.' @{ LeadingDot = $true } | Should -Be 0
         }
     }
 
@@ -189,6 +208,16 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
         }
         It 'a hundred percent is 100%' {
             Invoke-NumericDrop 'The share was 100%.' 'a hundred percent of firms agreed.' @{ Percent = $true } | Should -Be 0
+        }
+    }
+
+    Context 'Defaults (CL ruling on t/384)' {
+        It 'Scale, LeadingDot and Superscript are on and Percent is off' {
+            $F = & (Get-Module AITriad) { $script:NumericGroundingFeatures }
+            $F.Scale | Should -BeTrue
+            $F.LeadingDot | Should -BeTrue
+            $F.Superscript | Should -BeTrue
+            $F.Percent | Should -BeFalse
         }
     }
 
