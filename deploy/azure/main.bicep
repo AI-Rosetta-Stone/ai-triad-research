@@ -299,7 +299,7 @@ param stagingKeyVaultUrl string = 'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.
 @description('t/669: staging uses its own EasyAuth cookie keys from kv-ait-stg. True only after both secrets exist there.')
 param easyAuthOwnKeysStaging bool = true
 @description('t/669: prod uses its own EasyAuth cookie keys from kv-ait. True only after both secrets exist there, and after staging proved them.')
-param easyAuthOwnKeysProd bool = false
+param easyAuthOwnKeysProd bool = true
 
 @secure()
 @description('Optional GITHUB_TOKEN (PAT) fallback when no App is registered. Prefer the App for production.')
