@@ -65,7 +65,13 @@
   flex: 1 1 0; min-width: 0; text-align: center; padding: var(--sp-1) 0; border-radius: var(--radius-sm);
   font-family: var(--font-mono, monospace); font-size: var(--text-xs); font-weight: 600;
 }
-.syn-seg-camp { background: var(--syn-camp); color: var(--bg-primary); border: 1px solid var(--syn-camp); }
+.syn-seg-camp { color: var(--bg-primary); border: 1px solid transparent; }
+/* The fill is spelled out per camp (not through --syn-camp) so the token-contrast gate can resolve
+   it in every theme (t/2264): --syn-camp is set by a class, not on this rule's element. */
+.syn-seg-camp.syn-camp-acc { background: var(--color-acc); border-color: var(--color-acc); }
+.syn-seg-camp.syn-camp-saf { background: var(--color-saf); border-color: var(--color-saf); }
+.syn-seg-camp.syn-camp-skp { background: var(--color-skp); border-color: var(--color-skp); }
+.syn-seg-camp.syn-camp-other { background: var(--text-secondary); border-color: var(--text-secondary); }
 /* Unresolved / no verdict: light fill and a dashed border, so it differs from a camp by more than hue. */
 .syn-seg-unresolved { background: var(--bg-primary); color: var(--text-primary); border: 1px dashed var(--text-secondary); }
 .syn-legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); margin-top: var(--sp-2) !important; font-size: var(--text-sm); }
