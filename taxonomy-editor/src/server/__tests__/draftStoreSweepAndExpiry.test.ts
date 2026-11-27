@@ -166,8 +166,11 @@ describe('DraftStore expiry, sweep and logging (t/185 TL t/185#44)', () => {
   });
 
   it('an unparseable record is swept as dead, not left in place', async () => {
-    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    let t = 1_000_000;
+    const store = createDraftStore({ backend: mockBackend, now: () => t });
     files.set(normalize('community/_drafts/drf_bad.json'), '{not json');
+    await store.sweepExpiredDrafts();
+    t += 11 * 60 * 1000; // past the corrupt-record minimum age (t/756)
     await store.sweepExpiredDrafts();
     expect(files.has(normalize('community/_drafts/drf_bad.json'))).toBe(false);
   });

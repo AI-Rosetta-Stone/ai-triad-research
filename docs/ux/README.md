@@ -20,6 +20,7 @@ Active UX specs in `docs/ux/`. Design owns these; coding agents reference them d
 | `org-detail-redesign.md` | Organization detail readability pass: key-figure rows, link/source rows, no raw JSON/URLs |
 | `aitriad-help-redesign.md` | Show-AITriadHelp auto-gen page: sidebar nav + search for 158 cmdlets (t/1570) |
 | `entity-mentions-detail.md` | Inline entity mentions + entity/term detail renderers + entity browser tool (rendering half of the entity ontology; t/1766/t/1767) |
+| `debate-fact-check-card.md` | Fact checks: verdict pill + one-sentence finding + points with a Limit, sources visible, Show details for reasoning and web evidence, collapse like turns (2026-11-26) |
 | `debate-statement-density.md` | Less overwhelming debate: Brief (claim + bullets) default, Brief|Full, read-more link, labelled tabs, plain header, collapsed older turns (2026-11-25) |
 | `debate-view-mode-controls.md` | Two-mode (Text / Analysis) redesign of the debate statement + global view-mode button row (p/351) |
 | `debate-action-bar-redesign.md` | Debate window bottom bar → clean composer + `Tools ▾` menu consolidating secondary actions (t/2279) |

@@ -8,7 +8,7 @@
  * a background rebuild while the cached copy is returned immediately.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -17,6 +17,8 @@ import * as fileIO from '../storage/fileIO.js';
 import * as community from '../community/community.js';
 import * as userContext from '../security/userContext.js';
 import { resolveDataPath } from '../config.js';
+import { setAnonSessionSecret, clearAnonSessionSecret } from '../security/anonSessionSigning.js';
+import { log } from '../logger.js';
 
 /** In-memory backend that actually persists writes, so the index hit-path is testable. */
 class MemBackend implements StorageBackend {
@@ -238,5 +240,49 @@ describe('community listing index (t/726)', () => {
 
     expect((result[0] as { pover?: string }).pover).toBe('safetyist');
     expect(mem.itemReads('chat-')).toBeGreaterThan(0); // stale version skipped
+  });
+
+  // t/693#29 (b): an index built while the pseudonym key is not loaded must not be cached.
+  describe('pseudonym fallback and the cached index (t/693#29)', () => {
+    const legacyChat = (id: string) => JSON.stringify({
+      id, title: `Chat ${id}`, created_at: '2026-01-01', updated_at: '2026-02-01', mode: 'brainstorm',
+      community_metadata: { submitted_by_display: 'someone-at-example-com', submitted_at: '2026-01-01' }, // pre-t/693: no owner_storage_id
+    });
+    const display = (items: unknown[]) => (items[0] as { community_metadata: { submitted_by_display: string } }).community_metadata.submitted_by_display;
+    const notPersistedWarns = () => vi.mocked(log.server.warn).mock.calls.filter(c => String(c[0]).includes('not persisted')).length;
+    const list = () => userContext.runWithUser(authedCtx, () => community.listCommunityChats());
+
+    beforeEach(() => { clearAnonSessionSecret(); vi.spyOn(log.server, 'warn').mockImplementation(() => undefined); });
+    afterEach(() => { clearAnonSessionSecret(); vi.restoreAllMocks(); });
+
+    it('a build with no key persists nothing, shows the fixed word, rebuilds on the next read, and warns once', async () => {
+      mem.put(path.join(chatsDir(), 'chat-a.json'), legacyChat('a'));
+      expect(display(await list())).toBe('Contributor');
+      expect(mem.has(indexPath(chatsDir()))).toBe(false);
+      mem.resetReads();
+      expect(display(await list())).toBe('Contributor');
+      expect(mem.itemReads('chat-')).toBe(1);            // rebuilt, not served from a cache
+      expect(mem.has(indexPath(chatsDir()))).toBe(false);
+      expect(notPersistedWarns()).toBe(1);               // once per process, not per call
+    });
+
+    it('a build with a key persists the index', async () => {
+      setAnonSessionSecret(Buffer.alloc(32, 7));
+      mem.put(path.join(chatsDir(), 'chat-a.json'), legacyChat('a'));
+      expect(display(await list())).toMatch(/^Contributor-[0-9a-f]{8}$/);
+      expect(mem.has(indexPath(chatsDir()))).toBe(true);
+      expect(mem.files.get(indexPath(chatsDir()).replace(/\\/g, '/'))).not.toContain('example-com');
+    });
+
+    it('a read after the key loads rebuilds and persists, so the fixed word does not stick', async () => {
+      mem.put(path.join(chatsDir(), 'chat-a.json'), legacyChat('a'));
+      expect(display(await list())).toBe('Contributor');
+      setAnonSessionSecret(Buffer.alloc(32, 7));
+      expect(display(await list())).toMatch(/^Contributor-[0-9a-f]{8}$/);
+      expect(mem.has(indexPath(chatsDir()))).toBe(true);
+      mem.resetReads();
+      expect(display(await list())).toMatch(/^Contributor-[0-9a-f]{8}$/);
+      expect(mem.itemReads('chat-')).toBe(0);            // now served from the index
+    });
   });
 });

@@ -293,17 +293,10 @@ export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
         return;
       }
 
-      // t/3484: source submittedBy (the item's ORIGINAL submitter — tracked server-side ONLY for the
-      // revoke-auth check; the PUBLIC copy stays anonymous, community_metadata stripped). This pre-read
-      // is ONLY for submittedBy — the same pattern backfillCommunityOpedShares uses (it sources it from
-      // the listing summary). mintAndProjectCommunityOpEd below re-validates + is the SINGLE mint+project
-      // path (t/3483#2 — no dual mint paths; the manual mint+project that used to live here is gone).
-      const pre = await community.getCommunityOpEd(id);
-      const submittedBy = pre.found
-        ? ((pre.item as { community_metadata?: { submitted_by_display?: string } }).community_metadata?.submitted_by_display ?? '')
-        : '';
-
-      const result = await community.mintAndProjectCommunityOpEd(id, submittedBy);
+      // t/712: no pre-read. mintAndProjectCommunityOpEd takes the share owner from the stored item's own owner key
+      // (communityItemOwnerKey, t/693); the second argument is only the fallback for an item with no community_metadata,
+      // which has no submitter to name, so ''. It is the SINGLE mint+project path (t/3483#2).
+      const result = await community.mintAndProjectCommunityOpEd(id, '');
       if (result.outcome === 'skipped') {
         // Preserve the t/3334/t/3430 discrimination via the helper's `reason`:
         if (result.reason === 'malformed') {

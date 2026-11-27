@@ -47,6 +47,7 @@ if (-not (Test-Path -LiteralPath $SsotPath)) {
 try {
     $ssotJson = Get-Content -LiteralPath $SsotPath -Raw | ConvertFrom-Json
     $ssotContexts = @($ssotJson.required_contexts | ForEach-Object { $_.context } | Where-Object { $_ })
+    $ssotPinEntries = @($ssotJson.required_contexts | Where-Object { $_.context })   # t/728: each entry's app_id
 } catch {
     Write-Host "::error::required-contexts drift-guard: SSOT malformed ($($_.Exception.Message)) — cannot verify (exit 2)."
     exit 2
@@ -87,6 +88,12 @@ try {
     if ($api.PSObject.Properties['checks'] -and $api.checks) { $apiContexts = @($api.checks | ForEach-Object { $_.context }) }
     elseif ($api.PSObject.Properties['contexts']) { $apiContexts = @($api.contexts) }
     $apiContexts = @($apiContexts | Where-Object { $_ })
+    # t/728: the App pin of each live context. The legacy `contexts[]` shape has none, so it reads as unpinned (fail closed).
+    $apiChecks = @($apiContexts | ForEach-Object {
+            $ctx = $_
+            $hit = if ($api.PSObject.Properties['checks'] -and $api.checks) { @($api.checks | Where-Object { $_.context -eq $ctx }) | Select-Object -First 1 } else { $null }
+            [PSCustomObject]@{ context = $ctx; app_id = $(if ($hit -and $hit.PSObject.Properties['app_id']) { $hit.app_id } else { $null }) }
+        })
 } catch {
     Write-Host "::error::required-contexts drift-guard: branch-protection payload unparseable ($($_.Exception.Message)) — cannot verify (exit 2)."
     exit 2
@@ -154,6 +161,8 @@ $rsActualActive = $null
 $rsActualTool = $null
 $rsActualSecurityAlertsThreshold = $null
 $rsActualAlertsThreshold = $null
+$rulesetPinChecked = $false
+$rulesetPinEntries = @()
 if ($rulesetExpected -and $ssotJson.merge_queue_ruleset.PSObject.Properties['name']) {
     $rsName = $ssotJson.merge_queue_ruleset.name
     $rsExpectedActive = [bool]$ssotJson.merge_queue_ruleset.active
@@ -196,6 +205,14 @@ if ($rulesetExpected -and $ssotJson.merge_queue_ruleset.PSObject.Properties['nam
             Write-Host "::error::required-contexts drift-guard: ruleset detail payload unparseable ($($_.Exception.Message)) — cannot verify (exit 2)."
             exit 2
         }
+        # t/728: the ruleset's required_status_checks (context + integration_id), for the App-pin comparison.
+        $rulesetPinChecked = $true
+        $rsRscRule = @($rsDetail.rules | Where-Object { $_.type -eq 'required_status_checks' }) | Select-Object -First 1
+        if ($rsRscRule -and $rsRscRule.PSObject.Properties['parameters'] -and $rsRscRule.parameters.PSObject.Properties['required_status_checks']) {
+            $rulesetPinEntries = @($rsRscRule.parameters.required_status_checks | ForEach-Object {
+                    [PSCustomObject]@{ context = $_.context; integration_id = $(if ($_.PSObject.Properties['integration_id']) { $_.integration_id } else { $null }) }
+                })
+        }
         $csRule = @($rsDetail.rules | Where-Object { $_.type -eq 'code_scanning' }) | Select-Object -First 1
         if ($csRule) {
             $csParams = @($csRule.parameters.code_scanning_tools | Where-Object { $_.tool -eq $rsExpectedTool }) | Select-Object -First 1
@@ -219,7 +236,8 @@ Write-Host "API:   $([string]::Join(', ', ($apiContexts | Sort-Object))) | stric
 if ($rsVerdict.ActiveChecked -or $rsVerdict.CodeScanningRuleChecked) {
     Write-Host "RULESET '$rsName': expected active=$rsExpectedActive tool=$rsExpectedTool/$rsExpectedSecurityAlertsThreshold/$rsExpectedAlertsThreshold | live active=$rsActualActive tool=$rsActualTool/$rsActualSecurityAlertsThreshold/$rsActualAlertsThreshold"
 }
-if ($v.InSync -and $rsVerdict.InSync) {
+$pinVerdict = Get-RequiredContextsAppPinVerdict -Ssot $ssotPinEntries -Classic $apiChecks -Ruleset $rulesetPinEntries -RulesetChecked $rulesetPinChecked
+if ($v.InSync -and $rsVerdict.InSync -and $pinVerdict.InSync) {
     Write-Host 'required-contexts drift-guard: IN SYNC — SSOT matches live branch protection.'
     exit 0
 }
@@ -249,6 +267,9 @@ if (-not $v.EnforceAdminsInSync) {
         ''
     }
     Write-Host "::error::required-contexts drift-guard: 'enforce_admins' mismatch — SSOT expects $ssotEnforceAdmins, branch protection has $apiEnforceAdmins.$eaRegressionNote"
+}
+foreach ($pinProblem in $pinVerdict.Problems) {
+    Write-Host "::error::required-contexts drift-guard: App pin drift (t/728) — $pinProblem. A required check pinned to any source can be satisfied by any workflow job that posts the same name."
 }
 if (-not $rsVerdict.ActiveInSync) {
     Write-Host "::error::required-contexts drift-guard: ruleset '$rsName' enforcement mismatch — expected active=$rsExpectedActive, live active=$rsActualActive. Alert-gating lives ONLY in this ruleset's code_scanning rule (not classic protection) — see deploy/azure/runbooks/merge-queue-switch.md Coupling warning (t/4567 C2)."

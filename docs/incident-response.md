@@ -8,6 +8,10 @@ The full rules behind root `AGENTS.md` → "Incident Response". This text moved 
 - **Before closing a prevention,** name one way the class could still occur through ordinary use with the mechanism intact. If you can name one, you closed a *vector*, not the class: say so and file the remainder. Ref §7.
 - **Suspected staging compromise:** rotate the GitHub, Google and Entra OAuth client secrets (staging shares prod's, by PI accepted risk t/92, review 2027-02-25) as an immediate step.
 
+## Incident fast lane: make room in the CI line (t/705)
+
+One CI run creates 44 to 59 jobs against a limit of about 60, so an incident fix's checks can wait behind every other PR's run. `node operations/devops/ci-make-room.mjs` lists the queued and in-progress `pull_request` runs of `ci.yml` whose head branch is not `incident/*` (PR, branch, age, job count). It lists only, and cancels nothing, unless the **Tech Lead** says go: `--cancel --incident=t/N --by=<the TL's collaborator id>`. It never touches `merge_group`, push, schedule or dispatch runs, any other workflow (the guards), or an `incident/*` run, and it prints each run it cancelled with the command that re-runs it (`gh run rerun <id> --repo <repo>`), so re-run them when the incident PR has landed. The script cannot check that `t/N` is an open INCIDENT ticket or that `--by` is the TL: those are the TL's go, recorded in the printed line. If the run list cannot be read, it lists and cancels nothing.
+
 ## Prod hotfix path (t/610, t/609)
 
 1. The fix lands on `main` through the merge queue, as an incident PR (`incident/t<N>-<slug>`) for an open ticket titled INCIDENT. `enqueue-pr` accepts it with no budget exemption. A Tech Lead or Security `budget-exempt:` review is only the fallback when the ticket can't be read (t/656).

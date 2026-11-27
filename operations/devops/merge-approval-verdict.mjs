@@ -77,6 +77,7 @@ export function inputProblems(pr) {
   if (typeof pr.headRefName !== 'string' || !pr.headRefName) p.push('headRefName');
   if (!Array.isArray(pr.files) || pr.files.some((f) => typeof f?.filename !== 'string' || !f.filename)) p.push('files');
   if (typeof pr.filesTruncated !== 'boolean') p.push('filesTruncated');
+  if (!Array.isArray(pr.scriptsGatePaths)) p.push('scriptsGatePaths');   // t/559: package.json paths whose scripts changed or were unreadable
   if (!Array.isArray(pr.reviews)) p.push('reviews');
   if (!Array.isArray(pr.comments)) p.push('comments');
   if (!Array.isArray(pr.labels)) p.push('labels');
@@ -140,13 +141,14 @@ export function pickGateApproval(reviews, headSha, reviewerLogin = REVIEWER_APP_
 export function ruleGateFiles(pr, { reviewerLogin = REVIEWER_APP_REST_LOGIN } = {}) {
   if (pr.filesTruncated) return fail('the changed-file list is cut short at the API limit, so gate files cannot be ruled out');
   const paths = changedPaths(pr.files);
-  const gateFiles = [...new Set(paths.filter(isGateFile))];
+  const gateFiles = [...new Set([...paths.filter(isGateFile), ...pr.scriptsGatePaths])];
   const review = gateFiles.length ? pickGateApproval(pr.reviews, pr.headSha, reviewerLogin, pr.headRefName) : null;
   const v = gateFileChangeVerdict({
     files: { paths, listedCount: pr.files.length, expectedCount: pr.files.length },
     headSha: pr.headSha,
     override: review ? { review } : null,
     reviewerLogin,
+    scriptsPaths: pr.scriptsGatePaths,
   });
   const shown = v.gateFiles.slice(0, 5).join(', ') + (v.gateFiles.length > 5 ? ` and ${v.gateFiles.length - 5} more` : '');
   if (!v.allow) {

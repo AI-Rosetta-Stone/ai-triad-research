@@ -65,6 +65,7 @@ function makeGitHub() {
       head: { sha: state.pr.head, ref: 'devops/t534-probe' }, base: { ref: 'main' },
     }),
     'pulls.listCommits': () => [{ commit: { committer: { date: state.pr.pushAt } } }],
+    'pulls.listFiles': () => [{ filename: 'docs/notes.md', status: 'modified' }], // t/776: the guard lists the PR's files
     'issues.listComments': () => state.comments,
     'pulls.listReviews': () => state.reviews,
     'repos.listPullRequestsAssociatedWithCommit': (p) => (p.commit_sha === state.pr.head ? [{ number: state.pr.number, state: 'open', head: { sha: state.pr.head } }] : []),

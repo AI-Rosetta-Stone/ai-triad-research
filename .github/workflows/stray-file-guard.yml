@@ -40,7 +40,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout v6
         with:
           fetch-depth: 0
-          ref: ${{ github.head_ref }}
+          # t/799: by SHA, not branch name (the tip at run time can differ from the tree the event saw).
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # actions/setup-node v6

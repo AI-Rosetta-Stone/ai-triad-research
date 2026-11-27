@@ -13,6 +13,9 @@
 // 2. Runs sweep-landed-worktrees.sh, with --dry-run when --report-only (the first 3 days, TL p/12#244).
 //    The sweep removes only worktrees whose PR merged (HEAD at or behind the PR head), that are clean, and
 //    that had no file modified in 2 hours; never --force, never the shared checkout, never a remote branch.
+// 2b. t/718 (report only): the remote-branch pass (remote-branch-report.mjs). One log line per origin branch with no open PR, saying
+//    whether all its commits are on origin/main, and one summary line. It never deletes a remote branch and raises no WARN. It
+//    runs only from the CLI (the injected `remotePass` of a test run is skipped otherwise), and if it cannot be evaluated it says so.
 // 3. Writes every line (removals, WARNs, skips with reasons) to <git common dir>/worktree-sweep/<date>.log
 //    and prints a summary and, last, one JSON line for the scheduled task (counts, WARN lines, log path).
 //
@@ -28,6 +31,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkRunningCopy, currencyRefusalMessage, currencyOkLine, REPO_ROOT } from './running-copy-current.mjs';
+import { remoteBranchPass } from './remote-branch-report.mjs';
 
 export const SELF = 'operations/devops/run-worktree-sweep.mjs';
 export const SWEEP_SCRIPT = 'operations/devops/sweep-landed-worktrees.sh';
@@ -99,7 +103,7 @@ export function resolveSh({ env = process.env, platform = process.platform, exis
   return fromGit ? { sh: fromGit, how: 'git-install', searched } : { sh: null, searched };
 }
 
-export async function run({ reportOnly, currency = checkRunningCopy, gitFn = git, readLocal, sweep, findSh = resolveSh, now = new Date() } = {}) {
+export async function run({ reportOnly, currency = checkRunningCopy, gitFn = git, readLocal, sweep, findSh = resolveSh, now = new Date(), remotePass = null } = {}) {
   const read = readLocal ?? ((p) => { try { return readFileSync(path.join(REPO_ROOT, p), 'utf8'); } catch { return null; } });
   const out = [];
   const log = (l) => { out.push(l); console.log(l); };
@@ -169,6 +173,14 @@ export async function run({ reportOnly, currency = checkRunningCopy, gitFn = git
   }
   const s = summarize(text);
 
+  // 2b. The remote-branch pass (t/718, report only). A crash in it must never fail the sweep.
+  let remote = null;
+  if (remotePass) {
+    try { remote = remotePass(); } catch (err) { remote = { evaluated: false, lines: [], summary: `remote branches: could not evaluate (${String(err?.message ?? err).split('\n')[0].slice(0, 120)}); nothing listed as merged`, counts: null }; }
+    for (const l of remote.lines) out.push(l);
+    out.push(remote.summary);
+  }
+
   // 3. Log file and summary.
   let logPath = null;
   try {
@@ -181,8 +193,9 @@ export async function run({ reportOnly, currency = checkRunningCopy, gitFn = git
     console.warn(`WARN run-worktree-sweep: could not write the log file (${err.message}); the summary below is the record.`);
   }
   for (const w of s.warnings) console.log(w);
+  if (remote) console.log(`run-worktree-sweep: ${remote.summary}`);
   console.log(`run-worktree-sweep: ${mode}: ${reportOnly ? `${s.wouldRemove} would be removed` : `${s.removed} removed`}, ${s.warnings.length} WARN, ${s.skipped} skipped${logPath ? `; log ${logPath}` : ''}`);
-  console.log(JSON.stringify({ ok: true, mode, mainSha: cur.mainSha, removed: s.removed, wouldRemove: s.wouldRemove, skipped: s.skipped, warnings: s.warnings, log: logPath }));
+  console.log(JSON.stringify({ ok: true, mode, mainSha: cur.mainSha, removed: s.removed, wouldRemove: s.wouldRemove, skipped: s.skipped, warnings: s.warnings, remoteBranches: remote ? { evaluated: remote.evaluated, ...(remote.counts ?? {}) } : null, log: logPath }));
   return 0;
 }
 
@@ -191,5 +204,5 @@ if (isCli) {
   const args = process.argv.slice(2);
   const unknown = args.filter((a) => a !== '--report-only');
   if (unknown.length) { console.error('usage: node operations/devops/run-worktree-sweep.mjs [--report-only]'); process.exit(1); }
-  run({ reportOnly: args.includes('--report-only') }).then((code) => process.exit(code), (err) => { console.error(err?.stack ?? err); process.exit(1); });
+  run({ reportOnly: args.includes('--report-only'), remotePass: () => remoteBranchPass() }).then((code) => process.exit(code), (err) => { console.error(err?.stack ?? err); process.exit(1); });
 }

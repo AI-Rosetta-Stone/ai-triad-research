@@ -46,6 +46,9 @@ updates:
   # per-directory, no heal needed. (If a future lib/debate bump ever drifts its
   # standalone lockfile, extend sync-standalone-lockfile.mjs to cover it.)
   - package-ecosystem: npm
+    # t/753 (TL ruling): every Dependabot PR opens held. 'labels' replaces Dependabot's defaults,
+    # so the two it applied before are listed too. Remove the hold only after reading the commits.
+    labels: ['dependencies', 'javascript', 'no-auto-enqueue']
     directory: /
     schedule:
       interval: weekly
@@ -69,6 +72,9 @@ updates:
     # going forward -- see undiciInvariant.ts for the mechanism.
 
   - package-ecosystem: npm
+    # t/753 (TL ruling): every Dependabot PR opens held. 'labels' replaces Dependabot's defaults,
+    # so the two it applied before are listed too. Remove the hold only after reading the commits.
+    labels: ['dependencies', 'javascript', 'no-auto-enqueue']
     directory: /lib/debate
     schedule:
       interval: weekly
@@ -82,6 +88,9 @@ updates:
     open-pull-requests-limit: 1
 
   - package-ecosystem: npm
+    # t/753 (TL ruling): every Dependabot PR opens held. 'labels' replaces Dependabot's defaults,
+    # so the two it applied before are listed too. Remove the hold only after reading the commits.
+    labels: ['dependencies', 'javascript', 'no-auto-enqueue']
     directory: /deploy/azure/runner/function
     schedule:
       interval: weekly
@@ -96,6 +105,9 @@ updates:
 
   # ── github-actions — monthly (actions rarely change; weekly was noise) ──
   - package-ecosystem: github-actions
+    # t/753 (TL ruling): every Dependabot PR opens held. 'labels' replaces Dependabot's defaults,
+    # so the two it applied before are listed too. Remove the hold only after reading the commits.
+    labels: ['dependencies', 'github_actions', 'no-auto-enqueue']
     directory: /
     schedule:
       interval: monthly
@@ -115,6 +127,9 @@ updates:
   # reference — reds on real drift or a load/API break), so dependabot may propose
   # majors and the gate decides. An ignore would only hide them.
   - package-ecosystem: pip
+    # t/753 (TL ruling): every Dependabot PR opens held. 'labels' replaces Dependabot's defaults,
+    # so the two it applied before are listed too. Remove the hold only after reading the commits.
+    labels: ['dependencies', 'python', 'no-auto-enqueue']
     directory: /scripts
     schedule:
       interval: weekly
@@ -136,6 +151,9 @@ updates:
   # image + app Dockerfile are bumped; node minor/patch (26.x) continue to flow
   # for security patches as before.
   - package-ecosystem: docker
+    # t/753 (TL ruling): every Dependabot PR opens held. 'labels' replaces Dependabot's defaults,
+    # so the two it applied before are listed too. Remove the hold only after reading the commits.
+    labels: ['dependencies', 'docker', 'no-auto-enqueue']
     directory: /taxonomy-editor
     schedule:
       interval: monthly
@@ -149,6 +167,9 @@ updates:
       - dependency-name: ai-rosetta-stone/ai-triad-base
 
   - package-ecosystem: docker
+    # t/753 (TL ruling): every Dependabot PR opens held. 'labels' replaces Dependabot's defaults,
+    # so the two it applied before are listed too. Remove the hold only after reading the commits.
+    labels: ['dependencies', 'docker', 'no-auto-enqueue']
     directory: /deploy/azure
     schedule:
       interval: monthly
@@ -162,6 +183,9 @@ updates:
   # ai-triad-base drift workflow (PI decision 3, t/249). Weekly: the image is unhardened and
   # rebuilt often upstream, so digest bumps retire its CVEs sooner.
   - package-ecosystem: docker
+    # t/753 (TL ruling): every Dependabot PR opens held. 'labels' replaces Dependabot's defaults,
+    # so the two it applied before are listed too. Remove the hold only after reading the commits.
+    labels: ['dependencies', 'docker', 'no-auto-enqueue']
     directory: /
     schedule:
       interval: weekly

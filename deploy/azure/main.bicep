@@ -805,6 +805,11 @@ var baseEnv = [
   // Fixes class-A durability (admin flags, runtime-config, calibration logs) and
   // taxonomy reads (supersedes t/2612 startup.sh symlink).
   { name: 'AI_TRIAD_DATA_ROOT', value: '/mnt/shared' }
+  // t/624 phase 3: prod writes class-A state (flags, runtime config, telemetry, flight recorder,
+  // calibration logs) and anonymous sessions to the prod-only share, which staging never mounts.
+  // Staging overrides both in stagingEnvOverrides below. Runbook: runbooks/prod-state-share-migration.md.
+  { name: 'AI_TRIAD_STATE_ROOT', value: '/mnt/prod-state' }
+  { name: 'ANON_SESSION_DIR', value: '/mnt/prod-state/anon-sessions' }
   // t/4298/t/4299/t/4300: TAXONOMY_CACHE_DIR no longer tracks AI_TRIAD_DATA_ROOT (the
   // t/2061 "must stay in sync" invariant above was superseded by PR #1078's toRepoPath()
   // fix, which made the two independent — staging already overrides this one on its own,

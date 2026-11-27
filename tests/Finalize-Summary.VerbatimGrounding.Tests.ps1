@@ -1052,7 +1052,13 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = @($Good, 'A quote the matcher will throw on, standing in for a defect.', 42) })
             $Out = InModuleScope AITriad -Parameters @{ S = $Src; Sum = $Sum } {
                 param($S, $Sum)
-                Mock Resolve-VerbatimQuote -ParameterFilter { $Quote -like 'A quote the matcher will throw on*' } -MockWith { throw 'boom' }
+                # One mock with no filter: a filtered mock alone has no default, so Pester refuses the other
+                # quote's call ("No mock ... matched") and the good quote was dropped too (t/779).
+                $script:RealResolve = Get-Command Resolve-VerbatimQuote -CommandType Function
+                Mock Resolve-VerbatimQuote -MockWith {
+                    if ($Quote -like 'A quote the matcher will throw on*') { throw 'boom' }
+                    & $script:RealResolve @PesterBoundParameters
+                }
                 $all = @(Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-throw' 3>&1)
                 [pscustomobject]@{
                     R        = @($all | Where-Object { $_ -isnot [System.Management.Automation.WarningRecord] })[-1]
