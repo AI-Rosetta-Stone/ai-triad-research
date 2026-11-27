@@ -3,7 +3,7 @@
 **Ticket:** t/807 · **Author:** Design · **Date:** 2026-11-27
 **Source:** the human's implementation spec `Synthesis.pdf` (2026-11-27, written without repo access) and its canvas mock-up. Where this document and the PDF differ, this document is the repo-checked version; §10 lists every difference and why.
 **Supersedes:** the layout in `debate-synthesis.md` (t/4914). It **keeps** that spec's top-3 plus **Show N more** rule (§4 there) and the expander pattern.
-**Applies to:** the concluding card (`SynthesisSections.tsx`, `ConcludingSections` in `StatementCard.tsx`), every Text tier.
+**Applies to:** the synthesis (`SynthesisSections.tsx`, `ConcludingSections` in `StatementCard.tsx`), every Text tier. **Placement: at the top of the debate page (§12, human decision 2026-11-27), not at the end of the transcript.**
 
 ## 1. Goal
 
@@ -118,3 +118,16 @@ Body: one or two sentences, drawn from the dispute's `resolvability` / `what_wou
   7. Export order matches the panel.
   8. Screenshots at 360, 680 and 1024 px, harvard and dark; every control hidden for lack of a backing action is listed in the PR.
   9. Design approves through the reviewer App; the human signs off before the flag is removed.
+
+## 12. Placement: top of the debate page (human decision, 2026-11-27)
+
+The synthesis panel sits at the **top of the debate page**, directly under the debate header and toolbar and above the transcript. The panel is the same content as §3; only where it lives changes.
+
+- **Only when a synthesis exists.** While the debate runs, or if the synthesis failed, nothing is reserved at the top (no empty box, no skeleton). It appears when the concluding entry lands.
+- **The transcript keeps its chronology.** The concluding entry stays in the transcript's last position as a **one-line row**: **Synthesis · shown at the top of this page** with a **Back to top** link. It doesn't repeat the content. Exports are unchanged (the export carries the synthesis once, in the §9 order).
+- **Collapse.** The panel has a **Collapse synthesis ▴ / Expand synthesis ▾** button in its header (`aria-expanded`, `aria-controls`). Default **expanded** when the debate is opened. Collapsed state shows the header, the title and the bottom-line paragraph only, and is remembered per debate (localStorage, like the §8 checkboxes). Because the panel can be long, **Skip to transcript** is the first link in the section nav, moving focus to the first transcript entry.
+- **Scrolling.** The panel scrolls with the page (not sticky), so it never covers the transcript on a short window. Section nav links scroll the page, not an inner box, and the panel loses its inner scroll area; this replaces the PDF's "scrolls the panel".
+- **Width.** It uses the page's content column (still `max-width: 760px` for the panel's own content at wide windows) so it lines up with the transcript below.
+- **Find, Why and How.** In-debate find searches the synthesis text too, with matches in the panel highlighted like in the transcript. The Why and How toolbar modes don't apply to the panel.
+- **The transcript's collapse rule (t/783)** counts debater statements only, so the synthesis row doesn't use an 'open' slot; it's always the one-line row.
+- **Acceptance (adds to §11):** the panel is the first thing under the toolbar once a synthesis exists; nothing is rendered there before; the transcript's last row is the one-line pointer with a working **Back to top**; collapse persists per debate and is keyboard operable; **Skip to transcript** works; find reaches panel text; no duplicated synthesis content in the page.
