@@ -221,6 +221,23 @@ describe('buildSynthesisView', () => {
 });
 
 describe('helpers', () => {
+  it('termOf drops a trailing -ly word, but only when the title was already cut (t/822)', () => {
+    expect(termOf('Whether a six-month pause and mandatory compliance thresholds effectively shift research incentives'))
+      .toEqual({ term: 'a six-month pause and mandatory compliance thresholds', lost: true });
+    // not cut: nothing is trimmed, even a word that looks like an adverb
+    expect(termOf('Whether supply')).toEqual({ term: 'supply', lost: false });
+    expect(termOf('Whether it works effectively')).toEqual({ term: 'it works effectively', lost: false });
+    // cut, ending in a -ly noun: kept
+    expect(termOf('Whether labs and firms and the whole larger family dispute pricing'))
+      .toEqual({ term: 'labs and firms and the whole larger family', lost: true });
+    // policy nouns ending in -ly: kept
+    expect(termOf('Whether labs and firms and the whole larger oligopoly dispute pricing').term).toBe('labs and firms and the whole larger oligopoly');
+    expect(termOf('Whether labs and firms and the whole larger duopoly dispute pricing').term).toBe('labs and firms and the whole larger duopoly');
+    // cut, ending in a -ly word shorter than 6 letters: kept
+    expect(termOf('Whether labs and firms and the whole larger only dispute pricing'))
+      .toEqual({ term: 'labs and firms and the whole larger only', lost: true });
+  });
+
   it('termOf drops a leading Whether, lower-cases, cuts at a clause boundary and never adds an ellipsis', () => {
     expect(termOf('Whether protocol-level verification standards and insurance solvency floors can be enforced without entrenching industry monopolies.'))
       .toEqual({ term: 'protocol-level verification standards and insurance solvency floors', lost: true });
@@ -238,6 +255,13 @@ describe('helpers', () => {
     expect(matchPointIndex('audits', ['Whether audits can be enforced without entrenching incumbents'])).toBe(-1);
     // two equally close points: no match
     expect(matchPointIndex('liability for model', ['liability for model harm', 'liability for model misuse'])).toBe(-1);
+  });
+
+  it('matchPointIndex word-overlap boundary: exactly 0.5 matches, just under does not (t/822)', () => {
+    // 2 shared of 4 distinct words = 0.5, and the texts are too short for the containment step
+    expect(matchPointIndex('ab cd', ['ab cd ef gh'])).toBe(0);
+    // 2 shared of 5 distinct words = 0.4
+    expect(matchPointIndex('ab cd', ['ab cd ef gh ij'])).toBe(-1);
   });
 
   it('an unlinked preference stays unlinked: it gets its own card, never a dispute it only loosely resembles', () => {

@@ -72,6 +72,16 @@ describe('synthesisBrief (t/810)', () => {
     expect(md).toContain('- **C1** (Empirical) Does a pause slow rivals too?\n  - If yes, weakens: The skeptic concedes.\n  - If no, weakens: The safetyist concedes.');
   });
 
+  it('two cruxes with identical text each keep their own if-yes/if-no (t/822)', () => {
+    const twin = { ...synth(), cruxes: [
+      { question: 'Same question?', type: 'EMPIRICAL', if_yes: 'first yes', if_no: 'first no' },
+      { question: 'Same question?', type: 'VALUES', if_yes: 'second yes', if_no: 'second no' },
+    ] };
+    const out = synthesisBrief(twin, { debaters: DEBATERS }).join('\n');
+    expect(out).toContain('**C1** (Empirical) Same question?\n  - If yes, weakens: first yes\n  - If no, weakens: first no');
+    expect(out).toContain('**C2** (Values) Same question?\n  - If yes, weakens: second yes\n  - If no, weakens: second no');
+  });
+
   it('nests the full dispute under its next move, not as a sibling bullet', () => {
     const long = { areas_of_disagreement: [{ point: 'Whether a six-month pause and mandatory compliance thresholds effectively shift research incentives toward safety without ceding advantage', type: 'VALUES', positions: [] }] };
     const out = synthesisBrief(long, { debaters: DEBATERS }).join('\n');

@@ -181,6 +181,12 @@ export function matchPointIndex(conflict: string, points: readonly string[]): nu
 
 const TRAILING_FILLER = new Set(['and', 'or', 'the', 'a', 'an', 'of', 'to', 'in', 'on', 'for', 'with', 'without', 'that', 'can', 'be', 'is', 'are', 'will', 'whether', 'if', 'by', 'as']);
 
+/** Words ending in -ly that are nouns (or names), so a cut title ending in one keeps it (t/822). */
+const LY_NOUNS = new Set(['family', 'supply', 'assembly', 'monopoly', 'oligopoly', 'duopoly', 'anomaly', 'ally', 'apply', 'reply', 'rally', 'tally', 'bully', 'belly', 'jelly', 'italy']);
+
+/** A trailing adverb ("effectively"): 6+ letters ending in -ly and not a known noun. Only used on a title that was already cut. */
+const isTrailingAdverb = (w: string): boolean => /ly$/i.test(w) && w.length >= 6 && !LY_NOUNS.has(w.toLowerCase());
+
 /**
  * The noun-phrase a next-move title is built around (spec §7, Design p/14#150): a leading
  * "Whether"/"If" dropped, first letter lower-cased (not an acronym), cut at a clause boundary
@@ -198,7 +204,7 @@ export function termOf(text: string, n = 8): { term: string; lost: boolean } {
   if (words.length > n || clause >= 0) {
     if (clause > 0) cut = cut.slice(0, clause);
     const kept = cut.split(' ');
-    while (kept.length > 1 && TRAILING_FILLER.has(kept[kept.length - 1].toLowerCase())) kept.pop();
+    while (kept.length > 1 && (TRAILING_FILLER.has(kept[kept.length - 1].toLowerCase()) || isTrailingAdverb(kept[kept.length - 1]))) kept.pop();
     cut = kept.join(' ');
   }
   const term = cut.replace(/[\s,;:.?!–—-]+$/u, '');
