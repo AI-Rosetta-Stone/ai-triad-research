@@ -75,7 +75,16 @@ describe('buildSynthesisView strongestArguments (t/827)', () => {
       edges: [edge('s1', 'a1', 'attacks'), edge('s2', 'a1', 'attacks'), edge('k1', 'a1', 'supports'), edge('a1', 's1', 'attacks')],
     });
     const a1 = v.strongestArguments.find(c => c.camp.id === 'accelerationist')!.items[0];
-    expect(a1).toEqual({ id: 'a1', text: 'claim a1', supportedBy: 1, challengedBy: 2, sourceEntryId: 'entry-a1' });
+    expect(a1).toEqual({ id: 'a1', text: 'claim a1', supportedBy: 1, challengedBy: 2, engages: 1, sourceEntryId: 'entry-a1' });
+  });
+
+  it('engages counts the edges where the node is the source, whatever their type', () => {
+    const v = view({
+      nodes: [node('a1', 'accelerationist', 0.9), node('s1', 'safetyist', 0.5), node('s2', 'safetyist', 0.4), node('k1', 'skeptic', 0.3)],
+      edges: [edge('a1', 's1', 'attacks'), edge('a1', 's2', 'supports'), edge('a1', 'k1', 'attacks'), edge('a1', 'k1', 'revoice_of')],
+    });
+    const a1 = v.strongestArguments.find(c => c.camp.id === 'accelerationist')!.items[0];
+    expect(a1).toMatchObject({ supportedBy: 0, challengedBy: 0, engages: 3 });
   });
 
   it('lists the camps in the fixed order with items: [] for a camp that has none, and counts only camps with items in the nav', () => {
@@ -137,6 +146,18 @@ describe('the export renders Strongest arguments after Disputes (t/827)', () => 
     expect(md).toContain('1. claim s1 (Challenged by 1)');
     expect(md).toContain('Strongest arguments 2');
     expect(md).not.toMatch(/0\.9|0\.4/);
+  });
+
+  it("a source-only argument says 'Engages N other argument(s)'; one with incoming edges keeps Supported/Challenged", () => {
+    const net = {
+      nodes: [node('a1', 'accelerationist', 0.9), node('a2', 'accelerationist', 0.5), node('s1', 'safetyist', 0.4), node('s2', 'safetyist', 0.3), node('k1', 'skeptic', 0.2)],
+      edges: [edge('a1', 's1', 'attacks'), edge('a1', 's2', 'attacks'), edge('a2', 'k1', 'attacks'), edge('k1', 's1', 'supports')],
+    };
+    const md = synthesisBrief(synth, { debaters: CAMPS, argumentNetwork: net }).join('\n');
+    expect(md).toContain('1. claim a1 (Engages 2 other arguments)');
+    expect(md).toContain('2. claim a2 (Engages 1 other argument)');
+    expect(md).toContain('1. claim s1 (Supported by 1 · Challenged by 1)');
+    expect(md).not.toContain('(Engages 2 other arguments · ');
   });
 
   it('omits the section and its nav count when there is no network or nothing engaged', () => {
