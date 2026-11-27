@@ -21,6 +21,18 @@ import type { ServerCtx } from '../routes/context.js';
 
 // ── Mock all external dependencies so the handler reaches generateTextByUsage ──
 
+// t/746: these tests are about the route's other behaviour; the durable daily allowance is covered in dailyTokenGateWiring.test.ts.
+vi.mock('../routes/dailyTokenGate.js', () => ({
+  reserveDailyTokens: vi.fn(async () => ({ ok: true, hold: { id: 'h', docName: 'd', keyTag: 't', reserved: 0, limit: 0, inMemory: false } })),
+  refuseDailyReserve: vi.fn(),
+  settleDailyTokens: vi.fn(async () => undefined),
+  assumedOutputCapTokens: () => 65_536,
+  estimateUsage: () => ({ inputTokens: 0, outputTokens: 0 }),
+  getDailyTokenBudget: vi.fn(),
+  bookDailyTokens: vi.fn(async () => undefined),
+  dailyTokenBudgetHealth: () => ({ store: 'unused', durable: false }),
+}));
+
 vi.mock('../ai/aiBackends.js', () => ({
   generateTextByUsage: vi.fn(async (_id: string, _vals: unknown, _overrides: unknown, onRetry: ((p: unknown) => void) | undefined) => {
     onRetry?.({ attempt: 1, maxRetries: 3, backoffSeconds: 5, limitType: 'rpm', limitMessage: 'rate limited' });

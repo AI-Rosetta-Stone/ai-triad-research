@@ -19,6 +19,7 @@ import { getDataRootReadyState } from './dataRootReadiness.js'; // t/3309: cache
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getProjectRoot, getDataRoot, hasApiKey, STORAGE_MODE, isStagingIdentity } from '../config.js';
 import { getConfig } from '../runtimeConfig.js';
+import { dailyTokenBudgetHealth } from './dailyTokenGate.js';
 import * as proxyTiers from '../ai/proxyTiers.js';
 import { getEmbeddingsCacheStatus, getEmbeddingsResolution } from '../ai/aiBackends.js';
 import * as community from '../community/community.js';
@@ -312,6 +313,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     };
 
     base.freePoolBudget = freePoolBudgetHealth();
+    base.dailyTokenBudget = dailyTokenBudgetHealth(); // t/746: which store the daily allowance is on, and whether it is durable
     base.blobBackend = blobBackendHealth();
     Object.assign(base, sharedOverlayDrainField);
 

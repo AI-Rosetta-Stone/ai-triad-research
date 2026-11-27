@@ -27,6 +27,8 @@ import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
 import { hasApiKey, getPaidGeminiFallbackKey, getStoredUserKeysBeforeFreePool, type AIBackend } from '../config.js';
 import * as proxyTiers from '../ai/proxyTiers.js';
 import * as rateLimiter from '../security/rateLimiter.js';
+import { reserveDailyTokens, refuseDailyReserve, settleDailyTokens, assumedOutputCapTokens, estimateUsage, getDailyTokenBudget } from './dailyTokenGate.js';
+import type { TokenHold } from '../security/dailyTokenBudget.js';
 import * as ai from '../ai/aiBackends.js';
 import { callerHasKey } from '../ai/keyPresenceForCaller.js';
 import { resolveGenerationContext, enforceBackendAllowed, enforceAnonDebateGate } from './generationContext.js';
@@ -538,6 +540,9 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
     // `finally` always calls releaseIfUnsettled() — covers every early-return/catch path
     // without duplicating release() calls at each one.
     let freePoolBudget = trackFreePoolReservation(null);
+    // t/746: the durable daily token hold; settled in `finally` on every way out (zeros unless a success set `dailyUsage`).
+    let dailyHold: TokenHold | null = null;
+    let dailyUsage: { inputTokens: number; outputTokens: number } | null = null;
     res.on('close', () => { if (shouldAbortOnClientClose(finished, res.writableEnded)) abort.abort(); });
     try {
       // Free-tier cost is bounded by tokensPerDay + per-IP rate limits; the redundant
@@ -561,6 +566,15 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // Free tier (server-provided) is exempt; t/945 resolved a BYOK Gemini fallback above.
       if (await enforceKeyPresent(res, backend, tier, explicitKey)) return;
 
+      // t/746: reserve the call's worst case against the caller's durable daily allowance BEFORE the provider call
+      // (refused: 429 daily limit, 413 per-call ceiling, 503 when the store is down for a pool-funded call).
+      const promptBytes = Buffer.byteLength(String(prompt ?? ''), 'utf8');
+      const reserved = await reserveDailyTokens(limitKey, tier.limits.tokensPerDay, {
+        promptBytes, outputCapTokens: assumedOutputCapTokens(), poolFunded: isFree || tier.level === 'platform',
+      });
+      if (!reserved.ok) { refuseDailyReserve(res, reserved); return; }
+      dailyHold = reserved.hold;
+
       // t/839: record the AI request/response on the happy path.
       const requestModel = recordGenerateRequest(backend, effectiveModel, prompt, tier, debateId);
 
@@ -574,6 +588,7 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
         // Speaker turns never use search=true; servedModel is not required on this path (t/4125 AC).
         const searchResult = await generateWithSearch(prompt, effectiveModel, explicitKey, { isFree, backend, requestModel, t0 });
         await freePoolBudget.commit((searchResult as { tokenUsage?: { inputTokens: number; outputTokens: number } }).tokenUsage);
+        dailyUsage = (searchResult as { tokenUsage?: { inputTokens: number; outputTokens: number } }).tokenUsage ?? estimateUsage(promptBytes, (searchResult as { text?: string }).text);
         json(res, searchResult);
       } else {
         const result = await generateWithPaidFallback(prompt, usageOverrides, explicitKey, {
@@ -592,6 +607,7 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
         // t/4485: commit() records actual usage unconditionally (t/4484's own contract) —
         // reconciles the upfront estimate to the real token count now that it's known.
         await freePoolBudget.commit(result.tokenUsage);
+        dailyUsage = result.tokenUsage ?? estimateUsage(promptBytes, result.text);
 
         applyTokenBudgetHeaders(res, result, limitKey, tier);
         json(res, { text: result.text, tokenUsage: result.tokenUsage, servedModel: result.servedModel }); // t/4125: forward registry id so the renderer can track failover
@@ -630,6 +646,8 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // t/4485: a no-op if commit() already settled it (or there was never a reservation) —
       // otherwise returns the unused budget (early return, abort, or any error path above).
       await freePoolBudget.releaseIfUnsettled();
+      // t/746: settle the daily hold with the real usage on success, zeros on a failure or abort (releases the hold).
+      await settleDailyTokens(dailyHold, dailyUsage);
     }
   });
 
@@ -696,11 +714,20 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
     json(res, { ...tier, principalName: principalName || null, freePoolHeadroom });
   });
 
-  get('/api/proxy/usage', (_req, res) => {
+  get('/api/proxy/usage', async (req, res) => {
     const { principalName, idp } = callerIdentity(); // t/848: verified context, not raw headers
     const userId = principalName || '_anonymous';
     const tier = proxyTiers.resolveTier(principalName, idp);
     const usage = rateLimiter.getUsage(userId);
+    // t/746: the daily total is the durable one (the same key the call sites reserve under), so it survives a
+    // restart and counts every replica. If the store can't be read, the in-process figure stands.
+    try {
+      const { limitKey } = resolveGenerationContext(req, undefined);
+      const durable = await getDailyTokenBudget().usage(limitKey);
+      usage.tokensToday = durable.tokensToday;
+    } catch (err) {
+      log.api.warn({ component: 'ai', err: String(err) }, 'Daily token usage read failed; reporting the in-process figure (t/746)');
+    }
     json(res, { tier: tier.level, limits: tier.limits, usage });
   });
 
