@@ -69,7 +69,7 @@ describe('synthesisBrief (t/810)', () => {
   });
 
   it('keeps each crux if-yes and if-no as nested lines', () => {
-    expect(md).toContain('- **C1** (Empirical) Does a pause slow rivals too?\n  - If yes, weakens: The skeptic concedes.\n  - If no, weakens: The safetyist concedes.');
+    expect(md).toContain('- **C1** (Empirical) Does a pause slow rivals too?\n  - **If yes:** The skeptic concedes.\n  - **If no:** The safetyist concedes.');
   });
 
   it('two cruxes with identical text each keep their own if-yes/if-no (t/822)', () => {
@@ -78,8 +78,8 @@ describe('synthesisBrief (t/810)', () => {
       { question: 'Same question?', type: 'VALUES', if_yes: 'second yes', if_no: 'second no' },
     ] };
     const out = synthesisBrief(twin, { debaters: DEBATERS }).join('\n');
-    expect(out).toContain('**C1** (Empirical) Same question?\n  - If yes, weakens: first yes\n  - If no, weakens: first no');
-    expect(out).toContain('**C2** (Values) Same question?\n  - If yes, weakens: second yes\n  - If no, weakens: second no');
+    expect(out).toContain('**C1** (Empirical) Same question?\n  - **If yes:** first yes\n  - **If no:** first no');
+    expect(out).toContain('**C2** (Values) Same question?\n  - **If yes:** second yes\n  - **If no:** second no');
   });
 
   it('nests the full dispute under its next move, not as a sibling bullet', () => {

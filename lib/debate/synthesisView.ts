@@ -96,7 +96,8 @@ export interface SynthesisView {
    *  skeptic, each with its top engaged arguments (`items: []` when the camp has none). `[]` when there is no
    *  argument network or no camp has an engaged node: the section and its nav link are hidden. */
   strongestArguments: StrongestArgumentsCamp[];
-  cruxes: { n: string; type: DisputeTypeKey | null; typeLabel: string | null; rawType: string | null; question: string }[];
+  /** `ifYes` / `ifNo` are the model's prose on how positions move if the crux resolves each way (t/830); absent when not given. */
+  cruxes: { n: string; type: DisputeTypeKey | null; typeLabel: string | null; rawType: string | null; question: string; ifYes?: string; ifNo?: string }[];
   openQuestions: { id: string; text: string }[];
   /** Open questions in render order: one untitled group (flat), or themed groups (spec §8). */
   openQuestionGroups: { theme: string | null; questions: { id: string; text: string }[] }[];
@@ -432,7 +433,12 @@ function buildCruxes(s: Rec): SynthesisView['cruxes'] {
   return arr(s.cruxes).filter(isRec).filter(c => str(c.question)).map((c, i) => {
     const raw = str(c.type);
     const key = typeKeyOf(raw);
-    return { n: `C${i + 1}`, type: key, typeLabel: raw ? (key ? TYPE_LABEL[key] : raw) : null, rawType: raw, question: str(c.question) as string };
+    const ifYes = str(c.if_yes);
+    const ifNo = str(c.if_no);
+    return {
+      n: `C${i + 1}`, type: key, typeLabel: raw ? (key ? TYPE_LABEL[key] : raw) : null, rawType: raw, question: str(c.question) as string,
+      ...(ifYes ? { ifYes } : {}), ...(ifNo ? { ifNo } : {}),
+    };
   });
 }
 

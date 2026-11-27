@@ -306,3 +306,26 @@ describe('open question grouping (spec §8, Design p/14#151)', () => {
     expect(buildSynthesisView({ debaters: CAMPS, synthesis: {} }).openQuestionGroups).toEqual([]);
   });
 });
+
+describe('crux ifYes / ifNo (t/830)', () => {
+  const cruxView = (cruxes: unknown[]) => buildSynthesisView({ synthesis: { cruxes }, debaters: ['skeptic'] }).cruxes;
+
+  it('passes if_yes and if_no through as ifYes and ifNo, trimmed', () => {
+    expect(cruxView([{ question: 'Q?', type: 'EMPIRICAL', if_yes: ' The safetyist concedes. ', if_no: 'The skeptic concedes.' }])[0])
+      .toMatchObject({ n: 'C1', question: 'Q?', ifYes: 'The safetyist concedes.', ifNo: 'The skeptic concedes.' });
+  });
+
+  it('keeps only the lines that exist: one, or neither (the keys are absent, not empty)', () => {
+    const [onlyYes, neither, blank] = cruxView([
+      { question: 'A?', if_yes: 'yes text' },
+      { question: 'B?' },
+      { question: 'C?', if_yes: '  ', if_no: 42 },
+    ]);
+    expect(onlyYes).toMatchObject({ ifYes: 'yes text' });
+    expect('ifNo' in onlyYes).toBe(false);
+    expect('ifYes' in neither).toBe(false);
+    expect('ifNo' in neither).toBe(false);
+    expect('ifYes' in blank).toBe(false);
+    expect('ifNo' in blank).toBe(false);
+  });
+});
