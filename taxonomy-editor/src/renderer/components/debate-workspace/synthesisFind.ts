@@ -18,6 +18,7 @@ export function synthesisFindTexts(view: SynthesisView): [string, string][] {
   if (bl.decisiveCrux) out.push(['crux', bl.decisiveCrux]);
   view.nextMoves.forEach((m, i) => {
     out.push([`move${i}.title`, m.title]);
+    if (m.context) out.push([`move${i}.ctx`, m.context]);
     if (m.body) out.push([`move${i}.body`, m.body]);
   });
   view.agreements.items.forEach((t, i) => out.push([`ag${i}`, t]));
@@ -27,7 +28,8 @@ export function synthesisFindTexts(view: SynthesisView): [string, string][] {
     d.positions.forEach((p, i) => out.push([`${d.n}.pos${i}`, p.stance]));
   }
   view.cruxes.forEach(c => out.push([`${c.n}`, c.question]));
-  view.openQuestions.forEach(q => out.push([q.id, q.text]));
+  // Render order: themed groups can reorder the questions.
+  view.openQuestionGroups.forEach(g => g.questions.forEach(q => out.push([q.id, q.text])));
   return out;
 }
 

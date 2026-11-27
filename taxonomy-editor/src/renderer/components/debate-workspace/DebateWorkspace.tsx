@@ -1354,7 +1354,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
         />
         <DebatePhaseHeader activeDebate={activeDebate} isDebatePhase={isDebatePhase} isOpeningPhase={isOpeningPhase} />
         {synthTop && (
-          <SynthesisTop key={activeDebate.id} top={synthTop} debateId={activeDebate.id} findQuery={findQuery} findCurrentIndex={findCurrentIndex} />
+          <SynthesisTop key={activeDebate.id} top={synthTop} debateId={activeDebate.id} findQuery={findQuery} findCurrentIndex={findCurrentIndex} onExport={onExport} />
         )}
         <DebateTranscriptColumn
           synthesisEntryId={synthTop?.entry.id ?? null}

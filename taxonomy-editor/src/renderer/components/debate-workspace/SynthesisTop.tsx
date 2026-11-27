@@ -62,8 +62,10 @@ function skipToTranscript(): void {
   first.focus({ preventScroll: true });
 }
 
-export function SynthesisTop({ top, debateId, findQuery, findCurrentIndex }: {
+export function SynthesisTop({ top, debateId, findQuery, findCurrentIndex, onExport }: {
   top: SynthesisTopData; debateId: string; findQuery: string; findCurrentIndex: number;
+  /** The page's export handler; "Export brief" exports the Markdown brief and is hidden without it. */
+  onExport?: (format: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState(() => readCollapsed(debateId));
   const toggle = useCallback(() => {
@@ -80,6 +82,7 @@ export function SynthesisTop({ top, debateId, findQuery, findCurrentIndex }: {
         collapsed={collapsed}
         onToggleCollapsed={toggle}
         onSkip={skipToTranscript}
+        onExportBrief={onExport ? () => onExport('markdown') : undefined}
       />
     </div>
   );
