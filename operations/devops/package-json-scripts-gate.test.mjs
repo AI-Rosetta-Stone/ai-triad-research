@@ -463,7 +463,7 @@ test('t/806: workspaceFreeEntriesOf on its own', () => {
 
 // ── t/806 amend (Lead p/233#333/#334, Security p/131#138) ──
 
-test('t/806: a removed override, catalog or catalogs entry is free only with a package.json or pnpm-lock.yaml change in the same PR', () => {
+test('t/806: a removed override, catalog or catalogs entry is free only with a pnpm-lock.yaml change in the same PR', () => {
   const rm = (from) => wsReplace(from, '');
   const withFile = (f) => decide([E(WS, undefined, 'modified'), E(f, undefined, 'modified')], { [WS]: { text: WS_BASE }, [f]: { text: 'a' } }, { [WS]: { text: rm('  axios: ">=1.20.0 <2"\n') }, [f]: { text: 'b' } });
   assert.deepEqual(wsFree(rm('  axios: ">=1.20.0 <2"\n')), [WS], 'alone');
@@ -471,7 +471,8 @@ test('t/806: a removed override, catalog or catalogs entry is free only with a p
   assert.deepEqual(wsFree(rm('    react: 17.0.0\n')), [WS], 'a catalogs removal alone');
   assert.deepEqual(withFile('pnpm-lock.yaml'), [], 'with a root lockfile');
   assert.deepEqual(withFile('taxonomy-editor/pnpm-lock.yaml'), [], 'with a nested lockfile');
-  assert.deepEqual(withFile('package.json').filter((p) => p === WS), [], 'with a package.json (its own scripts check still applies)');
+  assert.deepEqual(withFile('package.json').filter((p) => p === WS), [WS], 'a package.json change does NOT license a removal (SO: the lockfile alone)');
+  assert.deepEqual(withFile('taxonomy-editor/package.json').filter((p) => p === WS), [WS], 'nor does a nested package.json');
   assert.deepEqual(wsFree(rm('  axios: ">=1.20.0 <2"\n').replace('<5.13.0', '<5.14.0')), [WS], 'a removal plus an edit, alone');
   // an unrelated file does not license a removal
   assert.deepEqual(withFile('README.md'), [WS]);
@@ -501,6 +502,15 @@ test('t/806: an open-ended override value (no concrete lower bound) is a gate ch
   }
   assert.deepEqual(wsFree(wsReplace('>=1.20.0 <2', '')), [WS], 'an empty value');
   for (const ok of ['^1.2.3', '~0.5.1', '>=7.0.0 <11.0.1', '1.2.3 - 2.0.0', '1.x', '^0.0.3', '>=1.20.0 <2', '1.0.0 || ^2.0.0', '>=4.35.0']) {
+    assert.deepEqual(wsFree(wsReplace('>=1.20.0 <2', ok)), [], `overrides axios -> ${ok}`);
+  }
+});
+
+test('t/806 (Security after #5656): a zero-major > or >= lower bound needs an upper bound inside major 0', () => {
+  for (const bad of ['>=0.0.1', '>=0.1.0', '>0.0.1', '>=0.0.1 <2', '>0.1.0 <1.0.0', '>=0.0.1 <=1.0.0', '0.0.1 - 2.0.0', '>=0.0.1 <x', '>=0.0.1 || ^1.0.0']) {
+    assert.deepEqual(wsFree(wsReplace('>=1.20.0 <2', bad)), [WS], `overrides axios -> ${bad}`);
+  }
+  for (const ok of ['^0.0.1', '~0.0.1', '0.0.1', '^0.5.1', '~0.0.3', '>=0.5.0 <0.6.0', '>=0.0.1 <0.1.0', '0.1.0 - 0.9.0', '>=1.0.0', '>=1.0.0 <2', '>0.5.0 <0.9.0', '^0.5.1 || >=2.0.0 <3']) {
     assert.deepEqual(wsFree(wsReplace('>=1.20.0 <2', ok)), [], `overrides axios -> ${ok}`);
   }
 });

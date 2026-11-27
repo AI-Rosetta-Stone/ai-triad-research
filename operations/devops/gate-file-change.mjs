@@ -589,15 +589,17 @@ export function workspaceFreeEntriesOf(text) {
 /**
  * PURE (t/806). overrides, catalog and catalogs stay free in the workspace compare, but a pnpm override can point at a URL, a git spec or an
  * npm: alias, so a forged one could re-point a dependency like t/796's lockfile case. A change under them is free only when EVERY changed or new
- * VALUE is a plain version spec (isVersionSpec: no URL, npm:, git, file:, link:, workspace:, $ref or "-"), and a NEW name is not free: a changed
- * key is allowed only for a name already present. Unparseable on either side is not free. Returns { ok, why }.
+ * VALUE is a plain version spec (isVersionSpec: no URL, npm:, git, file:, link:, workspace:, $ref or "-", and a concrete lower bound). A NEW name is
+ * judged the same way as a changed one (it passes with a plain version spec) while WORKSPACE_FREE_ALLOW_NEW_NAMES is true; with the switch off a new
+ * name is a gate change. Unparseable on either side is not free. Returns { ok, why }.
  *
  * DECIDED (Lead p/233#333, Security p/131#138): WORKSPACE_FREE_ALLOW_NEW_NAMES = true. The backtest of every pnpm-workspace.yaml change since 2026-09-01 shows
  * only 2 of 7 bumps stay free when a new name is gated, and 7 of 7 when a new name with a plain version spec is allowed, so a new name passes when its value is a
  * plain version spec with a concrete lower bound (isVersionSpec). The switch stays so it can be flipped back to "a new name is a review".
  *
- * REMOVAL: a removed entry is free only when the same PR also changes a package.json or a pnpm-lock.yaml (`allowRemoval`). Every real override removal
- * (0f96a2345, an `undici@>=7.0.0 <7.29.1` selector raise) came with a lockfile change, and a bare removal in an otherwise unrelated PR is a gate change.
+ * REMOVAL: a removed entry is free only when the same PR also changes a pnpm-lock.yaml (`allowRemoval`; SO after #5656: the lockfile alone, not any package.json,
+ * because a package.json edit is cheap to attach and proves nothing about the override). Every real override removal (0f96a2345, an `undici@>=7.0.0 <7.29.1`
+ * selector raise) came with a lockfile change, and a bare removal in an otherwise unrelated PR is a gate change.
  *
  * NOT DETECTED, on purpose: a downgrade of an override to a real, published, vulnerable version (for example `>=1.20.0 <2` to `1.2.0`) passes, because
  * the value is a plain version spec. This is accepted because the same reach already exists free through a `dependencies` edit in package.json (t/776), and
@@ -637,8 +639,8 @@ function factOfRead(read, kind) {
  */
 export function scriptsGatePaths({ entries, reads }) {
   const out = [...immediateManifestPaths(entries)];
-  // t/806: a removed override is free only alongside a package.json or lockfile change (a selector raise always regenerates the lockfile).
-  const allowRemoval = (entries ?? []).some((e) => namesOf(e).some((n) => PACKAGE_JSON_PATH.test(n) || /(^|\/)pnpm-lock\.yaml$/.test(n)));
+  // t/806: a removed override is free only alongside a pnpm-lock.yaml change (a selector raise always regenerates the lockfile).
+  const allowRemoval = (entries ?? []).some((e) => namesOf(e).some((n) => /(^|\/)pnpm-lock\.yaml$/.test(n)));
   for (const t of packageJsonTargets(entries)) {
     const b = factOfRead(readForStatus(reads?.base?.[t.basePath], 'base', t.status), t.kind);
     const h = factOfRead(readForStatus(reads?.head?.[t.path], 'head', t.status), t.kind);

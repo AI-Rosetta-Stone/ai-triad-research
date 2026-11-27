@@ -408,6 +408,10 @@ const VERSION_TOKEN = /^[\^~<>=v]*\d[\w.+-]*$/;
  * needs at least one lower-bound token (bare, `=`, `^`, `~`, `>`, `>=`, or the first end of a hyphen range) whose version has a non-zero component before
  * any wildcard; `<` and `<=` tokens and the upper end of a hyphen range never count. `0.x` is refused on purpose: it has no lower bound beyond 0. `1.x`,
  * `^0.5.1`, `~0.5.1`, `^0.0.3` and `>=7.0.0 <11.0.1` are fine. `*`, `x` and the empty string have no digit and were already refused by VERSION_TOKEN.
+ * ZERO MAJOR (Security, after #5656): a `>` or `>=` lower bound (and the lower end of a hyphen range) with major 0 (`>=0.0.1`, `>=0.1.0`, `>0.0.1`, `0.0.1 - 2.0.0`)
+ * still admits almost every old release, so it needs an UPPER bound in the same alternative whose major is also 0 (`>=0.5.0 <0.6.0` is a bounded range inside the zero-major
+ * line; `>=0.0.1 <2` is not, because it spans 0.x and 1.x). Security named `>=0.0.1 <2` as to be refused, so the upper bound must be inside major 0, not just present.
+ * `^`, `~` and bare tokens may keep a zero major (`^0.5.1`, `~0.0.3`, `0.5.1`): they cannot leave their own minor or patch line.
  * `isVersionSpec` is shared with the t/776 package.json and lockfile checks; the repo's real dependency, override and lockfile specifiers were all checked against it.
  */
 function lowerBoundIsConcrete(token) {
@@ -421,21 +425,39 @@ function lowerBoundIsConcrete(token) {
   return false;
 }
 
+function majorOf(token) {
+  const m = /^([\^~<>=v]*)(.*)$/.exec(token);
+  const first = m[2].split(/[-+]/)[0].split('.')[0];
+  return /^\d+$/.test(first) ? Number(first) : NaN;       // a wildcard major is NaN, never 0
+}
+
 export function isVersionSpec(value) {
   if (typeof value !== 'string' || value.length === 0 || value.length > VERSION_SPEC_MAX) return false;
   for (const alt of value.split('||')) {
     const tokens = alt.trim().split(/\s+/);
     if (tokens.length === 1 && tokens[0] === '') return false;
     let concreteLower = false;
+    let zeroUpper = false;      // an upper bound (a < or <= token, or the upper end of a hyphen range) with major 0
+    let openZeroLower = false;  // a > or >= (or hyphen-lower) lower bound with major 0
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i];
       // A hyphen range joins two versions ('1.0.0 - 2.0.0'): `-` alone is valid only between two version tokens.
       if (t === '-') {
         if (i === 0 || i === tokens.length - 1 || !VERSION_TOKEN.test(tokens[i - 1]) || !VERSION_TOKEN.test(tokens[i + 1])) return false;
       } else if (!VERSION_TOKEN.test(t)) return false;
-      else if (!(i > 0 && tokens[i - 1] === '-') && lowerBoundIsConcrete(t)) concreteLower = true;   // the upper end of a hyphen range is not a lower bound
+      else {
+        const isHyphenUpper = i > 0 && tokens[i - 1] === '-';
+        const op = /^([\^~<>=v]*)/.exec(t)[1];
+        if (isHyphenUpper || op.includes('<')) { if (majorOf(t) === 0) zeroUpper = true; }
+        if (!isHyphenUpper && lowerBoundIsConcrete(t)) {
+          concreteLower = true;
+          const hyphenLower = tokens[i + 1] === '-';
+          if ((hyphenLower || op.includes('>')) && majorOf(t) === 0) openZeroLower = true;
+        }
+      }
     }
     if (!concreteLower) return false;
+    if (openZeroLower && !zeroUpper) return false;
   }
   return true;
 }

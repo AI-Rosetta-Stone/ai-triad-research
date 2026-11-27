@@ -589,7 +589,7 @@ test('t/776 package.json: no patch, a non-modified status, or a non-pair line fa
 // ── t/776 (CodeQL js/redos on the first VERSION_SPEC): the check is linear, and a forged patch cannot stall the guard ──
 
 test('t/776 isVersionSpec: the accepted and refused shapes', () => {
-  for (const ok of ['^1.2.3', '~1.2', '>=1 <2', '>=1.0.0 <2.0.0', '1.2.3-beta.1', '1.2.3 - 2.0.0', '1.x || 2.x', '^1.0.0 || ^2.0.0', 'v1.2.3', '~0.5.1', '^0.0.3', '1.x', '>=7.0.0 <11.0.1']) {
+  for (const ok of ['^1.2.3', '~1.2', '>=1 <2', '>=1.0.0 <2.0.0', '1.2.3-beta.1', '1.2.3 - 2.0.0', '1.x || 2.x', '^1.0.0 || ^2.0.0', 'v1.2.3', '~0.5.1', '^0.0.3', '1.x', '>=7.0.0 <11.0.1', '>=0.5.0 <0.6.0', '^0.0.1', '0.1.0 - 0.9.0']) {
     assert.equal(isVersionSpec(ok), true, ok);
   }
   for (const bad of ['', ' ', 'tsc', 'node evil.js', 'file:../x', 'https://x/y.tgz', 'git+ssh://x', '^', '||', '1 ||', '|| 1', 'latest', '*']) {
@@ -597,7 +597,7 @@ test('t/776 isVersionSpec: the accepted and refused shapes', () => {
   }
   assert.equal(isVersionSpec(undefined), false);
   // t/806 (Security p/131#138): a spec needs a concrete lower bound; `0.x` is refused because it has none beyond 0.
-  for (const bad of ['x', 'X', '>=0', '>0', '>=0.0.0', '>0.0.0', '0.x', '^0', '~0', '0.0.0-0', '<2', '<=1.0.0', '>=0 <2', '1.0.0 || *', '1.0.0 || >=0', '0.0.0 - 1.0.0']) {
+  for (const bad of ['x', 'X', '>=0', '>0', '>=0.0.0', '>0.0.0', '0.x', '^0', '~0', '0.0.0-0', '<2', '<=1.0.0', '>=0 <2', '1.0.0 || *', '1.0.0 || >=0', '0.0.0 - 1.0.0', '>=0.0.1', '>=0.1.0', '>0.0.1', '>=0.0.1 <2', '>0.1.0 <1.0.0', '0.0.1 - 2.0.0', '>=0.0.1 <x']) {
     assert.equal(isVersionSpec(bad), false, JSON.stringify(bad));
   }
   // t/796 (SO): a bare `-` is valid only between two version tokens.
