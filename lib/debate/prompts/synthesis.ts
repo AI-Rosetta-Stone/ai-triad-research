@@ -64,7 +64,7 @@ Respond ONLY with a JSON object (no markdown, no code fences):
   "cruxes": [
     {"question": "the factual or value question that would change minds", "decisive": false, "if_yes": "which debater's position weakens — who must concede or revise, and what they must give up", "if_no": "which debater's position weakens — who must concede or revise, and what they must give up", "type": "EMPIRICAL or VALUES", "counterfactual_type": "interventional, backtracking, normative, or none if the crux is not counterfactual in form", "resolution_status": "resolved or irreducible or active or undecided", "resolution_evidence": "what resolved it, if applicable"}
   ],
-  "unresolved_questions": [{"question": "...", "theme": "optional 2-4 word topic this question belongs to; questions on the same topic share the exact same theme, or omit it"}]
+  "unresolved_questions": [{"question": "...", "theme": "2-5 words in plain language naming the topic; not a camp name; related questions reuse the exact same label; at most 5 distinct themes across the list; empty string when the question fits none"}]
 }`;
 }
 
