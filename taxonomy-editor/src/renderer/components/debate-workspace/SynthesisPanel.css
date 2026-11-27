@@ -172,7 +172,7 @@
   width: max-content; max-width: min(320px, 70vw); padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--border-color); border-radius: var(--radius-sm);
   background: var(--bg-primary); color: var(--text-primary); font-size: var(--text-sm); font-weight: 400;
-  font-family: inherit; line-height: 1.4; text-align: left; white-space: normal;
+  font-family: var(--font-ui); line-height: 1.4; text-align: left; white-space: normal;
 }
 .syn-ref:hover .syn-tip, .syn-ref:focus-within .syn-tip { display: block; }
 .syn-strip-bar > li:last-child .syn-tip { left: auto; right: 0; transform: none; }
