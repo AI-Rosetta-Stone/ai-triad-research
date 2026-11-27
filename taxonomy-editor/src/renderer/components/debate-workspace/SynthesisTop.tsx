@@ -8,6 +8,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { TranscriptEntry } from '../../types/debate';
 import { buildSynthesisView, type SynthesisView } from '@lib/debate/synthesisView';
+import { hasStructuredSynthesis } from '@lib/debate/synthesisBrief';
 import { synthesisFindOffsets } from './synthesisFind';
 import { readCollapsed, writeCollapsed } from './synthesisStorage';
 import { SynthesisPanelView, type PanelFind } from './SynthesisPanel';
@@ -43,7 +44,9 @@ export function useSynthesisTop(debate: DebateLike | null | undefined): Synthesi
 export function findSynthesisEntry(transcript: readonly TranscriptEntry[]): TranscriptEntry | null {
   for (let i = transcript.length - 1; i >= 0; i--) {
     const e = transcript[i];
-    if (e.type === 'concluding' && e.metadata && typeof e.metadata.synthesis === 'object' && e.metadata.synthesis !== null) return e;
+    // The same "has something to show" test the export uses: `{}` or a fully degraded synthesis keeps the
+    // entry's own rendering (its stored conclusion text) instead of an empty panel and a pointer row.
+    if (e.type === 'concluding' && hasStructuredSynthesis(e.metadata?.synthesis)) return e;
   }
   return null;
 }
