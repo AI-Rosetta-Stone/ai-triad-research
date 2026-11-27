@@ -110,6 +110,17 @@ param stagingLoadTestSize bool = false
 @description('FREE_POOL_DAILY_CALLS_CAP override for staging (t/4732). Staging has its own Gemini free-tier key; this bounds that key\'s daily calls. A staging-only value goes here, in Bicep, never by CLI (t/4728).')
 param freePoolDailyCallsCapStaging string = '300'
 
+// t/813 (t/811 spend brakes): the free pool's token-weighted daily cap, and prod's calls cap, as env vars the server reads
+// (FREE_POOL_DAILY_TOKENS_CAP, FREE_POOL_DAILY_CALLS_CAP). EMPTY = the env var is not set at all: for tokens that means no token cap, for
+// prod calls the code default 1500, so merging this changes nothing until a value is passed. A value goes here, in Bicep, never by CLI (t/4728).
+// Prod's planned values (PI: $10 a day at the measured $0.47 per million tokens): tokens 21500000 together with calls 3600.
+@description('FREE_POOL_DAILY_TOKENS_CAP for prod (t/813). Empty leaves the variable unset, which means no token cap.')
+param freePoolDailyTokensCap string = ''
+@description('FREE_POOL_DAILY_CALLS_CAP for prod (t/813). Empty leaves the variable unset, which means the code default (1500).')
+param freePoolDailyCallsCap string = ''
+@description('FREE_POOL_DAILY_TOKENS_CAP for staging (t/813). Empty leaves the variable unset (no token cap). The staging key bounds this; proportionate to its calls cap of 300.')
+param freePoolDailyTokensCapStaging string = ''
+
 // ── Staging blob-container isolation (t/4738 incident) ──
 // PERMANENT (unlike freePoolDailyCallsCapStaging above, this is the intended isolation, not an
 // incident-only value). `server.ts` wires AzureBlobBackend whenever AZURE_STORAGE_ACCOUNT_URL is
@@ -936,7 +947,10 @@ var extraGithubToken = githubTokenProvided ? [ { name: 'GITHUB_TOKEN', secretRef
 var extraGithubWebhook = githubWebhookSecretProvided ? [ { name: 'GITHUB_WEBHOOK_SECRET', secretRef: githubWebhookSecretName } ] : []
 var extraFreeTier = freeTierEnabled ? [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierSecretName } ] : []
 var extraPaidTier = paidTierEnabled ? [ { name: 'GEMINI_PAID_KEY', secretRef: paidTierSecretName } ] : []
-var containerEnv = concat(baseEnv, extraGithubToken, extraGithubWebhook, extraFreeTier, extraPaidTier)
+// t/813: prod's free-pool caps, set only when a value is passed (empty = variable absent, so the server default applies).
+var extraFreePoolTokensCap = empty(freePoolDailyTokensCap) ? [] : [ { name: 'FREE_POOL_DAILY_TOKENS_CAP', value: freePoolDailyTokensCap } ]
+var extraFreePoolCallsCap = empty(freePoolDailyCallsCap) ? [] : [ { name: 'FREE_POOL_DAILY_CALLS_CAP', value: freePoolDailyCallsCap } ]
+var containerEnv = concat(baseEnv, extraGithubToken, extraGithubWebhook, extraFreeTier, extraPaidTier, extraFreePoolTokensCap, extraFreePoolCallsCap)
 
 // ── Staging env isolation (t/2643) ──
 // Override baseEnv keys for staging class-A write isolation.
@@ -1028,7 +1042,9 @@ var stagingBaseEnv = concat(
 // key (t/4732) and nothing else: no fallback to prod's pool key. No GEMINI_PAID_KEY (PI: staging is
 // free tier only), and no GITHUB_TOKEN or GITHUB_WEBHOOK_SECRET.
 var stagingExtraFreeTier = freeTierStagingKeyProvided ? [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierStagingSecretName } ] : []
-var stagingContainerEnv = concat(stagingBaseEnv, stagingExtraFreeTier)
+// t/813: staging's token cap, set only when a value is passed (empty = variable absent).
+var stagingExtraFreePoolTokensCap = empty(freePoolDailyTokensCapStaging) ? [] : [ { name: 'FREE_POOL_DAILY_TOKENS_CAP', value: freePoolDailyTokensCapStaging } ]
+var stagingContainerEnv = concat(stagingBaseEnv, stagingExtraFreeTier, stagingExtraFreePoolTokensCap)
 
 // API 2025-01-01 (was 2024-03-01): first GA version whose Scale type has cooldownPeriod (t/4249).
 resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
