@@ -320,13 +320,14 @@ Describe 'Invoke-GatedRollback.ps1 wiring of -DeactivatePrevious (t/588)' -Tag '
         $core = $script:Wrapper.IndexOf('$r = Invoke-GatedRollbackCore')
         $read | Should -BeGreaterThan 0
         $read | Should -BeLessThan $core
-        $script:Wrapper.Substring(0, $read) | Should -Match 'if \(\$DeactivatePrevious\) \{\s*\r?\n\s*\$names = $'
+        # inside Get-PreviousRevisionsSafely's -Read block, under the switch (SO p/136#135)
+        $script:Wrapper.Substring(0, $read) | Should -Match 'if \(\$DeactivatePrevious\) \{\s*\r?\n\s*\$pre = Get-PreviousRevisionsSafely -TargetRevision \$RevisionName -Read \{\s*\r?\n\s*\$names = $'
     }
 
     It 'the deactivation block runs after the core result and before the exit-code line, and never changes the exit code' {
         $dec = $script:Wrapper.IndexOf('Get-DeactivatePreviousDecision -Result $r')
         $core = $script:Wrapper.IndexOf('$r = Invoke-GatedRollbackCore')
-        $exit = $script:Wrapper.IndexOf("if (`$r.Action -eq 'measured' -or")
+        $exit = $script:Wrapper.IndexOf('exit (Get-GatedRollbackExitCode -Result $r)')
         $dec | Should -BeGreaterThan $core
         $dec | Should -BeLessThan $exit
         $block = $script:Wrapper.Substring($dec, $exit - $dec)
@@ -391,5 +392,120 @@ Describe 'Format-DeactivatePreviousRecord and the help text (t/588, DeployAzure 
         $help | Should -Match 'can be reactivated'
         # and the same warning sits next to the parameter itself, where someone adding a caller will read it
         $script:Wrapper | Should -Match '(?s)NOT after an INCIDENT rollback.*?\[switch\] \$DeactivatePrevious'
+    }
+}
+
+Describe 'The optional -DeactivatePrevious steps can never stop a rollback or change its exit code (t/588, SO p/136#135)' -Tag 'devops' {
+
+    BeforeAll {
+        . "$PSScriptRoot/../operations/devops/GatedRollback.ps1"
+        $script:Wrapper = Get-Content -Raw "$PSScriptRoot/../operations/devops/Invoke-GatedRollback.ps1"
+        function script:Verified { [pscustomobject]@{ Action = 'shifted'; Verified = $true; Reason = 'ok' } }
+    }
+
+    # The wrapper runs with $ErrorActionPreference = 'Stop': every test below runs under it too.
+    BeforeEach { $script:SavedEap = $ErrorActionPreference; $ErrorActionPreference = 'Stop' }
+    AfterEach { $ErrorActionPreference = $script:SavedEap }
+
+    Context 'Get-PreviousRevisionsSafely (the pre-shift read)' {
+        It 'an az read that THROWS (az missing, a native error) does not throw: it WARNs with the message and deactivates nothing' {
+            $r = Get-PreviousRevisionsSafely -TargetRevision 'rev-t' -Read { throw 'The term az is not recognized' } -WarningVariable w -WarningAction SilentlyContinue
+            $r.Failed | Should -BeTrue
+            @($r.Revisions).Count | Should -Be 0
+            ($w -join ' ') | Should -Match 'pre-shift read of the revisions carrying traffic threw \(The term az is not recognized\)'
+            ($w -join ' ') | Should -Match 'deactivate nothing and the rollback carries on'
+        }
+
+        It 'a non-zero az exit, or a read that returns nothing, is a WARN and Failed' {
+            $bad = Get-PreviousRevisionsSafely -TargetRevision 'rev-t' -Read { @{ ExitCode = 3; Names = @('rev-old') } } -WarningVariable w1 -WarningAction SilentlyContinue
+            $bad.Failed | Should -BeTrue
+            @($bad.Revisions).Count | Should -Be 0 -Because 'a failed read never yields revisions to deactivate'
+            ($w1 -join ' ') | Should -Match 'az exit 3'
+            (Get-PreviousRevisionsSafely -TargetRevision 'rev-t' -Read { $null } -WarningAction SilentlyContinue).Failed | Should -BeTrue
+        }
+
+        It 'a good read returns the revisions with traffic minus the target, and no warning' {
+            $r = Get-PreviousRevisionsSafely -TargetRevision 'rev-t' -Read { @{ ExitCode = 0; Names = @('rev-old', 'rev-t', '', 'rev-old2') } } -WarningVariable w
+            $r.Failed | Should -BeFalse
+            @($r.Revisions) | Should -Be @('rev-old', 'rev-old2')
+            @($w).Count | Should -Be 0
+        }
+
+        It 'a failed read feeds the decision, which then deactivates nothing' {
+            $r = Get-PreviousRevisionsSafely -TargetRevision 'rev-t' -Read { throw 'boom' } -WarningAction SilentlyContinue
+            $d = Get-DeactivatePreviousDecision -Result (Verified) -PreviousRevisions @($r.Revisions) -TargetRevision 'rev-t' -ReadFailed:$r.Failed -DeactivatePrevious
+            $d.Skip | Should -BeTrue
+            $d.Reason | Should -Match 'could not be read'
+        }
+    }
+
+    Context 'Invoke-PostShiftStepSafely (the post-shift block)' {
+        It 'each throw point inside the block (dot-source, Add-Content to the summary, Add-Member) is a WARN, never a throw, and the exit code equals the run without the switch' {
+            $baseline = Get-GatedRollbackExitCode -Result (Verified)
+            $cases = [ordered]@{
+                'dot-sourcing the verdict script' = { . (Join-Path $TestDrive 'does-not-exist' 'Get-RevisionDeactivationVerdict.ps1') }
+                'Add-Content to the step summary' = { Add-Content -LiteralPath (Join-Path $TestDrive 'no-such-dir' 'summary.md') -Value 'x' }
+                'Add-Member on the result'        = { $o = [pscustomobject]@{ PreviousDeactivated = 1 }; $o | Add-Member -NotePropertyName PreviousDeactivated -NotePropertyValue 2 }
+                'a thrown az error'               = { throw 'az containerapp revision show exited 1' }
+            }
+            foreach ($name in $cases.Keys) {
+                $r = Verified
+                $before = $r | ConvertTo-Json -Compress
+                $threw = $false
+                try { Invoke-PostShiftStepSafely -Name 'deactivate-previous' -Block $cases[$name] -WarningVariable w -WarningAction SilentlyContinue } catch { $threw = $true }
+                $threw | Should -BeFalse -Because "$name must not escape"
+                ($w -join ' ') | Should -Match '(?s)deactivate-previous failed after the shift \(.+\)\. The shift stands and the exit code is unchanged' -Because $name
+                ($r | ConvertTo-Json -Compress) | Should -Be $before -Because "$name must not change the result"
+                Get-GatedRollbackExitCode -Result $r | Should -Be $baseline -Because "${name}: the exit code equals the run without the switch"
+            }
+        }
+
+        It 'a block that succeeds is run as is, with no warning' {
+            $script:ran = 0
+            Invoke-PostShiftStepSafely -Block { $script:ran++ } -WarningVariable w
+            $script:ran | Should -Be 1
+            @($w).Count | Should -Be 0
+        }
+
+        It 'the exit code comes from the result alone: shifted/already-serving verified and measured are 0, everything else 1' {
+            Get-GatedRollbackExitCode -Result ([pscustomobject]@{ Action = 'shifted'; Verified = $true }) | Should -Be 0
+            Get-GatedRollbackExitCode -Result ([pscustomobject]@{ Action = 'already-serving'; Verified = $true }) | Should -Be 0
+            Get-GatedRollbackExitCode -Result ([pscustomobject]@{ Action = 'measured'; Verified = $false }) | Should -Be 0
+            foreach ($r in @(
+                    [pscustomobject]@{ Action = 'shifted'; Verified = $false },
+                    [pscustomobject]@{ Action = 'already-serving'; Verified = $false },
+                    [pscustomobject]@{ Action = 'refused'; Verified = $false },
+                    [pscustomobject]@{ Action = 'refused'; Verified = $true })) {
+                Get-GatedRollbackExitCode -Result $r | Should -Be 1 -Because "$($r.Action) verified=$($r.Verified)"
+            }
+        }
+    }
+
+    Context 'the wrapper wiring' {
+        It 'the pre-shift read goes through Get-PreviousRevisionsSafely and sets previousReadFailed from it' {
+            $script:Wrapper | Should -Match 'Get-PreviousRevisionsSafely -TargetRevision \$RevisionName -Read \{'
+            $script:Wrapper | Should -Match '\$previousReadFailed = \[bool\]\$pre\.Failed'
+            $script:Wrapper | Should -Not -Match 'LASTEXITCODE -eq 0\) \{ \$previousRevisions'
+        }
+
+        It 'the WHOLE post-shift deactivate-previous block is inside Invoke-PostShiftStepSafely: the decision, the dot-source, the summary append and both Add-Member calls' {
+            $open = $script:Wrapper.IndexOf("Invoke-PostShiftStepSafely -Name 'deactivate-previous' -Block {")
+            $close = $script:Wrapper.IndexOf('exit (Get-GatedRollbackExitCode -Result $r)')
+            $open | Should -BeGreaterThan 0
+            $close | Should -BeGreaterThan $open
+            $inside = $script:Wrapper.Substring($open, $close - $open)
+            foreach ($needle in 'Get-DeactivatePreviousDecision -Result $r', "Get-RevisionDeactivationVerdict.ps1')", 'Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY', 'Add-Member -NotePropertyName PreviousDeactivated', 'Add-Member -NotePropertyName PreviousNotDeactivated') {
+                $inside.IndexOf($needle) | Should -BeGreaterThan 0 -Because "$needle is inside the safe block"
+            }
+            # and none of those calls sits OUTSIDE it, before the block
+            $before = $script:Wrapper.Substring(0, $open)
+            $before | Should -Not -Match 'Add-Member -NotePropertyName PreviousDeactivated'
+            $before | Should -Not -Match 'Add-Content -LiteralPath \$env:GITHUB_STEP_SUMMARY'
+        }
+
+        It 'the script exits through Get-GatedRollbackExitCode, with no second copy of the exit condition' {
+            $script:Wrapper | Should -Match 'exit \(Get-GatedRollbackExitCode -Result \$r\)'
+            $script:Wrapper | Should -Not -Match "if \(\$r\.Action -eq 'measured' -or \(\$r\.Action -in @\('shifted', 'already-serving'\) -and \$r\.Verified\)\) \{ exit 0 \}"
+        }
     }
 }

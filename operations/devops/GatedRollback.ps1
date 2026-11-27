@@ -152,6 +152,60 @@ function Format-DeactivatePreviousRecord {
     @{ Lines = $lines; Deactivated = $done; NotDeactivated = $not }
 }
 
+<#
+.SYNOPSIS
+    t/588 (SO p/136#135): the pre-shift read of the revisions carrying traffic, which can NEVER stop a rollback.
+.DESCRIPTION
+    Invoke-GatedRollback.ps1 runs with $ErrorActionPreference = 'Stop', so an exception in an optional read would stop the rollback before it
+    starts. $Read returns @{ ExitCode; Names } (the az call); anything it throws, or a non-zero ExitCode, is a Write-Warning WARN and
+    Failed = $true, so -DeactivatePrevious deactivates nothing and the rollback itself carries on untouched. Returns @{ Revisions; Failed }.
+#>
+function Get-PreviousRevisionsSafely {
+    param(
+        [Parameter(Mandatory)][scriptblock] $Read,
+        [string] $TargetRevision
+    )
+    try {
+        $x = & $Read
+        if ($null -eq $x -or $x.ExitCode -ne 0) {
+            Write-Warning "WARN: could not read the revisions carrying traffic before the shift (az exit $($x.ExitCode)); -DeactivatePrevious will deactivate nothing."
+            return @{ Revisions = @(); Failed = $true }
+        }
+        @{ Revisions = @($x.Names | Where-Object { $_ -and $_ -ne $TargetRevision }); Failed = $false }
+    } catch {
+        Write-Warning "WARN: the pre-shift read of the revisions carrying traffic threw ($($_.Exception.Message)); -DeactivatePrevious will deactivate nothing and the rollback carries on."
+        @{ Revisions = @(); Failed = $true }
+    }
+}
+
+<#
+.SYNOPSIS
+    t/588 (SO p/136#135): run an optional step AFTER the verified shift so that nothing it does can fail the script or undo the shift.
+.DESCRIPTION
+    Any exception from $Block (dot-sourcing the verdict script, the step summary append, Add-Member on the result, a thrown az error) is caught
+    and written as a Write-Warning WARN with the exception message. It never rethrows, never touches traffic and never changes the result the
+    exit code is computed from (Get-GatedRollbackExitCode), so the exit code equals the run without the switch.
+#>
+function Invoke-PostShiftStepSafely {
+    param(
+        [Parameter(Mandatory)][scriptblock] $Block,
+        [string] $Name = 'deactivate-previous'
+    )
+    try { & $Block } catch {
+        Write-Warning "WARN: $Name failed after the shift ($($_.Exception.Message)). The shift stands and the exit code is unchanged; finish it by hand if needed."
+    }
+}
+
+<#
+.SYNOPSIS
+    The wrapper's exit code from the result alone (extracted so a test can pin it and the optional steps cannot influence it).
+#>
+function Get-GatedRollbackExitCode {
+    param([Parameter(Mandatory)] $Result)
+    if ($Result.Action -eq 'measured' -or ($Result.Action -in @('shifted', 'already-serving') -and $Result.Verified)) { return 0 }
+    1
+}
+
 function Invoke-GatedRollbackCore {
     param(
         [Parameter(Mandatory)][string] $RevisionName,

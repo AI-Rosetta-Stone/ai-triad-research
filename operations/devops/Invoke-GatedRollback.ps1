@@ -62,10 +62,14 @@ $appUrl = 'https://' + (az containerapp show -n $AppName -g $ResourceGroup --que
 # deactivates nothing.
 $previousRevisions = @()
 $previousReadFailed = $false
+# $ErrorActionPreference is 'Stop' here, so the read goes through Get-PreviousRevisionsSafely: nothing it throws can stop the rollback (SO p/136#135).
 if ($DeactivatePrevious) {
-    $names = az containerapp revision list -n $AppName -g $ResourceGroup --query '[?properties.trafficWeight > `0`].name' -o tsv 2>$null
-    if ($LASTEXITCODE -eq 0) { $previousRevisions = @($names | Where-Object { $_ -and $_ -ne $RevisionName }) }
-    else { $previousReadFailed = $true; Write-Warning "WARN: could not read the revisions carrying traffic before the shift (az exit $LASTEXITCODE); -DeactivatePrevious will deactivate nothing." }
+    $pre = Get-PreviousRevisionsSafely -TargetRevision $RevisionName -Read {
+        $names = az containerapp revision list -n $AppName -g $ResourceGroup --query '[?properties.trafficWeight > `0`].name' -o tsv 2>$null
+        @{ ExitCode = $LASTEXITCODE; Names = $names }
+    }
+    $previousRevisions = @($pre.Revisions)
+    $previousReadFailed = [bool]$pre.Failed
 }
 
 $r = Invoke-GatedRollbackCore -RevisionName $RevisionName -MeasureOnly:$MeasureOnly `
@@ -133,7 +137,10 @@ if ($r.Action -eq 'measured' -and $DeactivateAfterMeasure) {
 
 # t/588: after a VERIFIED shift, deactivate the revision(s) rolled away from. Default off. Each one goes through the same fresh,
 # double-sourced traffic guard as the deploy's cleanup; a failure is a WARN and never undoes the shift (exit code unchanged).
+# The WHOLE block runs inside Invoke-PostShiftStepSafely: with $ErrorActionPreference = 'Stop' an exception from the dot-source, the step summary
+# append or Add-Member would otherwise fail the script after the shift (SO p/136#135). Any exception is a WARN with its message.
 if ($DeactivatePrevious) {
+  Invoke-PostShiftStepSafely -Name 'deactivate-previous' -Block {
     $dec = Get-DeactivatePreviousDecision -Result $r -PreviousRevisions $previousRevisions -TargetRevision $RevisionName -ReadFailed:$previousReadFailed -DeactivatePrevious:$DeactivatePrevious
     if ($dec.Skip) {
         Write-Host "  deactivate-previous: NOT deactivating: $($dec.Reason)"
@@ -166,8 +173,8 @@ if ($DeactivatePrevious) {
         $r | Add-Member -NotePropertyName PreviousDeactivated -NotePropertyValue @($rec.Deactivated) -Force
         $r | Add-Member -NotePropertyName PreviousNotDeactivated -NotePropertyValue @($rec.NotDeactivated) -Force
     }
+  }
 }
 
 $r
-if ($r.Action -eq 'measured' -or ($r.Action -in @('shifted', 'already-serving') -and $r.Verified)) { exit 0 }
-exit 1
+exit (Get-GatedRollbackExitCode -Result $r)
