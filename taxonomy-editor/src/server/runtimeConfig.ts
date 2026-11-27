@@ -470,7 +470,7 @@ export function validateAndMerge(raw: unknown, defaults: RuntimeConfig): { confi
       anonOpEdMaxWords: vNum(sess.anonOpEdMaxWords, defaults.sessions.anonOpEdMaxWords, { min: 100, max: 1_500, integer: true }, 'sessions.anonOpEdMaxWords', errors),
       dailyTokenPerCallCeilingTokens: vNum(sess.dailyTokenPerCallCeilingTokens, defaults.sessions.dailyTokenPerCallCeilingTokens, { min: 1_000, max: 2_000_000, integer: true }, 'sessions.dailyTokenPerCallCeilingTokens', errors),
       dailyTokenDefaultOutputCapTokens: vNum(sess.dailyTokenDefaultOutputCapTokens, defaults.sessions.dailyTokenDefaultOutputCapTokens, { min: 256, max: 1_000_000, integer: true }, 'sessions.dailyTokenDefaultOutputCapTokens', errors),
-      dailyTokenBytesPerToken: vNum(sess.dailyTokenBytesPerToken, defaults.sessions.dailyTokenBytesPerToken, { min: 1, max: 8 }, 'sessions.dailyTokenBytesPerToken', errors),
+      dailyTokenBytesPerToken: vNum(sess.dailyTokenBytesPerToken, defaults.sessions.dailyTokenBytesPerToken, { min: 1, max: 4 }, 'sessions.dailyTokenBytesPerToken', errors),
     },
     analytics: {
       retentionDays: vNum(an.retentionDays, defaults.analytics.retentionDays, { min: 1, max: 3_650, integer: true }, 'analytics.retentionDays', errors),

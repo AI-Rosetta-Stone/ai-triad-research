@@ -7,9 +7,14 @@
 // failure, abort or refusal with zeros, which releases the hold). One process-wide budget over one document
 // store; the limit key is the SAME one the rate limiter uses, and it is never logged (only the returned keyTag).
 //
-// Sizing: a hold is prompt bytes / sessions.dailyTokenBytesPerToken (3.5; measured about 4.0 on real chat prompts, so the
-// estimate never sits below the measured ratio) plus the output cap. At 1 byte per token a real chat turn (569,000 to
+// Sizing: a hold is prompt bytes / sessions.dailyTokenBytesPerToken (3.5; measured about 4.0 on real English chat
+// prompts) plus the output cap. At 1 byte per token a real chat turn (569,000 to
 // 695,000 characters, about 140,000 to 175,000 tokens) would hold 4x its real size and be refused 413 at any sane ceiling.
+// 3.5 is an ESTIMATE, not an upper bound (Security p/93#156, SO p/252#83). Text with fewer bytes per token than English
+// prose can cost more than its hold: digits or random characters tokenise at about 1 byte per token, so one call can
+// use up to about 3.5 times the ceiling in real tokens. The daily TOTAL stays correct because settle records the real
+// usage; the exposure is a per-call overshoot, bounded by the per-IP RPM limiter and the free pool's call cap. The ratio
+// is capped at 4 in the config bounds (4 is the measured value), so it can never be set above it.
 //
 // What this allowance can still miss (Security p/93#150; the rest of the bound is in dailyTokenBudget.ts):
 //   - The routes send NO output cap to the provider, so a call's hold is its prompt bytes plus an ASSUMED output cap
@@ -87,8 +92,8 @@ export function assumedOutputCapTokens(requested?: number): number {
   return getConfig().sessions.dailyTokenDefaultOutputCapTokens;
 }
 
-/** Reserves a call's worst case: its prompt BYTES converted to tokens at the configured ratio (never below the measured
- *  one), plus its output cap. The per-call ceiling is checked here against the live config; the budget is then handed
+/** Reserves a call's worst case: its prompt BYTES converted to tokens at the configured ratio (an estimate, see
+ *  the header), plus its output cap. The per-call ceiling is checked here against the live config; the budget is then handed
  *  the already-converted token count (1 'byte' per token) so it adds nothing of its own. */
 export async function reserveDailyTokens(limitKey: string, limit: number, call: CallShape): Promise<ReserveResult> {
   const { perCallCeilingTokens, bytesPerToken } = enforcedBudgetSettings();

@@ -155,7 +155,7 @@ vi.mock('../storage/allowlistStore.js', () => ({ isAllowlisted: vi.fn(() => fals
 import { registerAiRoutes } from '../routes/ai.js';
 import { registerChatRoutes } from '../routes/chat.js';
 import { _setDailyTokenBudgetForTest } from '../routes/dailyTokenGate.js';
-import { getConfig } from '../runtimeConfig.js';
+import { getConfig, getDefaults, validateAndMerge } from '../runtimeConfig.js';
 import { getDailyTokenBudget, dailyTokenBudgetHealth, reserveDailyTokens } from '../routes/dailyTokenGate.js';
 import { log } from '../logger.js';
 
@@ -419,6 +419,17 @@ describe('durable daily token allowance wiring on generate and chat-stream (t/74
       expect(r.heldWhileInFlight).toBe(6 * (Math.ceil(32_664 / 3.5) + 16_384));
       expect(r.heldAfter).toBe(0);
     } finally { FREE_TIER.limits.tokensPerDay = prevLimit; }
+  });
+
+  it('sessions.dailyTokenBytesPerToken is capped at 4 (the measured value): 4 is accepted, a larger value is clamped to 4 with an error, a smaller one to 1', () => {
+    const defaults = getDefaults();
+    const ok = validateAndMerge({ sessions: { dailyTokenBytesPerToken: 4 } }, defaults);
+    expect(ok.config.sessions.dailyTokenBytesPerToken).toBe(4);
+    expect(ok.errors.filter((e) => e.includes('dailyTokenBytesPerToken'))).toEqual([]);
+    const over = validateAndMerge({ sessions: { dailyTokenBytesPerToken: 8 } }, defaults);
+    expect(over.config.sessions.dailyTokenBytesPerToken).toBe(4);
+    expect(over.errors.some((e) => e.includes('dailyTokenBytesPerToken') && e.includes('above max 4'))).toBe(true);
+    expect(validateAndMerge({ sessions: { dailyTokenBytesPerToken: 0.5 } }, defaults).config.sessions.dailyTokenBytesPerToken).toBe(1);
   });
 
   // Security p/93#150: 'hosted' means NOT single-operator local mode (AUTH_DISABLED=1 outside production).
