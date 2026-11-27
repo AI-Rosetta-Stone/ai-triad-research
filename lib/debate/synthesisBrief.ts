@@ -8,7 +8,8 @@
  *
  * Sections, in the panel's order, each omitted when it has no items: the motion, bottom line (where it
  * landed, decisive crux, which camp made the stronger case per dispute, what settles each), next moves,
- * common ground, disputes (each once, with its verdict and the "(model's assessment)" label), cruxes, open
+ * common ground, disputes (each once, with its verdict and the "(model's assessment)" label), strongest
+ * arguments (t/827), cruxes, open
  * questions, footer. No raw tags: types, layers and criteria go through the view's label tables.
  */
 
@@ -54,6 +55,7 @@ interface Writer {
   sub(t: string): void;
   para(t: string): void;
   line(t: string): void;
+  num(n: number, t: string): void;
 }
 
 function makeWriter(options: BriefOptions): Writer {
@@ -70,6 +72,7 @@ function makeWriter(options: BriefOptions): Writer {
     sub: (t) => { out.push(text ? `      - ${t}` : `  - ${t}`); },
     para: (t) => { w.blank(); out.push(t, ''); },
     line: (t) => { out.push(t, ''); },
+    num: (n, t) => { out.push(text ? `  ${n}. ${t}` : `${n}. ${t}`); },
   };
   return w;
 }
@@ -143,6 +146,22 @@ function writeDisputes(w: Writer, view: SynthesisView): void {
   }
 }
 
+/** 5b. Strongest arguments (spec §13.3, t/827): each camp's best-engaged arguments, after Disputes. No strength number. */
+function writeStrongestArguments(w: Writer, view: SynthesisView): void {
+  if (view.strongestArguments.length === 0) return;
+  w.heading('Strongest arguments');
+  w.para("The best-engaged arguments from each camp. Strength is the model's estimate.");
+  for (const c of view.strongestArguments) {
+    w.line(w.bold(c.camp.label));
+    if (c.items.length === 0) { w.line(`No argument from ${c.camp.label} was supported or challenged by another.`); continue; }
+    c.items.forEach((a, i) => {
+      const parts = [a.supportedBy > 0 ? `Supported by ${a.supportedBy}` : '', a.challengedBy > 0 ? `Challenged by ${a.challengedBy}` : ''].filter(Boolean);
+      w.num(i + 1, parts.length > 0 ? `${a.text} (${parts.join(' · ')})` : a.text);
+    });
+    w.blank();
+  }
+}
+
 /** 6. Cruxes. */
 /** The next unused detail for this question text, in order. */
 function takeDetail(details: CruxDetails, question: string, taken: Map<string, number>): CruxDetail | undefined {
@@ -185,6 +204,7 @@ export function synthesisBriefLines(view: SynthesisView, options: BriefOptions =
   writeNextMoves(w, view);
   writeCommonGround(w, view);
   writeDisputes(w, view);
+  writeStrongestArguments(w, view);
   writeCruxes(w, view, cruxDetails);
   writeOpenQuestions(w, view);
   w.para(w.italic('Synthesis of the full debate transcript.'));
@@ -211,8 +231,8 @@ function cruxDetailsOf(synthesis: unknown): CruxDetails {
 /** Build the view from a stored synthesis and render it. */
 export function synthesisBrief(
   synthesis: unknown,
-  context: { debaters: readonly string[]; topic?: string },
+  context: { debaters: readonly string[]; topic?: string; argumentNetwork?: { nodes?: unknown; edges?: unknown } | null },
   options: BriefOptions = {},
 ): string[] {
-  return synthesisBriefLines(buildSynthesisView({ synthesis, debaters: context.debaters, topic: context.topic }), options, cruxDetailsOf(synthesis));
+  return synthesisBriefLines(buildSynthesisView({ synthesis, debaters: context.debaters, topic: context.topic, argumentNetwork: context.argumentNetwork }), options, cruxDetailsOf(synthesis));
 }
