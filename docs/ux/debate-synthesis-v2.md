@@ -190,3 +190,22 @@ The panel is on for everyone once 13.1 to 13.4 are in, and the `synthesisV2` fla
 3. Strongest arguments follows the §13.3 rule: no node with 0 edges, the top 3 per camp, a camp with none says so, no sort depends on the camp (label-swap test), nothing shown when there is no `argument_network`.
 4. Outline: Synthesis is first, and absent when there is no synthesis.
 5. Default on; no flag; Design measures contrast live in all four themes and reviews the running-app shots (harvard and dark, 1280 and 360).
+
+### 13.7 Crux details: what changes if it resolves
+
+Each crux row gets an expandable **Details** that shows how positions would move, depending on how the crux resolves (human request, 2026-11-27).
+
+**Data.** The crux already carries `if_yes` and `if_no` (prose that names the camps, e.g. 'The safetyist position weakens, …'). The view-model builder (`lib/debate/synthesisView.ts`) doesn't pass them through today; it adds `ifYes` and `ifNo` (strings, optional) to each crux.
+
+**UI.**
+- After the crux text, a **Details ▸ / ▴** button (`btn-ghost btn-xs`, `aria-expanded`, `aria-controls`). It sits on the same row as **Debate this question** (§13.2); the two buttons don't merge.
+- Expanded: two labelled lines, in this order, under the crux text:
+  - **If yes:** `ifYes`
+  - **If no:** `ifNo`
+  Each as written by the model, plain text. The yes/no labels are bold; the text is `--text-secondary` at full opacity (no opacity dimming), at 4.5:1 in all four themes.
+- **Which answer is 'yes':** the crux question is a yes/no, so the labels are literal. If a crux's question isn't phrased as yes/no, the labels stay as **If yes / If no** (we don't rewrite model text).
+- Show only the lines that exist. If neither field exists the Details button is **not shown** (no empty expander, no disabled button).
+- Camp names inside the text are already coloured by the existing camp-name treatment where the panel has one; don't add chips here.
+- The expansion state is per crux, in memory only, and reset by **Show fewer**. A find match inside a collapsed Details opens it, like the other expanders (§12).
+- **Export:** the Markdown brief prints the same two lines under each crux (Debate Engine, with the builder change).
+- **Acceptance:** a crux with both fields shows Details and the two lines in order; with one field shows one line; with neither shows no Details button; keyboard: Enter or Space toggles, `aria-expanded` is correct; no raw tags; export prints the lines.
