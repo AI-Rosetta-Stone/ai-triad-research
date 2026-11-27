@@ -20,6 +20,7 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
   const originalAccountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
   const originalCallsCap = process.env.FREE_POOL_DAILY_CALLS_CAP;
   const originalContainer = process.env.AZURE_USER_CONTENT_CONTAINER;
+  const originalTokensCap = process.env.FREE_POOL_DAILY_TOKENS_CAP;
 
   beforeEach(() => {
     // Reset the module-level store to ensure test isolation
@@ -28,6 +29,7 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
     delete process.env.AZURE_STORAGE_ACCOUNT_URL;
     delete process.env.FREE_POOL_DAILY_CALLS_CAP;
     delete process.env.AZURE_USER_CONTENT_CONTAINER;
+    delete process.env.FREE_POOL_DAILY_TOKENS_CAP;
   });
 
   afterEach(() => {
@@ -38,6 +40,8 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
     else delete process.env.FREE_POOL_DAILY_CALLS_CAP;
     if (originalContainer) process.env.AZURE_USER_CONTENT_CONTAINER = originalContainer;
     else delete process.env.AZURE_USER_CONTENT_CONTAINER;
+    if (originalTokensCap) process.env.FREE_POOL_DAILY_TOKENS_CAP = originalTokensCap;
+    else delete process.env.FREE_POOL_DAILY_TOKENS_CAP;
   });
 
   it('R1: server.ts calls ensureFreePoolBudgetBooted() at boot (guard fails if removed)', () => {
@@ -186,5 +190,52 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
 
   it('t/4733: /health block reports wired:false with null container and cap when unwired', () => {
     expect(freePoolBudgetHealth()).toEqual(expect.objectContaining({ wired: false, container: null, callsCap: null }));
+  });
+
+  describe('t/812: FREE_POOL_DAILY_TOKENS_CAP', () => {
+    function boot(value?: string) {
+      process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://test.blob.core.windows.net';
+      if (value !== undefined) process.env.FREE_POOL_DAILY_TOKENS_CAP = value;
+      const captured: any[] = [];
+      const warn = vi.fn();
+      const info = vi.fn();
+      ensureFreePoolBudgetBooted({ server: { warn, error: () => {}, info } }, (o: any) => { captured.push(o); return {} as any; });
+      return { captured, warn, info };
+    }
+
+    it('unset: tokensCap is null (no token cap, as before)', () => {
+      const { captured, warn } = boot();
+      expect(captured[0].tokensCap).toBeNull();
+      expect(warn).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('TOKENS_CAP'));
+    });
+
+    it('empty string is treated as unset', () => {
+      expect(boot('').captured[0].tokensCap).toBeNull();
+    });
+
+    it('valid positive integer reaches init', () => {
+      expect(boot('250000').captured[0].tokensCap).toBe(250000);
+    });
+
+    it.each(['abc', '0', '-5', '1.5', '1e6', '12abc', 'NaN'])('invalid %j: WARN and no token cap', (bad) => {
+      const { captured, warn } = boot(bad);
+      expect(captured[0].tokensCap).toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ givenCap: bad }),
+        expect.stringContaining('FREE_POOL_DAILY_TOKENS_CAP invalid'),
+      );
+    });
+
+    it('logs the effective calls and tokens caps once at boot', () => {
+      process.env.FREE_POOL_DAILY_CALLS_CAP = '42';
+      const { info } = boot('1000');
+      expect(info).toHaveBeenCalledTimes(1);
+      expect(info).toHaveBeenCalledWith(expect.objectContaining({ callsCap: 42, tokensCap: 1000 }), expect.any(String));
+    });
+
+    it('a logger without info does not break boot', () => {
+      process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://test.blob.core.windows.net';
+      expect(() => ensureFreePoolBudgetBooted({ server: { warn: () => {}, error: () => {} } }, () => ({}) as any)).not.toThrow();
+    });
   });
 });

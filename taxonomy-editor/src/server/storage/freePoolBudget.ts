@@ -754,7 +754,24 @@ export function getFreePoolBudgetConfig(): FreePoolBudgetConfig | null {
 // t/4677: Boot-time initialization guard. Extract env vars, validate cap, and call initFreePoolBudget.
 // Logs WARN if unset (local/Electron mode); validates cap and falls back to 1500 if NaN or ≤0.
 // init parameter is injectable for testing (allows injecting a throwing init).
-type BootLogger = { server: { warn(obj: object, msg: string): void; error(obj: object, msg: string): void } };
+// t/812 caveat: a day's caps are written into that day's document by whichever process creates it first
+// (freshDoc), so a changed FREE_POOL_DAILY_CALLS_CAP / FREE_POOL_DAILY_TOKENS_CAP applies from the NEXT UTC day, not mid-day.
+// info is optional so existing injected loggers keep working (t/812).
+type BootLogger = { server: { warn(obj: object, msg: string): void; error(obj: object, msg: string): void; info?(obj: object, msg: string): void } };
+
+/** t/812: FREE_POOL_DAILY_TOKENS_CAP. A positive integer; unset = no token cap (null). An invalid value
+ *  WARNs and also means no cap, never a made-up default, so an infra typo can't silently set or remove a limit. */
+function parseTokensCap(log: BootLogger): number | null {
+  const raw = process.env.FREE_POOL_DAILY_TOKENS_CAP;
+  if (raw === undefined || raw.trim() === '') return null;
+  const trimmed = raw.trim();
+  const n = /^[0-9]+$/.test(trimmed) ? Number(trimmed) : NaN;
+  if (!Number.isSafeInteger(n) || n <= 0) {
+    log.server.warn({ scope: 'free-pool-budget', givenCap: raw }, 'FREE_POOL_DAILY_TOKENS_CAP invalid (need a positive integer); no token cap applied');
+    return null;
+  }
+  return n;
+}
 
 export function ensureFreePoolBudgetBooted(log: BootLogger, init:(opts: BlobFreePoolBudgetOptions) => FreePoolBudget = initFreePoolBudget): void {
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
@@ -769,6 +786,9 @@ export function ensureFreePoolBudgetBooted(log: BootLogger, init:(opts: BlobFree
     callsCap = 1500;
   }
 
+  const tokensCap = parseTokensCap(log);
+  log.server.info?.({ scope: 'free-pool-budget', callsCap, tokensCap }, 'free-pool budget effective daily caps (tokensCap null = no token cap)');
+
   // t/4733: the same env-resolved container as every other user-content store (staging isolation).
   const containerName = userContentContainer();
   if (!isUserContentContainerConfigured()) {
@@ -776,7 +796,7 @@ export function ensureFreePoolBudgetBooted(log: BootLogger, init:(opts: BlobFree
   }
 
   try {
-    init({ accountUrl, container: containerName, callsCap });
+    init({ accountUrl, container: containerName, callsCap, tokensCap });
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'free-pool-budget', level: 'error',

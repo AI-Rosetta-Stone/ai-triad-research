@@ -103,6 +103,18 @@ describe('BlobFreePoolBudget (Azurite)', () => {
     expect(r2.resetsAt).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00\.000Z$/);
   });
 
+  it('t/812: a reserve that would pass the token cap is refused daily_cap while the call cap has room; commit past the cap is recorded and the next reserve refuses', async () => {
+    const budget = makeBudget(prefix, { callsCap: 100, tokensCap: 1000 });
+    const r1 = await budget.reserve({ calls: 1, tokens: 600, key: 'tok-1' });
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+    const refused = await budget.reserve({ calls: 1, tokens: 500, key: 'tok-2' }); // 600 + 500 > 1000, calls 2 of 100
+    expect(refused).toMatchObject({ ok: false, reason: 'daily_cap' });
+    await budget.commit(r1.reservationId, { calls: 1, tokens: 1200 }); // real usage past the cap is recorded
+    expect((await budget.headroom()).tokensUsed).toBe(1200);
+    expect(await budget.reserve({ calls: 1, tokens: 1, key: 'tok-3' })).toMatchObject({ ok: false, reason: 'daily_cap' });
+  });
+
   it('AC2: two concurrent reserve() calls against a nearly full budget never jointly exceed the cap', async () => {
     const callsCap = 5;
     const seeded = makeBudget(prefix, { callsCap });
