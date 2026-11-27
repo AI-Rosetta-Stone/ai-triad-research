@@ -335,6 +335,8 @@ export const CODE_UNDER_TEST = [
   'operations/devops/staging-data-account-whatif-guard.test.mjs', // test of staging-data-account-whatif-guard (t/627)
   'operations/devops/sweep-landed-worktrees.test.mjs', // test of sweep-landed-worktrees.sh (t/9)
   'operations/devops/run-worktree-sweep.test.mjs', // test of run-worktree-sweep.mjs (t/9)
+  'operations/devops/remote-branch-report.mjs', // report-only remote-branch pass the daily sweep loads (t/718): decides no verdict, deletes nothing
+  'operations/devops/remote-branch-report.test.mjs', // test of remote-branch-report.mjs (t/718)
   'operations/devops/stuck-pr-classifier.test.mjs', // test of stuck-pr-classifier
   'operations/devops/t0-enqueue-sweep.test.mjs', // test of t0-enqueue-sweep.mjs
   'operations/devops/t0-rule-order.test.mjs', // rule-order test of t0-enqueue-sweep.mjs
