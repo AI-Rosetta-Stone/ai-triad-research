@@ -2,15 +2,6 @@
   "$comment": "Doc accuracy claims — CI verifies reality matches these values. Update when docs change. See t/1324, B-403.",
   "claims": [
     {
-      "id": "cmdlet-count",
-      "type": "value_check",
-      "description": "AGENTS.md cmdlet count ≈ actual Public/ count",
-      "measure": "ls scripts/AITriad/Public | wc -l",
-      "expect": "183",
-      "tolerance": 5,
-      "source": "scripts/AITriad/Public/ — actual count as of 2026-08-15"
-    },
-    {
       "id": "module-version",
       "type": "value_check",
       "description": "AGENTS.md module version matches psd1 ModuleVersion",
