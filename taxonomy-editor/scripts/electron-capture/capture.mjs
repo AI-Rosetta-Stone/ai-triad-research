@@ -53,19 +53,24 @@ export function isWithin(child, parent) {
 const real = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
 
 /** The main checkout that owns `root`: in a worktree `git rev-parse --git-common-dir` is `<main>/.git`, so its
- *  parent is the main checkout. `root` itself when it is the main checkout or git can't say (t/743). */
-export function mainCheckoutOf(root = repoRoot) {
+ *  parent is the main checkout. `root` itself when it is the main checkout, or when git can't say: that fallback WARNs,
+ *  because from a worktree it means the main checkout's `.aitriad.json` is not consulted (t/743, Security p/246#15). */
+export function mainCheckoutOf(root = repoRoot, warn = console.warn) {
   try {
     const common = execFileSync('git', ['-C', root, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
     return common ? dirname(common) : root;
-  } catch { return root; }
+  } catch (err) {
+    const reason = err instanceof Error ? (err.message.split(/\r?\n/)[0] ?? err.message) : String(err);
+    warn(`WARN electron-capture: git rev-parse --git-common-dir failed in ${root} (${reason}); treating it as the main checkout, so a worktree's main-checkout data_root is not resolved`);
+    return root;
+  }
 }
 
 /** The real data trees a capture must never run against: .aitriad.json's data_root and this shell's AI_TRIAD_DATA_ROOT.
  *  `.aitriad.json`'s data_root is relative ("../ai-triad-data"), so from a worktree it is resolved against both the
  *  worktree and the main checkout; protecting both is the safe side, and the main checkout's is the real one (t/743).
  *  WARNs through `warn` when the configured data_root exists in neither place, so a guard that protects nothing is visible. */
-export function protectedDataRoots(root = repoRoot, env = process.env, warn = console.warn, mainRoot = mainCheckoutOf(root)) {
+export function protectedDataRoots(root = repoRoot, env = process.env, warn = console.warn, mainRoot = mainCheckoutOf(root, warn)) {
   const roots = [];
   let cfgFound = false;
   for (const base of new Set([root, mainRoot])) {

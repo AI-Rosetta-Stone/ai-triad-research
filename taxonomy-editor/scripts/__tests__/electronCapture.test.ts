@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // @ts-expect-error -- plain .mjs script without types
-import { allowlistedEnv, dataRootProblem, enclosingRepo, isWithin, protectedDataRoots } from '../electron-capture/capture.mjs';
+import { allowlistedEnv, dataRootProblem, enclosingRepo, isWithin, protectedDataRoots, mainCheckoutOf } from '../electron-capture/capture.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'capture-guard-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -103,5 +103,33 @@ describe('protectedDataRoots from a worktree (t/743)', () => {
     protectedDataRoots(base, {}, (m: string) => warns.push(m), base);
     expect(warns).toHaveLength(1);
     expect(warns[0]).toMatch(/does not exist/);
+  });
+});
+
+// t/743 follow-up (Security p/246#15): mainCheckoutOf's fallback must say so.
+describe('mainCheckoutOf (t/743 follow-up)', () => {
+  it('a directory git cannot read: returns it and WARNs with the reason', () => {
+    const notGit = join(scratch, 'not-a-git-dir');
+    mkdirSync(notGit, { recursive: true });
+    const warns: string[] = [];
+    expect(mainCheckoutOf(notGit, (m: string) => warns.push(m))).toBe(notGit);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toMatch(/git rev-parse --git-common-dir failed/);
+    expect(warns[0]).toContain(notGit);
+  });
+
+  it('a real checkout: returns the main checkout and does not WARN', () => {
+    const warns: string[] = [];
+    const main = mainCheckoutOf(undefined, (m: string) => warns.push(m));
+    expect(typeof main).toBe('string');
+    expect(warns).toEqual([]);
+  });
+
+  it('protectedDataRoots passes its warn through, so the fallback is visible there too', () => {
+    const notGit = join(scratch, 'not-a-git-dir-2');
+    mkdirSync(notGit, { recursive: true });
+    const warns: string[] = [];
+    protectedDataRoots(notGit, {}, (m: string) => warns.push(m));
+    expect(warns.some(w => /git rev-parse --git-common-dir failed/.test(w))).toBe(true);
   });
 });
