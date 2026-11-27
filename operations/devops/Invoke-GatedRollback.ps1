@@ -140,41 +140,14 @@ if ($r.Action -eq 'measured' -and $DeactivateAfterMeasure) {
 # The WHOLE block runs inside Invoke-PostShiftStepSafely: with $ErrorActionPreference = 'Stop' an exception from the dot-source, the step summary
 # append or Add-Member would otherwise fail the script after the shift (SO p/136#135). Any exception is a WARN with its message.
 if ($DeactivatePrevious) {
+  # The block is ONE function call (Invoke-DeactivatePreviousStep in GatedRollback.ps1), so the script and the tests run the same code. The rollback
+  # target goes in as an ARGUMENT, evaluated here in the script's own scope: never read $RevisionName inside a scriptblock that runs under another
+  # function, which declares its own $RevisionName (the t/588 scoping bug, DeployAzure's staging test: -DeactivatePrevious deactivated nothing).
   Invoke-PostShiftStepSafely -Name 'deactivate-previous' -Block {
-    $dec = Get-DeactivatePreviousDecision -Result $r -PreviousRevisions $previousRevisions -TargetRevision $RevisionName -ReadFailed:$previousReadFailed -DeactivatePrevious:$DeactivatePrevious
-    if ($dec.Skip) {
-        Write-Host "  deactivate-previous: NOT deactivating: $($dec.Reason)"
-    } else {
-        . (Join-Path $PSScriptRoot 'Get-RevisionDeactivationVerdict.ps1')
-        $deactResults = @()
-        foreach ($prevRev in $dec.Revisions) {
-            $d = Invoke-GuardedDeactivate -RevisionName $prevRev -GetVerdict {
-                param($Rev)
-                $raw = az containerapp revision show -n $AppName -g $ResourceGroup --revision $Rev -o json | ConvertFrom-Json
-                $app = az containerapp show -n $AppName -g $ResourceGroup -o json | ConvertFrom-Json
-                $entries = if ($app.properties.configuration.ingress.PSObject.Properties['traffic']) { @($app.properties.configuration.ingress.traffic) } else { $null }
-                $ingress = Get-IngressTrafficWeightForRevision -RevisionName $Rev -TrafficEntries $entries -LatestRevisionName $app.properties.latestRevisionName
-                $weight = if ($raw.properties.PSObject.Properties['trafficWeight']) { $raw.properties.trafficWeight } else { $null }
-                Get-RevisionDeactivationVerdict -RevisionName $Rev -TrafficWeight $weight -Active ([bool]$raw.properties.active) `
-                    -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic -ServingRevisionName $RevisionName
-            } -Deactivate {
-                param($Rev)
-                az containerapp revision deactivate -n $AppName -g $ResourceGroup --revision $Rev -o none
-                if ($LASTEXITCODE -ne 0) { throw "az containerapp revision deactivate exited $LASTEXITCODE" }
-            }
-            $deactResults += $d
-            if ($d.Warning) { Write-Warning "WARN: deactivate-previous: '$prevRev' was NOT deactivated: $($d.Warning). The shift stands; deactivate it by hand when ready." }
-        }
-        # The record: one line per revision plus a summary, printed, appended to the GitHub step summary when there is one, and kept on the
-        # returned object (PreviousDeactivated / PreviousNotDeactivated). t/588 (DeployAzure p/227#53).
-        $rec = Format-DeactivatePreviousRecord -Results $deactResults
-        foreach ($line in $rec.Lines) { Write-Host "  $line" }
-        if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ($rec.Lines -join [Environment]::NewLine) }
-        $r | Add-Member -NotePropertyName PreviousDeactivated -NotePropertyValue @($rec.Deactivated) -Force
-        $r | Add-Member -NotePropertyName PreviousNotDeactivated -NotePropertyValue @($rec.NotDeactivated) -Force
-    }
+    Invoke-DeactivatePreviousStep -Result $r -PreviousRevisions $previousRevisions -TargetRevision $RevisionName `
+        -AppName $AppName -ResourceGroup $ResourceGroup -ReadFailed:$previousReadFailed -DeactivatePrevious:$DeactivatePrevious `
+        -VerdictScriptPath (Join-Path $PSScriptRoot 'Get-RevisionDeactivationVerdict.ps1')
   }
 }
-
 $r
 exit (Get-GatedRollbackExitCode -Result $r)
