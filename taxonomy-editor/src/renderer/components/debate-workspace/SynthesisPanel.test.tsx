@@ -282,3 +282,30 @@ describe('open questions in the panel (spec §8)', () => {
     expect(screen.getAllByRole('checkbox')).toHaveLength(3);
   });
 });
+
+describe('join and find guards (Quality, #5637)', () => {
+  it('a preference with a valid disagreement_id is joined by id even when its text equals another dispute', () => {
+    const v = buildSynthesisView({
+      debaters: CAMPS,
+      synthesis: {
+        argument_map: ARGUMENT_MAP,
+        areas_of_disagreement: [
+          { id: 'd1', point: 'Whether audits can be enforced fairly', type: 'EMPIRICAL', positions: [] },
+          { id: 'd2', point: 'Whether a pause shifts incentives toward safety', type: 'VALUES', positions: [] },
+        ],
+        preferences: [{ conflict: 'Whether audits can be enforced fairly', disagreement_id: 'd2', prevails: 'C1', criterion: 'scope', rationale: 'r' }],
+      },
+    });
+    expect(v.disputes.map(d => [d.n, d.verdict.kind])).toEqual([['D1', 'none'], ['D2', 'camp']]);
+  });
+
+  it('find counts and marks the Read more text of a long bottom line', () => {
+    const view = viewOf(synthesis({ topic_resolution: { where_it_landed: 'One. Two. Three. Fourth zebra here.' } }));
+    const { total, offsets } = synthesisFindOffsets(view, 'zebra');
+    expect(total).toBe(1);
+    const find: PanelFind = { query: 'zebra', current: 0, offsets };
+    render(<SynthesisPanelView debateId="d1" view={view} find={find} />);
+    expect(document.querySelectorAll('mark[data-find-index]')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Read less' })).toBeTruthy(); // opened by the find, so the match has an element
+  });
+});
