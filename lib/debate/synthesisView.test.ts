@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect } from 'vitest';
-import { buildSynthesisView, termOf, textMatches } from './synthesisView.js';
+import { buildSynthesisView, termOf, matchPointIndex } from './synthesisView.js';
 
 const CAMPS = ['accelerationist', 'safetyist', 'skeptic'];
 
@@ -229,10 +229,31 @@ describe('helpers', () => {
     expect(termOf('What counts as frontier')).toEqual({ term: 'what counts as frontier', lost: false });
     expect(termOf('Whether AI labs disclose compute use')).toEqual({ term: 'AI labs disclose compute use', lost: false });
   });
-  it('textMatches tolerates punctuation, case and light paraphrase', () => {
-    expect(textMatches('Is X fair?', 'is x fair')).toBe(true);
-    expect(textMatches('apples and oranges', 'quantum chromodynamics')).toBe(false);
+  it('matchPointIndex tolerates punctuation and case, never guesses between candidates', () => {
+    expect(matchPointIndex('Is X fair?', ['is x fair', 'something else entirely'])).toBe(0);
+    expect(matchPointIndex('apples and oranges', ['quantum chromodynamics'])).toBe(-1);
+    // two identical points: the exact step must not pick the first
+    expect(matchPointIndex('Who should bear liability for harm', ['Who should bear liability for harm', 'Who should bear liability for harm'])).toBe(-1);
+    // a short conflict that is a substring of a longer point is not a match
+    expect(matchPointIndex('audits', ['Whether audits can be enforced without entrenching incumbents'])).toBe(-1);
+    // two equally close points: no match
+    expect(matchPointIndex('liability for model', ['liability for model harm', 'liability for model misuse'])).toBe(-1);
   });
+
+  it('an unlinked preference stays unlinked: it gets its own card, never a dispute it only loosely resembles', () => {
+    const v = buildSynthesisView({
+      debaters: ['skeptic'],
+      synthesis: {
+        areas_of_disagreement: [
+          { point: 'Whether audits can be enforced without entrenching incumbents', type: 'EMPIRICAL', positions: [] },
+          { point: 'Whether a pause shifts research incentives toward safety', type: 'VALUES', positions: [] },
+        ],
+        preferences: [{ conflict: 'audits', prevails: 'undecidable', criterion: 'scope', rationale: 'r' }],
+      },
+    });
+    expect(v.disputes.map(d => [d.n, d.verdict.kind, d.unmatched])).toEqual([['D1', 'none', false], ['D2', 'none', false], ['D3', 'unresolved', true]]);
+  });
+
 });
 
 describe('open question grouping (spec §8, Design p/14#151)', () => {

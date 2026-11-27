@@ -96,7 +96,7 @@ function textEntryBody(entry: TranscriptEntry, session: ExportableDebateSession)
  * order. An older entry with no structured data, or none the brief can show, keeps its stored content.
  */
 function synthesisEntryBrief(entry: TranscriptEntry, session: ExportableDebateSession, format: 'markdown' | 'text'): string[] | null {
-  if (entry.type !== 'synthesis') return null;
+  if (entry.type !== 'concluding') return null; // the engine's synthesis entry (formatters.ts, the panel)
   const raw = (entry.metadata as Record<string, unknown> | undefined)?.synthesis;
   if (!hasStructuredSynthesis(raw)) return null;
   const ordered = orderSynthesisLists(raw as Record<string, unknown>);
@@ -120,6 +120,7 @@ function entryTypeLabel(type: string): string {
     answer: 'Answer',
     clarification: 'Clarification',
     synthesis: 'Synthesis',
+    concluding: 'Synthesis',
     probing: 'Probing Questions',
     'fact-check': 'Fact Check',
     system: 'System',

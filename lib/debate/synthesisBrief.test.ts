@@ -26,7 +26,7 @@ const synth = () => ({
     { conflict: 'A conflict that matches nothing at all', prevails: 'C1', criterion: 'mystery_code', rationale: 'x' },
   ],
   argument_map: [{ claim_id: 'C1', claim: 'a', claimant: 'accelerationist' }, { claim_id: 'C2', claim: 'b', claimant: 'skeptic' }],
-  cruxes: [{ question: 'Does a pause slow rivals too?', type: 'EMPIRICAL' }],
+  cruxes: [{ question: 'Does a pause slow rivals too?', type: 'EMPIRICAL', if_yes: 'The skeptic concedes.', if_no: 'The safetyist concedes.' }],
   unresolved_questions: ['Who pays?', 'Who audits?', 'When?'],
   unresolved_question_themes: ['Funding', 'Funding', ''],
 });
@@ -66,6 +66,16 @@ describe('synthesisBrief (t/810)', () => {
     expect(md).toContain('Definitional → Clearer terms (D3)');
     expect(md).toMatch(/\*\*Find a way to measure .+\*\* \(Bears on D2\)/);
     expect(md).toMatch(/\*\*Name the trade-off on .+\*\* \(Answers D1\)/);
+  });
+
+  it('keeps each crux if-yes and if-no as nested lines', () => {
+    expect(md).toContain('- **C1** (Empirical) Does a pause slow rivals too?\n  - If yes, weakens: The skeptic concedes.\n  - If no, weakens: The safetyist concedes.');
+  });
+
+  it('nests the full dispute under its next move, not as a sibling bullet', () => {
+    const long = { areas_of_disagreement: [{ point: 'Whether a six-month pause and mandatory compliance thresholds effectively shift research incentives toward safety without ceding advantage', type: 'VALUES', positions: [] }] };
+    const out = synthesisBrief(long, { debaters: DEBATERS }).join('\n');
+    expect(out).toMatch(/\n- \*\*Name the trade-off[^\n]*\n  - \*The dispute in full:\*/);
   });
 
   it('groups open questions by theme only when a theme covers 2+ questions', () => {
@@ -124,12 +134,17 @@ function session(meta: Record<string, unknown> | undefined): ExportableDebateSes
     topic: { original: 'o', final: 'The final topic' }, active_povers: DEBATERS, user_is_pover: false,
     transcript: [
       { id: '1', timestamp: '2026-01-01T00:00:00Z', speaker: 'skeptic', type: 'opening', content: 'Opening text', taxonomy_refs: [] },
-      { id: '2', timestamp: '2026-01-01T00:01:00Z', speaker: 'system', type: 'synthesis', content: 'OLD STORED CONTENT', taxonomy_refs: [], ...(meta ? { metadata: meta } : {}) },
+      { id: '2', timestamp: '2026-01-01T00:01:00Z', speaker: 'system', type: 'concluding', content: 'OLD STORED CONTENT', taxonomy_refs: [], ...(meta ? { metadata: meta } : {}) },
     ],
   } as ExportableDebateSession;
 }
 
 describe('exports render the brief (t/810)', () => {
+  it("labels the engine's concluding entry Synthesis, not the raw type", () => {
+    expect(debateToMarkdown(session({ synthesis: synth() }))).toContain('### Synthesis');
+    expect(debateToMarkdown(session(undefined))).not.toContain('### concluding');
+  });
+
   it('markdown, text and html (PDF) use the brief when the synthesis entry is structured', () => {
     const s = session({ synthesis: synth() });
     const md = debateToMarkdown(s);

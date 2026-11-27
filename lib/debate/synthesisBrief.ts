@@ -21,6 +21,9 @@ export interface BriefOptions {
   format?: 'markdown' | 'text';
 }
 
+/** `if_yes` / `if_no` per crux question: kept from the stored synthesis because the view model doesn't carry them. */
+type CruxDetails = ReadonlyMap<string, { ifYes?: string; ifNo?: string }>;
+
 export const BRIEF_ASSESSMENT = "(model's assessment)";
 
 /** A structured synthesis has at least one list or paragraph the brief can show. */
@@ -46,6 +49,7 @@ interface Writer {
   bold(t: string): string;
   italic(t: string): string;
   bullet(t: string): void;
+  sub(t: string): void;
   para(t: string): void;
   line(t: string): void;
 }
@@ -61,6 +65,7 @@ function makeWriter(options: BriefOptions): Writer {
     bold: (t) => (text ? t : `**${t}**`),
     italic: (t) => (text ? t : `*${t}*`),
     bullet: (t) => { out.push(text ? `  - ${t}` : `- ${t}`); },
+    sub: (t) => { out.push(text ? `      - ${t}` : `  - ${t}`); },
     para: (t) => { w.blank(); out.push(t, ''); },
     line: (t) => { out.push(t, ''); },
   };
@@ -105,7 +110,7 @@ function writeNextMoves(w: Writer, view: SynthesisView): void {
   w.heading('Next moves');
   for (const m of view.nextMoves) {
     w.bullet(`${w.bold(m.title)} (${m.chip})${m.body ? `: ${m.body}` : ''}`);
-    if (m.context) w.bullet(`${w.italic('The dispute in full:')} ${m.context}`);
+    if (m.context) w.sub(`${w.italic('The dispute in full:')} ${m.context}`);
   }
   w.blank();
 }
@@ -137,11 +142,16 @@ function writeDisputes(w: Writer, view: SynthesisView): void {
 }
 
 /** 6. Cruxes. */
-function writeCruxes(w: Writer, view: SynthesisView): void {
+function writeCruxes(w: Writer, view: SynthesisView, details: CruxDetails): void {
   if (view.cruxes.length === 0) return;
   w.heading('Cruxes');
   w.para('Answer one of these and a position should move.');
-  for (const c of view.cruxes) w.bullet(`${w.bold(c.n)}${c.typeLabel ? ` (${c.typeLabel})` : ''} ${c.question}`);
+  for (const c of view.cruxes) {
+    w.bullet(`${w.bold(c.n)}${c.typeLabel ? ` (${c.typeLabel})` : ''} ${c.question}`);
+    const d = details.get(c.question);
+    if (d?.ifYes) w.sub(`If yes, weakens: ${d.ifYes}`);
+    if (d?.ifNo) w.sub(`If no, weakens: ${d.ifNo}`);
+  }
   w.blank();
 }
 
@@ -158,18 +168,32 @@ function writeOpenQuestions(w: Writer, view: SynthesisView): void {
 }
 
 /** The brief as lines, from a ready SynthesisView. */
-export function synthesisBriefLines(view: SynthesisView, options: BriefOptions = {}): string[] {
+export function synthesisBriefLines(view: SynthesisView, options: BriefOptions = {}, cruxDetails: CruxDetails = new Map()): string[] {
   const w = makeWriter(options);
   writeHeader(w, view);
   writeBottomLine(w, view);
   writeNextMoves(w, view);
   writeCommonGround(w, view);
   writeDisputes(w, view);
-  writeCruxes(w, view);
+  writeCruxes(w, view, cruxDetails);
   writeOpenQuestions(w, view);
   w.para(w.italic('Synthesis of the full debate transcript.'));
   while (w.out.length && w.out[w.out.length - 1] === '') w.out.pop();
   return w.out;
+}
+
+function cruxDetailsOf(synthesis: unknown): CruxDetails {
+  const out = new Map<string, { ifYes?: string; ifNo?: string }>();
+  const list = (synthesis as { cruxes?: unknown } | null)?.cruxes;
+  for (const c of Array.isArray(list) ? list : []) {
+    const r = c as { question?: unknown; if_yes?: unknown; if_no?: unknown };
+    if (typeof r?.question !== 'string') continue;
+    out.set(r.question.trim(), {
+      ifYes: typeof r.if_yes === 'string' && r.if_yes.trim() ? r.if_yes.trim() : undefined,
+      ifNo: typeof r.if_no === 'string' && r.if_no.trim() ? r.if_no.trim() : undefined,
+    });
+  }
+  return out;
 }
 
 /** Build the view from a stored synthesis and render it. */
@@ -178,5 +202,5 @@ export function synthesisBrief(
   context: { debaters: readonly string[]; topic?: string },
   options: BriefOptions = {},
 ): string[] {
-  return synthesisBriefLines(buildSynthesisView({ synthesis, debaters: context.debaters, topic: context.topic }), options);
+  return synthesisBriefLines(buildSynthesisView({ synthesis, debaters: context.debaters, topic: context.topic }), options, cruxDetailsOf(synthesis));
 }
