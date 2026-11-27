@@ -31,7 +31,7 @@
 import { failureVerdict, evaluateGroup, CHECK_NAME } from './merge-approval-verdict.mjs';
 import { parseTier } from './t1-approval-guard-predicate.mjs';
 import { earliestCheckRunStartMs } from './design-gate.mjs';
-import { packageJsonTargets, scriptsGatePaths } from './gate-file-change.mjs';
+import { immediateManifestPaths, packageJsonTargets, scriptsGatePaths } from './gate-file-change.mjs';
 
 export const EXPECTED_INSTALLATION_REPOS = Object.freeze(['AI-Rosetta-Stone/ai-triad-research']);
 export const GROUP_RELAY_WORKFLOW = 'merge-approval-group-relay';
@@ -208,7 +208,8 @@ export async function postCheck(appGithub, context, headSha, verdict, { retry = 
  */
 export async function readScriptsGatePaths({ github, retry = noRetry, owner, repo, pr, files }) {
   const targets = packageJsonTargets(files);
-  if (targets.length === 0) return [];
+  const immediate = immediateManifestPaths(files);
+  if (targets.length === 0) return immediate;
   const side = async (path, ref) => {
     try {
       const { data } = await retry(`repos.getContent ${path}`, () => github.rest.repos.getContent({ owner, repo, path, ref, mediaType: { format: 'raw' } }));
@@ -228,7 +229,7 @@ export async function readScriptsGatePaths({ github, retry = noRetry, owner, rep
     }
     return scriptsGatePaths({ entries: files, reads });
   } catch {
-    return targets.map((t) => t.path);
+    return [...new Set([...immediate, ...targets.map((t) => t.path)])];
   }
 }
 

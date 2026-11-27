@@ -15,7 +15,7 @@ import { ruleGateFiles, inputProblems } from './merge-approval-verdict.mjs';
 import { readScriptsGatePaths } from './merge-approval-run.mjs';
 
 const pj = (obj) => ({ text: JSON.stringify(obj) });
-const E = (filename, previous_filename) => ({ filename, ...(previous_filename ? { previous_filename } : {}) });
+const E = (filename, previous_filename, status) => ({ filename, ...(previous_filename ? { previous_filename } : {}), ...(status ? { status } : {}) });
 const decide = (entries, base, head) => scriptsGatePaths({ entries, reads: { base, head } });
 
 const BASE = { name: 'x', scripts: { build: 'tsc', test: 'vitest' }, dependencies: { a: '^1.0.0' } };
@@ -46,9 +46,11 @@ test('t/559: scripts added where there were none is a change; no scripts on eith
 });
 
 test('t/559 new and deleted files: a new package.json with scripts, or a deleted one that had them, is a change; without scripts it is not', () => {
-  assert.deepEqual(decide([E('lib/x/package.json')], { 'lib/x/package.json': { missing: true } }, { 'lib/x/package.json': pj({ scripts: { a: 'b' } }) }), ['lib/x/package.json']);
-  assert.deepEqual(decide([E('lib/x/package.json')], { 'lib/x/package.json': { missing: true } }, { 'lib/x/package.json': pj({ name: 'x' }) }), []);
-  assert.deepEqual(decide([E('lib/x/package.json')], { 'lib/x/package.json': pj({ scripts: { a: 'b' } }) }, { 'lib/x/package.json': { missing: true } }), ['lib/x/package.json']);
+  const added = E('lib/x/package.json', undefined, 'added');
+  const removed = E('lib/x/package.json', undefined, 'removed');
+  assert.deepEqual(decide([added], { 'lib/x/package.json': { missing: true } }, { 'lib/x/package.json': pj({ scripts: { a: 'b' } }) }), ['lib/x/package.json']);
+  assert.deepEqual(decide([added], { 'lib/x/package.json': { missing: true } }, { 'lib/x/package.json': pj({ name: 'x' }) }), []);
+  assert.deepEqual(decide([removed], { 'lib/x/package.json': pj({ scripts: { a: 'b' } }) }, { 'lib/x/package.json': { missing: true } }), ['lib/x/package.json']);
 });
 
 test('t/559 read failure (refused): an error, a missing read entry, or unparseable JSON on either side counts as a change', () => {
@@ -145,7 +147,7 @@ test('t/559 enqueue-pr reader (refused): a 502 on either side, a failed compare,
   const noCompare = fetchScriptsGatePaths('o/r', 'main', sha, [E('package.json'), E('lib/a/package.json')], ghFake({ compare: 'fail', scriptsBase: {}, scriptsHead: {} }));
   assert.deepEqual(noCompare.paths, ['package.json', 'lib/a/package.json']);
   assert.ok(noCompare.error, 'the failure is reported to the caller for a WARN');
-  assert.deepEqual(fetchScriptsGatePaths('o/r', 'main', sha, [E('package.json')], ghFake({ headStatus: 'missing', scriptsBase: { a: '1' } })).paths, ['package.json'], 'deleted, had scripts');
+  assert.deepEqual(fetchScriptsGatePaths('o/r', 'main', sha, [E('package.json', undefined, 'removed')], ghFake({ headStatus: 'missing', scriptsBase: { a: '1' } })).paths, ['package.json'], 'removed, had scripts');
 });
 
 function octokitFake({ baseScripts, headScripts, status = {}, compareFails = false }) {
@@ -174,7 +176,7 @@ test('t/559 merge-approval reader: deps-only finds nothing, scripts changed is f
   assert.deepEqual(await readScriptsGatePaths(args(octokitFake({ baseScripts: { a: '1' }, headScripts: { a: '2' } }))), ['package.json']);
   assert.deepEqual(await readScriptsGatePaths(args(octokitFake({ baseScripts: {}, headScripts: {}, status: { head: 502 } }))), ['package.json']);
   assert.deepEqual(await readScriptsGatePaths(args(octokitFake({ baseScripts: {}, headScripts: {}, compareFails: true }))), ['package.json']);
-  assert.deepEqual(await readScriptsGatePaths(args(octokitFake({ baseScripts: { a: '1' }, headScripts: {}, status: { head: 404 } }))), ['package.json'], 'deleted, had scripts');
+  assert.deepEqual(await readScriptsGatePaths({ github: octokitFake({ baseScripts: { a: '1' }, headScripts: {}, status: { head: 404 } }), owner: 'o', repo: 'r', pr: PR, files: [E('package.json', undefined, 'removed')] }), ['package.json'], 'removed, had scripts');
   const idle = octokitFake({});
   assert.deepEqual(await readScriptsGatePaths({ github: idle, owner: 'o', repo: 'r', pr: PR, files: [E('src/a.ts')] }), []);
   assert.equal(idle.calls.length, 0);
@@ -193,4 +195,93 @@ test('t/559: scriptsOfRead on its own (missing = no scripts; unreadable = not ok
   assert.deepEqual(scriptsOfRead({ text: '{"a":1}' }), { ok: true, scripts: null });
   assert.deepEqual(scriptsOfRead({ text: '{"scripts":{"a":"b"}}' }), { ok: true, scripts: { a: 'b' } });
   for (const bad of [undefined, null, {}, { error: new Error('x') }, { text: 5 }, { text: 'null' }]) assert.equal(scriptsOfRead(bad).ok, false, JSON.stringify(bad));
+});
+
+// ── Security p/131 changes-requested on #5630 ──
+
+test('t/559 fix 1: a head 404 for an ADDED or MODIFIED package.json is an error (a change), never null-versus-null; only a REMOVED file may be missing at head', () => {
+  const P = 'lib/x/package.json';
+  const noScripts = pj({ name: 'x' });
+  // added: the head read 404s on a just-pushed commit: the old code read null vs null and passed
+  assert.deepEqual(decide([E(P, undefined, 'added')], { [P]: { missing: true } }, { [P]: { missing: true } }), [P], 'added, head 404');
+  assert.deepEqual(decide([E(P, undefined, 'modified')], { [P]: noScripts }, { [P]: { missing: true } }), [P], 'modified, head 404');
+  assert.deepEqual(decide([E(P, undefined, 'renamed')], { [P]: noScripts }, { [P]: { missing: true } }), [P], 'renamed, head 404');
+  assert.deepEqual(decide([E(P, undefined, undefined)], { [P]: noScripts }, { [P]: { missing: true } }), [P], 'no status, head 404');
+  // removed: the head 404 is the legitimate case
+  assert.deepEqual(decide([E(P, undefined, 'removed')], { [P]: noScripts }, { [P]: { missing: true } }), [], 'removed, no scripts, head 404: ok');
+  // the base side: only an ADDED file may be missing at base
+  assert.deepEqual(decide([E(P, undefined, 'added')], { [P]: { missing: true } }, { [P]: noScripts }), [], 'added, base 404: ok');
+  assert.deepEqual(decide([E(P, undefined, 'modified')], { [P]: { missing: true } }, { [P]: noScripts }), [P], 'modified, base 404');
+  assert.deepEqual(decide([E(P, undefined, 'removed')], { [P]: { missing: true } }, { [P]: { missing: true } }), [P], 'removed, base 404');
+});
+
+test('t/559 fix 1 through the readers: a head 404 on an added or modified file is a change; a removed file without scripts is not', async () => {
+  const sha = 'c'.repeat(40);
+  const gh = (status) => ghFake({ headStatus: 'missing', scriptsBase: undefined, scriptsHead: undefined, baseStatus: status === 'added' ? 'missing' : 'ok' });
+  assert.deepEqual(fetchScriptsGatePaths('o/r', 'main', sha, [E('package.json', undefined, 'added')], gh('added')).paths, ['package.json']);
+  assert.deepEqual(fetchScriptsGatePaths('o/r', 'main', sha, [E('package.json', undefined, 'modified')], gh('modified')).paths, ['package.json']);
+  assert.deepEqual(fetchScriptsGatePaths('o/r', 'main', sha, [E('package.json', undefined, 'removed')], gh('removed')).paths, [], 'removed, no scripts, 404 at head');
+  const o = (st) => octokitFake({ baseScripts: undefined, headScripts: undefined, status: { head: 404, base: st === 'added' ? 404 : undefined } });
+  const run = (st, github) => readScriptsGatePaths({ github, owner: 'o', repo: 'r', pr: PR, files: [E('package.json', undefined, st)] });
+  assert.deepEqual(await run('added', o('added')), ['package.json']);
+  assert.deepEqual(await run('modified', o('modified')), ['package.json']);
+  assert.deepEqual(await run('removed', o('removed')), []);
+});
+
+test('t/559 fix 2: ANY added, modified or removed package.yaml or package.json5 is a gate change, with no read at all', () => {
+  for (const status of ['added', 'modified', 'removed', 'renamed']) {
+    assert.deepEqual(decide([E('package.yaml', undefined, status)], {}, {}), ['package.yaml'], `package.yaml ${status}`);
+    assert.deepEqual(decide([E('taxonomy-editor/package.json5', undefined, status)], {}, {}), ['taxonomy-editor/package.json5'], `package.json5 ${status}`);
+  }
+  assert.deepEqual(decide([E('a/package.yaml', 'b/package.json')], {}, {}), ['a/package.yaml'], 'a rename to a package.yaml');
+  assert.deepEqual(decide([E('b/package.json', 'a/package.yaml')], { 'a/package.yaml': pj({}) }, { 'b/package.json': pj({}) }), ['b/package.json'], 'a rename away from a package.yaml (the old name is a manifest)');
+  assert.deepEqual(decide([E('package.yaml.bak'), E('package.yml'), E('docs/package.yaml.md')], {}, {}), [], 'lookalike names are not manifests');
+  // and through the readers: nothing is read, the path is still returned
+  const idle = ghFake({});
+  assert.deepEqual(fetchScriptsGatePaths('o/r', 'main', 'c'.repeat(40), [E('package.yaml', undefined, 'modified')], idle), { paths: ['package.yaml'], error: null });
+  assert.equal(idle.calls.length, 0);
+});
+
+test('t/559 fix 2: the pnpm-workspace.yaml packages: list is compared; a new workspace member is a gate change, other keys are not', () => {
+  const W = 'pnpm-workspace.yaml';
+  const yaml = (pkgs, extra = '') => `packages:\n${pkgs.map((p) => `  - '${p}'`).join('\n')}\n${extra}`;
+  const wsDecide = (b, h, status = 'modified') => decide([E(W, undefined, status)], { [W]: { text: b } }, { [W]: { text: h } });
+  assert.deepEqual(wsDecide(yaml(['taxonomy-editor', 'lib/*']), yaml(['taxonomy-editor', 'lib/*'])), [], 'unchanged');
+  assert.deepEqual(wsDecide(yaml(['taxonomy-editor']), yaml(['taxonomy-editor', 'evil/*'])), [W], 'a new member');
+  assert.deepEqual(wsDecide(yaml(['taxonomy-editor', 'lib/*']), yaml(['taxonomy-editor'])), [W], 'a removed member');
+  assert.deepEqual(wsDecide(yaml(['a', 'b']), yaml(['b', 'a'])), [], 'order alone is not a change');
+  assert.deepEqual(wsDecide(yaml(['a'], 'overrides:\n  x: 1.0.0\n'), yaml(['a'], 'overrides:\n  x: 2.0.0\n')), [], 'a change outside packages: is not this rule');
+  assert.deepEqual(wsDecide('packages: [a, b]\n', "packages: ['a', 'b', 'c']\n"), [W], 'inline list, a new member');
+  assert.deepEqual(wsDecide('packages:\n  - a # comment\n  - "b"\n', 'packages:\n  - a\n  - b\n'), [], 'comments and quotes normalised');
+  // fail closed on unreadable
+  assert.deepEqual(decide([E(W, undefined, 'modified')], { [W]: { error: new Error('502') } }, { [W]: { text: yaml(['a']) } }), [W], 'base read error');
+  assert.deepEqual(decide([E(W, undefined, 'modified')], { [W]: { text: yaml(['a']) } }, { [W]: { error: new Error('502') } }), [W], 'head read error');
+  assert.deepEqual(decide([E(W, undefined, 'modified')], { [W]: { text: yaml(['a']) } }, {}), [W], 'no head read');
+  assert.deepEqual(wsDecide(yaml(['a']), 'packages:\n  - a\n  not a list item\n'), [W], 'an unrecognised line inside the block');
+  assert.deepEqual(wsDecide(yaml(['a']), 'packages: oops\n'), [W], 'a scalar where a list belongs');
+  assert.deepEqual(wsDecide(yaml(['a']), 'packages: [a, b\n'), [W], 'an unterminated inline list');
+  // the 404 rule applies here too
+  assert.deepEqual(decide([E(W, undefined, 'added')], { [W]: { missing: true } }, { [W]: { missing: true } }), [W], 'added, head 404');
+  assert.deepEqual(decide([E(W, undefined, 'added')], { [W]: { missing: true } }, { [W]: { text: yaml(['a']) } }), [W], 'a workspace file that did not exist now declares members');
+  assert.deepEqual(decide([E(W, undefined, 'removed')], { [W]: { text: yaml(['a']) } }, { [W]: { missing: true } }), [W], 'a removed workspace file that declared members');
+});
+
+test('t/559: workspacePackagesOf on its own', async () => {
+  const { workspacePackagesOf } = await import('./gate-file-change.mjs');
+  assert.deepEqual(workspacePackagesOf('packages:\n  - b\n  - a\n  - a\n'), { ok: true, packages: ['a', 'b'] });
+  assert.deepEqual(workspacePackagesOf('catalog:\n  x: 1\n'), { ok: true, packages: null });
+  assert.deepEqual(workspacePackagesOf('packages:\n\nnext: 1\n'), { ok: true, packages: [] });
+  for (const bad of [undefined, null, 5]) assert.equal(workspacePackagesOf(bad).ok, false);
+});
+
+test('t/559: the enqueue reader carries each file\'s status (fetchChangedFiles entries), so a head 404 is judged by it', async () => {
+  const { fetchChangedFiles } = await import('./gate-file-change.mjs');
+  const gh = (args) => {
+    const j = args.join(' ');
+    if (j.includes('{changed_files}')) return JSON.stringify({ changed_files: 2 });
+    return [JSON.stringify(['package.json', '', 'added']), JSON.stringify(['b/new.json', 'a/old.json', 'renamed'])].join('\n');
+  };
+  const r = fetchChangedFiles('o/r', 7, gh);
+  assert.deepEqual(r.entries, [{ filename: 'package.json', previous_filename: undefined, status: 'added' }, { filename: 'b/new.json', previous_filename: 'a/old.json', status: 'renamed' }]);
+  assert.deepEqual(r.paths, ['package.json', 'b/new.json', 'a/old.json']);
 });
