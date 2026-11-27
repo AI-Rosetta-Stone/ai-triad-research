@@ -26,7 +26,7 @@ vi.mock('../config.js', async (importOriginal) => {
 
 vi.mock('../ai/proxyTiers.js', () => ({ parseFreeTierKeys: vi.fn(() => ['k1']), freeTierKeyCount: vi.fn(() => 1), scaledFreeTierRpm: vi.fn(() => 10) }));
 
-vi.mock('../runtimeConfig.js', () => ({ getConfig: vi.fn(() => ({ tiers: { free: { tokensPerDay: 1_000_000 } } })) }));
+vi.mock('../runtimeConfig.js', () => ({ getConfig: vi.fn(() => ({ tiers: { free: { tokensPerDay: 1_000_000 } }, sessions: { dailyTokenPerCallCeilingTokens: 250_000, dailyTokenDefaultOutputCapTokens: 16_384 } })) }));
 
 vi.mock('../readOnlyGuard.js', () => ({ getReadOnlyPrincipalEntries: vi.fn(() => new Set()) }));
 

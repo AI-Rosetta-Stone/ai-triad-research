@@ -156,7 +156,7 @@ import { registerAiRoutes } from '../routes/ai.js';
 import { registerChatRoutes } from '../routes/chat.js';
 import { _setDailyTokenBudgetForTest } from '../routes/dailyTokenGate.js';
 import { getConfig } from '../runtimeConfig.js';
-import { getDailyTokenBudget } from '../routes/dailyTokenGate.js';
+import { getDailyTokenBudget, dailyTokenBudgetHealth } from '../routes/dailyTokenGate.js';
 import { log } from '../logger.js';
 
 type Handler = (req: IncomingMessage, res: ServerResponse, body?: unknown) => Promise<void> | void;
@@ -344,6 +344,14 @@ describe('durable daily token allowance wiring on generate and chat-stream (t/74
       expect(r.statuses.some((c) => c === 429)).toBe(true); // 6 x (32,664 + 65,536) = 589,200 > 500,000
       expect(r.heldAfter).toBe(0); // the refused ones never held anything, the admitted ones settled
     } finally { FREE_TIER.limits.tokensPerDay = prevLimit; }
+  });
+
+  it('/health reports the store and the two effective config values, and follows a config change', () => {
+    const sessions = getConfig().sessions; const prev = [sessions.dailyTokenPerCallCeilingTokens, sessions.dailyTokenDefaultOutputCapTokens];
+    try {
+      sessions.dailyTokenPerCallCeilingTokens = 250_000; sessions.dailyTokenDefaultOutputCapTokens = 16_384;
+      expect(dailyTokenBudgetHealth()).toMatchObject({ perCallCeilingTokens: 250_000, defaultOutputCapTokens: 16_384 });
+    } finally { [sessions.dailyTokenPerCallCeilingTokens, sessions.dailyTokenDefaultOutputCapTokens] = prev as [number, number]; }
   });
 
   // Security p/93#150: 'hosted' means NOT single-operator local mode (AUTH_DISABLED=1 outside production).

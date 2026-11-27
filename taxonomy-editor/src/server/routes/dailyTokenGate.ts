@@ -56,9 +56,11 @@ export function getDailyTokenBudget(): DailyTokenBudget {
   return budget;
 }
 
-/** For /health: which store the allowance is on. 'unused' until the first reserve. `durable` is true only on Blob. */
-export function dailyTokenBudgetHealth(): { store: StoreKind | 'unused'; durable: boolean } {
-  return { store: storeKind, durable: storeKind === 'azure-blob' };
+/** For /health: which store the allowance is on ('unused' until the first reserve; `durable` is true only on Blob) and
+ *  the two effective config values, so a rollout can be checked without a sign-in (no secrets here). */
+export function dailyTokenBudgetHealth(): { store: StoreKind | 'unused'; durable: boolean; perCallCeilingTokens: number; defaultOutputCapTokens: number } {
+  const s = getConfig().sessions;
+  return { store: storeKind, durable: storeKind === 'azure-blob', perCallCeilingTokens: s.dailyTokenPerCallCeilingTokens, defaultOutputCapTokens: s.dailyTokenDefaultOutputCapTokens };
 }
 
 /** Test seam: replace (or clear) the process-wide budget. */
