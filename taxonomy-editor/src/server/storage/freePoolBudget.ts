@@ -738,12 +738,12 @@ let globalFreePoolBudget: FreePoolBudget | null = null;
 
 /** t/4733: what the wired store was configured with — surfaced on `/health` so a staging/prod
  *  container share or a wrong cap is visible by curl, not inferred. Null while unwired. */
-export interface FreePoolBudgetConfig { container: string; callsCap: number }
+export interface FreePoolBudgetConfig { container: string; callsCap: number; tokensCap: number | null }
 let globalFreePoolBudgetConfig: FreePoolBudgetConfig | null = null;
 
 export function initFreePoolBudget(opts: BlobFreePoolBudgetOptions): FreePoolBudget {
   globalFreePoolBudget = new BlobFreePoolBudget(opts);
-  globalFreePoolBudgetConfig = { container: opts.container ?? userContentContainer(), callsCap: opts.callsCap };
+  globalFreePoolBudgetConfig = { container: opts.container ?? userContentContainer(), callsCap: opts.callsCap, tokensCap: opts.tokensCap ?? null };
   return globalFreePoolBudget;
 }
 
@@ -760,14 +760,14 @@ export function getFreePoolBudgetConfig(): FreePoolBudgetConfig | null {
 type BootLogger = { server: { warn(obj: object, msg: string): void; error(obj: object, msg: string): void; info?(obj: object, msg: string): void } };
 
 /** t/812: FREE_POOL_DAILY_TOKENS_CAP. A positive integer; unset = no token cap (null). An invalid value
- *  WARNs and also means no cap, never a made-up default, so an infra typo can't silently set or remove a limit. */
+ *  logs an ERROR (a rollout typo must be loud) and also means no cap, never a made-up default, so an infra typo can't silently set or remove a limit. */
 function parseTokensCap(log: BootLogger): number | null {
   const raw = process.env.FREE_POOL_DAILY_TOKENS_CAP;
   if (raw === undefined || raw.trim() === '') return null;
   const trimmed = raw.trim();
   const n = /^[0-9]+$/.test(trimmed) ? Number(trimmed) : NaN;
   if (!Number.isSafeInteger(n) || n <= 0) {
-    log.server.warn({ scope: 'free-pool-budget', givenCap: raw }, 'FREE_POOL_DAILY_TOKENS_CAP invalid (need a positive integer); no token cap applied');
+    log.server.error({ scope: 'free-pool-budget', givenCap: raw }, 'FREE_POOL_DAILY_TOKENS_CAP invalid (need a positive integer); no token cap applied');
     return null;
   }
   return n;

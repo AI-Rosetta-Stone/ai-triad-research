@@ -182,7 +182,7 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
     process.env.FREE_POOL_DAILY_CALLS_CAP = '5';
     ensureFreePoolBudgetBooted({ server: { warn: () => {}, error: () => {} } });
 
-    expect(getFreePoolBudgetConfig()).toEqual({ container: 'staging-user-content', callsCap: 5 });
+    expect(getFreePoolBudgetConfig()).toEqual({ container: 'staging-user-content', callsCap: 5, tokensCap: null });
     expect(freePoolBudgetHealth()).toEqual(expect.objectContaining({
       wired: true, container: 'staging-user-content', callsCap: 5,
     }));
@@ -192,15 +192,27 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
     expect(freePoolBudgetHealth()).toEqual(expect.objectContaining({ wired: false, container: null, callsCap: null }));
   });
 
+  it('t/812: the real boot records the effective tokensCap in the config /health reads', () => {
+    process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://test.blob.core.windows.net';
+    process.env.FREE_POOL_DAILY_TOKENS_CAP = '250000';
+    ensureFreePoolBudgetBooted({ server: { warn: () => {}, error: () => {} } });
+    expect(getFreePoolBudgetConfig()).toMatchObject({ tokensCap: 250000 });
+    process.env.FREE_POOL_DAILY_TOKENS_CAP = 'oops';
+    _resetFreePoolBudgetForTest();
+    ensureFreePoolBudgetBooted({ server: { warn: () => {}, error: () => {} } });
+    expect(getFreePoolBudgetConfig()).toMatchObject({ tokensCap: null });
+  });
+
   describe('t/812: FREE_POOL_DAILY_TOKENS_CAP', () => {
     function boot(value?: string) {
       process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://test.blob.core.windows.net';
       if (value !== undefined) process.env.FREE_POOL_DAILY_TOKENS_CAP = value;
       const captured: any[] = [];
       const warn = vi.fn();
+      const error = vi.fn();
       const info = vi.fn();
-      ensureFreePoolBudgetBooted({ server: { warn, error: () => {}, info } }, (o: any) => { captured.push(o); return {} as any; });
-      return { captured, warn, info };
+      ensureFreePoolBudgetBooted({ server: { warn, error, info } }, (o: any) => { captured.push(o); return {} as any; });
+      return { captured, warn, error, info };
     }
 
     it('unset: tokensCap is null (no token cap, as before)', () => {
@@ -217,10 +229,11 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
       expect(boot('250000').captured[0].tokensCap).toBe(250000);
     });
 
-    it.each(['abc', '0', '-5', '1.5', '1e6', '12abc', 'NaN'])('invalid %j: WARN and no token cap', (bad) => {
-      const { captured, warn } = boot(bad);
+    it.each(['abc', '0', '-5', '1.5', '1e6', '12abc', 'NaN'])('invalid %j: ERROR and no token cap', (bad) => {
+      const { captured, warn, error } = boot(bad);
       expect(captured[0].tokensCap).toBeNull();
-      expect(warn).toHaveBeenCalledWith(
+      expect(warn).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('TOKENS_CAP'));
+      expect(error).toHaveBeenCalledWith(
         expect.objectContaining({ givenCap: bad }),
         expect.stringContaining('FREE_POOL_DAILY_TOKENS_CAP invalid'),
       );
