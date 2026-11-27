@@ -708,3 +708,91 @@ function Get-RevisionDeactivationVerdict {
         $fn | Should -Match '-ServingTarget \$TargetRevision'
     }
 }
+
+Describe 'The run-time -DeactivatePrevious reminder (t/832, TL p/9#842)' -Tag 'devops' {
+
+    BeforeAll {
+        . "$PSScriptRoot/../operations/devops/GatedRollback.ps1"
+        $script:WrapperText = Get-Content -Raw "$PSScriptRoot/../operations/devops/Invoke-GatedRollback.ps1"
+        $script:Expected = 'WARN: -DeactivatePrevious is for a drill or a PLANNED rollback only; do not use it after an INCIDENT rollback (the revision rolled away from is the suspect one).'
+        # The wrapper's OWN line, extracted and run as written: the production wiring of the switch to the warning.
+        $line = ($script:WrapperText -split "\r?\n" | Where-Object { $_ -match '^if \(\$DeactivatePrevious\) \{ \$null = Write-DeactivatePreviousWarning \}\s*$' })
+        $script:WrapperLine = @($line)
+        function script:RunWrapperLine([bool]$Switch, [string]$Summary) {
+            $env:GITHUB_STEP_SUMMARY = $Summary
+            try {
+                $DeactivatePrevious = $Switch   # the script's own parameter name
+                $w = $null
+                $out = & ([scriptblock]::Create($script:WrapperLine[0])) 3>&1
+                , @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] } | ForEach-Object { $_.Message })
+            } finally { $env:GITHUB_STEP_SUMMARY = $null }
+        }
+    }
+    BeforeEach { $script:SavedEap = $ErrorActionPreference; $ErrorActionPreference = 'Stop' }
+    AfterEach { $ErrorActionPreference = $script:SavedEap }
+
+    It 'the script has exactly one such line, so the production wiring is what is tested below' {
+        $script:WrapperLine.Count | Should -Be 1
+    }
+
+    It 'WITH the switch, the wrapper line emits one WARN with the exact text, and writes the same line to the step summary' {
+        $summary = Join-Path $TestDrive 'summary.md'
+        Set-Content -LiteralPath $summary -Value 'earlier line'
+        $warnings = RunWrapperLine $true $summary
+        $warnings.Count | Should -Be 1
+        $warnings[0] | Should -Be $script:Expected
+        $text = Get-Content -Raw -LiteralPath $summary
+        $text | Should -Match '(?s)^earlier line\r?\n'
+        $text | Should -Match ([regex]::Escape($script:Expected))
+        ([regex]::Matches($text, [regex]::Escape($script:Expected))).Count | Should -Be 1
+    }
+
+    It 'WITHOUT the switch, nothing is warned and nothing is written' {
+        $summary = Join-Path $TestDrive 'summary2.md'
+        Set-Content -LiteralPath $summary -Value 'earlier line'
+        $warnings = RunWrapperLine $false $summary
+        $warnings.Count | Should -Be 0
+        (Get-Content -Raw -LiteralPath $summary).Trim() | Should -Be 'earlier line'
+    }
+
+    It 'with no GITHUB_STEP_SUMMARY it still warns once and writes nothing; with an unwritable summary it is a second WARN, never a throw' {
+        (RunWrapperLine $true '').Count | Should -Be 1
+        $bad = Join-Path $TestDrive 'no-such-dir' 'summary.md'
+        $threw = $false
+        try { $w = RunWrapperLine $true $bad } catch { $threw = $true }
+        $threw | Should -BeFalse -Because 'a summary that cannot be written must not stop the rollback (EAP Stop)'
+        $w.Count | Should -Be 2
+        $w[0] | Should -Be $script:Expected
+        $w[1] | Should -Match 'could not append the -DeactivatePrevious reminder to the step summary'
+    }
+
+    It 'it changes nothing about behaviour: the call returns the line (assigned to $null in the script), and the result object and exit code are the same with and without it' {
+        $r = [pscustomobject]@{ Action = 'shifted'; Verified = $true; Reason = 'ok' }
+        $before = "$($r.Action)|$($r.Verified)|$($r.Reason)"
+        $code = Get-GatedRollbackExitCode -Result $r
+        $line = Write-DeactivatePreviousWarning -WarningAction SilentlyContinue
+        $line | Should -Be $script:Expected
+        "$($r.Action)|$($r.Verified)|$($r.Reason)" | Should -Be $before
+        Get-GatedRollbackExitCode -Result $r | Should -Be $code
+        # the script assigns the output away, so the warning line cannot leak into the script's output (which is the result object)
+        $script:WrapperLine[0] | Should -Match '\$null = Write-DeactivatePreviousWarning'
+    }
+
+    It 'WIRING: the call is the first thing after the helper script is loaded, before the module import, any az call and the shift, so it is visible even if the rollback fails' {
+        $call = $script:WrapperText.IndexOf('if ($DeactivatePrevious) { $null = Write-DeactivatePreviousWarning }')
+        $load = $script:WrapperText.IndexOf("'GatedRollback.ps1')")
+        $import = $script:WrapperText.IndexOf('Import-Module')
+        $firstAz = $script:WrapperText.IndexOf('az containerapp')
+        $core = $script:WrapperText.IndexOf('$r = Invoke-GatedRollbackCore')
+        $call | Should -BeGreaterThan $load
+        $call | Should -BeLessThan $import
+        $call | Should -BeLessThan $firstAz
+        $call | Should -BeLessThan $core
+    }
+
+    It 'WIRING: it is gated on the switch only, and the text is the TL-specified line in one place' {
+        $fn = Get-Content -Raw "$PSScriptRoot/../operations/devops/GatedRollback.ps1"
+        ([regex]::Matches($fn, [regex]::Escape($script:Expected))).Count | Should -Be 1
+        $script:WrapperText | Should -Not -Match 'Write-DeactivatePreviousWarning(?!\s*\})'
+    }
+}

@@ -284,6 +284,25 @@ function Invoke-DeactivatePreviousStep {
     $rec
 }
 
+<#
+.SYNOPSIS
+    t/832 (TL p/9#842): the run-time reminder printed when -DeactivatePrevious is given.
+.DESCRIPTION
+    The TL cleared -DeactivatePrevious for PROD use by DeployAzure for PLANNED rollbacks and drills only, each use announced to the TL first, and never
+    after an INCIDENT rollback. The help text says so, but nothing told the operator at run time. This writes ONE Write-Warning line and the same line
+    to $env:GITHUB_STEP_SUMMARY when there is one. It changes no behaviour: a summary that cannot be written is a second WARN, never a throw, and the
+    script calls this at the very start of the run (before the shift), so it is visible even if the rollback then fails. Returns the line.
+#>
+function Write-DeactivatePreviousWarning {
+    $line = 'WARN: -DeactivatePrevious is for a drill or a PLANNED rollback only; do not use it after an INCIDENT rollback (the revision rolled away from is the suspect one).'
+    Write-Warning $line
+    if ($env:GITHUB_STEP_SUMMARY) {
+        try { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $line }
+        catch { Write-Warning "WARN: could not append the -DeactivatePrevious reminder to the step summary ($($_.Exception.Message)); the rollback carries on." }
+    }
+    $line
+}
+
 function Invoke-GatedRollbackCore {
     param(
         [Parameter(Mandatory)][string] $RevisionName,

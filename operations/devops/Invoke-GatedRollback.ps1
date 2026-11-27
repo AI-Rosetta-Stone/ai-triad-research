@@ -54,6 +54,10 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'GatedRollback.ps1')
+
+# t/832: say so at run time, first thing and before the shift, so it shows even if the rollback then fails. One WARN plus the same line in the
+# step summary; it changes no behaviour and no exit code.
+if ($DeactivatePrevious) { $null = Write-DeactivatePreviousWarning }
 Import-Module (Join-Path $PSScriptRoot '..' '..' 'scripts' 'AITriad' 'AITriad.psm1') -Force
 
 $appUrl = 'https://' + (az containerapp show -n $AppName -g $ResourceGroup --query 'properties.configuration.ingress.fqdn' -o tsv)
