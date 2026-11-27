@@ -19,6 +19,8 @@ interface DebateLike {
   active_povers?: readonly string[];
   topic?: { final?: string };
   transcript: readonly TranscriptEntry[];
+  /** The debate's argument network (t/825): nodes and supports/attacks edges. */
+  argument_network?: { nodes?: unknown; edges?: unknown } | null;
 }
 
 export interface SynthesisTopData { entry: TranscriptEntry; view: SynthesisView }
@@ -30,13 +32,14 @@ export function useSynthesisTop(debate: DebateLike | null | undefined): Synthesi
   const synthesis = entry?.metadata?.synthesis;
   const povers = debate?.active_povers?.join('|') ?? '';
   const topic = debate?.topic?.final;
+  const argumentNetwork = debate?.argument_network;
   return useMemo(
     () => (entry && synthesis
-      ? { entry, view: buildSynthesisView({ synthesis, debaters: povers ? povers.split('|') : [], topic }) }
+      ? { entry, view: buildSynthesisView({ synthesis, debaters: povers ? povers.split('|') : [], topic, argumentNetwork }) }
       : null),
     // `entry` changes identity only when the transcript entry does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [synthesis, povers, topic],
+    [synthesis, povers, topic, argumentNetwork],
   );
 }
 

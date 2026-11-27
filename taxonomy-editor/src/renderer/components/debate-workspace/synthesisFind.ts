@@ -27,7 +27,12 @@ export function synthesisFindTexts(view: SynthesisView): [string, string][] {
     if (d.why) out.push([`${d.n}.why`, d.why]);
     d.positions.forEach((p, i) => out.push([`${d.n}.pos${i}`, p.stance]));
   }
-  view.cruxes.forEach(c => out.push([`${c.n}`, c.question]));
+  for (const camp of view.strongestArguments) for (const a of camp.items) out.push([`arg.${camp.camp.id}.${a.id}`, a.text]);
+  for (const c of view.cruxes) {
+    out.push([c.n, c.question]);
+    if (c.ifYes) out.push([`${c.n}.yes`, c.ifYes]);
+    if (c.ifNo) out.push([`${c.n}.no`, c.ifNo]);
+  }
   // Render order: themed groups can reorder the questions.
   view.openQuestionGroups.forEach(g => g.questions.forEach(q => out.push([q.id, q.text])));
   return out;
