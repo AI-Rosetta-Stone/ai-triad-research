@@ -102,6 +102,17 @@ describe('Strongest arguments (spec 13.3, t/825)', () => {
   });
 });
 
+describe('nav keys', () => {
+  it('skips a nav entry the panel has no section for instead of rendering a dead link', () => {
+    const view = viewWith({ nodes, edges });
+    const withUnknown = { ...view, nav: [...view.nav, { key: 'from-the-future', label: 'Future', count: 1 }] } as never;
+    render(<SynthesisPanelView debateId="d1" view={withUnknown} />);
+    const nav = screen.getByRole('navigation', { name: 'Synthesis sections' });
+    expect(within(nav).queryByRole('link', { name: /Future/ })).toBeNull();
+    expect(within(nav).getByRole('link', { name: /Strongest arguments/ })).toBeTruthy();
+  });
+});
+
 describe('Crux details (spec 13.7, t/829)', () => {
   const cruxes = [
     { question: 'Both?', type: 'EMPIRICAL', if_yes: 'The safetyist position weakens.', if_no: 'The skeptic position weakens.' },

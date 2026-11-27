@@ -258,7 +258,8 @@ function PanelHeader({ view, ids, collapsed, bodyId, onJump, onSkip, onToggle, o
               Skip to transcript
             </a>
           )}
-          {!collapsed && view.nav.map(n => (
+          {/* A nav key this panel has no section for (a newer builder) is skipped, never a dead link. */}
+          {!collapsed && view.nav.filter(n => Object.hasOwn(ids, n.key)).map(n => (
             <a key={n.key} href={`#${ids[n.key]}`} className="syn-nav-link"
               onClick={e => { e.preventDefault(); onJump(n.key); }}>
               {n.label} <span className="syn-nav-count">{n.count}</span>
