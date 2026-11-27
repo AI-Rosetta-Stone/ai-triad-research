@@ -28,6 +28,7 @@ param(
     [string] $ResourceGroup = 'ai-triad',
     [switch] $MeasureOnly,
     [switch] $DeactivateAfterMeasure,
+    [switch] $DeactivatePrevious,   # t/588: after a VERIFIED shift, deactivate the revision rolled away from (guarded; default off)
     [int] $ProvisionTimeoutSec = 300,
     [int] $WarmTimeoutSec = 420,
     [int] $PollIntervalSec = 10
@@ -37,6 +38,16 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '..' '..' 'scripts' 'AITriad' 'AITriad.psm1') -Force
 
 $appUrl = 'https://' + (az containerapp show -n $AppName -g $ResourceGroup --query 'properties.configuration.ingress.fqdn' -o tsv)
+
+# t/588: only when asked, read which revisions carry traffic BEFORE the shift (after it they would all read 0). An unreadable read
+# deactivates nothing.
+$previousRevisions = @()
+$previousReadFailed = $false
+if ($DeactivatePrevious) {
+    $names = az containerapp revision list -n $AppName -g $ResourceGroup --query '[?properties.trafficWeight > `0`].name' -o tsv 2>$null
+    if ($LASTEXITCODE -eq 0) { $previousRevisions = @($names | Where-Object { $_ -and $_ -ne $RevisionName }) }
+    else { $previousReadFailed = $true; Write-Warning "WARN: could not read the revisions carrying traffic before the shift (az exit $LASTEXITCODE); -DeactivatePrevious will deactivate nothing." }
+}
 
 $r = Invoke-GatedRollbackCore -RevisionName $RevisionName -MeasureOnly:$MeasureOnly `
     -ProvisionTimeoutSec $ProvisionTimeoutSec -WarmTimeoutSec $WarmTimeoutSec -PollIntervalSec $PollIntervalSec `
@@ -97,6 +108,36 @@ if ($r.Action -eq 'measured' -and $DeactivateAfterMeasure) {
             Write-Host "  drill: deactivated '$RevisionName' again (exit $LASTEXITCODE)"
         } else {
             Write-Host "  drill: NOT deactivating '$RevisionName': $($guard.Reason)"
+        }
+    }
+}
+
+# t/588: after a VERIFIED shift, deactivate the revision(s) rolled away from. Default off. Each one goes through the same fresh,
+# double-sourced traffic guard as the deploy's cleanup; a failure is a WARN and never undoes the shift (exit code unchanged).
+if ($DeactivatePrevious) {
+    $dec = Get-DeactivatePreviousDecision -Result $r -PreviousRevisions $previousRevisions -TargetRevision $RevisionName -ReadFailed:$previousReadFailed -DeactivatePrevious:$DeactivatePrevious
+    if ($dec.Skip) {
+        Write-Host "  deactivate-previous: NOT deactivating: $($dec.Reason)"
+    } else {
+        . (Join-Path $PSScriptRoot 'Get-RevisionDeactivationVerdict.ps1')
+        foreach ($prevRev in $dec.Revisions) {
+            $d = Invoke-GuardedDeactivate -RevisionName $prevRev -GetVerdict {
+                param($Rev)
+                $raw = az containerapp revision show -n $AppName -g $ResourceGroup --revision $Rev -o json | ConvertFrom-Json
+                $app = az containerapp show -n $AppName -g $ResourceGroup -o json | ConvertFrom-Json
+                $entries = if ($app.properties.configuration.ingress.PSObject.Properties['traffic']) { @($app.properties.configuration.ingress.traffic) } else { $null }
+                $ingress = Get-IngressTrafficWeightForRevision -RevisionName $Rev -TrafficEntries $entries -LatestRevisionName $app.properties.latestRevisionName
+                $weight = if ($raw.properties.PSObject.Properties['trafficWeight']) { $raw.properties.trafficWeight } else { $null }
+                Get-RevisionDeactivationVerdict -RevisionName $Rev -TrafficWeight $weight -Active ([bool]$raw.properties.active) `
+                    -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic -ServingRevisionName $RevisionName
+            } -Deactivate {
+                param($Rev)
+                az containerapp revision deactivate -n $AppName -g $ResourceGroup --revision $Rev -o none
+                if ($LASTEXITCODE -ne 0) { throw "az containerapp revision deactivate exited $LASTEXITCODE" }
+            }
+            if ($d.Deactivated) { Write-Host "  deactivate-previous: deactivated '$prevRev' ($($d.Reason))" }
+            elseif ($d.Warning) { Write-Warning "WARN: deactivate-previous: '$prevRev' was NOT deactivated: $($d.Warning). The shift stands; deactivate it by hand when ready." }
+            else { Write-Host "  deactivate-previous: NOT deactivating '$prevRev': $($d.Reason)" }
         }
     }
 }
