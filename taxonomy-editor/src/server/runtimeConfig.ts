@@ -87,7 +87,7 @@ export interface RuntimeConfig {
     dailyTokenDefaultOutputCapTokens: number;
     /** t/746: how many prompt BYTES one token is assumed to be when sizing a hold. Measured about 4.0 on chat prompts (569,593 to 695,000 characters = 140,000 to 175,000 tokens, t/494#1); never set it above the measured value. */
     dailyTokenBytesPerToken: number;
-    /** t/811: tokens of PAID-key fallback retries allowed per UTC day (all callers together). 0 or unset = no cap (today's behaviour, with a WARN). */
+    /** t/811: tokens of PAID-key fallback retries allowed per UTC day (all callers together). The code default is 4,300,000 (about $2 a day at the measured $0.47 per million), so a missing config FAILS CLOSED on a real-money path (TL p/16#501, Security p/93#160); set it explicitly in prod's runtime-config. An explicit 0 means no cap. */
     paidFallbackDailyTokens: number;
   };
   analytics: {
@@ -221,7 +221,7 @@ const DEFAULTS: RuntimeConfig = {
     dailyTokenPerCallCeilingTokens: 128_000,
     dailyTokenDefaultOutputCapTokens: 65_536,
     dailyTokenBytesPerToken: 3.5,
-    paidFallbackDailyTokens: 0,
+    paidFallbackDailyTokens: 4_300_000,
   },
   analytics: {
     retentionDays: 90,

@@ -45,10 +45,10 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { generateWithPaidFallback, generateWithSearch } from '../routes/ai.js';
-import { _setDailyTokenBudgetForTest, _resetPaidCapWarnForTest, PAID_FALLBACK_LIMIT_KEY } from '../routes/dailyTokenGate.js';
+import { _setDailyTokenBudgetForTest, _resetPaidCapWarnForTest, PAID_FALLBACK_LIMIT_KEY, PAID_FALLBACK_DEFAULT_DAILY_TOKENS } from '../routes/dailyTokenGate.js';
 import { DailyTokenBudget } from '../security/dailyTokenBudget.js';
 import { InMemoryJsonDocStore } from '../storage/jsonDocStore.js';
-import { getConfig } from '../runtimeConfig.js';
+import { getConfig, getDefaults, validateAndMerge } from '../runtimeConfig.js';
 
 const CTX = { isFree: true, backend: 'gemini' as const, requestModel: 'gemini-3.5-flash-lite', t0: 0 };
 const SEARCH_CTX = { ...CTX };
@@ -87,13 +87,32 @@ async function paidRetry(paid: { resolve?: unknown; reject?: Error }): Promise<{
 }
 
 describe('paid-fallback daily token cap (t/811)', () => {
-  it('no cap configured (0): the paid retry proceeds exactly as today, with one WARN that it is uncapped', async () => {
+  it('explicit 0 means no cap: the paid retry proceeds as before, with one WARN that it is uncapped', async () => {
     getConfig().sessions.paidFallbackDailyTokens = 0;
     const r = await paidRetry({ resolve: { text: 'paid-ok', tokenUsage: { inputTokens: 3_000, outputTokens: 400 } } });
     expect(r.out).toMatchObject({ text: 'paid-ok' });
     expect(mockGenerateTextByUsage).toHaveBeenCalledTimes(2);
     await paidRetry({ resolve: { text: 'again' } });
-    expect(warnSpy.mock.calls.filter((c) => JSON.stringify(c).includes('NO daily cap')).length).toBe(1); // once per process
+    expect(warnSpy.mock.calls.filter((c) => JSON.stringify(c).includes('explicitly 0')).length).toBe(1); // once per process
+  });
+
+  it('the code default is 4,300,000 (pinned): a config without the key fails closed, with one WARN asking for an explicit value', async () => {
+    expect(getDefaults().sessions.paidFallbackDailyTokens).toBe(4_300_000);
+    expect(PAID_FALLBACK_DEFAULT_DAILY_TOKENS).toBe(4_300_000);
+    // a runtime-config file that never mentions the key resolves to the default, not to 0
+    expect(validateAndMerge({ sessions: {} }, getDefaults()).config.sessions.paidFallbackDailyTokens).toBe(4_300_000);
+    expect(validateAndMerge({}, getDefaults()).config.sessions.paidFallbackDailyTokens).toBe(4_300_000);
+    // enforced: fill most of the default cap, then the next retry is refused
+    getConfig().sessions.paidFallbackDailyTokens = 4_300_000;
+    const b = budgetOver(store); _setDailyTokenBudgetForTest(b);
+    const setup = await b.reserve(PAID_FALLBACK_LIMIT_KEY, 4_300_000, { promptBytes: 0, outputCapTokens: 0, poolFunded: true });
+    await b.settle((setup as { hold: never }).hold, { inputTokens: 4_297_000, outputTokens: 0 });
+    mockGenerateTextByUsage.mockRejectedValueOnce(err429());
+    const p = generateWithPaidFallback(PROMPT, {}, ['free1'], CTX).catch((e: Error) => e);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(((await p) as Error).message).toBe('429 pool exhausted'); // 4,297,000 + 5,000 > 4,300,000
+    expect(mockGenerateTextByUsage).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls.filter((c) => JSON.stringify(c).includes('code default (4,300,000')).length).toBe(1);
   });
 
   it('over the cap the paid key is NOT called and the original 429 stands; under it the real usage is settled', async () => {
