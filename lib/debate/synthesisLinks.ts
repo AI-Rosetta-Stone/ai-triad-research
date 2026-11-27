@@ -18,7 +18,7 @@
  */
 
 type Item = Record<string, unknown>;
-type Warn = (operation: string, error: unknown, recovery: string) => void;
+type Warn = (operation: string, problem: string, recovery: string) => void;
 
 const isItem = (v: unknown): v is Item => !!v && typeof v === 'object' && !Array.isArray(v);
 
