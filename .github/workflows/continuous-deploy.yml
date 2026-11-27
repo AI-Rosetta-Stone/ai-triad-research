@@ -69,7 +69,14 @@ permissions:
 
 jobs:
   evaluate:
-    if: github.event.workflow_run.conclusion == 'success'
+    # t/801 (Security): `branches: [main]` above matches the head branch NAME, so a fork PR from the fork's own `main`
+    # also triggers this workflow_run. This job checks out workflow_run.head_sha and dot-sources a script from that tree with an
+    # issues: write token, so it must never run for a pull_request run or for a head in another repository (a fork).
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event != 'pull_request' &&
+      github.event.workflow_run.event != 'pull_request_target' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
