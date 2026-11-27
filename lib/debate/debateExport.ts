@@ -38,6 +38,8 @@ export interface ExportableDebateSession {
   active_povers: string[];
   user_is_pover: boolean;
   transcript: TranscriptEntry[];
+  /** The debate's argument network, for the synthesis brief's Strongest arguments (t/827). */
+  argument_network?: { nodes?: unknown; edges?: unknown } | null;
   synthesis?: {
     areas_of_agreement?: unknown[];
     areas_of_disagreement?: unknown[];
@@ -100,7 +102,7 @@ function synthesisEntryBrief(entry: TranscriptEntry, session: ExportableDebateSe
   const raw = (entry.metadata as Record<string, unknown> | undefined)?.synthesis;
   if (!hasStructuredSynthesis(raw)) return null;
   const ordered = orderSynthesisLists(raw as Record<string, unknown>);
-  return synthesisBrief(ordered, { debaters: session.active_povers, topic: session.topic.final }, { level: 4, format });
+  return synthesisBrief(ordered, { debaters: session.active_povers, topic: session.topic.final, argumentNetwork: session.argument_network }, { level: 4, format });
 }
 
 /** One transcript entry's body in the Markdown export. A fact check's verdict lives in metadata, not content (t/771). */
