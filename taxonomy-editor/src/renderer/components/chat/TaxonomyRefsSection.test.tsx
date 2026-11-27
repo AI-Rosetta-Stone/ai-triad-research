@@ -63,6 +63,9 @@ describe('TaxonomyRefsSection — per-reply BDI grounding (t/4627)', () => {
     expect(screen.queryByRole('button', { name: /reference/ })).toBeNull();
     expect(screen.getByRole('button', { name: 'skp-beliefs-001' })).toBeInTheDocument();
     expect(screen.getByText('Node A')).toBeInTheDocument();
+    // t/778: the explanation is collapsed until the row's label is clicked.
+    expect(screen.queryByText('why A matters')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Node A' }));
     expect(screen.getByText('why A matters')).toBeInTheDocument();
   });
 
@@ -139,6 +142,7 @@ describe('TaxonomyRefsSection — per-reply BDI grounding (t/4627)', () => {
     it('Tab + Enter opens the detail (keyboard-only activation)', async () => {
       const user = userEvent.setup();
       render(<TaxonomyRefsSection refs={[NODE_A]} />);
+      await user.tab(); // t/778: the first stop is now the Expand all control on the panel's top line
       await user.tab();
       expect(screen.getByRole('button', { name: /skp-beliefs-001/ })).toHaveFocus();
       await user.keyboard('{Enter}');
@@ -199,12 +203,12 @@ describe('TaxonomyRefsSection — Why for answers vs user messages, and missing 
     expect(screen.getByText('No longer in the taxonomy')).toHaveClass('debate-reasoning-label--missing');
     // The row button is the only element that shows the id (t/472 removed the chip row above the
     // rows), so the label must not repeat it.
-    expect(container.querySelectorAll('.debate-reasoning-label')[0].textContent).toBe('No longer in the taxonomy');
+    expect(container.querySelectorAll('.debate-why-row-label')[0].textContent).toBe('No longer in the taxonomy');
   });
 
   it('a backfilled ref label (t/282 normalizer) shows in the row, not the missing text', () => {
     render(<TaxonomyRefsSection refs={[{ node_id: 'skp-beliefs-999', label: 'Backfilled', relevance: 'r' }]} />);
-    expect(screen.getByText('Backfilled')).toHaveClass('debate-reasoning-label');
+    expect(screen.getByText('Backfilled')).toHaveClass('debate-why-row-label');
     expect(screen.queryByText('No longer in the taxonomy')).toBeNull();
   });
 });

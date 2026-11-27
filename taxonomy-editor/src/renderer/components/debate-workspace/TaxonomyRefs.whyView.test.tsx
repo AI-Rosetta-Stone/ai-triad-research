@@ -60,13 +60,17 @@ vi.mock('../taxonomy/TaxonomyRefDetail', () => ({
 }));
 
 import { BdiGroundingView } from './TaxonomyRefs';
+import { resetWhyExplanations } from './whyExplanations';
 import type { TaxonomyRef } from '../../types/debate';
 
 const NODE = 'skp-beliefs-164';
 const REFS: TaxonomyRef[] = [{ node_id: NODE, relevance: 'why it matters', relevance_score: 0.66 }];
 
+/** Every row starts collapsed (t/778), so tests that read an explanation open all rows first. */
+const expandAll = () => fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+
 describe('BdiGroundingView (t/4625 Why tab)', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => { vi.clearAllMocks(); resetWhyExplanations(); });
 
   it('AC5: shows the empty state when there are no BDI refs at all (e.g. a System entry)', () => {
     render(<BdiGroundingView refs={[]} />);
@@ -77,9 +81,12 @@ describe('BdiGroundingView (t/4625 Why tab)', () => {
   it('renders the per-node entry for a statement with BDI refs, no outer BDI disclosure', () => {
     render(<BdiGroundingView refs={REFS} />);
     expect(screen.queryByText('No BDI grounding for this statement.')).not.toBeInTheDocument();
-    // No <summary>BDI</summary> toggle — the Why tab selection IS the disclosure.
-    expect(screen.queryByText('BDI')).not.toBeInTheDocument();
+    // No <summary>BDI</summary> toggle — the Why tab selection IS the disclosure. The `BDI` eyebrow (t/778) is a plain heading.
+    expect(screen.getByText('BDI').closest('summary')).toBeNull();
     expect(screen.getAllByText(NODE).length).toBeGreaterThan(0);
+    // t/778: the explanation is collapsed until the row or Expand all opens it.
+    expect(screen.queryByText('why it matters')).not.toBeInTheDocument();
+    expandAll();
     expect(screen.getByText('why it matters')).toBeInTheDocument();
   });
 
@@ -87,6 +94,7 @@ describe('BdiGroundingView (t/4625 Why tab)', () => {
     render(<BdiGroundingView refs={REFS} />);
     expect(screen.getByRole('button', { name: NODE })).toBeInTheDocument();
     expect(screen.getByText('Label for ' + NODE)).toBeInTheDocument();
+    expandAll();
     expect(screen.getByText('why it matters')).toBeInTheDocument();
     // Only the per-ref "(Relevance … ; Confidence/Priority/Operationality …)" line is removed.
     expect(screen.queryByText(/Relevance/)).not.toBeInTheDocument();
@@ -109,16 +117,16 @@ describe('BdiGroundingView (t/4625 Why tab)', () => {
     expect(screen.getByRole('button', { name: 'pol-001' })).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('t/472: the open entry shows a down caret and the open class; a closed one shows a right caret', () => {
+  it('t/778: the caret shows whether the row explanation is open; the open node detail keeps its class', () => {
     const { container } = render(<BdiGroundingView refs={REFS} policyRefs={['pol-001']} />);
     const carets = () => Array.from(container.querySelectorAll('.debate-reasoning-caret')).map(c => c.textContent);
     expect(carets()).toEqual(['▸', '▸']);
     expect(container.querySelector('.debate-reasoning-caret')).toHaveAttribute('aria-hidden', 'true');
-    fireEvent.click(screen.getByRole('button', { name: NODE }));
+    fireEvent.click(screen.getByRole('button', { name: 'Label for ' + NODE }));
     expect(carets()).toEqual(['▾', '▸']);
+    fireEvent.click(screen.getByRole('button', { name: NODE }));
     expect(container.querySelectorAll('.debate-reasoning-item--open')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'pol-001' }));
-    expect(carets()).toEqual(['▸', '▾']);
     expect(container.querySelector('.debate-reasoning-item--open')).toHaveClass('taxrefs-item-sit');
   });
 
@@ -155,45 +163,40 @@ describe('BdiGroundingView (t/4625 Why tab)', () => {
   });
 });
 
-// t/187 (t/167#3): grouped by BDI category, Desires -> Intentions -> Beliefs (-> Situations).
-describe('BdiGroundingView BDI grouping (t/187)', () => {
+// t/187 (t/167#3), changed by t/778: Desires -> Intentions -> Beliefs run as one list with no
+// group headings; Situations and policy actions keep theirs.
+describe('BdiGroundingView ordering and groups (t/187, t/778)', () => {
+  beforeEach(() => { resetWhyExplanations(); });
+
   const MIXED: TaxonomyRef[] = [
     { node_id: 'acc-beliefs-001', relevance: 'b low', relevance_score: 0.2 },
     { node_id: 'saf-intentions-004', relevance: 'i only', relevance_score: 0.5 },
     { node_id: 'skp-beliefs-009', relevance: 'b high', relevance_score: 0.9 },
     { node_id: 'saf-desires-002', relevance: 'd only', relevance_score: 0.4 },
   ];
+  const idsOf = (container: HTMLElement) => [...container.querySelectorAll('.debate-reasoning-node')].map(b => b.textContent);
 
-  it('renders groups in order Desires, Intentions, Beliefs with counts', () => {
+  it('has no Desires, Intentions or Beliefs headings', () => {
     const { container } = render(<BdiGroundingView refs={MIXED} />);
-    const labels = [...container.querySelectorAll('.taxrefs-bdi-group-label')].map(el => el.textContent);
-    expect(labels).toEqual(['Desires (1)', 'Intentions (1)', 'Beliefs (2)']);
+    expect([...container.querySelectorAll('.taxrefs-bdi-group-label')].map(el => el.textContent)).toEqual(['BDI']);
+    expect(screen.queryByText(/^(Desires|Intentions|Beliefs)/)).not.toBeInTheDocument();
   });
 
-  it('omits empty groups', () => {
-    render(<BdiGroundingView refs={[MIXED[0], MIXED[2]]} />);
-    expect(screen.getByRole('group', { name: 'Beliefs, 2 nodes' })).toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: /^Desires/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: /^Intentions/ })).not.toBeInTheDocument();
+  it('lists Desires, then Intentions, then Beliefs, sorted by relevance inside each category', () => {
+    const { container } = render(<BdiGroundingView refs={MIXED} />);
+    expect(idsOf(container)).toEqual(['saf-desires-002', 'saf-intentions-004', 'skp-beliefs-009', 'acc-beliefs-001']);
   });
 
-  it('sorts by relevance within a group and keeps each ref in its own category', () => {
-    render(<BdiGroundingView refs={MIXED} />);
-    const beliefs = screen.getByRole('group', { name: 'Beliefs, 2 nodes' });
-    const nodes = within(beliefs).getAllByRole('button').map(b => b.textContent);
-    // t/472: each button's text starts with its (aria-hidden) disclosure caret.
-    expect(nodes).toEqual(['▸skp-beliefs-009', '▸acc-beliefs-001']);
-    expect(within(screen.getByRole('group', { name: 'Desires, 1 node' })).queryByText('skp-beliefs-009')).not.toBeInTheDocument();
-  });
-
-  it('puts situation nodes in their own group after Beliefs instead of dropping them', () => {
+  it('puts situation nodes under their own heading after the BDI list instead of dropping them', () => {
     const { container } = render(<BdiGroundingView refs={[...MIXED, { node_id: 'sit-176', relevance: 'context', relevance_score: 0.7 }]} />);
     const labels = [...container.querySelectorAll('.taxrefs-bdi-group-label')].map(el => el.textContent);
-    expect(labels[labels.length - 1]).toBe('Situations (1)');
+    expect(labels).toEqual(['BDI', 'Situations (1)']);
+    expect(idsOf(container)[4]).toBe('sit-176');
+    expandAll();
     expect(within(screen.getByRole('group', { name: 'Situations, 1 node' })).getByText('context')).toBeInTheDocument();
   });
 
-  it('labels the policy block like the BDI groups (Design p/14#20)', () => {
+  it('labels the policy block (Design p/14#20)', () => {
     render(<BdiGroundingView refs={MIXED} policyRefs={['pol-007', 'pol-008']} />);
     const pol = screen.getByRole('group', { name: 'Policy actions, 2 actions' });
     expect(within(pol).getByText('Policy actions (2)')).toBeInTheDocument();
@@ -202,24 +205,26 @@ describe('BdiGroundingView BDI grouping (t/187)', () => {
   it('shows an unrecognised node id under Situations and records a WARN', () => {
     mockRecord.mockClear();
     render(<BdiGroundingView refs={[{ node_id: 'zzz-unknown', relevance: 'odd', relevance_score: 0.1 }, { node_id: 'sit-001', relevance: 'ok', relevance_score: 0.2 }]} />);
+    expandAll();
     expect(within(screen.getByRole('group', { name: 'Situations, 2 nodes' })).getByText('odd')).toBeInTheDocument();
-    expect(mockRecord).toHaveBeenCalledTimes(1);
+    expect(mockRecord).toHaveBeenCalled();
     expect(mockRecord.mock.calls[0][0]).toMatchObject({ level: 'warn', component: 'debate-workspace' });
     expect(String(mockRecord.mock.calls[0][0].message)).toContain('zzz-unknown');
   });
 
-  it('renders policy refs after all BDI groups', () => {
-    const { container } = render(<BdiGroundingView refs={MIXED} policyRefs={['pol-007']} />);
+  it('renders policy refs after the BDI list and the Situations group', () => {
+    const { container } = render(<BdiGroundingView refs={[...MIXED, { node_id: 'sit-001', relevance: 's', relevance_score: 0.1 }]} policyRefs={['pol-007']} />);
     const body = container.querySelector('.debate-reasoning-section-body') as HTMLElement;
     const blocks = [...body.children].map(c => c.className);
-    expect(blocks.slice(0, 3).every(c => c.includes('taxrefs-bdi-group'))).toBe(true);
-    expect(blocks[3]).toBe('taxrefs-policy-refs');
-    expect(within(body.children[3] as HTMLElement).getAllByText('pol-007').length).toBeGreaterThan(0);
+    expect(blocks[0]).toContain('taxrefs-bdi-group');
+    expect(blocks[1]).toContain('taxrefs-bdi-group');
+    expect(blocks[2]).toBe('taxrefs-policy-refs');
+    expect(within(body.children[2] as HTMLElement).getAllByText('pol-007').length).toBeGreaterThan(0);
   });
 
-  it('a click inside a group still opens the inline node detail', () => {
+  it('a click on an id still opens the inline node detail', () => {
     render(<BdiGroundingView refs={MIXED} />);
-    fireEvent.click(within(screen.getByRole('group', { name: 'Intentions, 1 node' })).getByRole('button', { name: 'saf-intentions-004' }));
+    fireEvent.click(screen.getByRole('button', { name: 'saf-intentions-004' }));
     expect(screen.getByTestId('ref-detail')).toHaveAttribute('data-node', 'saf-intentions-004');
   });
 
@@ -234,6 +239,7 @@ describe('BdiGroundingView BDI grouping (t/187)', () => {
   it('treats legacy cc- IDs like sit- (no WARN) and groups them under Situations', () => {
     mockRecord.mockClear();
     render(<BdiGroundingView refs={[{ node_id: 'cc-001', relevance: 'legacy cc', relevance_score: 0.5 }, { node_id: 'sit-001', relevance: 'modern sit', relevance_score: 0.6 }]} />);
+    expandAll();
     const situations = screen.getByRole('group', { name: 'Situations, 2 nodes' });
     expect(within(situations).getByText('legacy cc')).toBeInTheDocument();
     expect(within(situations).getByText('modern sit')).toBeInTheDocument();
@@ -243,8 +249,9 @@ describe('BdiGroundingView BDI grouping (t/187)', () => {
   it('still records a WARN for truly unknown (non-BDI, non-sit, non-cc) node IDs', () => {
     mockRecord.mockClear();
     render(<BdiGroundingView refs={[{ node_id: 'unk-999', relevance: 'unknown', relevance_score: 0.1 }]} />);
+    expandAll();
     expect(within(screen.getByRole('group', { name: 'Situations, 1 node' })).getByText('unknown')).toBeInTheDocument();
-    expect(mockRecord).toHaveBeenCalledTimes(1);
+    expect(mockRecord).toHaveBeenCalled();
     expect(mockRecord.mock.calls[0][0]).toMatchObject({ level: 'warn', component: 'debate-workspace' });
     expect(String(mockRecord.mock.calls[0][0].message)).toContain('unk-999');
   });
