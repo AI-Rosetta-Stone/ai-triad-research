@@ -13,7 +13,7 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import path from 'path';
 import { getConfig } from '../runtimeConfig.js';
 import { mintCommunityOpedShare, getCommunityOpedShareEntry, revokeCommunityOpedShare } from './communityOpedShares.js';
-import { communityPseudonym, communityItemOwnerKey, publicCommunityMetadata } from './submitterPseudonym.js';
+import { communityPseudonym, communityItemOwnerKey, publicCommunityMetadata, keylessFallbackCount, warnIndexNotPersisted } from './submitterPseudonym.js';
 import { projectArgumentNetwork, projectTopic } from './argumentNetworkProjection.js';
 import { writePublicCommunityOpEd, deletePublicCommunityOpEd, type CommunityOpEdItem } from '../storage/communityOpedShareStore.js';
 import {
@@ -209,6 +209,7 @@ async function rebuildListingIndex<T>(spec: ListingIndexSpec<T>): Promise<T[]> {
   const backend = getUserContentBackend();
   const files = await listIndexedFiles(spec.dir, spec.prefix);
   const entries: T[] = [];
+  const fallbacksBefore = keylessFallbackCount();
   for (const f of files) {
     try {
       const raw = await backend.readFile(path.join(spec.dir, f));
@@ -225,6 +226,9 @@ async function rebuildListingIndex<T>(spec: ListingIndexSpec<T>): Promise<T[]> {
       /* skip malformed */
     }
   }
+  // A build that had to show the fixed word because no pseudonym key was loaded must not be cached: the cached
+  // copy would keep the fixed word after the key loads. Not persisting means the next read rebuilds (t/693#29).
+  if (keylessFallbackCount() !== fallbacksBefore) { warnIndexNotPersisted(spec.dir); return entries; }
   // Best-effort: a read-only context (or exhausted API) just keeps full-scanning.
   const index: ListingIndex<T> = { version: spec.version, entries };
   await backend.writeFile(

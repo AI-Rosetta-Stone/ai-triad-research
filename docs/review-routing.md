@@ -40,6 +40,12 @@ Design's review is a **gate** for user-facing changes, on top of the tier's own 
 - **Hold label (until `design-review-guard` is required):** the T0 enqueue sweep can't read comments and re-enqueues any green T0 PR, and dequeuing doesn't stop it (#4410 merged over "Changes requested", t/4781#2). The author applies `no-auto-enqueue` at PR creation, and Design re-applies it with any `Changes requested (Design):`. Remove it only after Design passes the current head.
 - **Checklist and evidence standard:** `docs/design-review.md` (t/4783). Turnaround target: 4 working hours. If Design is unavailable, the TL may grant a time-boxed exemption with a recorded reason.
 - **Enforcement:** `design-review-guard` (t/4782) reports pass/fail on every PR; it becomes a required context after its warn-only period (T2, PI flips branch protection).
+- **Rule D (t/751, t/752):** a user-facing change needs the Design role's reviewer-App `Approved (Design):` or `Design-exempt (Design): <reason>` at the head, at every tier. A comment counts only if it was posted after the head's push. merge-approval, enqueue-pr and the sweeps all enforce it through one helper, `operations/devops/design-gate.mjs`. Design's approval is not the T1 review, and Quality's approval is not Design's. The exemption is never a line in the PR body.
+- **Design-gated paths outside the renderer (t/752#2):** `lib/debate/prompts/**`, `prompts.ts`, `argumentNetwork/prompts.ts`, `entrySummaries.ts`, `factCheckFinding.ts`, `factCheckValidator.ts`, `synthesisOrder.ts`, `synthesisPipeline.ts`, `synthesisPhases.ts`, `inquirySynthesis.ts`, `explorationSummary.ts`, `debateExport.ts`, `formatters.ts`, `types/synthesis.ts`, and the renderer's `useDebateStore`, `shared/factCheckFormat.ts` and `prompts.ts`. Exempt: tests, `*.generated.ts`, `exp-*` files and context builders (`context.ts`, `taxonomyContext.ts`, `vocabularyContext.ts`, `embedTexts.ts`). The code list is `design-review-scope.mjs`.
+
+## PR Body Tier Line (t/751)
+
+A PR body with no `Tier:` first line is treated as **T1** by the guard and merge-approval, and `enqueue-pr` refuses it outright. Only a Dependabot PR is exempt, and only when every commit is verified, authored by `dependabot[bot]` and committed by `web-flow`. A lockfile-healed Dependabot PR is not exempt and needs a T1 review.
 
 ## Meta-Doc Accuracy Skim — LessonsLearned / AGENTS.md PRs (t/3362, audit G4)
 

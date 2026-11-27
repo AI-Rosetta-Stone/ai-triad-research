@@ -264,6 +264,18 @@ export function harvestDebateTestedForSession(
 }
 
 /**
+ * The sweep's lag line. With 0 session files the audit read nothing, so "Lag: 0"
+ * would be a green reading on no input; say so instead (t/709).
+ */
+export function formatLagLine(
+  sessionFileCount: number,
+  lag: { total: number; harvested: number; lag: number },
+): string {
+  if (sessionFileCount === 0) return '  Lag: not evaluated (no input)';
+  return `  Cited nodes (BDI): ${lag.total}  |  Harvested: ${lag.harvested}  |  Lag: ${lag.lag}`;
+}
+
+/**
  * Audit nodes that appear in debate sessions but lack a debate_tested record.
  *
  * Use in backfill dry-run to surface the lag count. With harvest-on-save

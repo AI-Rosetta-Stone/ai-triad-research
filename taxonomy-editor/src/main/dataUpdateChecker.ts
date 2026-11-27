@@ -32,6 +32,16 @@ function runGit(args: string[], cwd: string): Promise<string> {
   });
 }
 
+/** Like runGit but also returns stderr (git reports some non-fatal failures there while exiting 0). */
+function runGitWithStderr(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile('git', args, { cwd, timeout: 15000, windowsHide: true }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+    });
+  });
+}
+
 async function isOnline(): Promise<boolean> {
   try {
     const resp = await net.fetch('https://github.com', { method: 'HEAD' });
@@ -160,15 +170,33 @@ export async function pullDataUpdates(): Promise<{ success: boolean; message: st
       }
     } catch { /* telemetry — silent by design;  doesn't exist — normal */ }
 
-    // Auto-commit any dirty working tree so pull doesn't fail on conflicts
+    // t/682 (t/651): never commit local changes. The old `git add -A` + electron-auto commit
+    // swept user content (debates, chats, op-eds, feedback, analytics) into the public data
+    // repo's history. Now tracked edits are stashed around the pull (--autostash) and put back,
+    // and untracked files are never staged at all; git leaves them in place. If an incoming
+    // file would overwrite an untracked one, the pull refuses and we report that, losing nothing.
     const status = await runGit(['status', '--porcelain'], dataRoot);
-    if (status) {
-      await runGit(['add', '-A'], dataRoot);
-      await runGit(['-c', 'user.name=electron-auto', '-c', 'user.email=auto@local',
-        'commit', '-m', 'auto-commit: stash local changes before pull'], dataRoot);
+    const lines = status ? status.split('\n').filter(Boolean) : [];
+    const untracked = lines.filter(l => l.startsWith('??')).length;
+    const trackedChanged = lines.length - untracked;
+    if (lines.length > 0) {
+      console.warn(`[DataUpdateChecker] WARN pull with a dirty data root: ${untracked} untracked file(s) left unstaged and uncommitted; ${trackedChanged} tracked change(s) stashed around the pull and restored (t/682)`);
     }
 
-    const output = await runGit(['pull', '--rebase', 'origin', 'main'], dataRoot);
+    const { stdout: output, stderr } = await runGitWithStderr(['pull', '--rebase', '--autostash', 'origin', 'main'], dataRoot);
+
+    // `git pull --rebase --autostash` exits 0 when the pull works but restoring the stash
+    // conflicts; the only signal is a stderr line and unmerged paths. Report failure so the
+    // renderer does not reload a data root with conflict markers (t/682, SO risk on #5581).
+    const unmerged = (await runGit(['diff', '--name-only', '--diff-filter=U'], dataRoot)).split('\n').filter(Boolean);
+    if (unmerged.length > 0 || /Applying autostash resulted in conflicts/i.test(stderr)) {
+      console.warn(`[DataUpdateChecker] WARN autostash restore conflicted after pull: ${unmerged.length} unmerged file(s); local edits kept in stash@{0} (t/682)`);
+      const files = unmerged.length > 0 ? ` Conflicted: ${unmerged.join(', ')}.` : '';
+      return {
+        success: false,
+        message: `Update downloaded, but your local edits conflict with it.${files} Your edits are saved in the git stash (stash@{0}, see \`git stash list\`). Resolve the conflicts before reloading.`,
+      };
+    }
     return { success: true, message: output || 'Up to date' };
   } catch (err) {
     getGlobalRecorder()?.record({

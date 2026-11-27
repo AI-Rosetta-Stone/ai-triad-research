@@ -18,7 +18,7 @@ import fs from 'fs';
 import path from 'path';
 import { harvestDebateTested, computeTierAndSortKey, setDescriptionHasher, categoryToBdiImpact } from './debateTested.js';
 import { computeDescriptionHash } from './debateTestedHash.js';
-import { auditDebateTestedLag, collectSessionTaxonomyRefs } from './harvestOnSave.js';
+import { auditDebateTestedLag, collectSessionTaxonomyRefs, formatLagLine } from './harvestOnSave.js';
 import type { HarvestResult } from './debateTested.js';
 import type {
   PovNode,
@@ -352,7 +352,7 @@ export function runBackfill(repoRoot: string, writeMode: boolean): BackfillStats
   // the harvest is silently failing — treat as an alertable condition.
   const lag = auditDebateTestedLag(nodeMap, debatesDir);
   console.log(`\nDebate-tested lag check (cited in debates, no record):`);
-  console.log(`  Cited nodes (BDI): ${lag.total}  |  Harvested: ${lag.harvested}  |  Lag: ${lag.lag}`);
+  console.log(formatLagLine(sessionFiles.length, lag));
   if (lag.lag > 0) {
     console.log(`  Lagging node IDs (first 10): ${lag.lagNodeIds.slice(0, 10).join(', ')}`);
   }

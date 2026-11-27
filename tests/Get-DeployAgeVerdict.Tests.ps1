@@ -144,4 +144,49 @@ Describe 'Test-DeployChangesContained against a real scratch repo (t/670)' {
         $r.Contained | Should -BeFalse
         $r.Error | Should -Match 'no merge-base'
     }
+    It 't/674 item 1: a RUNNING commit that is not in the clone -> "not fetchable", not "no merge-base"' {
+        $gone = 'e' * 40
+        $r = Test-DeployChangesContained -Running $gone -Requested $script:mainContained -RepoPath $script:repo
+        $r.Contained | Should -BeFalse
+        $r.Error | Should -Be "running commit $gone not fetchable (its branch may have been deleted while prod still runs it)"
+        $r.Error | Should -Not -Match 'no merge-base'
+        # The verdict reads 'unverifiable', and refuses.
+        $v = Get-DeployAgeVerdict -ProdRevisionName 'app--deploy-eeeeeee-1' -MergeBaseExitCode 1 -Containment $r
+        $v.Action | Should -Be 'refuse'
+        $v.Detail | Should -Match '^containment unverifiable: running commit e+ not fetchable'
+    }
+}
+
+Describe 'Get-DeployApplyFailure: reading a failed git apply (t/674 item 2)' {
+    It 'a fatal: line -> Error set, so the refusal reads unverifiable, not changes missing' {
+        $out = @(
+            'error: unable to read sha1 file of a.txt (1234abcd)',
+            "fatal: unable to fetch blob 1234abcd from promisor remote 'origin'"
+        )
+        $f = Get-DeployApplyFailure -Output $out
+        $f.Error | Should -Be "git apply could not run the check (fatal: unable to fetch blob 1234abcd from promisor remote 'origin')"
+        @($f.Files).Count | Should -Be 0
+        $c = [pscustomobject]@{ Contained = $false; MergeBase = 'm'; UniqueCommits = @(); Files = @('a.txt'); Error = $f.Error }
+        $v = Get-DeployAgeVerdict -ProdRevisionName 'app--deploy-abc1234-1' -MergeBaseExitCode 1 -Containment $c
+        $v.Action | Should -Be 'refuse'
+        $v.Detail | Should -Match '^containment unverifiable: git apply could not run the check'
+    }
+    It 'ordinary patch failures -> no Error, the files named once each' {
+        $out = @(
+            'error: patch failed: a.txt:1',
+            'error: a.txt: patch does not apply',
+            'error: while searching for: b.txt',
+            'error: b.txt: patch does not apply'
+        )
+        $f = Get-DeployApplyFailure -Output $out
+        $f.Error | Should -BeNullOrEmpty
+        @($f.Files) | Should -Be @('a.txt', 'b.txt')
+    }
+    It 'ErrorRecord objects from 2>&1 and an empty output are both read without throwing' {
+        $rec = [System.Management.Automation.ErrorRecord]::new([System.Exception]::new('fatal: bad object deadbeef'), 'NativeCommandError', 'NotSpecified', $null)
+        (Get-DeployApplyFailure -Output @($rec)).Error | Should -Match 'fatal: bad object deadbeef'
+        $empty = Get-DeployApplyFailure -Output $null
+        $empty.Error | Should -BeNullOrEmpty
+        @($empty.Files).Count | Should -Be 0
+    }
 }

@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, execFileSync, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -313,10 +313,9 @@ function buildPsCommand(stepId: string, config: Record<string, unknown>): string
       return `${moduleImport}; Repair-PovLineage -Verbose`;
     case 'steelman':
       return `${moduleImport}; Repair-PovAttributes -Priority critical -Verbose`;
-    case 'git-push': {
-      const dataRoot = getDataRoot().replace(/\\/g, '/');
-      return `Set-Location '${dataRoot}'; git push`;
-    }
+    case 'git-push':
+      // t/683: the push runs in-process (runGitPush), never as a shell string.
+      throw new Error('git-push runs in-process (t/683), not as a PowerShell step');
     default:
       throw new Error(`Unknown step: ${stepId}`);
   }
@@ -376,8 +375,101 @@ export function runGitCommit(
     for (const w of plan.warnings) onData(`WARNING: ${w}\n`);
     onData(`Committing ${plan.paths.length} file(s) changed during this run:\n${plan.paths.map(p => `  ${p}`).join('\n')}\n\n`);
     onData(executeCommit(dataRoot, plan.paths, message));
+    pipelineCommits.add(gitOut(dataRoot, ['rev-parse', 'HEAD']).trim());
     runBaseline = null;
     stepsSinceBaseline.length = 0;
+    return { exitCode: 0 };
+  } catch (err) {
+    onError(`${err instanceof Error ? err.message : String(err)}\n`);
+    return { exitCode: 1 };
+  }
+}
+
+// t/683: SHAs of commits this pipeline process made (runGitCommit). Main-process memory only,
+// so a commit from before a restart is not in it, and the push refuses it (fail closed).
+const pipelineCommits = new Set<string>();
+
+function gitOut(cwd: string, args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+export interface OutgoingCommit { sha: string; paths: string[] }
+
+/**
+ * PURE (t/683). May these outgoing commits be pushed? Every one must be a commit this pipeline
+ * made, and every path it touches must lie under a surface a step declares. Otherwise refuse,
+ * naming the commits and paths.
+ */
+export function planPush(outgoing: OutgoingCommit[], ownShas: ReadonlySet<string>, surfaces: readonly string[]): { ok: true } | { ok: false; reason: string } {
+  const foreign = outgoing.filter(c => !ownShas.has(c.sha));
+  if (foreign.length > 0) {
+    const lines = foreign.map(c => `  ${c.sha.slice(0, 12)}: ${c.paths.join(', ') || '(no paths)'}`);
+    return { ok: false, reason: `Refusing to push: ${foreign.length} local commit(s) were not made by this pipeline run:\n${lines.join('\n')}\nOnly the pipeline's own commits are pushed (t/683, t/651).` };
+  }
+  const outside: string[] = [];
+  for (const c of outgoing) {
+    for (const p of c.paths) {
+      const inside = surfaces.some(sf => {
+        const dir = sf.endsWith('/') ? sf : sf + '/';
+        return p === sf || p.startsWith(dir);
+      });
+      if (!inside) outside.push(`${c.sha.slice(0, 12)} ${p}`);
+    }
+  }
+  if (outside.length > 0) {
+    return { ok: false, reason: `Refusing to push: pipeline commits touch paths outside the declared surfaces:\n  ${outside.join('\n  ')}` };
+  }
+  return { ok: true };
+}
+
+/**
+ * The push step, in-process (t/683). Pushes only commits this pipeline made, after checking each
+ * commit's paths. A bare `git push` would publish every local commit on the branch, including an
+ * Electron auto-commit of user content. Fails closed: no upstream means refuse.
+ */
+export function runGitPush(
+  dataRoot: string,
+  onData: (text: string) => void,
+  onError: (text: string) => void,
+  /** Test seam: runs after the check, before the push. Not used by the app. */
+  afterCheck?: () => void,
+): { exitCode: number } {
+  try {
+    // The SHA the check covers. The push names it explicitly, so a commit made after
+    // this point (an electron-auto commit) is not published (Security, t/683).
+    let upstream: string;
+    try {
+      upstream = gitOut(dataRoot, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']).trim();
+    } catch {
+      onError('Refusing to push: the data branch has no upstream, so its outgoing commits cannot be checked (t/683).\n');
+      return { exitCode: 1 };
+    }
+    const slash = upstream.indexOf('/');
+    if (slash <= 0) {
+      onError(`Refusing to push: upstream "${upstream}" is not remote/branch (t/683).\n`);
+      return { exitCode: 1 };
+    }
+    const remote = upstream.slice(0, slash);
+    const branch = upstream.slice(slash + 1);
+    const checkedSha = gitOut(dataRoot, ['rev-parse', 'HEAD']).trim();
+    const shas = gitOut(dataRoot, ['rev-list', '--reverse', `${upstream}..${checkedSha}`]).split('\n').map(x => x.trim()).filter(Boolean);
+    if (shas.length === 0) {
+      onData('Nothing to push.\n');
+      return { exitCode: 0 };
+    }
+    const outgoing: OutgoingCommit[] = shas.map(sha => ({
+      sha,
+      paths: gitOut(dataRoot, ['show', '--name-only', '--format=', sha]).split('\n').map(x => x.trim()).filter(Boolean),
+    }));
+    const surfaces = Array.from(new Set(PIPELINE_STEPS.flatMap(s => s.writes)));
+    const plan = planPush(outgoing, pipelineCommits, surfaces);
+    if (!plan.ok) {
+      onError(`${plan.reason}\n`);
+      return { exitCode: 1 };
+    }
+    afterCheck?.();
+    onData(`Pushing ${outgoing.length} pipeline commit(s) up to ${checkedSha.slice(0, 12)}.\n`);
+    onData(gitOut(dataRoot, ['push', remote, `${checkedSha}:refs/heads/${branch}`]));
     return { exitCode: 0 };
   } catch (err) {
     onError(`${err instanceof Error ? err.message : String(err)}\n`);
@@ -392,6 +484,7 @@ export function resetPipelineState(): void {
   gitCommitDone = false;
   runBaseline = null;
   stepsSinceBaseline.length = 0;
+  pipelineCommits.clear();
 }
 
 /**
@@ -433,6 +526,9 @@ export function runStep(
     const result = runGitCommit(getDataRoot(), config, onData, onError);
     if (result.exitCode === 0) gitCommitDone = true;
     return Promise.resolve(result);
+  }
+  if (stepId === 'git-push') {
+    return Promise.resolve(runGitPush(getDataRoot(), onData, onError));
   }
 
   return new Promise((resolve, reject) => {

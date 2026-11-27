@@ -220,6 +220,7 @@ function t1Api(overrides = {}) {
   return {
     'pulls.get': [PR],
     'pulls.listCommits': [[{ commit: { committer: { date: '2026-11-02T00:00:00Z' } } }]],
+    'pulls.listFiles': [[{ filename: 'docs/notes.md', status: 'modified' }]], // t/776: the guard lists the PR's files
     'issues.listComments': [[]],
     'pulls.listReviews': [[]],
     'issues.createComment': [{}],

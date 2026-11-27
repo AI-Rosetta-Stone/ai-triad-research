@@ -82,15 +82,16 @@ describe('POST/DELETE /api/community/opeds/:id/share (t/3315)', () => {
     del = handlers['DELETE /api/community/opeds/:id/share'];
   });
 
-  it('mints: delegates to mintAndProjectCommunityOpEd with the item submitter, returns {shareId,url}, no identity leak', async () => {
-    getCommunityOpEd.mockResolvedValue({ found: true, item: GOOD_ITEM }); // submittedBy source
+  it('mints: delegates to mintAndProjectCommunityOpEd (owner read from the stored item, t/712), returns {shareId,url}, no identity leak', async () => {
+    getCommunityOpEd.mockClear();
     mintAndProjectCommunityOpEd.mockResolvedValue({ outcome: 'minted', shareId: 'share-xyz' });
     const res = fakeRes();
     await post(req('/api/community/opeds/oped-1/share'), res, {});
     expect(res._status).toBe(200);
     expect(res._body).toEqual({ shareId: 'share-xyz', url: '/share/oped/share-xyz' });
-    // t/3484: single mint+project path (t/3483#2 no-dual-mint); submitter sourced from community_metadata.
-    expect(mintAndProjectCommunityOpEd).toHaveBeenCalledWith('oped-1', 'author-9');
+    // t/712: single mint+project path (t/3483#2); the route no longer pre-reads the item for a submitter (one Blob read less).
+    expect(mintAndProjectCommunityOpEd).toHaveBeenCalledWith('oped-1', '');
+    expect(getCommunityOpEd).not.toHaveBeenCalled();
     expect(JSON.stringify(res._body)).not.toContain('author-9'); // no identity leaked
     expect(logServerWarn).not.toHaveBeenCalled();
   });

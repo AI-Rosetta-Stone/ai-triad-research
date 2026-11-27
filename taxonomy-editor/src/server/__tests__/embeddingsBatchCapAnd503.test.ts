@@ -184,6 +184,47 @@ describe('POST /api/embeddings/compute — batch cap + typed-timeout 503 (t/3074
     expect(res._body).toMatchObject({ error: expect.stringContaining(`${MAX_EMBED_BATCH + 1}`) });
   });
 
+  // t/748: a non-string element is a 400 naming the first bad index, never a worker 500.
+  it.each([
+    ['a nested array in texts', { texts: ['ok', ['a', 'b']] }, 'texts[1] must be a string'],
+    ['a number in texts', { texts: [123] }, 'texts[0] must be a string'],
+    ['null in texts', { texts: ['a', 'b', null] }, 'texts[2] must be a string'],
+    ['an array element in ids', { texts: ['a', 'b'], ids: ['x', ['y']] }, 'ids[1] must be a string'],
+    ['ids that is not an array', { texts: ['a'], ids: 'x' }, 'ids must be an array of strings'],
+  ])('400 INVALID_EMBEDDING_INPUT for %s, before any compute', async (_n, body, message) => {
+    const res = fakeRes();
+    await computeHandler({} as IncomingMessage, res, body);
+    expect(res._statusCode).toBe(400);
+    expect(res._body).toMatchObject({ error: message, code: 'INVALID_EMBEDDING_INPUT' });
+    expect(computeEmbeddings).not.toHaveBeenCalled();
+  });
+
+  it('strings with ids pass validation; ids may be absent', async () => {
+    const res = fakeRes();
+    await computeHandler({} as IncomingMessage, res, { texts: ['a'], ids: ['n1'] });
+    expect(res._statusCode).not.toBe(400);
+    const res2 = fakeRes();
+    await computeHandler({} as IncomingMessage, res2, { texts: ['a'] });
+    expect(res2._statusCode).not.toBe(400);
+  });
+
+  it('a lib error carrying code INVALID_EMBEDDING_INPUT (chain exhausted) is 400, not 500', async () => {
+    computeEmbeddings.mockRejectedValueOnce(Object.assign(new Error('All embedding fallbacks failed: text 0 is not a string'), { code: 'INVALID_EMBEDDING_INPUT' }));
+    const res = fakeRes();
+    await computeHandler({} as IncomingMessage, res, { texts: ['a'] });
+    expect(res._statusCode).toBe(400);
+    expect(res._body).toMatchObject({ code: 'INVALID_EMBEDDING_INPUT' });
+  });
+
+  it('/api/embeddings/query with a non-string text is 400', async () => {
+    const { router, handlers } = makeRouter();
+    registerAiRoutes(router as never, makeCtx());
+    const res = fakeRes();
+    await handlers['POST /api/embeddings/query']({} as IncomingMessage, res, { text: ['a'] });
+    expect(res._statusCode).toBe(400);
+    expect(res._body).toMatchObject({ code: 'INVALID_EMBEDDING_INPUT' });
+  });
+
   it('arm 2 — 200 when texts.length === MAX_EMBED_BATCH (boundary pass)', async () => {
     const texts = Array.from({ length: MAX_EMBED_BATCH }, (_, i) => `text-${i}`);
     const vectors = texts.map(() => [0.1]);

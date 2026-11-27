@@ -187,7 +187,7 @@ test('Changes requested (Design) blocks even with Approved (Quality); Design re-
 // ── the whole required check ──
 
 test('merge-approval as a whole: #5553-shaped input is FAIL on rule B; the same PR with Quality is PASS', () => {
-  const base = { number: 5553, headSha: HEAD, body: T1, headRefName: 'train/renderer-20261128', files: [{ filename: 'docs/readme.md' }], filesTruncated: false, comments: [], lastPushAt: null, labels: [] };
+  const base = { number: 5553, headSha: HEAD, body: T1, headRefName: 'train/renderer-20261128', scriptsGatePaths: [], files: [{ filename: 'docs/readme.md' }], filesTruncated: false, comments: [], lastPushAt: null, labels: [] };
   const tierConfig = { r1Paths: [], r1Globs: [], schemaDirPrefixes: [] };
   const bad = evaluatePullRequest({ ...base, reviews: [review('Approved (Design): ok')] }, { tierConfig });
   assert.equal(bad.ok, false);

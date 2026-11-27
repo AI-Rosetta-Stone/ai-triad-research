@@ -129,3 +129,82 @@ Describe 'Get-RequiredContextsDriftVerdict (t/3646)' -Tag 'devops' {
         }
     }
 }
+
+Describe 'Get-RequiredContextsAppPinVerdict (t/728)' -Tag 'devops' {
+
+    BeforeAll {
+        . "$PSScriptRoot/../operations/devops/RequiredContextsDriftVerdict.ps1"
+        function script:Pin($context, $id, $prop = 'app_id') { [PSCustomObject]@{ context = $context; $prop = $id } }
+        $script:Ssot = @((Pin 'ci-gate' 15368), (Pin 'merge-approval' 5912670))
+        $script:Classic = @((Pin 'ci-gate' 15368), (Pin 'merge-approval' 5912670))
+        $script:Rules = @((Pin 'ci-gate' 15368 'integration_id'), (Pin 'merge-approval' 5912670 'integration_id'))
+    }
+
+    It 'IN SYNC: every pin matches in the mirror, classic protection and the ruleset' {
+        $v = Get-RequiredContextsAppPinVerdict -Ssot $script:Ssot -Classic $script:Classic -Ruleset $script:Rules -RulesetChecked $true
+        $v.InSync | Should -BeTrue
+        @($v.Problems).Count | Should -Be 0
+    }
+
+    It 'the pin is removed LIVE (classic app_id -1): drift, even though the names still match' {
+        $live = @((Pin 'ci-gate' 15368), (Pin 'merge-approval' -1))
+        $v = Get-RequiredContextsAppPinVerdict -Ssot $script:Ssot -Classic $live
+        $v.InSync | Should -BeFalse
+        ($v.Problems -join ' ') | Should -Match "leaves 'merge-approval' unpinned"
+    }
+
+    It 'the pin is null LIVE: drift' {
+        $live = @((Pin 'ci-gate' $null), (Pin 'merge-approval' 5912670))
+        (Get-RequiredContextsAppPinVerdict -Ssot $script:Ssot -Classic $live).InSync | Should -BeFalse
+    }
+
+    It 'the pin CHANGED live (a different App): drift naming both ids' {
+        $live = @((Pin 'ci-gate' 15368), (Pin 'merge-approval' 15368))
+        $v = Get-RequiredContextsAppPinVerdict -Ssot $script:Ssot -Classic $live
+        $v.InSync | Should -BeFalse
+        ($v.Problems -join ' ') | Should -Match "pins 'merge-approval' to 15368, the SSOT expects 5912670"
+    }
+
+    It 'the pin is MISSING in the mirror: drift, and an unpinned live context is drift even when the mirror also says null' {
+        $noPin = @([PSCustomObject]@{ context = 'ci-gate' }, (Pin 'merge-approval' 5912670))
+        $v = Get-RequiredContextsAppPinVerdict -Ssot $noPin -Classic $script:Classic
+        $v.InSync | Should -BeFalse
+        ($v.Problems -join ' ') | Should -Match "SSOT has no valid app_id for 'ci-gate'"
+        $bothNull = Get-RequiredContextsAppPinVerdict -Ssot @((Pin 'ci-gate' $null)) -Classic @((Pin 'ci-gate' $null))
+        $bothNull.InSync | Should -BeFalse
+        ($bothNull.Problems -join ' ') | Should -Match 'leaves .ci-gate. unpinned'
+    }
+
+    It 'the legacy contexts[] shape (no pin data) reads as unpinned, never in sync' {
+        $v = Get-RequiredContextsAppPinVerdict -Ssot $script:Ssot -Classic @([PSCustomObject]@{ context = 'ci-gate'; app_id = $null }, [PSCustomObject]@{ context = 'merge-approval'; app_id = $null })
+        $v.InSync | Should -BeFalse
+    }
+
+    It 'classic and the ruleset DISAGREE (the mirror matches classic): drift' {
+        $rs = @((Pin 'ci-gate' 15368 'integration_id'), (Pin 'merge-approval' 15368 'integration_id'))
+        $v = Get-RequiredContextsAppPinVerdict -Ssot $script:Ssot -Classic $script:Classic -Ruleset $rs -RulesetChecked $true
+        $v.InSync | Should -BeFalse
+        ($v.Problems -join ' ') | Should -Match "ruleset pins 'merge-approval' to 15368"
+    }
+
+    It 'the ruleset leaves a context unpinned (integration_id null) or does not require it: drift' {
+        $unpinned = @((Pin 'ci-gate' 15368 'integration_id'), (Pin 'merge-approval' $null 'integration_id'))
+        (Get-RequiredContextsAppPinVerdict -Ssot $script:Ssot -Classic $script:Classic -Ruleset $unpinned -RulesetChecked $true).InSync | Should -BeFalse
+        $missing = @((Pin 'ci-gate' 15368 'integration_id'))
+        $v = Get-RequiredContextsAppPinVerdict -Ssot $script:Ssot -Classic $script:Classic -Ruleset $missing -RulesetChecked $true
+        $v.InSync | Should -BeFalse
+        ($v.Problems -join ' ') | Should -Match "ruleset does not require 'merge-approval'"
+    }
+
+    It 'the ruleset arm is skipped when the ruleset was not read' {
+        (Get-RequiredContextsAppPinVerdict -Ssot $script:Ssot -Classic $script:Classic -Ruleset @() -RulesetChecked $false).InSync | Should -BeTrue
+    }
+
+    It 'the committed SSOT carries a valid app_id for every required context' {
+        $json = Get-Content -Raw (Join-Path $PSScriptRoot '..' '.github' 'ci' 'required-contexts.json') | ConvertFrom-Json
+        foreach ($e in $json.required_contexts) {
+            $e.PSObject.Properties['app_id'] | Should -Not -BeNullOrEmpty -Because "$($e.context) must name its App pin"
+            [long]$e.app_id | Should -BeGreaterThan 0
+        }
+    }
+}
