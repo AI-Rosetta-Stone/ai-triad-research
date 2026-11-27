@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect } from 'vitest';
-import { buildSynthesisView, termOf, matchPointIndex } from './synthesisView.js';
+import { buildSynthesisView, matchPointIndex } from './synthesisView.js';
 
 const CAMPS = ['accelerationist', 'safetyist', 'skeptic'];
 
@@ -179,11 +179,11 @@ describe('buildSynthesisView', () => {
       },
     });
     expect(v.nextMoves.map(m => [m.kind, m.title, m.chip])).toEqual([
-      ['definitional', 'Define what counts as frontier', 'Settles D2'],
-      ['empirical', 'Find a way to measure does compliance cost crush open source developers', 'Bears on D1, D3'],
+      ['definitional', 'Define the key terms', 'Settles D2'],
+      ['empirical', 'Find a way to measure it', 'Bears on D1, D3'],
     ]);
     expect(v.nextMoves[0].body).toBe('resolvable by clarification');
-    expect(v.nextMoves[0].context).toBeNull();
+    expect(v.nextMoves[0].context).toBe('What counts as frontier');
     expect(v.nextMoves[1].context).toBe('Does compliance cost crush open source developers in practice today');
     expect(v.bottomLine.settle.map(r => [r.type, r.action, r.ids])).toEqual([
       ['Definitional', 'Clearer terms', ['D2']], ['Empirical', 'New evidence', ['D1', 'D3']],
@@ -221,31 +221,6 @@ describe('buildSynthesisView', () => {
 });
 
 describe('helpers', () => {
-  it('termOf drops a trailing -ly word, but only when the title was already cut (t/822)', () => {
-    expect(termOf('Whether a six-month pause and mandatory compliance thresholds effectively shift research incentives'))
-      .toEqual({ term: 'a six-month pause and mandatory compliance thresholds', lost: true });
-    // not cut: nothing is trimmed, even a word that looks like an adverb
-    expect(termOf('Whether supply')).toEqual({ term: 'supply', lost: false });
-    expect(termOf('Whether it works effectively')).toEqual({ term: 'it works effectively', lost: false });
-    // cut, ending in a -ly noun: kept
-    expect(termOf('Whether labs and firms and the whole larger family dispute pricing'))
-      .toEqual({ term: 'labs and firms and the whole larger family', lost: true });
-    // policy nouns ending in -ly: kept
-    expect(termOf('Whether labs and firms and the whole larger oligopoly dispute pricing').term).toBe('labs and firms and the whole larger oligopoly');
-    expect(termOf('Whether labs and firms and the whole larger duopoly dispute pricing').term).toBe('labs and firms and the whole larger duopoly');
-    // cut, ending in a -ly word shorter than 6 letters: kept
-    expect(termOf('Whether labs and firms and the whole larger only dispute pricing'))
-      .toEqual({ term: 'labs and firms and the whole larger only', lost: true });
-  });
-
-  it('termOf drops a leading Whether, lower-cases, cuts at a clause boundary and never adds an ellipsis', () => {
-    expect(termOf('Whether protocol-level verification standards and insurance solvency floors can be enforced without entrenching industry monopolies.'))
-      .toEqual({ term: 'protocol-level verification standards and insurance solvency floors', lost: true });
-    expect(termOf('Whether a pause works, and who pays for it afterwards')).toEqual({ term: 'a pause works', lost: true });
-    expect(termOf('Short one?')).toEqual({ term: 'short one', lost: false });
-    expect(termOf('What counts as frontier')).toEqual({ term: 'what counts as frontier', lost: false });
-    expect(termOf('Whether AI labs disclose compute use')).toEqual({ term: 'AI labs disclose compute use', lost: false });
-  });
   it('matchPointIndex tolerates punctuation and case, never guesses between candidates', () => {
     expect(matchPointIndex('Is X fair?', ['is x fair', 'something else entirely'])).toBe(0);
     expect(matchPointIndex('apples and oranges', ['quantum chromodynamics'])).toBe(-1);

@@ -50,7 +50,8 @@ export interface NextMoveView {
   title: string;
   chip: string;
   body: string | null;
-  /** The full dispute text, when the title had to drop some of it. */
+  /** The (first) dispute's full question of this type, always set when the move exists: the title is a fixed phrase
+   *  with no dispute text, so the card shows the question here (t/835). */
   context: string | null;
 }
 
@@ -195,38 +196,6 @@ export function matchPointIndex(conflict: string, points: readonly string[]): nu
     if (score > bestScore) { best = i; bestScore = score; tie = false; } else if (score === bestScore && score > 0) tie = true;
   });
   return bestScore >= 0.5 && !tie ? best : -1;
-}
-
-const TRAILING_FILLER = new Set(['and', 'or', 'the', 'a', 'an', 'of', 'to', 'in', 'on', 'for', 'with', 'without', 'that', 'can', 'be', 'is', 'are', 'will', 'whether', 'if', 'by', 'as']);
-
-/** Words ending in -ly that are nouns (or names), so a cut title ending in one keeps it (t/822). */
-const LY_NOUNS = new Set(['family', 'supply', 'assembly', 'monopoly', 'oligopoly', 'duopoly', 'anomaly', 'ally', 'apply', 'reply', 'rally', 'tally', 'bully', 'belly', 'jelly', 'italy']);
-
-/** A trailing adverb ("effectively"): 6+ letters ending in -ly and not a known noun. Only used on a title that was already cut. */
-const isTrailingAdverb = (w: string): boolean => /ly$/i.test(w) && w.length >= 6 && !LY_NOUNS.has(w.toLowerCase());
-
-/**
- * The noun-phrase a next-move title is built around (spec §7, Design p/14#150): a leading
- * "Whether"/"If" dropped, first letter lower-cased (not an acronym), cut at a clause boundary
- * (comma, semicolon, colon) inside the first `n` words, else at `n` words with dangling filler
- * words removed. Never an ellipsis: `lost` says whether text was dropped so the caller can show
- * the full sentence in the card body instead.
- */
-export function termOf(text: string, n = 8): { term: string; lost: boolean } {
-  const flat = text.trim().replace(/\s+/g, ' ').replace(/[?!.]+$/u, '');
-  const stripped = flat.replace(/^(whether|if)\s+/i, '');
-  const lowered = /^[A-Z][a-z]/.test(stripped) ? stripped[0].toLowerCase() + stripped.slice(1) : stripped;
-  const words = lowered.split(' ');
-  let cut = words.slice(0, n).join(' ');
-  const clause = cut.search(/[,;:]/);
-  if (words.length > n || clause >= 0) {
-    if (clause > 0) cut = cut.slice(0, clause);
-    const kept = cut.split(' ');
-    while (kept.length > 1 && (TRAILING_FILLER.has(kept[kept.length - 1].toLowerCase()) || isTrailingAdverb(kept[kept.length - 1]))) kept.pop();
-    cut = kept.join(' ');
-  }
-  const term = cut.replace(/[\s,;:.?!–—-]+$/u, '');
-  return { term, lost: term.length < lowered.length };
 }
 
 function splitSentences(text: string): string[] {
@@ -412,19 +381,25 @@ function buildBottomLine(tr: Rec, disputes: DisputeCardView[]): SynthesisView['b
   };
 }
 
+/** Next-move title and chip per move type (spec §7, t/835): fixed phrases, no text from any dispute. */
+const NEXT_MOVE_TITLE_AND_CHIP: Record<DisputeTypeKey, (ids: string) => [string, string]> = {
+  definitional: ids => ['Define the key terms', `Settles ${ids}`],
+  empirical: ids => ['Find a way to measure it', `Bears on ${ids}`],
+  values: ids => ['Name the trade-off', `Answers ${ids}`],
+};
+
 /** Next moves: rule table only (spec §7), cheapest first. */
 function buildNextMoves(disputes: DisputeCardView[]): NextMoveView[] {
   const moves: NextMoveView[] = [];
   for (const kind of TYPE_ORDER) {
     const ds = disputes.filter(d => d.type?.key === kind);
     if (ds.length === 0) continue;
-    const { term, lost } = termOf(ds[0].point);
     const ids = ds.map(d => d.n).join(', ');
     const body = ds.map(d => d.whatWouldChange ?? d.resolvability?.replace(/_/g, ' ') ?? null).find(Boolean) ?? null;
-    const [title, chip] = kind === 'definitional' ? [`Define ${term}`, `Settles ${ids}`]
-      : kind === 'empirical' ? [`Find a way to measure ${term}`, `Bears on ${ids}`]
-        : [`Name the trade-off on ${term}`, `Answers ${ids}`];
-    moves.push({ kind, title, chip, body, context: lost ? ds[0].point : null });
+    const [title, chip] = NEXT_MOVE_TITLE_AND_CHIP[kind](ids);
+    // The title is fixed per move type: text cut out of a dispute's free text can't be made reliably readable (t/835).
+    // The card shows the (first) dispute's question as context, and the chip names every dispute of the type.
+    moves.push({ kind, title, chip, body, context: ds[0].point });
   }
   return moves;
 }
