@@ -47,9 +47,9 @@ BeforeAll {
 
 Describe 'anonymous op-ed lifecycle rules (t/671, t/500)' {
 
-    It 'staging is armed and prod is not (arming prod is its own reviewed change)' {
+    It 'staging and prod are both armed (prod armed by t/838, TL p/45#407; the version-delete part is what bounds how long a deleted anonymous op-ed survives as a previous version)' {
         Get-ParamDefault 'anonOpEdLifecycleStagingEnabled' | Should -Be 'true'
-        Get-ParamDefault 'anonOpEdLifecycleProdEnabled' | Should -Be 'false'
+        Get-ParamDefault 'anonOpEdLifecycleProdEnabled' | Should -Be 'true'
     }
 
     It 'the prefix param allows only anon-oped/ and defaults to it' {
