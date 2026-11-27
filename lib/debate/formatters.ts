@@ -163,7 +163,7 @@ export function formatDebateMarkdown(session: DebateSession): string {
     const synthData = orderSynthesisLists(rawSynth);
     if (synthData && hasStructuredSynthesis(synthData)) {
       // t/810: the brief follows the synthesis panel's sections and order (spec docs/ux/debate-synthesis-v2.md §3).
-      lines.push(...synthesisBrief(synthData, { debaters: session.active_povers, topic: session.topic?.final }, { level: 3 }));
+      lines.push(...synthesisBrief(synthData, { debaters: session.active_povers, topic: session.topic?.final, argumentNetwork: session.argument_network }, { level: 3 }));
       lines.push('');
     } else {
       // Fallback to raw content
