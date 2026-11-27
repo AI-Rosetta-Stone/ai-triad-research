@@ -131,3 +131,62 @@ The synthesis panel sits at the **top of the debate page**, directly under the d
 - **Find, Why and How.** In-debate find searches the synthesis text too, with matches in the panel highlighted like in the transcript. The Why and How toolbar modes don't apply to the panel.
 - **The transcript's collapse rule (t/783)** counts debater statements only, so the synthesis row doesn't use an 'open' slot; it's always the one-line row.
 - **Acceptance (adds to §11):** the panel is the first thing under the toolbar once a synthesis exists; nothing is rendered there before; the transcript's last row is the one-line pointer with a working **Back to top**; collapse persists per debate and is keyboard operable; **Skip to transcript** works; find reaches panel text; no duplicated synthesis content in the page.
+
+## 13. Round 2 (human feedback on the live panel, 2026-11-27)
+
+Five changes, each a child of t/807.
+
+### 13.1 Strip boxes explain themselves
+
+The outcome strip's **D1…Dn** labels mean nothing until the reader scrolls to the Disputes section.
+- Each segment is a link (`<a href="#dispute-D1">`) that scrolls to its dispute card and moves focus to the card's heading. It keeps its filled or dashed look; the link is not underlined, and it gets the standard focus ring.
+- Hover and focus show a tooltip with the dispute's question (the full `point`, wrapped, not truncated). Keyboard focus shows it too; the tooltip is also the link's `aria-describedby` text. The strip's `aria-label` already spells out each outcome and stays.
+- The `(D2)` references in **What it takes to settle them** and the `D#` chips on Next moves cards become the same links.
+- Touch: a tap follows the link; the tooltip isn't needed there because the card is one tap away.
+
+### 13.2 A button to start a new debate on a question
+
+- Each **open question** and each **crux** gets a **Debate this question** button (`btn-ghost btn-xs`, right-aligned under a question on narrow widths). It replaces the hidden **Debate this** from §6.
+- It opens the existing New Debate dialog with the question text prefilled as the topic. The reader still chooses the settings; nothing starts on its own.
+- It must not leave the current debate's state behind: opening the dialog is the only action. If a debate is already running, the dialog is the same one the toolbar's **New debate** opens, with its usual guards.
+- If the app has no way to open the dialog with a prefilled topic from the panel, the DebateWorkspace owner asks the dialog's owner for one prop (`initialTopic`) and hides the button until it exists. Never start a debate directly from the button.
+- Anonymous visitors see the dialog's own anonymous limits (t/725); the button needs no extra copy.
+
+### 13.3 Strongest arguments panel
+
+A new section, **Strongest arguments**, shows each camp's best-engaged arguments.
+
+**Data.** `debate.argument_network` (`nodes[]`: `id`, `text`, `speaker`, `source_entry_id`, `computed_strength`; `edges[]`: `source`, `target`, `type: supports | attacks`). Exclude `speaker: system`. Don't use the `argument_map` in the synthesis (it holds the model's own claim list, not the network).
+
+**Rule (the same for every camp).**
+1. **Engaged:** a node counts only with at least one edge, as source or target. A node with 0 edges is never shown.
+2. Rank a camp's engaged nodes by `computed_strength` descending; ties by total edge count, then by earlier `turn_number`.
+3. Show the **top 3 per camp**. Camps are listed in the fixed order Accelerationist, Safetyist, Skeptic. A camp with no engaged node shows **No argument from <Camp> was supported or challenged by another.**, never a blank.
+4. No sort key depends on which camp it is. Add a label-swap test.
+
+**Where.** After **Disputes** and before **Cruxes** (it supplies the evidence for the disputes before the open ends). Nav link **Strongest arguments** with a count of the camps that have any (e.g. 3). Hidden entirely, with its link, if the debate has no `argument_network`, or no camp has an engaged node.
+
+**Layout.**
+- A heading, **Strongest arguments**, and the intro **The best-engaged arguments from each camp. Strength is the model's estimate.**
+- One card per camp, stacked in a single column; a 3-up grid at ≥1024 px container width. The card header is the camp chip (no-fill style, name in text).
+- Each argument is a row: the claim `text` as written, then a muted line **Supported by N · Challenged by M** (omit a zero part; if both zero it isn't shown), then a **Show in transcript** link that scrolls to and highlights `source_entry_id`'s statement.
+- Don't show the numeric strength. Rank order is the signal; the intro says it is an estimate.
+- Plain text; long claims wrap, no ellipsis.
+- **Accessibility:** each camp card is a labelled `<section>`; the list is a `<ol>` (rank order carries meaning); the link text includes the claim's first words in its `aria-label`.
+- Included in in-debate find, and in the Markdown export after the Disputes section, in the same order (Debate Engine follows in t/810's builder).
+
+### 13.4 Outline: Synthesis at the top
+
+The debate page's left Outline lists **Synthesis** near the bottom, after the rounds. The panel is now the first thing under the toolbar, so the Outline's **Synthesis** entry moves to the **first position**, above Opening statements. It scrolls to the panel's top (as built in t/809). When there is no synthesis, there is no entry.
+
+### 13.5 On by default
+
+The panel is on for everyone once 13.1 to 13.4 are in, and the `synthesisV2` flag and the old rendering are removed in the same PR (§9). Conditions already met: the verdict join fix (t/816) and the export (t/810). The next prod deploy must include t/816; the human has asked for the panel to be on without any switch.
+
+### 13.6 Acceptance for round 2
+
+1. Each strip segment and each D# reference jumps to its dispute card and shows the dispute's question in a tooltip on hover and keyboard focus.
+2. Every open question and crux has **Debate this question**, which opens the New Debate dialog with that question as the topic, and starts nothing by itself.
+3. Strongest arguments follows the §13.3 rule: no node with 0 edges, the top 3 per camp, a camp with none says so, no sort depends on the camp (label-swap test), nothing shown when there is no `argument_network`.
+4. Outline: Synthesis is first, and absent when there is no synthesis.
+5. Default on; no flag; Design measures contrast live in all four themes and reviews the running-app shots (harvard and dark, 1280 and 360).
