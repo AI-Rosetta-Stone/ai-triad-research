@@ -15,10 +15,10 @@ BeforeAll {
 }
 
 Describe 'free-pool daily caps as optional env vars (t/813)' {
-    It 'declares the three params, all defaulting to empty' {
-        foreach ($p in 'freePoolDailyTokensCap', 'freePoolDailyCallsCap', 'freePoolDailyTokensCapStaging') {
-            $script:Bicep | Should -Match "(?m)^param $p string = ''\s*$"
-        }
+    It 'declares the three params: prod carries the PI values (t/811: 21500000 tokens, 3600 calls), staging token cap stays empty' {
+        $script:Bicep | Should -Match "(?m)^param freePoolDailyTokensCap string = '21500000'\s*$"
+        $script:Bicep | Should -Match "(?m)^param freePoolDailyCallsCap string = '3600'\s*$"
+        $script:Bicep | Should -Match "(?m)^param freePoolDailyTokensCapStaging string = ''\s*$"
     }
 
     It 'prod adds each variable only when its param is non-empty, from its own param' {

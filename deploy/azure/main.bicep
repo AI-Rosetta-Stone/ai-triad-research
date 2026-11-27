@@ -114,10 +114,10 @@ param freePoolDailyCallsCapStaging string = '300'
 // (FREE_POOL_DAILY_TOKENS_CAP, FREE_POOL_DAILY_CALLS_CAP). EMPTY = the env var is not set at all: for tokens that means no token cap, for
 // prod calls the code default 1500, so merging this changes nothing until a value is passed. A value goes here, in Bicep, never by CLI (t/4728).
 // Prod's planned values (PI: $10 a day at the measured $0.47 per million tokens): tokens 21500000 together with calls 3600.
-@description('FREE_POOL_DAILY_TOKENS_CAP for prod (t/813). Empty leaves the variable unset, which means no token cap.')
-param freePoolDailyTokensCap string = ''
-@description('FREE_POOL_DAILY_CALLS_CAP for prod (t/813). Empty leaves the variable unset, which means the code default (1500).')
-param freePoolDailyCallsCap string = ''
+@description('FREE_POOL_DAILY_TOKENS_CAP for prod (t/811, PI: $10 a day for the pool). 21500000 tokens. Empty would leave the variable unset, which means no token cap.')
+param freePoolDailyTokensCap string = '21500000'
+@description('FREE_POOL_DAILY_CALLS_CAP for prod (t/811). 3600 calls, set together with the token cap. Empty would leave the variable unset, which means the code default (1500).')
+param freePoolDailyCallsCap string = '3600'
 @description('FREE_POOL_DAILY_TOKENS_CAP for staging (t/813). Empty leaves the variable unset (no token cap). The staging key bounds this; proportionate to its calls cap of 300.')
 param freePoolDailyTokensCapStaging string = ''
 
