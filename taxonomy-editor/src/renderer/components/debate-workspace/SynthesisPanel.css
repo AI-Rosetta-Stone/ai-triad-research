@@ -130,3 +130,14 @@
 .syn-footer { padding-top: var(--sp-3); border-top: 1px solid var(--border-color); color: var(--text-secondary); font-size: var(--text-sm); }
 
 @media (prefers-reduced-motion: reduce) { .syn-panel * { scroll-behavior: auto; transition: none; } }
+
+/* §12: top-of-page placement. The panel scrolls with the page (no inner scroll box, not sticky). */
+.syn-top { margin: var(--sp-4) 0; outline: none; }
+.syn-header-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
+.syn-collapse { min-height: 40px; }
+.syn-body { display: flex; flex-direction: column; gap: var(--sp-6); }
+.syn-pointer {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--radius-md);
+  background: var(--bg-secondary); color: var(--text-secondary); font-size: var(--text-sm);
+}

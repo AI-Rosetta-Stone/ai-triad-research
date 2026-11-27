@@ -1,39 +1,32 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/809 (spec docs/ux/debate-synthesis-v2.md, t/807): the synthesis "sponsor briefing" panel.
-// Presentational only: every join, label and rule is in synthesisView.ts. Behind the short-lived
-// `synthesisV2` switch (default OFF; `localStorage.synthesisV2 = '1'`), removed one train after
-// the human signs off. Share, Export brief, Run another round and Debate this are not rendered:
-// nothing in the card can call them (listed in the PR).
+// t/809 (spec docs/ux/debate-synthesis-v2.md §3-§8, §12): the synthesis "sponsor briefing" panel.
+// Presentational only: every join, label and rule is in synthesisView.ts, placement and state in
+// SynthesisTop.tsx. Share, Export brief, Run another round and Debate this are not rendered:
+// nothing in the page can call them (listed in the PR). The panel has no inner scroll box.
 
-import { useCallback, useId, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useId, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
-import { getGlobalRecorder } from '@lib/flight-recorder/index';
-import {
-  buildSynthesisView, type BuildSynthesisInput, type CampRef, type DisputeCardView,
-  type StripLegendItem, type StripSegment, type SynthesisView,
-} from './synthesisView';
-import { useDebateStore } from '../../hooks/useDebateStore';
-import type { TranscriptEntry } from '../../types/debate';
-import { ConcludingSections } from './SynthesisSections';
+import type { CampRef, DisputeCardView, StripLegendItem, StripSegment, SynthesisView } from './synthesisView';
+import { readCheckedQuestions, writeCheckedQuestions } from './synthesisStorage';
+import { HighlightedText } from './StatementCard';
 import './SynthesisPanel.css';
 
-const SWITCH_KEY = 'synthesisV2';
+/** In-debate find state for the panel (spec §12): offsets are per keyed text, see synthesisFind.ts. */
+export interface PanelFind { query: string; current: number; offsets: Map<string, number> }
+const FindContext = createContext<PanelFind | null>(null);
 
-/** The short-lived switch: `localStorage.synthesisV2 = '1'` turns the v2 panel on. */
-export function isSynthesisV2On(): boolean {
-  try {
-    return typeof localStorage !== 'undefined' && localStorage.getItem(SWITCH_KEY) === '1';
-  } catch (err) {
-    // A blocked storage means the switch is off; the reader just sees the existing panel.
-    getGlobalRecorder()?.record({
-      type: 'system.error', component: 'SynthesisPanel', level: 'error',
-      message: 'synthesisV2 switch unreadable; panel stays off',
-      error: { name: (err as Error).name, message: (err as Error).message, stack: (err as Error).stack },
-    });
-    return false;
-  }
+/** One highlightable string; `k` is its key in synthesisFindTexts. */
+function Hl({ k, text }: { k: string; text: string }) {
+  const f = useContext(FindContext);
+  if (!f || !f.query) return <>{text}</>;
+  return <HighlightedText text={text} query={f.query} matchOffset={f.offsets.get(k) ?? 0} currentIndex={f.current} />;
+}
+
+/** While a find is active every expander is open, so each counted match has an element. */
+function useFindOpen(): boolean {
+  return !!useContext(FindContext)?.query;
 }
 
 function prefersReducedMotion(): boolean {
@@ -52,7 +45,7 @@ function CampChip({ camp }: { camp: CampRef }) {
   );
 }
 
-/** First 3 items, then a button. `noun` completes "Show N more …". */
+/** First 3 items, then a button. */
 function Capped<T>({ items, render, listClass, showAll, showMore, tag = 'ul' }: {
   items: T[];
   render: (item: T, i: number) => React.ReactNode;
@@ -63,7 +56,9 @@ function Capped<T>({ items, render, listClass, showAll, showMore, tag = 'ul' }: 
   showMore?: (hidden: number) => string;
   tag?: 'ul' | 'div';
 }) {
-  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(false);
+  const findOpen = useFindOpen();
+  const open = picked || findOpen;
   const listId = useId();
   const hidden = items.length - 3;
   const shown = open || hidden <= 0 ? items : items.slice(0, 3);
@@ -72,7 +67,7 @@ function Capped<T>({ items, render, listClass, showAll, showMore, tag = 'ul' }: 
     <>
       <Tag id={listId} className={listClass}>{shown.map(render)}</Tag>
       {hidden > 0 && (
-        <button type="button" className="btn btn-ghost syn-more" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(o => !o)}>
+        <button type="button" className="btn btn-ghost syn-more" aria-expanded={open} aria-controls={listId} onClick={() => setPicked(o => !o)}>
           {open ? 'Show fewer' : showAll ? showAll(items.length) : showMore ? showMore(hidden) : `Show ${hidden} more`}
         </button>
       )}
@@ -104,7 +99,9 @@ function OutcomeStrip({ strip }: { strip: NonNullable<SynthesisView['strip']> })
 }
 
 function DisputeCard({ d }: { d: DisputeCardView }) {
-  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(false);
+  const findOpen = useFindOpen();
+  const open = picked || findOpen;
   const bodyId = useId();
   const v = d.verdict;
   return (
@@ -119,11 +116,11 @@ function DisputeCard({ d }: { d: DisputeCardView }) {
             : <span className="syn-verdict-chip syn-verdict-none">{v.kind === 'none' ? 'No verdict' : 'Unresolved'}</span>}
         </span>
       </div>
-      <h4 className="syn-dispute-q">{d.point}</h4>
+      <h4 className="syn-dispute-q"><Hl k={`${d.n}.point`} text={d.point} /></h4>
       <div className="syn-dispute-foot">
-        {d.why && <p className="syn-why">{d.why}</p>}
+        {d.why && <p className="syn-why"><Hl k={`${d.n}.why`} text={d.why} /></p>}
         {d.positions.length > 0 && (
-          <button type="button" className="btn btn-ghost syn-more" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(o => !o)}>
+          <button type="button" className="btn btn-ghost syn-more" aria-expanded={open} aria-controls={bodyId} onClick={() => setPicked(o => !o)}>
             {open ? 'Hide both sides' : 'Read both sides'}
           </button>
         )}
@@ -133,7 +130,7 @@ function DisputeCard({ d }: { d: DisputeCardView }) {
           {d.positions.map((p, i) => (
             <div key={i} className="syn-position">
               <CampChip camp={p.camp} />
-              <p>{p.stance}</p>
+              <p><Hl k={`${d.n}.pos${i}`} text={p.stance} /></p>
             </div>
           ))}
         </div>
@@ -143,42 +140,23 @@ function DisputeCard({ d }: { d: DisputeCardView }) {
 }
 
 function OpenQuestions({ items, debateId }: { items: SynthesisView['openQuestions']; debateId: string }) {
-  const storeKey = `synthesisV2.questions.${debateId}`;
-  const [checked, setChecked] = useState<Set<string>>(() => {
-    try {
-      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(storeKey) : null;
-      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error', component: 'SynthesisPanel', level: 'error',
-        message: 'open-question state unreadable; starting unchecked',
-        error: { name: (err as Error).name, message: (err as Error).message, stack: (err as Error).stack },
-      });
-      return new Set();
-    }
-  });
+  const [checked, setChecked] = useState<Set<string>>(() => readCheckedQuestions(debateId));
   const toggle = useCallback((id: string) => {
     setChecked(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
-      try { localStorage.setItem(storeKey, JSON.stringify([...next])); } catch (err) {
-        getGlobalRecorder()?.record({
-          type: 'system.error', component: 'SynthesisPanel', level: 'error',
-          message: 'open-question state not saved',
-          error: { name: (err as Error).name, message: (err as Error).message, stack: (err as Error).stack },
-        });
-      }
+      writeCheckedQuestions(debateId, next);
       return next;
     });
-  }, [storeKey]);
+  }, [debateId]);
   return (
     <ul className="syn-questions">
       {items.map(q => {
-        const id = `${storeKey}.${q.id}`;
+        const id = `synthesisV2.questions.${debateId}.${q.id}`;
         return (
           <li key={q.id} className="syn-question">
             <input id={id} type="checkbox" checked={checked.has(q.id)} onChange={() => toggle(q.id)} />
-            <label htmlFor={id}>{q.text}</label>
+            <label htmlFor={id}><Hl k={q.id} text={q.text} /></label>
           </li>
         );
       })}
@@ -186,7 +164,7 @@ function OpenQuestions({ items, debateId }: { items: SynthesisView['openQuestion
   );
 }
 
-type SectionKey = 'common-ground' | 'disputes' | 'cruxes' | 'open-questions';
+export type SectionKey = 'common-ground' | 'disputes' | 'cruxes' | 'open-questions';
 
 function SectionHead({ id, sectionKey, text, intro }: { id: string; sectionKey: SectionKey; text: string; intro: string }) {
   return (
@@ -197,21 +175,36 @@ function SectionHead({ id, sectionKey, text, intro }: { id: string; sectionKey: 
   );
 }
 
-function PanelHeader({ view, ids, onJump }: { view: SynthesisView; ids: Record<SectionKey, string>; onJump: (k: SectionKey) => void }) {
+function PanelHeader({ view, ids, collapsed, bodyId, onJump, onSkip, onToggle }: {
+  view: SynthesisView; ids: Record<SectionKey, string>; collapsed: boolean; bodyId: string;
+  onJump: (k: SectionKey) => void; onSkip?: () => void; onToggle?: () => void;
+}) {
   return (
     <header className="syn-header">
-      <div className="syn-eyebrow">Debate synthesis</div>
-      <h2 className="syn-title">{view.title}</h2>
-      {view.debaters.length > 0 && (
+      <div className="syn-header-row">
+        <div className="syn-eyebrow">Debate synthesis</div>
+        {onToggle && (
+          <button type="button" className="btn btn-ghost syn-collapse" aria-expanded={!collapsed} aria-controls={bodyId} onClick={onToggle}>
+            {collapsed ? 'Expand synthesis ▾' : 'Collapse synthesis ▴'}
+          </button>
+        )}
+      </div>
+      <h2 className="syn-title"><Hl k="title" text={view.title} /></h2>
+      {!collapsed && view.debaters.length > 0 && (
         <p className="syn-debaters">
           {view.debaters.map((c, i) => (
             <span key={c.id}>{i > 0 && <span className="syn-vs"> vs </span>}<CampChip camp={c} /></span>
           ))}
         </p>
       )}
-      {view.nav.length > 0 && (
+      {(view.nav.length > 0 || onSkip) && (
         <nav className="syn-nav" aria-label="Synthesis sections">
-          {view.nav.map(n => (
+          {onSkip && (
+            <a href="#debate-transcript" className="syn-nav-link" onClick={e => { e.preventDefault(); onSkip(); }}>
+              Skip to transcript
+            </a>
+          )}
+          {!collapsed && view.nav.map(n => (
             <a key={n.key} href={`#${ids[n.key]}`} className="syn-nav-link"
               onClick={e => { e.preventDefault(); onJump(n.key); }}>
               {n.label} <span className="syn-nav-count">{n.count}</span>
@@ -223,30 +216,38 @@ function PanelHeader({ view, ids, onJump }: { view: SynthesisView; ids: Record<S
   );
 }
 
-function BottomLineCard({ view }: { view: SynthesisView }) {
-  const [readMore, setReadMore] = useState(false);
+function BottomLineText({ view, collapsed }: { view: SynthesisView; collapsed: boolean }) {
+  const [picked, setPicked] = useState(false);
+  const findOpen = useFindOpen();
+  const readMore = picked || findOpen;
   const readMoreId = useId();
+  const bl = view.bottomLine;
+  if (!bl.paragraph) return null;
+  return (
+    <p className="syn-bottom">
+      <Hl k="bl" text={bl.paragraph} />
+      {!collapsed && bl.more && <span id={readMoreId} hidden={!readMore}> <Hl k="blmore" text={bl.more} /></span>}
+      {!collapsed && bl.more && (
+        <>
+          {' '}
+          <button type="button" className="btn btn-ghost syn-inline" aria-expanded={readMore} aria-controls={readMoreId} onClick={() => setPicked(r => !r)}>
+            {readMore ? 'Read less' : 'Read more'}
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
+
+function BottomLineCard({ view, collapsed }: { view: SynthesisView; collapsed: boolean }) {
   const bl = view.bottomLine;
   return (
     <section className="syn-card" aria-label="Bottom line">
       <h3 className="syn-h">Bottom line</h3>
-      {bl.paragraph && (
-        <p className="syn-bottom">
-          {bl.paragraph}
-          {bl.more && <span id={readMoreId} hidden={!readMore}> {bl.more}</span>}
-          {bl.more && (
-            <>
-              {' '}
-              <button type="button" className="btn btn-ghost syn-inline" aria-expanded={readMore} aria-controls={readMoreId} onClick={() => setReadMore(r => !r)}>
-                {readMore ? 'Read less' : 'Read more'}
-              </button>
-            </>
-          )}
-        </p>
-      )}
-      {bl.decisiveCrux && <p className="syn-crux-line"><strong>Decisive crux.</strong> {bl.decisiveCrux}</p>}
-      {view.strip && <OutcomeStrip strip={view.strip} />}
-      {bl.settle.length > 0 && (
+      <BottomLineText view={view} collapsed={collapsed} />
+      {!collapsed && bl.decisiveCrux && <p className="syn-crux-line"><strong>Decisive crux.</strong> <Hl k="crux" text={bl.decisiveCrux} /></p>}
+      {!collapsed && view.strip && <OutcomeStrip strip={view.strip} />}
+      {!collapsed && bl.settle.length > 0 && (
         <div className="syn-settle">
           <h4 className="syn-settle-h">What it takes to settle them</h4>
           <ul>
@@ -265,11 +266,11 @@ function NextMoves({ moves }: { moves: SynthesisView['nextMoves'] }) {
     <section aria-label="Next moves">
       <h3 className="syn-h">Next moves</h3>
       <div className="syn-moves">
-        {moves.map(m => (
+        {moves.map((m, i) => (
           <div key={m.kind} className="syn-move">
-            <div className="syn-move-title">{m.title}</div>
+            <div className="syn-move-title"><Hl k={`move${i}.title`} text={m.title} /></div>
             <span className="syn-move-chip">{m.chip}</span>
-            {m.body && <p>{m.body}</p>}
+            {m.body && <p><Hl k={`move${i}.body`} text={m.body} /></p>}
           </div>
         ))}
       </div>
@@ -287,7 +288,7 @@ function CommonGround({ agreements, id }: { agreements: SynthesisView['agreement
           listClass="syn-agree"
           showAll={n => `Show all ${n} points`}
           render={(t, i) => (
-            <li key={i} className="syn-agree-item"><Check size={16} aria-hidden="true" className="syn-check" /><span>{t}</span></li>
+            <li key={i} className="syn-agree-item"><Check size={16} aria-hidden="true" className="syn-check" /><span><Hl k={`ag${i}`} text={t} /></span></li>
           )}
         />
       ) : (
@@ -310,7 +311,7 @@ function Cruxes({ cruxes, id }: { cruxes: SynthesisView['cruxes']; id: string })
           <div key={c.n} className="syn-crux">
             <span className="syn-crux-n">{c.n}</span>
             {c.typeLabel && <span className="syn-type-chip" data-type={c.rawType ?? undefined}>{c.typeLabel}</span>}
-            <p>{c.question}</p>
+            <p><Hl k={c.n} text={c.question} /></p>
           </div>
         )}
       />
@@ -318,25 +319,10 @@ function Cruxes({ cruxes, id }: { cruxes: SynthesisView['cruxes']; id: string })
   );
 }
 
-export function SynthesisPanelView({ view, debateId }: { view: SynthesisView; debateId: string }) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const ids: Record<SectionKey, string> = {
-    'common-ground': useId(), disputes: useId(), cruxes: useId(), 'open-questions': useId(),
-  };
-
-  const jump = useCallback((key: SectionKey) => {
-    const h = rootRef.current?.querySelector<HTMLElement>(`[data-syn-heading="${key}"]`);
-    if (!h) return;
-    h.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-    h.focus({ preventScroll: true });
-  }, []);
-
-  const hasBottomLine = !!(view.bottomLine.paragraph || view.strip || view.bottomLine.settle.length);
+function ExpandedSections({ view, ids, debateId }: { view: SynthesisView; ids: Record<SectionKey, string>; debateId: string }) {
   const hasAgreements = view.agreements.items.length > 0 || view.agreements.unreadable;
   return (
-    <div className="syn-panel" ref={rootRef} data-testid="synthesis-v2">
-      <PanelHeader view={view} ids={ids} onJump={jump} />
-      {hasBottomLine && <BottomLineCard view={view} />}
+    <>
       {view.nextMoves.length > 0 && <NextMoves moves={view.nextMoves} />}
       {hasAgreements && <CommonGround agreements={view.agreements} id={ids['common-ground']} />}
       {view.disputes.length > 0 && (
@@ -353,26 +339,47 @@ export function SynthesisPanelView({ view, debateId }: { view: SynthesisView; de
         </section>
       )}
       <footer className="syn-footer">Synthesis of the full debate transcript.</footer>
-    </div>
+    </>
   );
 }
 
-/** Builds the view from the concluding entry's structured synthesis, then renders it. */
-export function SynthesisPanel({ input, debateId }: { input: BuildSynthesisInput; debateId: string }) {
-  const view = useMemo(() => buildSynthesisView(input), [input.synthesis, input.topic, input.pending, input.debaters.join('|')]);
-  return <SynthesisPanelView view={view} debateId={debateId} />;
+export interface SynthesisPanelViewProps {
+  view: SynthesisView;
+  debateId: string;
+  find?: PanelFind | null;
+  /** When omitted the panel has no collapse button (always expanded). */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+  /** Moves focus to the first transcript entry; adds the "Skip to transcript" link. */
+  onSkip?: () => void;
 }
 
-/** The concluding card's body: the v2 panel when the switch is on and the entry carries the
- *  structured synthesis, else the existing sections. */
-export function ConcludingBody({ entry, content, mdComponents }: { entry: TranscriptEntry; content: string; mdComponents: object }) {
-  const activeDebate = useDebateStore(s => s.activeDebate);
-  const synthesis = (entry.metadata as Record<string, unknown> | undefined)?.synthesis;
-  if (!synthesis || !isSynthesisV2On()) return <ConcludingSections content={content} mdComponents={mdComponents} />;
+export function SynthesisPanelView({ view, debateId, find = null, collapsed = false, onToggleCollapsed, onSkip }: SynthesisPanelViewProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const bodyId = useId();
+  const ids: Record<SectionKey, string> = {
+    'common-ground': useId(), disputes: useId(), cruxes: useId(), 'open-questions': useId(),
+  };
+  // A find in progress shows everything, so every counted match has an element.
+  const isCollapsed = collapsed && !find?.query;
+
+  const jump = useCallback((key: SectionKey) => {
+    const h = rootRef.current?.querySelector<HTMLElement>(`[data-syn-heading="${key}"]`);
+    if (!h) return;
+    h.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    h.focus({ preventScroll: true });
+  }, []);
+
+  const hasBottomLine = !!(view.bottomLine.paragraph || view.strip || view.bottomLine.settle.length);
   return (
-    <SynthesisPanel
-      debateId={activeDebate?.id ?? 'unsaved'}
-      input={{ synthesis, debaters: activeDebate?.active_povers ?? [], topic: activeDebate?.topic?.final }}
-    />
+    <FindContext.Provider value={find}>
+      <div className="syn-panel" ref={rootRef} data-testid="synthesis-v2" data-collapsed={isCollapsed || undefined}>
+        <PanelHeader view={view} ids={ids} collapsed={isCollapsed} bodyId={bodyId} onJump={jump} onSkip={onSkip} onToggle={onToggleCollapsed} />
+        <div id={bodyId} className="syn-body">
+          {hasBottomLine && <BottomLineCard view={view} collapsed={isCollapsed} />}
+          {!isCollapsed && <ExpandedSections view={view} ids={ids} debateId={debateId} />}
+        </div>
+      </div>
+    </FindContext.Provider>
   );
 }

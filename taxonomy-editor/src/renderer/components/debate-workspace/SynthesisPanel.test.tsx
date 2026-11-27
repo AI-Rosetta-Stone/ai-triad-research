@@ -2,13 +2,19 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // t/809: the synthesis panel v2 renders the view-model: sections, nav, expanders, no raw tags,
-// no controls without a backing action, saved checkbox state, and the default-off switch.
+// no controls without a backing action, saved checkbox state, collapse, skip link, find, the
+// top-of-page pointer row and the default-off switch (spec §3-§8, §12).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
-import { SynthesisPanel, isSynthesisV2On } from './SynthesisPanel';
+import { render, screen, fireEvent, within, renderHook } from '@testing-library/react';
+import { SynthesisPanelView, type PanelFind } from './SynthesisPanel';
+import { SynthesisTop, SynthesisPointerRow, useSynthesisTop, findSynthesisEntry, panelFindOffsets } from './SynthesisTop';
+import { buildSynthesisView } from './synthesisView';
+import { synthesisFindOffsets } from './synthesisFind';
+import { isSynthesisV2On } from './synthesisStorage';
 
 const ARGUMENT_MAP = [{ claim_id: 'C1', claimant: 'skeptic' }, { claim_id: 'C2', claimant: 'safetyist' }];
+const CAMPS = ['accelerationist', 'safetyist', 'skeptic'];
 
 function synthesis(over: Record<string, unknown> = {}) {
   return {
@@ -26,12 +32,13 @@ function synthesis(over: Record<string, unknown> = {}) {
   };
 }
 
-const mount = (s: unknown = synthesis()) =>
-  render(<SynthesisPanel debateId="d1" input={{ synthesis: s, debaters: ['accelerationist', 'safetyist', 'skeptic'] }} />);
+const viewOf = (s: unknown = synthesis()) => buildSynthesisView({ synthesis: s, debaters: CAMPS });
+const mount = (s: unknown = synthesis(), props: Partial<React.ComponentProps<typeof SynthesisPanelView>> = {}) =>
+  render(<SynthesisPanelView debateId="d1" view={viewOf(s)} {...props} />);
 
 beforeEach(() => localStorage.clear());
 
-describe('SynthesisPanel', () => {
+describe('SynthesisPanelView', () => {
   it('shows each dispute once with its verdict, translated labels, and no raw tags', () => {
     const { container } = mount();
     expect(screen.getByRole('heading', { name: 'Does it work?' })).toBeTruthy();
@@ -124,6 +131,91 @@ describe('SynthesisPanel', () => {
     expect(more.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(more);
     expect(screen.getByRole('button', { name: 'Read less' }).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('collapsed shows the header, title and bottom-line paragraph only', () => {
+    mount(synthesis(), { collapsed: true, onToggleCollapsed: vi.fn() });
+    expect(screen.getByRole('heading', { name: 'Should we pause?' })).toBeTruthy();
+    expect(screen.getByText('It landed here.')).toBeTruthy();
+    for (const h of ['Disputes', 'Cruxes', 'Common ground', 'Open questions', 'Next moves']) {
+      expect(screen.queryByRole('heading', { name: h })).toBeNull();
+    }
+    expect(screen.getByRole('button', { name: 'Expand synthesis ▾' }).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('a find in progress shows the panel fully expanded even when collapsed', () => {
+    const view = viewOf();
+    const find: PanelFind = { query: 'fair', current: 0, offsets: synthesisFindOffsets(view, 'fair').offsets };
+    render(<SynthesisPanelView debateId="d1" view={view} collapsed onToggleCollapsed={vi.fn()} find={find} />);
+    expect(screen.getByRole('heading', { name: /Is it fair/ })).toBeTruthy();
+    expect(document.querySelectorAll('mark[data-find-index]')).toHaveLength(2) // the dispute and its next-move title;
+  });
+
+  it('Skip to transcript is the first link and calls onSkip', () => {
+    const onSkip = vi.fn();
+    mount(synthesis(), { onSkip });
+    const nav = screen.getByRole('navigation', { name: 'Synthesis sections' });
+    const links = within(nav).getAllByRole('link');
+    expect(links[0].textContent).toBe('Skip to transcript');
+    fireEvent.click(links[0]);
+    expect(onSkip).toHaveBeenCalledOnce();
+  });
+});
+
+describe('SynthesisTop placement (spec §12)', () => {
+  const entry = (type: string, extra: Record<string, unknown> = {}) => ({ id: type, type, speaker: 'system', content: 'x', ...extra });
+  const debate = (transcript: unknown[]) => ({ id: 'd1', active_povers: CAMPS, topic: { final: 'T' }, transcript }) as never;
+
+  it('collapse is remembered per debate and defaults to expanded', () => {
+    const top = { entry: entry('concluding') as never, view: viewOf() };
+    const { unmount } = render(<SynthesisTop top={top} debateId="d1" findQuery="" findCurrentIndex={0} />);
+    expect(screen.getByRole('heading', { name: 'Disputes' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse synthesis ▴' }));
+    expect(screen.queryByRole('heading', { name: 'Disputes' })).toBeNull();
+    unmount();
+    render(<SynthesisTop top={top} debateId="d1" findQuery="" findCurrentIndex={0} />);
+    expect(screen.queryByRole('heading', { name: 'Disputes' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand synthesis ▾' }));
+    expect(screen.getByRole('heading', { name: 'Disputes' })).toBeTruthy();
+  });
+
+  it('Skip to transcript moves focus to the first transcript entry', () => {
+    const top = { entry: entry('concluding') as never, view: viewOf() };
+    render(
+      <>
+        <SynthesisTop top={top} debateId="d1" findQuery="" findCurrentIndex={0} />
+        <div className="debate-transcript-column"><div id="debate-entry-e1">first</div></div>
+      </>,
+    );
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    fireEvent.click(screen.getByRole('link', { name: 'Skip to transcript' }));
+    expect(document.activeElement?.id).toBe('debate-entry-e1');
+  });
+
+  it('the pointer row is one line and Back to top focuses the panel', () => {
+    const top = { entry: entry('concluding') as never, view: viewOf() };
+    render(<><SynthesisTop top={top} debateId="d1" findQuery="" findCurrentIndex={0} /><SynthesisPointerRow /></>);
+    expect(screen.getByText('Synthesis · shown at the top of this page')).toBeTruthy();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    fireEvent.click(screen.getByRole('link', { name: 'Back to top' }));
+    expect(document.activeElement?.id).toBe('synthesis-v2-top');
+  });
+
+  it('nothing is built until the switch is on and a concluding entry with a synthesis exists', () => {
+    const concluded = debate([entry('statement'), entry('concluding', { metadata: { synthesis: synthesis() } })]);
+    expect(renderHook(() => useSynthesisTop(concluded)).result.current).toBeNull(); // switch off
+    localStorage.setItem('synthesisV2', '1');
+    expect(renderHook(() => useSynthesisTop(concluded)).result.current?.view.disputes).toHaveLength(2);
+    expect(renderHook(() => useSynthesisTop(debate([entry('statement')]))).result.current).toBeNull(); // still running
+    expect(renderHook(() => useSynthesisTop(debate([entry('concluding', { metadata: {} })]))).result.current).toBeNull(); // failed
+    expect(renderHook(() => useSynthesisTop(null)).result.current).toBeNull();
+  });
+
+  it('find offsets: the panel counts first and a missing panel counts nothing', () => {
+    const top = { entry: entry('concluding') as never, view: viewOf() };
+    expect(panelFindOffsets(top, 'fair').total).toBe(2);
+    expect(panelFindOffsets(null, 'fair').total).toBe(0);
+    expect(findSynthesisEntry([entry('concluding') as never])).toBeNull();
   });
 });
 
