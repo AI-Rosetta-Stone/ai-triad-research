@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { harvestDebateTestedForSession, auditDebateTestedLag, collectSessionTaxonomyRefs } from './harvestOnSave.js';
+import { harvestDebateTestedForSession, auditDebateTestedLag, collectSessionTaxonomyRefs, formatLagLine } from './harvestOnSave.js';
 import type { HarvestableSession } from './harvestOnSave.js';
 import type { PovNode } from './taxonomyTypes.js';
 import type { ArgumentNetworkNode, ArgumentNetworkEdge } from './types.js';
@@ -369,5 +369,20 @@ describe('auditDebateTestedLag', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('formatLagLine (t/709)', () => {
+  const zero = { total: 0, harvested: 0, lag: 0 };
+
+  it('reports "not evaluated (no input)" when 0 session files were read, never "Lag: 0"', () => {
+    const line = formatLagLine(0, zero);
+    expect(line).toBe('  Lag: not evaluated (no input)');
+    expect(line).not.toContain('Lag: 0');
+  });
+
+  it('keeps the counts line when files were read, including a real Lag: 0', () => {
+    expect(formatLagLine(308, zero)).toBe('  Cited nodes (BDI): 0  |  Harvested: 0  |  Lag: 0');
+    expect(formatLagLine(3, { total: 9, harvested: 7, lag: 2 })).toBe('  Cited nodes (BDI): 9  |  Harvested: 7  |  Lag: 2');
   });
 });
