@@ -339,3 +339,57 @@ Describe 'Invoke-GatedRollback.ps1 wiring of -DeactivatePrevious (t/588)' -Tag '
         $script:Wrapper | Should -Match '-ServingRevisionName \$RevisionName'
     }
 }
+
+Describe 'Format-DeactivatePreviousRecord and the help text (t/588, DeployAzure p/227#53)' -Tag 'devops' {
+
+    BeforeAll {
+        . "$PSScriptRoot/../operations/devops/GatedRollback.ps1"
+        $script:Wrapper = Get-Content -Raw "$PSScriptRoot/../operations/devops/Invoke-GatedRollback.ps1"
+        function script:Res($name, $done, $reason) { [pscustomobject]@{ RevisionName = $name; Deactivated = $done; Reason = $reason; Warning = $null } }
+    }
+
+    It 'a deactivated revision gets a line naming it, and the summary line names it too' {
+        $rec = Format-DeactivatePreviousRecord -Results @((Res 'rev-old' $true 'deactivated after the verified shift'))
+        $rec.Lines[0] | Should -Be "deactivate-previous: deactivated 'rev-old' (deactivated after the verified shift)"
+        $rec.Lines[-1] | Should -Be "deactivate-previous: record: deactivated 1 ('rev-old'); not deactivated 0 (none)"
+        @($rec.Deactivated) | Should -Be @('rev-old')
+        @($rec.NotDeactivated).Count | Should -Be 0
+    }
+
+    It 'a revision that was not deactivated says so with its reason, in the same record' {
+        $rec = Format-DeactivatePreviousRecord -Results @((Res 'rev-a' $true 'ok'), (Res 'rev-b' $false 'traffic guard: nonzero-traffic-weight'))
+        $rec.Lines[1] | Should -Be "deactivate-previous: NOT deactivated 'rev-b': traffic guard: nonzero-traffic-weight"
+        $rec.Lines[-1] | Should -Be "deactivate-previous: record: deactivated 1 ('rev-a'); not deactivated 1 ('rev-b')"
+        @($rec.Deactivated) | Should -Be @('rev-a')
+        @($rec.NotDeactivated) | Should -Be @('rev-b')
+    }
+
+    It 'a run that deactivated nothing still leaves a summary line saying so' {
+        $rec = Format-DeactivatePreviousRecord -Results @()
+        $rec.Lines.Count | Should -Be 1
+        $rec.Lines[0] | Should -Be 'deactivate-previous: record: deactivated 0 (none); not deactivated 0 (none)'
+    }
+
+    It 'the wrapper prints the record, appends it to the GitHub step summary when there is one, and keeps it on the returned object' {
+        $script:Wrapper | Should -Match 'Format-DeactivatePreviousRecord -Results \$deactResults'
+        $script:Wrapper | Should -Match 'foreach \(\$line in \$rec\.Lines\) \{ Write-Host'
+        $script:Wrapper | Should -Match 'if \(\$env:GITHUB_STEP_SUMMARY\) \{ Add-Content -LiteralPath \$env:GITHUB_STEP_SUMMARY'
+        $script:Wrapper | Should -Match "Add-Member -NotePropertyName PreviousDeactivated"
+        $script:Wrapper | Should -Match "Add-Member -NotePropertyName PreviousNotDeactivated"
+        # a failed deactivation is still a WARN-level line
+        $script:Wrapper | Should -Match 'Write-Warning "WARN: deactivate-previous:'
+    }
+
+    It 'the help text says: drill or planned rollback only, NOT after an incident rollback, and why' {
+        $help = Get-Help (Join-Path $PSScriptRoot '..' 'operations' 'devops' 'Invoke-GatedRollback.ps1') -Parameter DeactivatePrevious | Out-String
+        $help | Should -Match 'USE IT for a drill or a PLANNED rollback'
+        $help | Should -Match 'DO NOT USE IT after an INCIDENT rollback'
+        $help | Should -Match 'suspect one'
+        $help | Should -Match 'exec'
+        $help | Should -Match 'live replica state'
+        $help | Should -Match 'Log Analytics'
+        $help | Should -Match 'can be reactivated'
+        # and the same warning sits next to the parameter itself, where someone adding a caller will read it
+        $script:Wrapper | Should -Match '(?s)NOT after an INCIDENT rollback.*?\[switch\] \$DeactivatePrevious'
+    }
+}

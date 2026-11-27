@@ -15,6 +15,22 @@
     # Staging drill: measure activate-to-warm without shifting traffic, then deactivate again.
     ./operations/devops/Invoke-GatedRollback.ps1 -AppName taxonomy-editor-staging -RevisionName <rev> -MeasureOnly -DeactivateAfterMeasure
 
+.PARAMETER DeactivatePrevious
+    t/588. After a VERIFIED shift, deactivate the revision(s) that carried traffic before it, each behind the fresh,
+    double-sourced traffic guard. Default OFF.
+    USE IT for a drill or a PLANNED rollback.
+    DO NOT USE IT after an INCIDENT rollback (DeployAzure, p/227#53): the revision rolled away from is the suspect one, and
+    deactivating it ends its exec access and its live replica state, which forensics may need. (Its logs stay in Log Analytics,
+    and its revision definition stays and can be reactivated, but the live replica does not come back.) After an incident, leave
+    it active at weight 0 until the investigation says otherwise.
+    Each deactivation is recorded: a 'deactivate-previous: deactivated ...' line, a summary line (also appended to the GitHub step
+    summary when run in a workflow), and PreviousDeactivated / PreviousNotDeactivated on the returned object. A failure is a WARN
+    and never undoes the shift or changes the exit code.
+
+.EXAMPLE
+    # Planned rollback on staging, then retire the revision it left (NOT for an incident):
+    ./operations/devops/Invoke-GatedRollback.ps1 -AppName taxonomy-editor-staging -RevisionName <rev> -DeactivatePrevious
+
 .NOTES
     Exits 0 only on 'shifted' + verified, 'already-serving' + verified (t/513: the target already had
     100% and passed every gate), or 'measured'. A refusal exits 1 and changes no traffic.
@@ -28,7 +44,10 @@ param(
     [string] $ResourceGroup = 'ai-triad',
     [switch] $MeasureOnly,
     [switch] $DeactivateAfterMeasure,
-    [switch] $DeactivatePrevious,   # t/588: after a VERIFIED shift, deactivate the revision rolled away from (guarded; default off)
+    # t/588: after a VERIFIED shift, deactivate the revision rolled away from (guarded; default OFF). For a drill or a PLANNED
+    # rollback; NOT after an INCIDENT rollback: the revision rolled away from is the suspect one, and deactivating it ends its exec
+    # and live replica state that forensics may need (see .PARAMETER DeactivatePrevious).
+    [switch] $DeactivatePrevious,
     [int] $ProvisionTimeoutSec = 300,
     [int] $WarmTimeoutSec = 420,
     [int] $PollIntervalSec = 10
@@ -120,6 +139,7 @@ if ($DeactivatePrevious) {
         Write-Host "  deactivate-previous: NOT deactivating: $($dec.Reason)"
     } else {
         . (Join-Path $PSScriptRoot 'Get-RevisionDeactivationVerdict.ps1')
+        $deactResults = @()
         foreach ($prevRev in $dec.Revisions) {
             $d = Invoke-GuardedDeactivate -RevisionName $prevRev -GetVerdict {
                 param($Rev)
@@ -135,10 +155,16 @@ if ($DeactivatePrevious) {
                 az containerapp revision deactivate -n $AppName -g $ResourceGroup --revision $Rev -o none
                 if ($LASTEXITCODE -ne 0) { throw "az containerapp revision deactivate exited $LASTEXITCODE" }
             }
-            if ($d.Deactivated) { Write-Host "  deactivate-previous: deactivated '$prevRev' ($($d.Reason))" }
-            elseif ($d.Warning) { Write-Warning "WARN: deactivate-previous: '$prevRev' was NOT deactivated: $($d.Warning). The shift stands; deactivate it by hand when ready." }
-            else { Write-Host "  deactivate-previous: NOT deactivating '$prevRev': $($d.Reason)" }
+            $deactResults += $d
+            if ($d.Warning) { Write-Warning "WARN: deactivate-previous: '$prevRev' was NOT deactivated: $($d.Warning). The shift stands; deactivate it by hand when ready." }
         }
+        # The record: one line per revision plus a summary, printed, appended to the GitHub step summary when there is one, and kept on the
+        # returned object (PreviousDeactivated / PreviousNotDeactivated). t/588 (DeployAzure p/227#53).
+        $rec = Format-DeactivatePreviousRecord -Results $deactResults
+        foreach ($line in $rec.Lines) { Write-Host "  $line" }
+        if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ($rec.Lines -join [Environment]::NewLine) }
+        $r | Add-Member -NotePropertyName PreviousDeactivated -NotePropertyValue @($rec.Deactivated) -Force
+        $r | Add-Member -NotePropertyName PreviousNotDeactivated -NotePropertyValue @($rec.NotDeactivated) -Force
     }
 }
 
