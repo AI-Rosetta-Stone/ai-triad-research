@@ -13,6 +13,7 @@
 //   node operations/devops/enqueue-pr.mjs <owner>/<repo> <N> --gate-change-review=<review id> --by=<who>
 
 import { execFileSync } from 'node:child_process';
+import { isVersionSpec } from './t1-approval-guard-predicate.mjs';
 
 /** The reviewer App's login as the REST API reports it on a review. */
 export const REVIEWER_APP_REST_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
@@ -536,10 +537,84 @@ export function workspaceFactsOf(text) {
   return { ok: true, fact };
 }
 
+/**
+ * PURE (t/806, SO p/136#129). The free blocks of a pnpm-workspace.yaml as a flat map of one entry per override or catalog name:
+ * 'overrides:<name>', 'catalog:<name>', 'catalogs:<catalog>:<name>' -> its value (quotes and a trailing comment removed). Only the
+ * shapes these blocks really have are read (2-space entries, and one more level under 'catalogs'); anything else in a free block is
+ * { ok: false } (fail closed). Other top-level keys are skipped here: workspaceFactsOf already gates them.
+ */
+export function workspaceFreeEntriesOf(text) {
+  if (typeof text !== 'string') return { ok: false };
+  const entries = new Map();
+  let block = null;
+  let catalog = null;
+  const unquote = (raw) => {
+    let v = raw.trim();
+    const q = /^(["'])(.*?)\1(?:\s+#.*)?$/.exec(v);
+    if (q) return q[2];
+    v = v.replace(/\s+#.*$/, '').trim();
+    return v;
+  };
+  const KEY = /^(?:"([^"]+)"|'([^']+)'|([^\s:'"#][^\s:]*))/;
+  for (const l of text.replace(/\r\n/g, '\n').split('\n')) {
+    if (l.trim() === '' || /^\s*#/.test(l)) continue;
+    if (/^\S/.test(l)) {
+      const m = /^([A-Za-z_][\w.-]*)\s*:/.exec(l);
+      if (!m) return { ok: false };
+      block = WORKSPACE_FREE_KEYS.includes(m[1]) ? m[1] : null;
+      catalog = null;
+      if (block && l.replace(/^[A-Za-z_][\w.-]*\s*:/, '').replace(/\s+#.*$/, '').trim() !== '') return { ok: false };   // an inline value after the key
+      continue;
+    }
+    if (block === null) continue;
+    const indent = l.length - l.trimStart().length;
+    const body = l.trim();
+    const km = KEY.exec(body);
+    if (!km) return { ok: false };
+    const name = km[1] ?? km[2] ?? km[3];
+    const rest = body.slice(km[0].length);
+    if (!rest.startsWith(':')) return { ok: false };
+    const value = rest.slice(1);
+    if (block === 'catalogs') {
+      if (indent === 2 && value.replace(/\s+#.*$/, '').trim() === '') { catalog = name; continue; }
+      if (indent === 4 && catalog !== null) { entries.set(`catalogs:${catalog}:${name}`, unquote(value)); continue; }
+      return { ok: false };
+    }
+    if (indent !== 2) return { ok: false };
+    entries.set(`${block}:${name}`, unquote(value));
+  }
+  return { ok: true, entries };
+}
+
+/**
+ * PURE (t/806). overrides, catalog and catalogs stay free in the workspace compare, but a pnpm override can point at a URL, a git spec or an
+ * npm: alias, so a forged one could re-point a dependency like t/796's lockfile case. A change under them is free only when EVERY changed or new
+ * VALUE is a plain version spec (isVersionSpec: no URL, npm:, git, file:, link:, workspace:, $ref or "-"), and a NEW name is not free: a changed
+ * key is allowed only for a name already present. A removed entry is free (it cannot add code). Unparseable on either side is not free.
+ * Returns { ok, why }.
+ *
+ * ONE SWITCH, decided by the Lead/Security: WORKSPACE_FREE_ALLOW_NEW_NAMES. t/806's text says a new name is not free, but the same ticket asks that every
+ * override bump since 2026-09-01 stays free, and the backtest shows 5 of the 7 real bumps (new CVE, new override name) ADD a name. false (the default, the
+ * spec as written) sends a new name to a review; true lets a new name through when its value is a plain version spec. See the t/806 backtest.
+ */
+export const WORKSPACE_FREE_ALLOW_NEW_NAMES = false;
+export function workspaceFreeValuesOk(baseText, headText, { allowNewNames = WORKSPACE_FREE_ALLOW_NEW_NAMES } = {}) {
+  const b = workspaceFreeEntriesOf(baseText);
+  const h = workspaceFreeEntriesOf(headText);
+  if (!b.ok || !h.ok) return { ok: false, why: 'its overrides, catalog or catalogs block could not be read' };
+  for (const [k, v] of h.entries) {
+    if (b.entries.get(k) === v) continue;
+    if (!b.entries.has(k) && !allowNewNames) return { ok: false, why: `it adds the name ${k}, which the file did not have` };
+    if (!isVersionSpec(v)) return { ok: false, why: `it changes ${k} to a value that is not a plain version spec (${String(v).slice(0, 60)})` };
+  }
+  return { ok: true, why: '' };
+}
+
 function factOfRead(read, kind) {
   if (kind === 'workspace') {
     if (read?.missing === true) return { ok: true, fact: null };
-    return workspaceFactsOf(read?.text);
+    const f = workspaceFactsOf(read?.text);
+    return { ...f, text: read?.text };
   }
   const r = scriptsOfRead(read);
   return { ok: r.ok, fact: r.scripts };
@@ -556,7 +631,9 @@ export function scriptsGatePaths({ entries, reads }) {
   for (const t of packageJsonTargets(entries)) {
     const b = factOfRead(readForStatus(reads?.base?.[t.basePath], 'base', t.status), t.kind);
     const h = factOfRead(readForStatus(reads?.head?.[t.path], 'head', t.status), t.kind);
-    if (!b.ok || !h.ok || canonicalJson(b.fact) !== canonicalJson(h.fact)) out.push(t.path);
+    if (!b.ok || !h.ok || canonicalJson(b.fact) !== canonicalJson(h.fact)) { out.push(t.path); continue; }
+    // t/806: the gated keys are equal; a change inside overrides/catalog/catalogs must still be only plain version values of names already present.
+    if (t.kind === 'workspace' && b.text !== h.text && typeof b.text === 'string' && typeof h.text === 'string' && !workspaceFreeValuesOk(b.text, h.text).ok) out.push(t.path);
   }
   return [...new Set(out)];
 }

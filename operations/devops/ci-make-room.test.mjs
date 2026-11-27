@@ -142,3 +142,39 @@ test('t/705: the script asks for pull_request ci.yml runs only, in both statuses
   assert.ok(lists.every((c) => c.includes('/actions/workflows/ci.yml/runs?') && c.includes('event=pull_request')));
   assert.deepEqual(lists.map((c) => /status=(\w+)/.exec(c)[1]).sort(), ['in_progress', 'queued']);
 });
+
+// ── t/806 (SO p/136#129): a ref suffix on a run's path, and a silent zero made visible ──
+
+import { workflowPathOf } from './ci-make-room.mjs';
+
+test('t/806: a run whose path carries an @ref suffix is still a ci.yml run (the suffix is stripped before the /ci.yml check)', () => {
+  assert.equal(workflowPathOf('.github/workflows/ci.yml@refs/heads/main'), '.github/workflows/ci.yml');
+  assert.equal(workflowPathOf('.github/workflows/ci.yml@refs/pull/5/merge'), '.github/workflows/ci.yml');
+  assert.equal(workflowPathOf('.github/workflows/ci.yml'), '.github/workflows/ci.yml');
+  assert.equal(workflowPathOf(undefined), '');
+  assert.equal(workflowPathOf(null), '');
+  const suffixed = run({ path: '.github/workflows/ci.yml@refs/heads/feat/t1-x' });
+  const plain = run();
+  assert.deepEqual(selectRuns([suffixed, plain]).map((r) => r.id).sort(), [suffixed.id, plain.id].sort());
+  // and the suffix does not widen the match to another workflow or a lookalike
+  for (const p of ['.github/workflows/xci.yml@refs/heads/main', '.github/workflows/consult-hold-guard.yml@refs/heads/main', '.github/workflows/ci.yml.bak@refs/heads/main', '@refs/heads/ci.yml', '.github/workflows/other@ci.yml']) {
+    assert.deepEqual(selectRuns([run({ path: p })]), [], p);
+  }
+});
+
+test('t/806: examined N runs, matched M is always printed: with matches, with none, and with runs examined but none matching (the silent zero)', () => {
+  const lines = (runs) => { const out = []; makeRoom({ repo: 'o/r', ghFn: fakeGh(runs), now: NOW, log: (l) => out.push(l) }); return out; };
+  // two matching runs plus a completed run and an incident run that are examined but not matched
+  const a = lines([run(), run({ status: 'in_progress' }), run({ head_branch: 'incident/t1-x' })]);
+  assert.ok(a.includes('ci-make-room: examined 3 runs, matched 2'), a.join('\n'));
+  // nothing at all
+  assert.ok(lines([]).includes('ci-make-room: examined 0 runs, matched 0'));
+  // runs examined, none matched: a path the filter stopped matching must read 'examined 2, matched 0', not just an empty list
+  const z = lines([run({ path: '.github/workflows/renamed-ci.yml' }), run({ event: 'push', head_branch: 'main' })]);
+  assert.ok(z.includes('ci-make-room: examined 2 runs, matched 0'), z.join('\n'));
+  // it is printed in cancel mode too, before anything is cancelled
+  const out = [];
+  makeRoom({ repo: 'o/r', cancel: true, incident: 't/9', by: 'cad2074a-520d-414b-a665-d505a9d24de5', ghFn: fakeGh([run()]), now: NOW, log: (l) => out.push(l) });
+  assert.ok(out.indexOf('ci-make-room: examined 1 runs, matched 1') >= 0);
+  assert.ok(out.indexOf('ci-make-room: examined 1 runs, matched 1') < out.findIndex((l) => l.includes('CANCELLED')));
+});
