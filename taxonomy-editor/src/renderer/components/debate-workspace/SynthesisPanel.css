@@ -23,9 +23,7 @@
 .syn-camp-other { --syn-camp: var(--text-secondary); }
 
 /* Header */
-.syn-eyebrow { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); }
-.syn-title { margin: var(--sp-1) 0 var(--sp-2); font-size: var(--text-xl); font-weight: 600; line-height: 1.25; }
-.syn-debaters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); color: var(--text-secondary); font-size: var(--text-sm); }
+.syn-heading { margin: 0; font-size: var(--text-xl); font-weight: 600; line-height: 1.25; }
 .syn-camp-chip {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 var(--sp-2); border: 1px solid var(--syn-camp); border-radius: 999px;

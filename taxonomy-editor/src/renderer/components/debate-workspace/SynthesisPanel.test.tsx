@@ -150,7 +150,8 @@ describe('SynthesisPanelView', () => {
 
   it('collapsed shows the header, title and bottom-line paragraph only', () => {
     mount(synthesis(), { collapsed: true, onToggleCollapsed: vi.fn() });
-    expect(screen.getByRole('heading', { name: 'Should we pause?' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: 'Debate synthesis' })).toBeTruthy();
+    expect(screen.queryByText('Should we pause?')).toBeNull(); // the page header above already shows the motion and the debaters
     expect(screen.getByText('It landed here.')).toBeTruthy();
     for (const h of ['Disputes', 'Cruxes', 'Common ground', 'Open questions', 'Next moves']) {
       expect(screen.queryByRole('heading', { name: h })).toBeNull();
@@ -174,6 +175,23 @@ describe('SynthesisPanelView', () => {
     expect(links[0].textContent).toBe('Skip to transcript');
     fireEvent.click(links[0]);
     expect(onSkip).toHaveBeenCalledOnce();
+  });
+});
+
+describe('outline link (spec §12)', () => {
+  it('the outline SYNTHESIS item scrolls to the panel, not to the pointer row', async () => {
+    const { TranscriptOutline } = await import('./TranscriptOutline');
+    const scroll = vi.fn();
+    render(
+      <>
+        <div id="synthesis-v2-top" />
+        <div id="debate-entry-c1"><div className="syn-pointer" /></div>
+        <TranscriptOutline transcript={[{ id: 'c1', type: 'concluding', speaker: 'system', content: 'x' }] as never} />
+      </>,
+    );
+    HTMLElement.prototype.scrollIntoView = function () { scroll(this.id); };
+    fireEvent.click(screen.getByText('Synthesis'));
+    expect(scroll).toHaveBeenCalledWith('synthesis-v2-top');
   });
 });
 

@@ -11,7 +11,7 @@ import type { SynthesisView } from './synthesisView';
 
 /** Keyed text in render order. Keys are what the panel passes to its highlighter. */
 export function synthesisFindTexts(view: SynthesisView): [string, string][] {
-  const out: [string, string][] = [['title', view.title]];
+  const out: [string, string][] = [];
   const bl = view.bottomLine;
   if (bl.paragraph) out.push(['bl', bl.paragraph]);
   if (bl.more) out.push(['blmore', bl.more]);

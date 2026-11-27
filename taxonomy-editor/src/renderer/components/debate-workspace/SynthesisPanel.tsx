@@ -195,7 +195,7 @@ function PanelHeader({ view, ids, collapsed, bodyId, onJump, onSkip, onToggle, o
   return (
     <header className="syn-header">
       <div className="syn-header-row">
-        <div className="syn-eyebrow">Debate synthesis</div>
+        <h2 className="syn-heading">Debate synthesis</h2>
         <div className="syn-header-actions">
           <ExportBriefButton onExportBrief={onExportBrief} />
         {onToggle && (
@@ -205,14 +205,6 @@ function PanelHeader({ view, ids, collapsed, bodyId, onJump, onSkip, onToggle, o
         )}
         </div>
       </div>
-      <h2 className="syn-title"><Hl k="title" text={view.title} /></h2>
-      {!collapsed && view.debaters.length > 0 && (
-        <p className="syn-debaters">
-          {view.debaters.map((c, i) => (
-            <span key={c.id}>{i > 0 && <span className="syn-vs"> vs </span>}<CampChip camp={c} /></span>
-          ))}
-        </p>
-      )}
       {(view.nav.length > 0 || onSkip) && (
         <nav className="syn-nav" aria-label="Synthesis sections">
           {onSkip && (
