@@ -1,15 +1,12 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/809: the synthesis panel's small bits of browser-side state. The short-lived `synthesisV2`
-// switch (default OFF; `localStorage.synthesisV2 = '1'`), the open-question checkboxes and the
-// collapse choice are all localStorage, keyed by debate id (the debate model has no field for
+// t/809: the synthesis panel's small bits of browser-side state: the open-question checkboxes and
+// the collapse choice, in localStorage keyed by debate id (the debate model has no field for
 // them; the store is Rosetta Stone's). A blocked or corrupt store is recorded and the default is
 // used, so the panel never fails because of it.
 
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
-
-const SWITCH_KEY = 'synthesisV2';
 
 function read(key: string, what: string): string | null {
   try {
@@ -32,11 +29,6 @@ function write(key: string, value: string, what: string): void {
       error: { name: (err as Error).name, message: (err as Error).message, stack: (err as Error).stack },
     });
   }
-}
-
-/** `localStorage.synthesisV2 = '1'` turns the v2 panel on. */
-export function isSynthesisV2On(): boolean {
-  return read(SWITCH_KEY, 'synthesisV2 switch') === '1';
 }
 
 const questionsKey = (debateId: string): string => `synthesisV2.questions.${debateId}`;

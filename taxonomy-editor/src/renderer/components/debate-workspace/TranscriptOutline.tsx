@@ -39,6 +39,8 @@ function buildOutline(transcript: readonly OutlineTranscriptEntry[]): OutlineIte
   // grouped section appended at the end (t/2275) — so they stay grouped and
   // sort after Synthesis even when interleaved among debate turns.
   const factChecks: OutlineTranscriptEntry[] = [];
+  // t/826 (spec §13.4): the synthesis panel is the first thing on the page, so its entry leads.
+  const synthesisItems: OutlineItem[] = [];
 
   for (const entry of transcript) {
     const t = entry.type;
@@ -66,7 +68,7 @@ function buildOutline(transcript: readonly OutlineTranscriptEntry[]): OutlineIte
     } else if (SYNTHESIS_TYPES.has(t)) {
       if (section !== 'synthesis') {
         section = 'synthesis';
-        items.push({ key: `sec-synthesis-${entry.id}`, label: 'Synthesis', targetEntryId: entry.id, kind: 'section' });
+        synthesisItems.push({ key: `sec-synthesis-${entry.id}`, label: 'Synthesis', targetEntryId: entry.id, kind: 'section' });
       }
     } else if (t === 'fact-check') {
       factChecks.push(entry);
@@ -74,6 +76,8 @@ function buildOutline(transcript: readonly OutlineTranscriptEntry[]): OutlineIte
     // Other types (probing, clarification, system, question) are not outline
     // anchors; they stay inline in the transcript.
   }
+
+  items.unshift(...synthesisItems);
 
   // Grouped "Fact Check" section appended last, with a numbered sub-item per
   // fact-check anchoring to its entry. Omitted entirely when there are none.

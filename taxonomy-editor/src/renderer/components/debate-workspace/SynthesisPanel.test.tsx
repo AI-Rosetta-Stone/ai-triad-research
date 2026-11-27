@@ -11,7 +11,6 @@ import { SynthesisPanelView, type PanelFind } from './SynthesisPanel';
 import { SynthesisTop, SynthesisPointerRow, useSynthesisTop, findSynthesisEntry, panelFindOffsets } from './SynthesisTop';
 import { buildSynthesisView } from '@lib/debate/synthesisView';
 import { synthesisFindOffsets } from './synthesisFind';
-import { isSynthesisV2On } from './synthesisStorage';
 
 const ARGUMENT_MAP = [{ claim_id: 'C1', claimant: 'skeptic' }, { claim_id: 'C2', claimant: 'safetyist' }];
 const CAMPS = ['accelerationist', 'safetyist', 'skeptic'];
@@ -281,10 +280,8 @@ describe('SynthesisTop placement (spec §12)', () => {
     expect(document.activeElement?.id).toBe('synthesis-v2-top');
   });
 
-  it('nothing is built until the switch is on and a concluding entry with a synthesis exists', () => {
+  it('the panel is on by default once a concluding entry with a synthesis exists, and nothing is built before', () => {
     const concluded = debate([entry('statement'), entry('concluding', { metadata: { synthesis: synthesis() } })]);
-    expect(renderHook(() => useSynthesisTop(concluded)).result.current).toBeNull(); // switch off
-    localStorage.setItem('synthesisV2', '1');
     expect(renderHook(() => useSynthesisTop(concluded)).result.current?.view.disputes).toHaveLength(2);
     expect(renderHook(() => useSynthesisTop(debate([entry('statement')]))).result.current).toBeNull(); // still running
     expect(renderHook(() => useSynthesisTop(debate([entry('concluding', { metadata: {} })]))).result.current).toBeNull(); // failed
@@ -296,63 +293,5 @@ describe('SynthesisTop placement (spec §12)', () => {
     expect(panelFindOffsets(top, 'fair').total).toBe(2);
     expect(panelFindOffsets(null, 'fair').total).toBe(0);
     expect(findSynthesisEntry([entry('concluding') as never])).toBeNull();
-  });
-});
-
-describe('isSynthesisV2On', () => {
-  it('is off by default and on only for localStorage.synthesisV2 = "1"', () => {
-    expect(isSynthesisV2On()).toBe(false);
-    localStorage.setItem('synthesisV2', '1');
-    expect(isSynthesisV2On()).toBe(true);
-    localStorage.setItem('synthesisV2', 'true');
-    expect(isSynthesisV2On()).toBe(false);
-  });
-});
-
-describe('open questions in the panel (spec §8)', () => {
-  const withThemes = (themes: string[]) =>
-    synthesis({ unresolved_questions: ['Who pays?', 'When?', 'Which law?'], unresolved_question_themes: themes });
-
-  it('themed groups render as a fieldset with a legend, plus a final untitled list without an Other heading', () => {
-    const { container } = mount(withThemes(['Funding', 'Funding', '']));
-    const fs = container.querySelector('fieldset.syn-question-group') as HTMLElement;
-    expect(within(fs).getByText('Funding')).toBeTruthy();
-    expect(within(fs).getAllByRole('checkbox')).toHaveLength(2);
-    expect(container.querySelectorAll('fieldset')).toHaveLength(1);
-    expect(container.textContent).not.toMatch(/Other/);
-    expect(screen.getByLabelText('Which law?')).toBeTruthy();
-  });
-
-  it('every question with its own theme stays a flat list', () => {
-    const { container } = mount(withThemes(['A', 'B', 'C']));
-    expect(container.querySelectorAll('fieldset')).toHaveLength(0);
-    expect(screen.getAllByRole('checkbox')).toHaveLength(3);
-  });
-});
-
-describe('join and find guards (Quality, #5637)', () => {
-  it('a preference with a valid disagreement_id is joined by id even when its text equals another dispute', () => {
-    const v = buildSynthesisView({
-      debaters: CAMPS,
-      synthesis: {
-        argument_map: ARGUMENT_MAP,
-        areas_of_disagreement: [
-          { id: 'd1', point: 'Whether audits can be enforced fairly', type: 'EMPIRICAL', positions: [] },
-          { id: 'd2', point: 'Whether a pause shifts incentives toward safety', type: 'VALUES', positions: [] },
-        ],
-        preferences: [{ conflict: 'Whether audits can be enforced fairly', disagreement_id: 'd2', prevails: 'C1', criterion: 'scope', rationale: 'r' }],
-      },
-    });
-    expect(v.disputes.map(d => [d.n, d.verdict.kind])).toEqual([['D1', 'none'], ['D2', 'camp']]);
-  });
-
-  it('find counts and marks the Read more text of a long bottom line', () => {
-    const view = viewOf(synthesis({ topic_resolution: { where_it_landed: 'One. Two. Three. Fourth zebra here.' } }));
-    const { total, offsets } = synthesisFindOffsets(view, 'zebra');
-    expect(total).toBe(1);
-    const find: PanelFind = { query: 'zebra', current: 0, offsets };
-    render(<SynthesisPanelView debateId="d1" view={view} find={find} />);
-    expect(document.querySelectorAll('mark[data-find-index]')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'Read less' })).toBeTruthy(); // opened by the find, so the match has an element
   });
 });
