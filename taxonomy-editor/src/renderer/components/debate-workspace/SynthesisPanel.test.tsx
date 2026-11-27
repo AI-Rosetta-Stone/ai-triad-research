@@ -56,11 +56,26 @@ describe('SynthesisPanelView', () => {
     expect(screen.getByRole('img').getAttribute('aria-label')).toBe('D1: Skeptic stronger. D2: no verdict.');
   });
 
-  it('does not render Share, Export brief, Run another round or Debate this (no backing action)', () => {
+  it('does not render Share, Run another round or Debate this (no backing action), nor Export brief without a handler', () => {
     mount();
     for (const name of [/share/i, /export brief/i, /run another round/i, /debate this/i]) {
       expect(screen.queryByRole('button', { name })).toBeNull();
     }
+  });
+
+  it('Export brief shows in the header and the footer when there is a handler, and calls it', () => {
+    const onExportBrief = vi.fn();
+    mount(synthesis(), { onExportBrief });
+    const buttons = screen.getAllByRole('button', { name: 'Export brief' });
+    expect(buttons).toHaveLength(2);
+    fireEvent.click(buttons[1]);
+    expect(onExportBrief).toHaveBeenCalledOnce();
+  });
+
+  it('a next-move title that lost text keeps the full dispute in the card', () => {
+    mount(synthesis({ areas_of_disagreement: [{ point: 'Whether a pause works, and who pays for it afterwards', type: 'EMPIRICAL', positions: [] }], preferences: [] }));
+    expect(screen.getByText('Find a way to measure a pause works')).toBeTruthy();
+    expect(screen.getAllByText('Whether a pause works, and who pays for it afterwards').length).toBeGreaterThan(1);
   });
 
   it('common ground shows 3 then Show all N points with aria-expanded', () => {
@@ -226,5 +241,26 @@ describe('isSynthesisV2On', () => {
     expect(isSynthesisV2On()).toBe(true);
     localStorage.setItem('synthesisV2', 'true');
     expect(isSynthesisV2On()).toBe(false);
+  });
+});
+
+describe('open questions in the panel (spec §8)', () => {
+  const withThemes = (themes: string[]) =>
+    synthesis({ unresolved_questions: ['Who pays?', 'When?', 'Which law?'], unresolved_question_themes: themes });
+
+  it('themed groups render as a fieldset with a legend, plus a final untitled list without an Other heading', () => {
+    const { container } = mount(withThemes(['Funding', 'Funding', '']));
+    const fs = container.querySelector('fieldset.syn-question-group') as HTMLElement;
+    expect(within(fs).getByText('Funding')).toBeTruthy();
+    expect(within(fs).getAllByRole('checkbox')).toHaveLength(2);
+    expect(container.querySelectorAll('fieldset')).toHaveLength(1);
+    expect(container.textContent).not.toMatch(/Other/);
+    expect(screen.getByLabelText('Which law?')).toBeTruthy();
+  });
+
+  it('every question with its own theme stays a flat list', () => {
+    const { container } = mount(withThemes(['A', 'B', 'C']));
+    expect(container.querySelectorAll('fieldset')).toHaveLength(0);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(3);
   });
 });

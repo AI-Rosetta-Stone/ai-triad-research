@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect } from 'vitest';
-import { buildSynthesisView, shorten, textMatches } from './synthesisView';
+import { buildSynthesisView, termOf, textMatches } from './synthesisView';
 
 const CAMPS = ['accelerationist', 'safetyist', 'skeptic'];
 
@@ -179,10 +179,12 @@ describe('buildSynthesisView', () => {
       },
     });
     expect(v.nextMoves.map(m => [m.kind, m.title, m.chip])).toEqual([
-      ['definitional', 'Define What counts as frontier', 'Settles D2'],
-      ['empirical', 'Find a way to measure Does compliance cost crush open source developers in…', 'Bears on D1, D3'],
+      ['definitional', 'Define what counts as frontier', 'Settles D2'],
+      ['empirical', 'Find a way to measure does compliance cost crush open source developers', 'Bears on D1, D3'],
     ]);
     expect(v.nextMoves[0].body).toBe('resolvable by clarification');
+    expect(v.nextMoves[0].context).toBeNull();
+    expect(v.nextMoves[1].context).toBe('Does compliance cost crush open source developers in practice today');
     expect(v.bottomLine.settle.map(r => [r.type, r.action, r.ids])).toEqual([
       ['Definitional', 'Clearer terms', ['D2']], ['Empirical', 'New evidence', ['D1', 'D3']],
     ]);
@@ -219,12 +221,43 @@ describe('buildSynthesisView', () => {
 });
 
 describe('helpers', () => {
-  it('shorten cuts at a word boundary and drops trailing punctuation', () => {
-    expect(shorten('a b c d e f g h i j')).toBe('a b c d e f g h…');
-    expect(shorten('Short one?')).toBe('Short one');
+  it('termOf drops a leading Whether, lower-cases, cuts at a clause boundary and never adds an ellipsis', () => {
+    expect(termOf('Whether protocol-level verification standards and insurance solvency floors can be enforced without entrenching industry monopolies.'))
+      .toEqual({ term: 'protocol-level verification standards and insurance solvency floors', lost: true });
+    expect(termOf('Whether a pause works, and who pays for it afterwards')).toEqual({ term: 'a pause works', lost: true });
+    expect(termOf('Short one?')).toEqual({ term: 'short one', lost: false });
+    expect(termOf('What counts as frontier')).toEqual({ term: 'what counts as frontier', lost: false });
+    expect(termOf('Whether AI labs disclose compute use')).toEqual({ term: 'AI labs disclose compute use', lost: false });
   });
   it('textMatches tolerates punctuation, case and light paraphrase', () => {
     expect(textMatches('Is X fair?', 'is x fair')).toBe(true);
     expect(textMatches('apples and oranges', 'quantum chromodynamics')).toBe(false);
+  });
+});
+
+describe('open question grouping (spec §8, Design p/14#151)', () => {
+  const qs = ['q1', 'q2', 'q3', 'q4'];
+  const groups = (themes: unknown) => buildSynthesisView({
+    debaters: CAMPS, synthesis: { unresolved_questions: qs, unresolved_question_themes: themes },
+  }).openQuestionGroups.map(g => [g.theme, g.questions.map(q => q.id)]);
+
+  it('groups by theme when at least one theme covers 2+ questions; no theme goes in a final untitled list', () => {
+    expect(groups(['Funding', '', 'Funding', 'Staff'])).toEqual([
+      ['Funding', ['Q1', 'Q3']], ['Staff', ['Q4']], [null, ['Q2']],
+    ]);
+  });
+
+  it('renders one flat list when every question has its own theme (guards against per-question labels)', () => {
+    expect(groups(['A', 'B', 'C', 'D'])).toEqual([[null, ['Q1', 'Q2', 'Q3', 'Q4']]]);
+  });
+
+  it('renders one flat list with no themes, or when the themes field is absent or malformed', () => {
+    expect(groups(['', '', '', ''])).toEqual([[null, ['Q1', 'Q2', 'Q3', 'Q4']]]);
+    expect(groups(undefined)).toEqual([[null, ['Q1', 'Q2', 'Q3', 'Q4']]]);
+    expect(groups('nope')).toEqual([[null, ['Q1', 'Q2', 'Q3', 'Q4']]]);
+  });
+
+  it('has no groups without questions', () => {
+    expect(buildSynthesisView({ debaters: CAMPS, synthesis: {} }).openQuestionGroups).toEqual([]);
   });
 });

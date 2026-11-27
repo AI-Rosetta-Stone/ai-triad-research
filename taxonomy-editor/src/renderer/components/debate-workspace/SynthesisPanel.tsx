@@ -139,7 +139,7 @@ function DisputeCard({ d }: { d: DisputeCardView }) {
   );
 }
 
-function OpenQuestions({ items, debateId }: { items: SynthesisView['openQuestions']; debateId: string }) {
+function OpenQuestions({ groups, debateId }: { groups: SynthesisView['openQuestionGroups']; debateId: string }) {
   const [checked, setChecked] = useState<Set<string>>(() => readCheckedQuestions(debateId));
   const toggle = useCallback((id: string) => {
     setChecked(prev => {
@@ -149,9 +149,9 @@ function OpenQuestions({ items, debateId }: { items: SynthesisView['openQuestion
       return next;
     });
   }, [debateId]);
-  return (
+  const list = (qs: { id: string; text: string }[]) => (
     <ul className="syn-questions">
-      {items.map(q => {
+      {qs.map(q => {
         const id = `synthesisV2.questions.${debateId}.${q.id}`;
         return (
           <li key={q.id} className="syn-question">
@@ -161,6 +161,14 @@ function OpenQuestions({ items, debateId }: { items: SynthesisView['openQuestion
         );
       })}
     </ul>
+  );
+  if (groups.length === 1 && groups[0].theme === null) return list(groups[0].questions);
+  return (
+    <div className="syn-question-groups">
+      {groups.map((g, i) => g.theme === null
+        ? <div key={i} className="syn-question-ungrouped">{list(g.questions)}</div>
+        : <fieldset key={i} className="syn-question-group"><legend>{g.theme}</legend>{list(g.questions)}</fieldset>)}
+    </div>
   );
 }
 
@@ -175,19 +183,27 @@ function SectionHead({ id, sectionKey, text, intro }: { id: string; sectionKey: 
   );
 }
 
-function PanelHeader({ view, ids, collapsed, bodyId, onJump, onSkip, onToggle }: {
+function ExportBriefButton({ onExportBrief }: { onExportBrief?: () => void }) {
+  if (!onExportBrief) return null;
+  return <button type="button" className="btn btn-primary syn-export" onClick={onExportBrief}>Export brief</button>;
+}
+
+function PanelHeader({ view, ids, collapsed, bodyId, onJump, onSkip, onToggle, onExportBrief }: {
   view: SynthesisView; ids: Record<SectionKey, string>; collapsed: boolean; bodyId: string;
-  onJump: (k: SectionKey) => void; onSkip?: () => void; onToggle?: () => void;
+  onJump: (k: SectionKey) => void; onSkip?: () => void; onToggle?: () => void; onExportBrief?: () => void;
 }) {
   return (
     <header className="syn-header">
       <div className="syn-header-row">
         <div className="syn-eyebrow">Debate synthesis</div>
+        <div className="syn-header-actions">
+          <ExportBriefButton onExportBrief={onExportBrief} />
         {onToggle && (
           <button type="button" className="btn btn-ghost syn-collapse" aria-expanded={!collapsed} aria-controls={bodyId} onClick={onToggle}>
             {collapsed ? 'Expand synthesis ▾' : 'Collapse synthesis ▴'}
           </button>
         )}
+        </div>
       </div>
       <h2 className="syn-title"><Hl k="title" text={view.title} /></h2>
       {!collapsed && view.debaters.length > 0 && (
@@ -270,6 +286,7 @@ function NextMoves({ moves }: { moves: SynthesisView['nextMoves'] }) {
           <div key={m.kind} className="syn-move">
             <div className="syn-move-title"><Hl k={`move${i}.title`} text={m.title} /></div>
             <span className="syn-move-chip">{m.chip}</span>
+            {m.context && <p className="syn-move-ctx"><Hl k={`move${i}.ctx`} text={m.context} /></p>}
             {m.body && <p><Hl k={`move${i}.body`} text={m.body} /></p>}
           </div>
         ))}
@@ -319,7 +336,7 @@ function Cruxes({ cruxes, id }: { cruxes: SynthesisView['cruxes']; id: string })
   );
 }
 
-function ExpandedSections({ view, ids, debateId }: { view: SynthesisView; ids: Record<SectionKey, string>; debateId: string }) {
+function ExpandedSections({ view, ids, debateId, onExportBrief }: { view: SynthesisView; ids: Record<SectionKey, string>; debateId: string; onExportBrief?: () => void }) {
   const hasAgreements = view.agreements.items.length > 0 || view.agreements.unreadable;
   return (
     <>
@@ -335,10 +352,13 @@ function ExpandedSections({ view, ids, debateId }: { view: SynthesisView; ids: R
       {view.openQuestions.length > 0 && (
         <section aria-labelledby={ids['open-questions']}>
           <SectionHead id={ids['open-questions']} sectionKey="open-questions" text="Open questions" intro="Nobody answered these. Expect reviewers to ask." />
-          <OpenQuestions items={view.openQuestions} debateId={debateId} />
+          <OpenQuestions groups={view.openQuestionGroups} debateId={debateId} />
         </section>
       )}
-      <footer className="syn-footer">Synthesis of the full debate transcript.</footer>
+      <footer className="syn-footer">
+        <span>Synthesis of the full debate transcript.</span>
+        <ExportBriefButton onExportBrief={onExportBrief} />
+      </footer>
     </>
   );
 }
@@ -352,9 +372,11 @@ export interface SynthesisPanelViewProps {
   onToggleCollapsed?: () => void;
   /** Moves focus to the first transcript entry; adds the "Skip to transcript" link. */
   onSkip?: () => void;
+  /** Exports the debate's Markdown brief; "Export brief" is hidden when there is no handler. */
+  onExportBrief?: () => void;
 }
 
-export function SynthesisPanelView({ view, debateId, find = null, collapsed = false, onToggleCollapsed, onSkip }: SynthesisPanelViewProps) {
+export function SynthesisPanelView({ view, debateId, find = null, collapsed = false, onToggleCollapsed, onSkip, onExportBrief }: SynthesisPanelViewProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyId = useId();
   const ids: Record<SectionKey, string> = {
@@ -374,10 +396,10 @@ export function SynthesisPanelView({ view, debateId, find = null, collapsed = fa
   return (
     <FindContext.Provider value={find}>
       <div className="syn-panel" ref={rootRef} data-testid="synthesis-v2" data-collapsed={isCollapsed || undefined}>
-        <PanelHeader view={view} ids={ids} collapsed={isCollapsed} bodyId={bodyId} onJump={jump} onSkip={onSkip} onToggle={onToggleCollapsed} />
+        <PanelHeader view={view} ids={ids} collapsed={isCollapsed} bodyId={bodyId} onJump={jump} onSkip={onSkip} onToggle={onToggleCollapsed} onExportBrief={onExportBrief} />
         <div id={bodyId} className="syn-body">
           {hasBottomLine && <BottomLineCard view={view} collapsed={isCollapsed} />}
-          {!isCollapsed && <ExpandedSections view={view} ids={ids} debateId={debateId} />}
+          {!isCollapsed && <ExpandedSections view={view} ids={ids} debateId={debateId} onExportBrief={onExportBrief} />}
         </div>
       </div>
     </FindContext.Provider>

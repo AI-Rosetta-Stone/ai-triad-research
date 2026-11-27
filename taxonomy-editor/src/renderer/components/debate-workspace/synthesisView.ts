@@ -50,6 +50,8 @@ export interface NextMoveView {
   title: string;
   chip: string;
   body: string | null;
+  /** The full dispute text, when the title had to drop some of it. */
+  context: string | null;
 }
 
 export interface SettleRow { key: DisputeTypeKey; type: string; action: string; ids: string[] }
@@ -79,6 +81,8 @@ export interface SynthesisView {
   disputes: DisputeCardView[];
   cruxes: { n: string; type: DisputeTypeKey | null; typeLabel: string | null; rawType: string | null; question: string }[];
   openQuestions: { id: string; text: string }[];
+  /** Open questions in render order: one untitled group (flat), or themed groups (spec §8). */
+  openQuestionGroups: { theme: string | null; questions: { id: string; text: string }[] }[];
   /** Section nav: only sections with items (or the unreadable line). */
   nav: { key: 'common-ground' | 'disputes' | 'cruxes' | 'open-questions'; label: string; count: number }[];
 }
@@ -157,11 +161,30 @@ export function textMatches(a: string, b: string): boolean {
   return tokenOverlap(x, y) >= 0.6;
 }
 
-/** First `n` words at a word boundary, trailing punctuation dropped (spec §7). */
-export function shorten(text: string, n = 8): string {
-  const words = text.trim().split(/\s+/);
-  const cut = words.slice(0, n).join(' ').replace(/[\s,;:.?!–—-]+$/u, '');
-  return words.length > n ? `${cut}…` : cut;
+const TRAILING_FILLER = new Set(['and', 'or', 'the', 'a', 'an', 'of', 'to', 'in', 'on', 'for', 'with', 'without', 'that', 'can', 'be', 'is', 'are', 'will', 'whether', 'if', 'by', 'as']);
+
+/**
+ * The noun-phrase a next-move title is built around (spec §7, Design p/14#150): a leading
+ * "Whether"/"If" dropped, first letter lower-cased (not an acronym), cut at a clause boundary
+ * (comma, semicolon, colon) inside the first `n` words, else at `n` words with dangling filler
+ * words removed. Never an ellipsis: `lost` says whether text was dropped so the caller can show
+ * the full sentence in the card body instead.
+ */
+export function termOf(text: string, n = 8): { term: string; lost: boolean } {
+  const flat = text.trim().replace(/\s+/g, ' ').replace(/[?!.]+$/u, '');
+  const stripped = flat.replace(/^(whether|if)\s+/i, '');
+  const lowered = /^[A-Z][a-z]/.test(stripped) ? stripped[0].toLowerCase() + stripped.slice(1) : stripped;
+  const words = lowered.split(' ');
+  let cut = words.slice(0, n).join(' ');
+  const clause = cut.search(/[,;:]/);
+  if (words.length > n || clause >= 0) {
+    if (clause > 0) cut = cut.slice(0, clause);
+    const kept = cut.split(' ');
+    while (kept.length > 1 && TRAILING_FILLER.has(kept[kept.length - 1].toLowerCase())) kept.pop();
+    cut = kept.join(' ');
+  }
+  const term = cut.replace(/[\s,;:.?!–—-]+$/u, '');
+  return { term, lost: term.length < lowered.length };
 }
 
 function splitSentences(text: string): string[] {
@@ -351,13 +374,13 @@ function buildNextMoves(disputes: DisputeCardView[]): NextMoveView[] {
   for (const kind of TYPE_ORDER) {
     const ds = disputes.filter(d => d.type?.key === kind);
     if (ds.length === 0) continue;
-    const term = shorten(ds[0].point);
+    const { term, lost } = termOf(ds[0].point);
     const ids = ds.map(d => d.n).join(', ');
     const body = ds.map(d => d.whatWouldChange ?? d.resolvability?.replace(/_/g, ' ') ?? null).find(Boolean) ?? null;
     const [title, chip] = kind === 'definitional' ? [`Define ${term}`, `Settles ${ids}`]
       : kind === 'empirical' ? [`Find a way to measure ${term}`, `Bears on ${ids}`]
         : [`Name the trade-off on ${term}`, `Answers ${ids}`];
-    moves.push({ kind, title, chip, body });
+    moves.push({ kind, title, chip, body, context: lost ? ds[0].point : null });
   }
   return moves;
 }
@@ -372,6 +395,27 @@ function buildCruxes(s: Rec): SynthesisView['cruxes'] {
 
 function textOf(q: unknown): string | null {
   return isRec(q) ? str(q.question) ?? str(q.text) : str(q);
+}
+
+/**
+ * Spec §8 (Design p/14#151): group by `unresolved_question_themes` (parallel to the questions, '' for
+ * none) only when at least one theme covers 2+ questions, which guards against a model giving every
+ * question its own label. Otherwise one flat list. Questions with no theme go in a final list with
+ * no heading.
+ */
+function buildQuestionGroups(themes: unknown, questions: { id: string; text: string }[]): SynthesisView['openQuestionGroups'] {
+  if (questions.length === 0) return [];
+  const themeOf = arr(themes);
+  const labelled = questions.map((q, i) => ({ q, theme: str(themeOf[i]) }));
+  const counts = new Map<string, number>();
+  for (const { theme } of labelled) if (theme) counts.set(theme, (counts.get(theme) ?? 0) + 1);
+  if (![...counts.values()].some(n => n >= 2)) return [{ theme: null, questions }];
+  const groups: SynthesisView['openQuestionGroups'] = [...counts.keys()].map(theme => ({
+    theme, questions: labelled.filter(l => l.theme === theme).map(l => l.q),
+  }));
+  const ungrouped = labelled.filter(l => !l.theme).map(l => l.q);
+  if (ungrouped.length) groups.push({ theme: null, questions: ungrouped });
+  return groups;
 }
 
 function buildNav(c: { agreements: number; agreementsUnreadable: boolean; disputes: number; cruxes: number; questions: number }): SynthesisView['nav'] {
@@ -404,6 +448,7 @@ export function buildSynthesisView(input: BuildSynthesisInput): SynthesisView {
     disputes,
     cruxes,
     openQuestions,
+    openQuestionGroups: buildQuestionGroups(s.unresolved_question_themes, openQuestions),
     nav: buildNav({
       agreements: agreementItems.length, agreementsUnreadable, disputes: disputes.length,
       cruxes: cruxes.length, questions: openQuestions.length,
