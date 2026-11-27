@@ -287,13 +287,13 @@ function stepIf(name) {
   return m ? m[1] : null;
 }
 
-test('t/799 step 3: unset secrets are a notice and a green no-op: only the notice step runs; neither the mint nor the push does', () => {
+test('t/799 step 3: unset secrets are a WARNING and a green no-op: only the warning step runs; neither the mint nor the push does', () => {
   const { push } = jobsOf();
   // the job-level boolean carries no secret: it only says whether both exist
   assert.match(push.text, /HEAL_APP_CONFIGURED: \$\{\{ secrets\.HEAL_APP_CLIENT_ID != '' && secrets\.HEAL_APP_PRIVATE_KEY != '' \}\}/);
   const mintIf = stepIf('Mint the heal App token');
   const pushIf = stepIf('Commit and push heal');
-  const noteIf = stepIf('Heal App not configured (no-op)');
+  const noteIf = stepIf('Heal App not configured (warning, no-op)');
   assert.ok(mintIf && pushIf && noteIf);
   for (const validated of ['true', 'false', '']) {
     const run = { mint: evalCond(mintIf, { configured: 'false', validated }), push: evalCond(pushIf, { configured: 'false', validated }), note: evalCond(noteIf, { configured: 'false', validated }) };
@@ -305,9 +305,9 @@ test('t/799 step 3: unset secrets are a notice and a green no-op: only the notic
   assert.deepEqual({ mint: evalCond(mintIf, { configured: 'true', validated: 'false' }), push: evalCond(pushIf, { configured: 'true', validated: 'false' }), note: evalCond(noteIf, { configured: 'true', validated: 'false' }) }, { mint: false, push: false, note: false });
   // the notice step itself is a green notice, not an error or an exit 1
   const code = codeOnly(push.text);
-  const note = code.slice(code.indexOf('- name: Heal App not configured (no-op)'), code.indexOf('- name: Mint the heal App token'));
-  assert.match(note, /::notice::HEAL_APP_CLIENT_ID \/ HEAL_APP_PRIVATE_KEY are not both set/);
-  assert.doesNotMatch(note, /::error::|\bexit [1-9]/);
+  const note = code.slice(code.indexOf('- name: Heal App not configured (warning, no-op)'), code.indexOf('- name: Mint the heal App token'));
+  assert.match(note, /::warning::t\/799: the heal found drift on PR #\$PR_NUMBER but did NOT heal it/);
+  assert.doesNotMatch(note, /::notice::|::error::|\bexit [1-9]/);
 });
 
 test('t/799 step 3 arms: a mint in a job with a PR checkout fails the detector; a mint-only job passes; the old PAT shape still fails', () => {
@@ -321,4 +321,62 @@ test('t/799 step 3 arms: a mint in a job with a PR checkout fails the detector; 
     const wf = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: x\n    steps:\n      - uses: actions/checkout@a\n        with:\n          ref: \${{ github.head_ref }}\n      - run: echo\n        env:\n          X: \${{ secrets.${name} }}\n`;
     assert.equal(isolationViolations(wf).length, 1, name);
   }
+});
+
+// ── t/799 (TL p/9#815): drift detected + App not configured is a WARNING and a step-summary line, only in that case ──
+
+import { spawnSync } from 'node:child_process';
+import os from 'node:os';
+
+function unconfiguredStepScript() {
+  const { push } = jobsOf();
+  const lines = codeOnly(push.text).split('\n');
+  const i = lines.findIndex((l) => l.includes('- name: Heal App not configured (warning, no-op)'));
+  assert.ok(i >= 0, 'the warning step exists');
+  const runAt = lines.findIndex((l, k) => k > i && /^\s+run: \|\s*$/.test(l));
+  const indent = lines[runAt + 1].match(/^\s*/)[0];
+  const body = [];
+  for (let k = runAt + 1; k < lines.length; k++) {
+    if (lines[k].trim() !== '' && !lines[k].startsWith(indent)) break;
+    body.push(lines[k].slice(indent.length));
+  }
+  return body.join('\n');
+}
+
+const bash = process.platform === 'win32' ? 'bash.exe' : 'bash';
+const haveBash = spawnSync(bash, ['-c', 'true']).status === 0;
+const posix = (p) => p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`);
+
+test('t/799: the unconfigured step, run in bash, exits 0, emits ::warning:: (never ::notice::) and appends the step-summary line naming both secrets', { skip: !haveBash && 'bash not available' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-warn-'));
+  const summary = path.join(dir, 'summary.md');
+  fs.writeFileSync(summary, 'earlier line\n');
+  const r = spawnSync(bash, ['-c', unconfiguredStepScript()], { encoding: 'utf8', env: { ...process.env, PR_NUMBER: '5618', GITHUB_STEP_SUMMARY: posix(summary) } });
+  assert.equal(r.status, 0, 'a green no-op');
+  const out = r.stdout + r.stderr;
+  assert.match(out, /^::warning::t\/799: the heal found drift on PR #5618 but did NOT heal it: HEAL_APP_CLIENT_ID and HEAL_APP_PRIVATE_KEY are not both set/m);
+  assert.doesNotMatch(out, /::notice::|::error::/);
+  const written = fs.readFileSync(summary, 'utf8');
+  assert.match(written, /^earlier line\n/, 'appended, not overwritten');
+  assert.match(written, /\*\*Heal skipped on PR #5618:\*\* drift was detected but HEAL_APP_CLIENT_ID \/ HEAL_APP_PRIVATE_KEY are not both set, so nothing was healed/);
+});
+
+test('t/799: the warning and the summary line exist ONLY in the unconfigured step; a configured run (mint, push) emits neither', () => {
+  const { push } = jobsOf();
+  const code = codeOnly(push.text);
+  const start = code.indexOf('- name: Heal App not configured (warning, no-op)');
+  const end = code.indexOf('- name: Mint the heal App token');
+  const before = code.slice(0, start);
+  const after = code.slice(end);
+  for (const part of [before, after]) {
+    assert.doesNotMatch(part, /::warning::t\/799: the heal found drift/, 'the skipped-heal warning is not elsewhere');
+    assert.doesNotMatch(part, /Heal skipped on PR/, 'the skipped-heal summary line is not elsewhere');
+  }
+  // the validate step (before) and the push step (after) never write the skipped-heal summary; the push step does not touch the step summary at all
+  const pushStep = after.slice(after.indexOf('- name: Commit and push heal'));
+  assert.doesNotMatch(pushStep, /GITHUB_STEP_SUMMARY/);
+  // and the unconfigured step is gated on the boolean being NOT true, so a configured run never reaches it
+  const noteIf = stepIf('Heal App not configured (warning, no-op)');
+  for (const validated of ['true', 'false', '']) assert.equal(evalCond(noteIf, { configured: 'true', validated }), false, `configured, validated=${validated}`);
+  for (const validated of ['true', 'false', '']) assert.equal(evalCond(noteIf, { configured: 'false', validated }), true, `unconfigured, validated=${validated}`);
 });

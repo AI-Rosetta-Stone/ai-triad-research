@@ -247,10 +247,14 @@ jobs:
           fi
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
-      # Absent App secrets: a notice and a green no-op (the heal is skipped, never red). Nothing below runs.
-      - name: Heal App not configured (no-op)
+      # Absent App secrets: this job only runs when the prepare job DETECTED DRIFT, so a missing or misnamed secret means a PR that needed
+      # healing was NOT healed. That is a WARNING and a step-summary line (visible on the run page), not a notice, and the job stays green
+      # (the heal is skipped, never red). Nothing below runs. A configured run emits neither.
+      - name: Heal App not configured (warning, no-op)
         if: env.HEAL_APP_CONFIGURED != 'true'
-        run: echo "::notice::HEAL_APP_CLIENT_ID / HEAL_APP_PRIVATE_KEY are not both set: drift was detected but the heal is skipped (no-op)."
+        run: |
+          echo "::warning::t/799: the heal found drift on PR #$PR_NUMBER but did NOT heal it: HEAL_APP_CLIENT_ID and HEAL_APP_PRIVATE_KEY are not both set as Dependabot secrets. Set them (or fix the names in dependabot-lockfile-heal.yml) and re-run."
+          echo "**Heal skipped on PR #$PR_NUMBER:** drift was detected but HEAL_APP_CLIENT_ID / HEAL_APP_PRIVATE_KEY are not both set, so nothing was healed. The PR needs the secrets or a manual heal (t/799)." >> "$GITHUB_STEP_SUMMARY"
 
       # ── SECURITY BOUNDARY ─────────────────────────────────────────────────
       # The write credential is MINTED here, after the validate step and right before the push step: a short-lived installation token
