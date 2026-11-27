@@ -141,8 +141,23 @@
 .syn-debate { margin-left: auto; align-self: flex-start; }
 .syn-question { flex-wrap: wrap; }
 .syn-question label { flex: 1 1 14rem; }
-.syn-crux .syn-debate { grid-column: 1 / -1; justify-self: start; }
-@container (min-width: 640px) { .syn-crux .syn-debate { grid-column: auto; } }
+.syn-crux .syn-crux-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.syn-crux .syn-debate { margin-left: 0; }
+.syn-crux-details { flex: 1 0 100%; display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--text-sm); color: var(--text-secondary); }
+.syn-crux-details strong { color: var(--text-primary); }
+.syn-crux-details p { margin: 0; }
+/* t/825 (§13.3): strongest arguments, one card per camp; a 3-up grid at >=1024px container width. */
+.syn-arg-camps { display: grid; grid-template-columns: 1fr; gap: var(--sp-3); }
+@container (min-width: 1024px) { .syn-arg-camps { grid-template-columns: repeat(3, 1fr); } }
+.syn-arg-camp { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--radius-md); min-width: 0; }
+.syn-arg-camp > .syn-camp-chip { align-self: flex-start; }
+.syn-arg-list { display: flex; flex-direction: column; gap: var(--sp-3); padding-left: var(--sp-5) !important; list-style: decimal !important; }
+.syn-arg { font-size: var(--text-md); }
+.syn-arg-meta, .syn-arg-none { font-size: var(--text-sm); color: var(--text-secondary); }
+.syn-arg-link { font-size: var(--text-sm); color: var(--text-primary); text-decoration: underline; text-underline-offset: 2px; }
+.syn-arg-link:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+/* the statement an argument links to flashes briefly; plain outline, no hue */
+.syn-flash { outline: 2px solid var(--text-primary); outline-offset: 2px; }
 .syn-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); color: var(--text-secondary); font-size: var(--text-sm); }
 
 @media (prefers-reduced-motion: reduce) { .syn-panel * { scroll-behavior: auto; transition: none; } }
