@@ -92,6 +92,14 @@ export function assumedOutputCapTokens(requested?: number): number {
   return getConfig().sessions.dailyTokenDefaultOutputCapTokens;
 }
 
+/** t/811: the same worst-case token estimate the daily gate holds for a call (prompt bytes / the configured ratio, plus the
+ *  output cap, read live), for the free pool's token-weighted daily cap: a pool reservation of this size, not a flat 2,000,
+ *  stops calls in flight from overshooting the cap by their real size (a chat turn is about 150,000 tokens). */
+export function estimateCallTokens(promptBytes: number, outputCapTokens: number = assumedOutputCapTokens()): number {
+  const { bytesPerToken } = enforcedBudgetSettings();
+  return Math.ceil(Math.max(0, promptBytes) / bytesPerToken) + Math.ceil(Math.max(0, outputCapTokens));
+}
+
 /** Reserves a call's worst case: its prompt BYTES converted to tokens at the configured ratio (an estimate, see
  *  the header), plus its output cap. The per-call ceiling is checked here against the live config; the budget is then handed
  *  the already-converted token count (1 'byte' per token) so it adds nothing of its own. */

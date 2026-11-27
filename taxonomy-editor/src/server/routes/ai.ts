@@ -27,7 +27,7 @@ import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
 import { hasApiKey, getPaidGeminiFallbackKey, getStoredUserKeysBeforeFreePool, type AIBackend } from '../config.js';
 import * as proxyTiers from '../ai/proxyTiers.js';
 import * as rateLimiter from '../security/rateLimiter.js';
-import { reserveDailyTokens, refuseDailyReserve, settleDailyTokens, assumedOutputCapTokens, estimateUsage, getDailyTokenBudget, reservePaidFallback } from './dailyTokenGate.js';
+import { reserveDailyTokens, refuseDailyReserve, settleDailyTokens, assumedOutputCapTokens, estimateUsage, getDailyTokenBudget, reservePaidFallback, estimateCallTokens } from './dailyTokenGate.js';
 import type { TokenHold } from '../security/dailyTokenBudget.js';
 import * as ai from '../ai/aiBackends.js';
 import { callerHasKey } from '../ai/keyPresenceForCaller.js';
@@ -141,9 +141,9 @@ type AdmitFreePoolCallResult =
  *  baseline) — same reasoning as trackFreePoolReservation below. `reservationId` (fallback or
  *  plain per-call) and `debateReservationId` (covered-by-the-debate's-own-reservation) are
  *  mutually exclusive — trackFreePoolReservation below dispatches on which one is set. */
-async function admitFreePoolCall(req: http.IncomingMessage, res: http.ServerResponse, budgetKey: string, debateId: string | undefined): Promise<AdmitFreePoolCallResult> {
+async function admitFreePoolCall(req: http.IncomingMessage, res: http.ServerResponse, budgetKey: string, debateId: string | undefined, estimateTokens?: number): Promise<AdmitFreePoolCallResult> {
   if (!debateId) {
-    const result = await reserveFreePoolCall(res, budgetKey);
+    const result = await reserveFreePoolCall(res, budgetKey, estimateTokens);
     if (!result.ok) return { ok: false };
     return { ok: true, reservationId: result.reservationId, debateReservationId: null };
   }
@@ -167,7 +167,7 @@ async function admitFreePoolCall(req: http.IncomingMessage, res: http.ServerResp
  *  error response on any refusal; on success, `reservationId`/`debateReservationId` are
  *  mutually exclusive and non-null only when the caller still has something to settle later
  *  (trackFreePoolReservation dispatches on which one is set). */
-async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend, debateId: string | undefined):
+async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend, debateId: string | undefined, estimateTokens?: number):
   Promise<{ ok: true; key: string | string[] | undefined; reservationId: string | null; debateReservationId: string | null } | { ok: false }> {
   const budgetKey = debateId ?? 'generate';
   if (tier.serverProvidedKey) {
@@ -178,7 +178,7 @@ async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerR
     // across server keys via callWithKeyRotation in generateText.
     const freeKeys = poolResult.keys;
     if (freeKeys.length === 0) { res.writeHead(503); res.end(JSON.stringify({ error: 'Free tier is not available' })); return { ok: false }; }
-    const budgetResult = await admitFreePoolCall(req, res, budgetKey, debateId); // t/4485: 429/503 already written on refusal
+    const budgetResult = await admitFreePoolCall(req, res, budgetKey, debateId, estimateTokens); // t/4485: 429/503 already written on refusal
     if (!budgetResult.ok) return { ok: false };
     return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys, reservationId: budgetResult.reservationId, debateReservationId: budgetResult.debateReservationId };
   }
@@ -191,7 +191,7 @@ async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerR
     if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
     if (poolResult.keys.length > 0) {
       explicitKey = poolResult.keys.length === 1 ? poolResult.keys[0] : poolResult.keys;
-      const budgetResult = await admitFreePoolCall(req, res, budgetKey, debateId); // t/4485: same budget as the free tier itself
+      const budgetResult = await admitFreePoolCall(req, res, budgetKey, debateId, estimateTokens); // t/4485: same budget as the free tier itself
       if (!budgetResult.ok) return { ok: false };
       return { ok: true, key: explicitKey, reservationId: budgetResult.reservationId, debateReservationId: budgetResult.debateReservationId };
     }
@@ -577,7 +577,8 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // keys or restricted region); platform → server-side keys; BYOK → client key, with a
       // free-tier Gemini fallback (t/945).
       // t/4485#5: the debate-admission requester scope — the signed-in principal, or the
-      const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend, debateId);
+      // t/811: the pool reservation holds this call's worst case (prompt bytes / ratio + output cap), not a flat 2,000.
+      const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend, debateId, estimateCallTokens(Buffer.byteLength(String(prompt ?? ''), 'utf8')));
       if (!keyResult.ok) return;
       let explicitKey = await applyGeminiAllowlistFallback(backend, keyResult.key, effectiveModel);
       freePoolBudget = trackFreePoolReservation(keyResult.reservationId, keyResult.debateReservationId);

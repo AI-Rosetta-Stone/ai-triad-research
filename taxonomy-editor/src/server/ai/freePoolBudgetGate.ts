@@ -94,8 +94,10 @@ function writeRefusal(res: http.ServerResponse, result: { reason: 'daily_cap'; r
  *  logs (t/4484's `FreePoolBudgetRequest.key`) — the caller's debate id, or a short tag for a
  *  non-debate call. Returns `{ ok: true, reservationId: null }` when enforcement is off (the
  *  common case today) — callers treat a null reservationId as "nothing to commit or release."
- *  On refusal, the response is already written (429 or 503); the caller must return. */
-export async function reserveFreePoolCall(res: http.ServerResponse, key: string): Promise<FreePoolGateResult> {
+ *  On refusal, the response is already written (429 or 503); the caller must return.
+ *  `estimateTokens` (t/811) is what the reservation holds against a token-weighted pool cap: the call's worst case
+ *  (routes/dailyTokenGate.estimateCallTokens), defaulting to the flat per-call estimate; commit records real usage. */
+export async function reserveFreePoolCall(res: http.ServerResponse, key: string, estimateTokens: number = FREE_POOL_CALL_TOKEN_ESTIMATE): Promise<FreePoolGateResult> {
   if (!isFreePoolBudgetEnforced()) return { ok: true, reservationId: null };
   const store = resolveStore();
   if (!store) {
@@ -104,7 +106,7 @@ export async function reserveFreePoolCall(res: http.ServerResponse, key: string)
   }
   let result: FreePoolBudgetReserveResult;
   try {
-    result = await store.reserve({ calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE, key });
+    result = await store.reserve({ calls: 1, tokens: estimateTokens, key });
   } catch (err) {
     // Defensive only — the interface documents reserve() as refusing, never throwing (t/4484).
     log.api.warn({ component: 'free-pool-budget', err }, 'FreePoolBudget.reserve() threw unexpectedly — refusing (fail closed)');
