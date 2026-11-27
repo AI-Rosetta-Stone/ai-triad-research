@@ -261,6 +261,9 @@ export function refuseAnonDebateSave(res: ServerResponse, session: unknown): boo
   return v ? refuseAnonLimit(res, 'PUT /api/debates', v) : false;
 }
 
+/** The longest title the title-only rename exception accepts (the UI makes titles of about 60 characters). */
+export const ANON_DEBATE_MAX_TITLE_CHARS = 200;
+
 /** True when the delta changes nothing but the title: the one write still allowed on an over-limit debate. */
 function isTitleOnlyDelta(delta: DebateDelta): boolean {
   const empty = (a: unknown): boolean => a === undefined || (Array.isArray(a) && a.length === 0);
@@ -271,7 +274,11 @@ function isTitleOnlyDelta(delta: DebateDelta): boolean {
   const meta = d.meta as Record<string, unknown> | undefined;
   if (!meta || typeof meta !== 'object') return false;
   const keys = Object.keys(meta);
-  return keys.length > 0 && keys.every(k => k === 'title' || k === 'updated_at') && typeof meta.title === 'string';
+  if (keys.length === 0 || !keys.every(k => k === 'title' || k === 'updated_at')) return false;
+  // SO p/252#90: this exception skips the shape and size checks, so what it lets through is bounded: a title of at most
+  // ANON_DEBATE_MAX_TITLE_CHARS characters and a short updated_at string. A longer one is an ordinary delta, checked on the merge.
+  if (typeof meta.title !== 'string' || meta.title.length > ANON_DEBATE_MAX_TITLE_CHARS) return false;
+  return meta.updated_at === undefined || (typeof meta.updated_at === 'string' && meta.updated_at.length <= 64);
 }
 
 /** Check A on a delta save (PATCH /api/debates/:id): the check runs on the server's own merge of the caller's stored

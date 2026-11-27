@@ -294,6 +294,26 @@ describe('t/802 check C over real HTTP: the server-owned per-visitor per-day cou
   });
 });
 
+describe('SO p/252#90: the title-only rename exception is bounded', () => {
+  it('a 200-character title passes; a longer one is no longer title-only and is checked as an ordinary delta', async () => {
+    store.set(`anon-${A}`, new Map([['old', deep('old')], ['q1', session('q1')]]));
+    const rename = (id: string, title: string) => send('PATCH', `/api/debates/${id}`, signed(A), delta(id, { meta: { title } }));
+    expect((await rename('old', 'x'.repeat(200))).text).toBe('reached');
+    expectAnonLimit(await rename('old', 'x'.repeat(201)), 'anon_debate_kind'); // a Deep dive: the ordinary check refuses it
+    getConfig().sessions.anonDebateSaveMaxBytes = 70_000;
+    expectAnonLimit(await rename('q1', 'x'.repeat(100_000)), 'anon_debate_turns'); // a Quick Take: the size ceiling refuses it
+    expect((await rename('q1', 'A fine title')).text).toBe('reached');
+  });
+
+  it('updated_at in the rename delta must be a short string too', async () => {
+    store.set(`anon-${A}`, new Map([['old', deep('old')]]));
+    const withStamp = (v: unknown) => send('PATCH', '/api/debates/old', signed(A), delta('old', { meta: { title: 'T', updated_at: v } }));
+    expect((await withStamp('2026-11-27T00:00:00.000Z')).text).toBe('reached');
+    expectAnonLimit(await withStamp('z'.repeat(65)), 'anon_debate_kind');
+    expectAnonLimit(await withStamp({ big: 'z'.repeat(1000) }), 'anon_debate_kind');
+  });
+});
+
 describe('t/724 over real HTTP, B1: no valid anonymous session', () => {
   it.each([['a bare (unsigned) cookie', BARE], ['a forged signature', FORGED], ['no session cookie', NO_SESSION_COOKIE]])(
     '%s: PUT, PATCH and a debate AI call are 401 no_session, and nothing is stored', async (_n, cookie) => {
