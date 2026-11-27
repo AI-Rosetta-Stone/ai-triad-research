@@ -13,6 +13,7 @@
 //   node operations/devops/enqueue-pr.mjs <owner>/<repo> <N> --gate-change-review=<review id> --by=<who>
 
 import { execFileSync } from 'node:child_process';
+import { isVersionSpec } from './t1-approval-guard-predicate.mjs';
 
 /** The reviewer App's login as the REST API reports it on a review. */
 export const REVIEWER_APP_REST_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
@@ -536,10 +537,95 @@ export function workspaceFactsOf(text) {
   return { ok: true, fact };
 }
 
+/**
+ * PURE (t/806, SO p/136#129). The free blocks of a pnpm-workspace.yaml as a flat map of one entry per override or catalog name:
+ * 'overrides:<name>', 'catalog:<name>', 'catalogs:<catalog>:<name>' -> its value (quotes and a trailing comment removed). Only the
+ * shapes these blocks really have are read (2-space entries, and one more level under 'catalogs'); anything else in a free block is
+ * { ok: false } (fail closed). Other top-level keys are skipped here: workspaceFactsOf already gates them.
+ */
+export function workspaceFreeEntriesOf(text) {
+  if (typeof text !== 'string') return { ok: false };
+  const entries = new Map();
+  let block = null;
+  let catalog = null;
+  const unquote = (raw) => {
+    let v = raw.trim();
+    const q = /^(["'])(.*?)\1(?:\s+#.*)?$/.exec(v);
+    if (q) return q[2];
+    v = v.replace(/\s+#.*$/, '').trim();
+    return v;
+  };
+  const KEY = /^(?:"([^"]+)"|'([^']+)'|([^\s:'"#][^\s:]*))/;
+  for (const l of text.replace(/\r\n/g, '\n').split('\n')) {
+    if (l.trim() === '' || /^\s*#/.test(l)) continue;
+    if (/^\S/.test(l)) {
+      const m = /^([A-Za-z_][\w.-]*)\s*:/.exec(l);
+      if (!m) return { ok: false };
+      block = WORKSPACE_FREE_KEYS.includes(m[1]) ? m[1] : null;
+      catalog = null;
+      if (block && l.replace(/^[A-Za-z_][\w.-]*\s*:/, '').replace(/\s+#.*$/, '').trim() !== '') return { ok: false };   // an inline value after the key
+      continue;
+    }
+    if (block === null) continue;
+    const indent = l.length - l.trimStart().length;
+    const body = l.trim();
+    const km = KEY.exec(body);
+    if (!km) return { ok: false };
+    const name = km[1] ?? km[2] ?? km[3];
+    const rest = body.slice(km[0].length);
+    if (!rest.startsWith(':')) return { ok: false };
+    const value = rest.slice(1);
+    if (block === 'catalogs') {
+      if (indent === 2 && value.replace(/\s+#.*$/, '').trim() === '') { catalog = name; continue; }
+      if (indent === 4 && catalog !== null) { entries.set(`catalogs:${catalog}:${name}`, unquote(value)); continue; }
+      return { ok: false };
+    }
+    if (indent !== 2) return { ok: false };
+    entries.set(`${block}:${name}`, unquote(value));
+  }
+  return { ok: true, entries };
+}
+
+/**
+ * PURE (t/806). overrides, catalog and catalogs stay free in the workspace compare, but a pnpm override can point at a URL, a git spec or an
+ * npm: alias, so a forged one could re-point a dependency like t/796's lockfile case. A change under them is free only when EVERY changed or new
+ * VALUE is a plain version spec (isVersionSpec: no URL, npm:, git, file:, link:, workspace:, $ref or "-", and a concrete lower bound). A NEW name is
+ * judged the same way as a changed one (it passes with a plain version spec) while WORKSPACE_FREE_ALLOW_NEW_NAMES is true; with the switch off a new
+ * name is a gate change. Unparseable on either side is not free. Returns { ok, why }.
+ *
+ * DECIDED (Lead p/233#333, Security p/131#138): WORKSPACE_FREE_ALLOW_NEW_NAMES = true. The backtest of every pnpm-workspace.yaml change since 2026-09-01 shows
+ * only 2 of 7 bumps stay free when a new name is gated, and 7 of 7 when a new name with a plain version spec is allowed, so a new name passes when its value is a
+ * plain version spec with a concrete lower bound (isVersionSpec). The switch stays so it can be flipped back to "a new name is a review".
+ *
+ * REMOVAL: a removed entry is free only when the same PR also changes a pnpm-lock.yaml (`allowRemoval`; SO after #5656: the lockfile alone, not any package.json,
+ * because a package.json edit is cheap to attach and proves nothing about the override). Every real override removal (0f96a2345, an `undici@>=7.0.0 <7.29.1`
+ * selector raise) came with a lockfile change, and a bare removal in an otherwise unrelated PR is a gate change.
+ *
+ * NOT DETECTED, on purpose: a downgrade of an override to a real, published, vulnerable version (for example `>=1.20.0 <2` to `1.2.0`) passes, because
+ * the value is a plain version spec. This is accepted because the same reach already exists free through a `dependencies` edit in package.json (t/776), and
+ * a version-content check would need a vulnerability database. The Dependabot exemption and review still see the lockfile that results.
+ */
+export const WORKSPACE_FREE_ALLOW_NEW_NAMES = true;
+export function workspaceFreeValuesOk(baseText, headText, { allowNewNames = WORKSPACE_FREE_ALLOW_NEW_NAMES, allowRemoval = false } = {}) {
+  const b = workspaceFreeEntriesOf(baseText);
+  const h = workspaceFreeEntriesOf(headText);
+  if (!b.ok || !h.ok) return { ok: false, why: 'its overrides, catalog or catalogs block could not be read' };
+  if (!allowRemoval) {
+    for (const k of b.entries.keys()) if (!h.entries.has(k)) return { ok: false, why: `it removes ${k} without a package.json or pnpm-lock.yaml change in the same PR` };
+  }
+  for (const [k, v] of h.entries) {
+    if (b.entries.get(k) === v) continue;
+    if (!b.entries.has(k) && !allowNewNames) return { ok: false, why: `it adds the name ${k}, which the file did not have` };
+    if (!isVersionSpec(v)) return { ok: false, why: `it changes ${k} to a value that is not a plain version spec (${String(v).slice(0, 60)})` };
+  }
+  return { ok: true, why: '' };
+}
+
 function factOfRead(read, kind) {
   if (kind === 'workspace') {
     if (read?.missing === true) return { ok: true, fact: null };
-    return workspaceFactsOf(read?.text);
+    const f = workspaceFactsOf(read?.text);
+    return { ...f, text: read?.text };
   }
   const r = scriptsOfRead(read);
   return { ok: r.ok, fact: r.scripts };
@@ -553,10 +639,14 @@ function factOfRead(read, kind) {
  */
 export function scriptsGatePaths({ entries, reads }) {
   const out = [...immediateManifestPaths(entries)];
+  // t/806: a removed override is free only alongside a pnpm-lock.yaml change (a selector raise always regenerates the lockfile).
+  const allowRemoval = (entries ?? []).some((e) => namesOf(e).some((n) => /(^|\/)pnpm-lock\.yaml$/.test(n)));
   for (const t of packageJsonTargets(entries)) {
     const b = factOfRead(readForStatus(reads?.base?.[t.basePath], 'base', t.status), t.kind);
     const h = factOfRead(readForStatus(reads?.head?.[t.path], 'head', t.status), t.kind);
-    if (!b.ok || !h.ok || canonicalJson(b.fact) !== canonicalJson(h.fact)) out.push(t.path);
+    if (!b.ok || !h.ok || canonicalJson(b.fact) !== canonicalJson(h.fact)) { out.push(t.path); continue; }
+    // t/806: the gated keys are equal; a change inside overrides/catalog/catalogs must still be only plain version values of names already present.
+    if (t.kind === 'workspace' && b.text !== h.text && typeof b.text === 'string' && typeof h.text === 'string' && !workspaceFreeValuesOk(b.text, h.text, { allowRemoval }).ok) out.push(t.path);
   }
   return [...new Set(out)];
 }
