@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEPENDABOT_COMMIT_AUTHORS, dependabotExemption, evaluateT1ApprovalGuard,
+  DEPENDABOT_COMMIT_AUTHORS, dependabotExemption, evaluateT1ApprovalGuard, isVersionSpec, packageJsonPatchOk, pnpmLockPatchOk, requirementsPatchOk,
 } from './t1-approval-guard-predicate.mjs';
 import { evaluateGroup, evaluatePullRequest, ruleDesignGate, ruleT1Approval } from './merge-approval-verdict.mjs';
 import { designGateVerdict } from './design-gate.mjs';
@@ -39,8 +39,21 @@ const healCommit = () => ({
   commit: { author: { name: 'dependabot-heal[bot]' }, verification: { verified: false, reason: 'unsigned' } },
 });
 const humanCommit = (over = {}) => botCommit({ sha: 'e'.repeat(40), author: { login: 'jpsnover' }, committer: { login: 'jpsnover' }, ...over });
+const BUMP_PATCH = '@@ -5,3 +5,3 @@\n   "dependencies": {\n-    "left-pad": "^1.0.0",\n+    "left-pad": "^1.0.1",\n   }';
+const pkg = (filename, patch = BUMP_PATCH, over = {}) => ({ filename, status: 'modified', patch, ...over });
+const INTEG1 = 'sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+const INTEG2 = 'sha512-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB==';
+const lockPatch = (...changed) => ['@@ -10,8 +10,8 @@', ' packages:', ...changed, ' snapshots:'].join('\n');
+const LOCK_PATCH = lockPatch(
+  '-  left-pad@1.0.0:', '+  left-pad@1.0.1:',
+  '-    resolution: {integrity: ' + INTEG1 + '}', '+    resolution: {integrity: ' + INTEG2 + '}',
+  '-      specifier: ^1.0.0', '+      specifier: ^1.0.1', '-      version: 1.0.0', '+      version: 1.0.1');
+const lock = (patch = LOCK_PATCH, over = {}) => ({ filename: 'pnpm-lock.yaml', status: 'modified', patch, ...over });
+const REQ_PATCH = '@@ -1,3 +1,3 @@\n requests==2.0.0\n-flask==2.0.0\n+flask==2.0.1';
+const req = (filename = 'scripts/requirements.txt', patch = REQ_PATCH, over = {}) => ({ filename, status: 'modified', patch, ...over });
+const BUMP_FILES = [pkg('taxonomy-editor/package.json'), lock()];
 const depFacts = (commits, over = {}) => ({
-  authorLogin: 'dependabot[bot]', headRepo: FULL, baseRepo: FULL, commits, commitsTotal: commits?.length, ...over,
+  authorLogin: 'dependabot[bot]', headRepo: FULL, baseRepo: FULL, commits, commitsTotal: commits?.length, files: BUMP_FILES, filesTotal: BUMP_FILES.length, ...over,
 });
 
 const review = ({ body = 'Approved (Quality): fine', commit = HEAD, at = AFTER, state = 'APPROVED', id = 1 } = {}) => ({
@@ -51,7 +64,7 @@ const appComment = (body, at) => ({ user: { login: APP }, body, created_at: at, 
 function mpr(over = {}) {
   return {
     number: 9, headSha: HEAD, body: 'Tier: T1\n\nfeature', headRefName: 'renderer/t1-x',
-    files: [{ filename: 'docs/readme.md' }], filesTruncated: false, reviews: [], comments: [], labels: [],
+    files: [{ filename: 'docs/readme.md' }], filesTruncated: false, scriptsGatePaths: [], reviews: [], comments: [], labels: [],
     headPushedAtMs: PUSH_MS, ...over,
   };
 }
@@ -194,8 +207,8 @@ test('t/751 enqueue-pr: no Tier line is refused outright, even with a Quality ap
 
 test('t/751 enqueue-pr: a clean Dependabot PR with no Tier line is allowed; with a human commit it is refused', () => {
   const dep = (commits) => apiInputs({
-    pr: { body: 'Bumps x.', head: { sha: HEAD, ref: 'dependabot/x', repo: { full_name: FULL } }, base: { repo: { full_name: FULL } }, user: { login: 'dependabot[bot]' }, commits: commits.length },
-    commits,
+    pr: { body: 'Bumps x.', head: { sha: HEAD, ref: 'dependabot/x', repo: { full_name: FULL } }, base: { repo: { full_name: FULL } }, user: { login: 'dependabot[bot]' }, commits: commits.length, changed_files: 2 },
+    commits, files: BUMP_FILES,
   });
   assert.equal(approvalFromApiVerdict({ tier: null, isDraft: false, headSha: HEAD, inputs: dep([botCommit()]) }).reason, 'dependabot_exempt');
   const refused = approvalFromApiVerdict({ tier: null, isDraft: false, headSha: HEAD, inputs: dep([botCommit(), humanCommit()]) });
@@ -375,7 +388,11 @@ function enqueueFake({ body, files, reviews = [], comments = [], commits = [huma
     calls.push(args);
     const joined = args.join(' ');
     const last = args[args.length - 1];
+    // t/559: the package.json scripts read (merge base, then the contents at base and head); scripts are identical on both sides here
+    if (joined.includes('/compare/')) return JSON.stringify({ sha: 'b'.repeat(40) });
+    if (joined.includes('/contents/')) return JSON.stringify({ name: 'x', scripts: { build: 'tsc' }, dependencies: { 'left-pad': '^1.0.0' } });
     if (joined.includes('{changed_files}')) return JSON.stringify({ changed_files: files.length });
+    if (joined.includes('/files?per_page=100') && args.includes('--slurp')) return JSON.stringify([files.map((x) => (x === 'package.json' ? pkg(x) : { filename: x }))]); // t/776
     if (joined.includes('/files?per_page=100')) return files.map((f) => JSON.stringify([f, ''])).join('\n');
     if (joined.includes('pr view') && joined.includes('headRefOid,body,isDraft')) return JSON.stringify({ headRefOid: HEAD, body, isDraft: false, labels: [] });
     if (args.includes('--slurp')) {
@@ -385,7 +402,7 @@ function enqueueFake({ body, files, reviews = [], comments = [], commits = [huma
       if (/check-runs/.test(last)) return JSON.stringify([{ check_runs: checkRuns }]);
     }
     if (args[0] === 'api' && /^repos\/[^/]+\/[^/]+\/pulls\/\d+$/.test(last)) {
-      return JSON.stringify({ body, head: { sha: HEAD, ref, repo: { full_name: FULL } }, base: { repo: { full_name: FULL } }, user: { login: prAuthor }, commits: commits.length });
+      return JSON.stringify({ body, head: { sha: HEAD, ref, repo: { full_name: FULL } }, base: { repo: { full_name: FULL } }, user: { login: prAuthor }, commits: commits.length, changed_files: files.length });
     }
     if (joined.includes('check_name=tier-check')) return JSON.stringify({ check_runs: [] });
     if (args[0] === 'pr' && args[1] === 'comment') { if (commentFails) throw new Error('gh: HTTP 403'); return ''; }
@@ -489,4 +506,252 @@ test('t/739 attributionComment: null without --by, one line with it', () => {
   assert.equal(attributionComment({ by: null, headSha: HEAD, state: 'queued' }), null);
   assert.equal(postAttributionComment('o/r', 1, { by: null, headSha: HEAD, state: 'queued' }, () => { throw new Error('must not be called'); }), false);
   assert.ok(!attributionComment({ by: 'abc', headSha: HEAD, state: 'queued', at: 'T' }).includes('\n'));
+});
+
+// ── t/776: the exemption also needs every changed path to be a manifest or lockfile ──
+
+test('t/776 exemption: a forged-author verified commit that touches source is not exempt', () => {
+  const r = dependabotExemption(depFacts([botCommit()], { files: [pkg('package.json'), { filename: 'taxonomy-editor/src/server/authGates.ts' }], filesTotal: 2 }));
+  assert.equal(r.exempt, false);
+  assert.match(r.reason, /authGates.ts.*not a package manifest or lockfile/);
+});
+
+test('t/776 exemption: a manifest-and-lockfile-only PR still passes (npm and pip)', () => {
+  assert.equal(dependabotExemption(depFacts([botCommit()])).exempt, true);
+  const pip = { files: [req('scripts/requirements.txt'), req('scripts/requirements-dev.txt')], filesTotal: 2 };
+  assert.equal(dependabotExemption(depFacts([botCommit()], pip)).exempt, true);
+});
+
+test('t/776 exemption: a Dockerfile, a workflow, a rename out of a manifest, or a traversal path is not exempt', () => {
+  for (const files of [
+    [{ filename: 'taxonomy-editor/Dockerfile' }],
+    [{ filename: '.github/workflows/ci.yml' }],
+    [pkg('package.json', BUMP_PATCH, { previous_filename: 'lib/evil.mjs' })],
+    [{ filename: '../package.json' }],
+    [{ filename: '/package.json' }],
+    [{ filename: 'package.json.bak' }],
+  ]) {
+    assert.equal(dependabotExemption(depFacts([botCommit()], { files, filesTotal: files.length })).exempt, false, JSON.stringify(files));
+  }
+});
+
+test('t/776 exemption: an unreadable, empty or cut-short file list fails closed', () => {
+  assert.equal(dependabotExemption(depFacts([botCommit()], { files: undefined })).exempt, false);
+  assert.equal(dependabotExemption(depFacts([botCommit()], { files: [] , filesTotal: 0 })).exempt, false);
+  assert.equal(dependabotExemption(depFacts([botCommit()], { filesTotal: 3 })).exempt, false);
+  assert.equal(dependabotExemption(depFacts([botCommit()], { filesTotal: undefined })).exempt, false);
+  const many = Array.from({ length: 3000 }, (_, i) => ({ filename: `p${i}/package.json` }));
+  assert.equal(dependabotExemption(depFacts([botCommit()], { files: many, filesTotal: 3000 })).exempt, false);
+});
+
+// ── t/776 (Security p/131#99): package.json content check ──
+
+const patchOf = (removed, added) => ['@@ -5,3 +5,3 @@', ...removed.map((l) => `-    ${l}`), ...added.map((l) => `+    ${l}`)].join('\n');
+const exemptWith = (file) => dependabotExemption(depFacts([botCommit()], { files: [file], filesTotal: 1 }));
+
+test('t/776 package.json: version-only changes pass (caret, tilde, range, prerelease), at the root and taxonomy-editor', () => {
+  for (const [a, b] of [['"x": "^1.0.0",', '"x": "^1.0.1",'], ['"x": "~2.3.4"', '"x": "~2.3.5"'], ['"x": ">=1 <2"', '"x": ">=1 <3"'], ['"x": "1.2.3-beta.1"', '"x": "1.2.3"'], ['"version": "1.0.0",', '"version": "1.0.1",']]) {
+    for (const path of ['package.json', 'taxonomy-editor/package.json']) {
+      assert.equal(exemptWith(pkg(path, patchOf([a], [b]))).exempt, true, `${path} ${a}`);
+    }
+  }
+});
+
+test('t/776 package.json: a scripts edit is refused (a script body is not a version spec)', () => {
+  const r = exemptWith(pkg('package.json', patchOf(['"build": "tsc",'], ['"build": "node evil.js",'])));
+  assert.equal(r.exempt, false);
+  assert.match(r.reason, /not a version spec/);
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"postinstall": "1.0.0"'], ['"postinstall": "1.0.1"']))).exempt, true, 'a version-shaped value is harmless whatever the key');
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"scripts": "1.0.0"'], ['"scripts": "1.0.1"']))).exempt, false, 'the scripts key itself');
+});
+
+test('t/776 package.json: an added dependency (or script) is refused; so is a removed one or a changed key name', () => {
+  assert.match(exemptWith(pkg('package.json', patchOf([], ['"evil-pkg": "^1.0.0",']))).reason, /adds or removes a key/);
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"x": "^1.0.0",'], []))).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"x": "^1.0.0",'], ['"evil": "^1.0.0",']))).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"x": "^1.0.0"'], ['"x": "^1.0.1",', '"y": "^1.0.0"']))).exempt, false);
+});
+
+test('t/776 package.json: a nested package.json outside the root and taxonomy-editor is refused, even with a clean patch', () => {
+  for (const path of ['operations/devops/package.json', '.github/package.json', 'lib/debate/package.json', 'taxonomy-editor/src/package.json']) {
+    assert.equal(exemptWith(pkg(path)).exempt, false, path);
+  }
+});
+
+test('t/776 package.json: no patch, a non-modified status, or a non-pair line fails closed', () => {
+  assert.equal(exemptWith(pkg('package.json', undefined, { patch: undefined })).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', '')).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', BUMP_PATCH, { status: 'added' })).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', BUMP_PATCH, { status: 'renamed' })).exempt, false);
+  assert.equal(exemptWith(pkg('package.json', patchOf(['"a": {'], ['"a": {', '"evil": "1.0.0"']))).exempt, false);
+});
+
+// ── t/776 (CodeQL js/redos on the first VERSION_SPEC): the check is linear, and a forged patch cannot stall the guard ──
+
+test('t/776 isVersionSpec: the accepted and refused shapes', () => {
+  for (const ok of ['^1.2.3', '~1.2', '>=1 <2', '>=1.0.0 <2.0.0', '1.2.3-beta.1', '1.2.3 - 2.0.0', '1.x || 2.x', '^1.0.0 || ^2.0.0', 'v1.2.3', '0.0.0-0']) {
+    assert.equal(isVersionSpec(ok), true, ok);
+  }
+  for (const bad of ['', ' ', 'tsc', 'node evil.js', 'file:../x', 'https://x/y.tgz', 'git+ssh://x', '^', '||', '1 ||', '|| 1', 'latest', '*']) {
+    assert.equal(isVersionSpec(bad), false, JSON.stringify(bad));
+  }
+  assert.equal(isVersionSpec(undefined), false);
+  // t/796 (SO): a bare `-` is valid only between two version tokens.
+  for (const bad of ['-', '1.0.0 -', '- 1.0.0', '1.0.0 - - 2.0.0', '1.0.0 - || 2.0.0', '- || 1', '1 || -']) {
+    assert.equal(isVersionSpec(bad), false, JSON.stringify(bad));
+  }
+  assert.equal(isVersionSpec('1.0.0 - 2.0.0'), true);
+  assert.equal(isVersionSpec('1.0.0 - 2.0.0 || 3.0.0 - 4.0.0'), true);
+  assert.equal(isVersionSpec('1'.repeat(201)), false, 'over the length cap');
+  assert.equal(isVersionSpec('1'.repeat(200)), true, 'at the length cap');
+});
+
+test('t/776 isVersionSpec: 5000-char adversarial strings (the CodeQL shapes) return in under 50 ms, refused by the length cap', () => {
+  const shapes = ['0' + '-0'.repeat(2500), '0 <0' + '-0 <0'.repeat(1000), '0' + ' -0'.repeat(1700), '0' + '||0'.repeat(1700), ' '.repeat(5000) + '0', '0' + '-'.repeat(5000) + '!'];
+  for (const s of shapes) {
+    const t0 = process.hrtime.bigint();
+    const r = isVersionSpec(s);
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.equal(r, false, `${s.slice(0, 20)}... (${s.length} chars) is refused`);
+    assert.ok(ms < 50, `${s.slice(0, 20)}... took ${ms} ms`);
+  }
+});
+
+test('t/776 isVersionSpec: adversarial strings just under the cap are linear too', () => {
+  for (const s of ['0' + '-0'.repeat(99), '0 <0' + '-0 <0'.repeat(39) + '!', '0' + '-'.repeat(190) + '!']) {
+    const t0 = process.hrtime.bigint();
+    isVersionSpec(s);
+    assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 50, s.slice(0, 20));
+  }
+});
+
+test('t/776 packageJsonPatchOk: adversarial patch lines are decided in under 50 ms (long version values and a trailing run refused; a long indentation is just indentation)', () => {
+  const lines = ['  "x": "' + '0' + '-0'.repeat(2500) + '",', '  "x": "' + '0 <0' + '-0 <0'.repeat(1000) + '",', ' '.repeat(5000) + '"x": "1.0.0"', '  "x": "1.0.0"' + ' '.repeat(5000) + '!'];
+  for (const l of lines) {
+    const t0 = process.hrtime.bigint();
+    const r = packageJsonPatchOk({ status: 'modified', patch: `@@ -1 +1 @@\n-${l}\n+${l}` });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.equal(r.ok, l.startsWith(' '.repeat(5000)), `${l.slice(0, 20)}...`);
+    assert.ok(ms < 50, `${l.slice(0, 20)}... took ${ms} ms`);
+  }
+});
+
+// ── t/796: pnpm-lock.yaml and requirements*.txt content checks ──
+
+const exemptFile = (file) => dependabotExemption(depFacts([botCommit()], { files: [file], filesTotal: 1 }));
+
+test('t/796 pnpm-lock: a version bump of an existing package passes (header, integrity, specifier, version, a registry tarball)', () => {
+  assert.equal(exemptFile(lock()).exempt, true);
+  // (SO p/136#119) a `tarball:` key is refused outright, even a registry URL for the same package: pnpm omits it for registry packages.
+  const sameName = lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+    resolution: {integrity: ' + INTEG2 + ', tarball: https://registry.npmjs.org/left-pad/-/left-pad-1.0.1.tgz}');
+  assert.match(exemptFile(lock(sameName)).reason, /a tarball key is refused/);
+  // ...and the re-pointing attack: lodash@x re-pointed to another published package's tarball with that tarball's own integrity.
+  const repointed = lockPatch('-  lodash@4.17.20:', '+  lodash@4.17.21:', '+    resolution: {integrity: ' + INTEG2 + ', tarball: https://registry.npmjs.org/evil-pkg/-/evil-pkg-1.0.0.tgz}');
+  assert.equal(exemptFile(lock(repointed)).exempt, false);
+  // an integrity-only change is the allowed shape
+  assert.equal(exemptFile(lock(lockPatch('-  lodash@4.17.20:', '+  lodash@4.17.21:', '-    resolution: {integrity: ' + INTEG1 + '}', '+    resolution: {integrity: ' + INTEG2 + '}'))).exempt, true);
+  const scoped = lockPatch("-  '@babel/core@7.0.0':", "+  '@babel/core@7.0.1':", '-      ms: 2.1.2', '+      ms: 2.1.3', "-  'react-dom@18.2.0(react@18.2.0)':", "+  'react-dom@18.2.1(react@18.2.1)':");
+  assert.equal(exemptFile(lock(scoped)).exempt, true, 'scoped names, snapshot dependency lines and peer-suffixed headers are version changes of existing names');
+});
+
+test('t/796 pnpm-lock: a resolution re-pointed to another host, a git or directory resolution, or one with no integrity is refused', () => {
+  for (const bad of [
+    '+    resolution: {integrity: ' + INTEG2 + ', tarball: https://evil.example/left-pad-1.0.1.tgz}',
+    '+    resolution: {integrity: ' + INTEG2 + ', tarball: http://registry.npmjs.org/left-pad/-/left-pad-1.0.1.tgz}',
+    '+    resolution: {integrity: ' + INTEG2 + ', tarball: https://registry.npmjs.org.evil.example/x.tgz}',
+    '+    resolution: {tarball: https://registry.npmjs.org/left-pad/-/left-pad-1.0.1.tgz}',
+    '+    resolution: {type: git, repo: https://github.com/x/y, commit: abcdef}',
+    '+    resolution: {directory: ../local, type: directory}',
+    '+    resolution: {integrity: not-a-hash}',
+  ]) {
+    const r = exemptFile(lock(lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', bad)));
+    assert.equal(r.exempt, false, bad);
+    assert.match(r.reason, /resolution/, bad);
+  }
+});
+
+test('t/796 pnpm-lock: an added package, and a version that points off the registry, are refused', () => {
+  assert.match(exemptFile(lock(lockPatch('+  evil-pkg@1.0.0:', '+    resolution: {integrity: ' + INTEG2 + '}'))).reason, /adds the package `evil-pkg`/);
+  assert.equal(exemptFile(lock(lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+      version: link:../evil'))).exempt, false);
+  assert.equal(exemptFile(lock(lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+      version: github:x/y'))).exempt, false);
+  assert.equal(exemptFile(lock(lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+    hooks: {postinstall: node evil.js}'))).exempt, false, 'an unknown key is refused');
+  assert.equal(exemptFile(lock(lockPatch('+  lockfileVersion: 9.0'))).exempt, false);
+});
+
+test('t/796 pnpm-lock: no patch, a non-modified status, an empty patch or an over-long line fails closed', () => {
+  assert.equal(exemptFile(lock(undefined, { patch: undefined })).exempt, false);
+  assert.equal(exemptFile(lock('')).exempt, false);
+  assert.equal(exemptFile(lock(LOCK_PATCH, { status: 'added' })).exempt, false);
+  assert.equal(exemptFile(lock('@@ -1 +1 @@\n context only')).exempt, false);
+  assert.equal(exemptFile(lock(lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+    deprecated: ' + 'x'.repeat(700)))).exempt, false);
+});
+
+test('t/796 requirements: a pin bump of an existing name passes, with hash lines', () => {
+  assert.equal(exemptFile(req()).exempt, true);
+  const hashed = '@@ -1,4 +1,4 @@\n-flask==2.0.0 \\\n-    --hash=sha256:' + 'a'.repeat(64) + '\n+flask==2.0.1 \\\n+    --hash=sha256:' + 'b'.repeat(64);
+  assert.equal(exemptFile(req('scripts/requirements.txt', hashed)).exempt, true);
+});
+
+test('t/796 requirements: an index URL, a URL or VCS requirement, a new name, and an unpinned line are refused', () => {
+  for (const [name, patch] of [
+    ['--index-url', '@@ -1 +1,2 @@\n flask==2.0.0\n+--index-url https://evil.example/simple'],
+    ['--extra-index-url', '@@ -1 +1,2 @@\n flask==2.0.0\n+--extra-index-url https://evil.example/simple'],
+    ['-i', '@@ -1 +1,2 @@\n flask==2.0.0\n+-i https://evil.example/simple'],
+    ['url requirement', '@@ -1 +1 @@\n-flask==2.0.0\n+flask @ https://evil.example/flask.tar.gz'],
+    ['vcs requirement', '@@ -1 +1 @@\n-flask==2.0.0\n+git+https://github.com/x/flask.git#egg=flask'],
+    ['new name', '@@ -1 +1,2 @@\n flask==2.0.0\n+evilpkg==1.0.0'],
+    ['unpinned', '@@ -1 +1 @@\n-flask==2.0.0\n+flask>=2.0.0'],
+    ['-r include', '@@ -1 +1,2 @@\n flask==2.0.0\n+-r other.txt'],
+  ]) {
+    const r = exemptFile(req('scripts/requirements.txt', patch));
+    assert.equal(r.exempt, false, name);
+  }
+  assert.match(exemptFile(req('scripts/requirements.txt', '@@ -1 +1,2 @@\n flask==2.0.0\n+evilpkg==1.0.0')).reason, /adds the package `evilpkg`/);
+  assert.equal(exemptFile(req('scripts/requirements.txt', undefined, { patch: undefined })).exempt, false, 'no patch fails closed');
+});
+
+test('t/796: lockfile and requirements checks decide adversarial long lines in under 50 ms', () => {
+  const longs = [
+    lockPatch('+  ' + 'a'.repeat(5000) + '@1.0.0:'),
+    lockPatch('+    resolution: {' + 'integrity: x, '.repeat(400) + '}'),
+    lockPatch('-  left-pad@1.0.0:', '+  left-pad@1.0.1:', '+      version: ' + '1 '.repeat(2500)),
+    lockPatch('+' + ' '.repeat(5000) + 'x'),
+  ];
+  for (const p of longs) {
+    const t0 = process.hrtime.bigint();
+    const r = pnpmLockPatchOk({ status: 'modified', patch: p });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.equal(r.ok, false);
+    assert.ok(ms < 50, `pnpm-lock took ${ms} ms`);
+  }
+  for (const p of ['@@ -1 +1 @@\n+' + 'a'.repeat(5000) + '==1', '@@ -1 +1 @@\n+flask==' + '1'.repeat(5000), '@@ -1 +1 @@\n+flask==1 ;' + ' '.repeat(5000) + 'x']) {
+    const t0 = process.hrtime.bigint();
+    const r = requirementsPatchOk({ status: 'modified', patch: p });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.equal(r.ok, false);
+    assert.ok(ms < 50, `requirements took ${ms} ms`);
+  }
+});
+
+// ── t/796 (SO p/136#119): the two known gaps, folded in ──
+
+test('t/796 pnpm-lock: the version value is anchored (nothing may follow it) and a specifier must be a plain range', () => {
+  const hdr = ['-  left-pad@1.0.0:', '+  left-pad@1.0.1:'];
+  for (const v of ['1.0.0https://x/y.tgz', '1.0.0 https://x', '1.0.0@evil', '1.0.0;rm', '1.0.1/../../x']) {
+    assert.equal(exemptFile(lock(lockPatch(...hdr, '+      version: ' + v))).exempt, false, `version ${v}`);
+  }
+  for (const v of ['^1.0.0https://x/y.tgz', '^1.0.0 https://x', '1.0.0@evil']) {
+    assert.equal(exemptFile(lock(lockPatch(...hdr, '+      specifier: ' + v))).exempt, false, `specifier ${v}`);
+  }
+  assert.equal(exemptFile(lock(lockPatch(...hdr, '+      version: 1.0.1(react@18.2.0)'))).exempt, true, 'a peer suffix is part of a locked version');
+  assert.equal(exemptFile(lock(lockPatch(...hdr, '+      version: 1.0.1', '+      specifier: ^1.0.1'))).exempt, true);
+});
+
+test('t/796 pnpm-lock: an added snapshot dependency edge is refused; a version change of an existing edge passes', () => {
+  const hdr = ['-  left-pad@1.0.0:', '+  left-pad@1.0.1:'];
+  const added = exemptFile(lock(lockPatch(...hdr, '+      ms: 2.1.3')));
+  assert.equal(added.exempt, false);
+  assert.match(added.reason, /adds a dependency edge to `ms`/);
+  assert.equal(exemptFile(lock(lockPatch(...hdr, '-      ms: 2.1.2', '+      ms: 2.1.3'))).exempt, true);
+  assert.equal(exemptFile(lock(lockPatch(...hdr, '-      ms: 2.1.2', '+      other: 2.1.3'))).exempt, false, 'a different name is an added edge');
 });

@@ -51,6 +51,7 @@ vi.mock('../security/userContext.js', () => ({
   getCurrentUserId: vi.fn(() => 'testuser'),
   getStorageUserId: vi.fn(() => 'testuser'),
   isHostedAnonymousRequest: vi.fn(() => false), // t/723: signed-in caller, the anonymous debate limits don't apply
+  isAuthDisabledMode: () => process.env.AUTH_DISABLED === '1' && process.env.NODE_ENV !== 'production',
 }));
 
 vi.mock('../logger.js', () => ({
@@ -152,6 +153,7 @@ vi.mock('../storage/allowlistStore.js', () => ({ isAllowlisted: vi.fn(() => fals
 
 import { registerAiRoutes } from '../routes/ai.js';
 import { registerChatRoutes } from '../routes/chat.js';
+import { _setDailyTokenBudgetForTest } from '../routes/dailyTokenGate.js';
 
 type Handler = (req: IncomingMessage, res: ServerResponse, body?: unknown) => Promise<void> | void;
 
@@ -186,6 +188,7 @@ function registerAll() {
 
 describe('free-pool budget gate wiring across generate and chat-stream (t/4485)', () => {
   beforeEach(() => {
+    _setDailyTokenBudgetForTest(null); // t/746: each test starts with an empty durable allowance (the store is per process)
     getFreePoolKeys.mockReset().mockResolvedValue({ ok: true, keys: ['server-key-1'] });
     reserveFreePoolCall.mockReset();
     commitFreePoolCall.mockReset().mockResolvedValue(undefined);

@@ -27,7 +27,7 @@ const TAXONOMY_DIR = path.join(DATA_ROOT, 'taxonomy', 'Origin');
 const API_KEY = process.env.GEMINI_API_KEY;
 if (!API_KEY) { console.error('GEMINI_API_KEY not set'); process.exit(1); }
 
-const MODEL = process.env.AI_MODEL || 'gemini-2.5-flash';
+const MODEL = process.env.AI_MODEL || 'gemini-3.5-flash-lite';
 console.log(`[AI] Backend: gemini | Model: ${MODEL}${process.env.AI_MODEL ? ' ($AI_MODEL)' : ' (default)'} | Key source: $GEMINI_API_KEY`);
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 

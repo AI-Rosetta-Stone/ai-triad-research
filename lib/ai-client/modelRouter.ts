@@ -101,7 +101,7 @@ export interface RouterConfig {
 const DEFAULT_ROUTER_CONFIG: RouterConfig = {
   preferLocal: true,
   cloudFastModel: 'gemini-3.5-flash-lite',
-  cloudFrontierModel: 'gemini-2.5-flash',
+  cloudFrontierModel: 'gemini-3.8-flash',
   localModel: 'ollama-gemma4-e4b-it-q4-k-m',
 };
 

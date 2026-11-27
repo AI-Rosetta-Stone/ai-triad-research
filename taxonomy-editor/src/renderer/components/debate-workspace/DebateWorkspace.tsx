@@ -49,6 +49,7 @@ import { OpeningActions } from './OpeningPanel';
 import { ExplorationSummaryCard } from './ExplorationSummaryCard';
 import { EmptyState } from '../shared/EmptyState';
 import { TranscriptOutline } from './TranscriptOutline';
+import { SynthesisTop, SynthesisPointerRow, useSynthesisTop, panelFindOffsets, type SynthesisTopData } from './SynthesisTop';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import './DebateWorkspace.css';
 
@@ -617,8 +618,9 @@ function TranscriptEntryRow({
 
 function DebateTranscriptColumn({
   activeDebate, debateGenerating, findOffsets, findQuery, findCurrentIndex,
-  diagnosticsEnabled, selectedDiagEntry, transcriptEndRef,
+  diagnosticsEnabled, selectedDiagEntry, transcriptEndRef, synthesisEntryId,
 }: {
+  synthesisEntryId: string | null;
   activeDebate: ActiveDebateSession;
   debateGenerating: DWStore['debateGenerating'];
   findOffsets: Map<string, number>;
@@ -638,7 +640,10 @@ function DebateTranscriptColumn({
           direction="Clarification questions will appear here."
         />
       )}
-      {activeDebate.transcript.map((entry, idx) => (
+      {activeDebate.transcript.map((entry, idx) => entry.id === synthesisEntryId ? (
+        // t/809 §12: with the v2 panel on top, the concluding entry is a one-line pointer.
+        <div key={entry.id} id={`debate-entry-${entry.id}`} className="debate-entry-wrapper"><SynthesisPointerRow /></div>
+      ) : (
         <TranscriptEntryRow
           key={entry.id}
           entry={entry}
@@ -1000,7 +1005,7 @@ function useDebateWorkspaceEffects({
   }, [activeDebate?.id]);
 }
 
-function useDebateFind(activeDebate: DWStore['activeDebate']) {
+function useDebateFind(activeDebate: DWStore['activeDebate'], synthTop: SynthesisTopData | null) {
   const [findVisible, setFindVisible] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [findCurrentIndex, setFindCurrentIndex] = useState(0);
@@ -1008,13 +1013,16 @@ function useDebateFind(activeDebate: DWStore['activeDebate']) {
   const { findTotal, findOffsets } = useMemo(() => {
     if (!findQuery || !activeDebate) return { findTotal: 0, findOffsets: new Map<string, number>() };
     const offsets = new Map<string, number>();
-    let total = 0;
+    // t/809 §12: the synthesis panel sits above the transcript, so its matches come first, and its
+    // transcript entry (a one-line pointer) carries none of its own.
+    let total = panelFindOffsets(synthTop, findQuery).total;
     for (const entry of activeDebate.transcript) {
+      if (synthTop && entry.id === synthTop.entry.id) continue;
       const count = countOccurrences(entry.content, findQuery);
       if (count > 0) { offsets.set(entry.id, total); total += count; }
     }
     return { findTotal: total, findOffsets: offsets };
-  }, [findQuery, activeDebate?.transcript]);
+  }, [findQuery, activeDebate?.transcript, synthTop]);
 
   useEffect(() => { setFindCurrentIndex(0); }, [findQuery, findTotal]);
 
@@ -1204,8 +1212,10 @@ function useDebateSelectionMenu(activeDebate: DWStore['activeDebate'], defaultTi
 
 // ── Main component ───────────────────────────────────────
 
-export function DebateWorkspace({ onExport, exportStatus }: {
+export function DebateWorkspace({ onExport, exportStatus, onDebateTopic }: {
   onExport?: (format: string) => void;
+  /** Opens the New Debate dialog with a topic prefilled (t/824); the panel's buttons are hidden without it. */
+  onDebateTopic?: (topic: string) => void;
   exportStatus?: string | null;
 } = {}) {
   const {
@@ -1264,7 +1274,8 @@ export function DebateWorkspace({ onExport, exportStatus }: {
     }
   }, []);
 
-  const { findVisible, findQuery, setFindQuery, findCurrentIndex, findTotal, findOffsets, findNext, findPrev, closeFind } = useDebateFind(activeDebate);
+  const synthTop = useSynthesisTop(activeDebate);
+  const { findVisible, findQuery, setFindQuery, findCurrentIndex, findTotal, findOffsets, findNext, findPrev, closeFind } = useDebateFind(activeDebate, synthTop);
   const { coverageMap, strengthWeighted } = useDebateCoverage(activeDebate);
   const {
     contextMenu, setContextMenu, commentPopover, setCommentPopover, handleContextMenu, handleTouchEnd,
@@ -1344,7 +1355,11 @@ export function DebateWorkspace({ onExport, exportStatus }: {
           }
         />
         <DebatePhaseHeader activeDebate={activeDebate} isDebatePhase={isDebatePhase} isOpeningPhase={isOpeningPhase} />
+        {synthTop && (
+          <SynthesisTop key={activeDebate.id} top={synthTop} debateId={activeDebate.id} findQuery={findQuery} findCurrentIndex={findCurrentIndex} onExport={onExport} onDebateTopic={onDebateTopic} />
+        )}
         <DebateTranscriptColumn
+          synthesisEntryId={synthTop?.entry.id ?? null}
           activeDebate={activeDebate}
           debateGenerating={debateGenerating}
           findOffsets={findOffsets}

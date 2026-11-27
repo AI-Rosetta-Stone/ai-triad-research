@@ -9,6 +9,7 @@
 import type { DebateSession, SpeakerId, TranscriptEntry } from './types.js';
 import { POVER_INFO, normalizeVerdict } from './types.js';
 import { orderSynthesisLists } from './synthesisOrder.js';
+import { synthesisBrief, hasStructuredSynthesis } from './synthesisBrief.js';
 import { factCheckExportView, factCheckSummaryText } from './factCheckExport.js';
 import {
   extractConflictCandidates,
@@ -160,82 +161,10 @@ export function formatDebateMarkdown(session: DebateSession): string {
     const rawSynth = (synthesis.metadata as Record<string, unknown>)?.synthesis as Record<string, unknown> | undefined;
     // t/769: the same relevance order the synthesis card shows.
     const synthData = orderSynthesisLists(rawSynth);
-    if (synthData) {
-      // Areas of Agreement
-      const agreements = synthData.areas_of_agreement as { point: string; povers: string[] }[] | undefined;
-      if (agreements?.length) {
-        lines.push('### Areas of Agreement');
-        lines.push('');
-        for (const a of agreements) {
-          const povers = a.povers?.map(p => POVER_INFO[p as Exclude<SpeakerId, 'user'>]?.label ?? p).join(', ') ?? '';
-          lines.push(`- ${a.point}${povers ? ` (${povers})` : ''}`);
-        }
-        lines.push('');
-      }
-
-      // Areas of Disagreement
-      const disagreements = synthData.areas_of_disagreement as { point: string; type?: string; bdi_layer?: string; resolvability?: string; positions?: { pover: string; stance: string }[] }[] | undefined;
-      if (disagreements?.length) {
-        lines.push('### Areas of Disagreement');
-        lines.push('');
-        for (const d of disagreements) {
-          const typeTag = d.type ? ` [${d.type}]` : '';
-          const bdiTag = d.bdi_layer ? ` {${d.bdi_layer}}` : '';
-          lines.push(`- **${d.point}**${typeTag}${bdiTag}`);
-          for (const pos of d.positions ?? []) {
-            const label = POVER_INFO[pos.pover as Exclude<SpeakerId, 'user'>]?.label ?? pos.pover;
-            lines.push(`  - **${label}:** ${pos.stance}`);
-          }
-          if (d.resolvability) {
-            lines.push(`  - *Resolution path: ${d.resolvability.replace(/_/g, ' ')}*`);
-          }
-        }
-        lines.push('');
-      }
-
-      // Cruxes
-      const cruxes = synthData.cruxes as { question: string; if_yes?: string; if_no?: string; type?: string }[] | undefined;
-      if (cruxes?.length) {
-        lines.push('### Cruxes');
-        lines.push('');
-        for (const c of cruxes) {
-          lines.push(`- ${c.question}${c.type ? ` [${c.type}]` : ''}`);
-          if (c.if_yes) lines.push(`    - If yes, weakens: ${c.if_yes}`);
-          if (c.if_no) lines.push(`    - If no, weakens: ${c.if_no}`);
-          lines.push('');
-        }
-      }
-
-      // Unresolved Questions
-      const unresolved = synthData.unresolved_questions as string[] | undefined;
-      if (unresolved?.length) {
-        lines.push('### Unresolved Questions');
-        lines.push('');
-        for (const q of unresolved) {
-          lines.push(`- ${q}`);
-          lines.push('');
-        }
-        lines.push('');
-      }
-
-      // Preferences
-      const preferences = synthData.preferences as { conflict: string; prevails: string; criterion: string; rationale: string; what_would_change_this?: string }[] | undefined;
-      if (preferences?.length) {
-        lines.push('### Resolution Analysis');
-        lines.push('');
-        for (const p of preferences) {
-          if (p.prevails === 'undecidable') {
-            lines.push(`- **${p.conflict}** — Undecidable`);
-          } else {
-            lines.push(`- **${p.conflict}** — Stronger: ${p.prevails} (${p.criterion?.replace(/_/g, ' ')})`);
-          }
-          lines.push(`  - *${p.rationale}*`);
-          if (p.what_would_change_this) {
-            lines.push(`  - Would change if: ${p.what_would_change_this}`);
-          }
-        }
-        lines.push('');
-      }
+    if (synthData && hasStructuredSynthesis(synthData)) {
+      // t/810: the brief follows the synthesis panel's sections and order (spec docs/ux/debate-synthesis-v2.md §3).
+      lines.push(...synthesisBrief(synthData, { debaters: session.active_povers, topic: session.topic?.final, argumentNetwork: session.argument_network }, { level: 3 }));
+      lines.push('');
     } else {
       // Fallback to raw content
       lines.push(synthesis.content);

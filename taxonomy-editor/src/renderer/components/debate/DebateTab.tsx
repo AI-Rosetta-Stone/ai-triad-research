@@ -92,6 +92,8 @@ interface DebateRightPaneProps {
   handleExport: (format?: string) => void;
   exportStatus: string | null;
   handleNewDebate: () => Promise<void>;
+  /** t/824: 'Debate this question' in the synthesis panel opens the New debate dialog with the topic filled in. */
+  handleDebateTopic: (topic: string) => void;
 }
 
 // t/4678/t/4683: `inquiryJobId` is a legacy sibling of `origin`, not nested under it (persisted by
@@ -219,6 +221,8 @@ export function DebateTab() {
     setDebatePrefill({ topic, povers });
     setShowNewDialog(true);
   }, [checkDebateQuota]);
+
+  const handleDebateTopic = useCallback((topic: string) => { void handlePickDebateStarter(topic); }, [handlePickDebateStarter]);
 
   const closeNewDebateDialog = useCallback(() => {
     setShowNewDialog(false);
@@ -534,7 +538,7 @@ export function DebateTab() {
     toolbarPanel, promptInspectorActive, onMouseDown, onTouchStart, searchPreviewId,
     setSearchPreviewId, selectedPromptEntry, lineagePreviewValue, setLineagePreviewValue,
     isPhone, activeDebate, selectedCommunityDebate, lastOpenedVariant, nav, handleExport,
-    exportStatus, handleNewDebate,
+    exportStatus, handleNewDebate, handleDebateTopic,
   };
 
   // Table mode: no toolbarPanel active and not phone — list is full-width, no inline detail.
@@ -573,6 +577,7 @@ export function DebateTab() {
           lastOpenedVariant={lastOpenedVariant}
           handleExport={handleExport}
           exportStatus={exportStatus}
+          handleDebateTopic={handleDebateTopic}
           libraryPanelProps={{
             width, fullWidth: isTableMode, setListCollapsed, config: libraryConfig,
             myRows: orderedSessions, myLoading: sessionsLoading,
@@ -703,7 +708,7 @@ function NewDebateDialogHost({ prefill, onClose, onAtCap }: {
 // pulled out of DebateTab so DebateTab's own complexity doesn't absorb it (local/complexity-
 // budget) — same reasoning as NewDebateDialogHost above, mirrors Chat's ChatTableMode (t/4690).
 function DebateTableMode({
-  isTableMode, activeDebate, selectedCommunityDebate, lastOpenedVariant, handleExport, exportStatus, libraryPanelProps,
+  isTableMode, activeDebate, selectedCommunityDebate, lastOpenedVariant, handleExport, exportStatus, handleDebateTopic, libraryPanelProps,
 }: {
   isTableMode: boolean;
   activeDebate: DebateSession | null;
@@ -711,6 +716,7 @@ function DebateTableMode({
   lastOpenedVariant: 'my' | 'community';
   handleExport: (format?: string) => void;
   exportStatus: string | null;
+  handleDebateTopic: (topic: string) => void;
   libraryPanelProps: DebateLibraryPanelProps;
 }) {
   return isTableMode && (activeDebate || selectedCommunityDebate) ? (
@@ -720,6 +726,7 @@ function DebateTableMode({
       lastOpenedVariant={lastOpenedVariant}
       handleExport={handleExport}
       exportStatus={exportStatus}
+      handleDebateTopic={handleDebateTopic}
     />
   ) : (
     <DebateLibraryPanel {...libraryPanelProps} />
@@ -730,13 +737,14 @@ function DebateTableMode({
 // an item, plus the first-open hint above it. For My debates, render the active workspace (matching
 // phone behavior, t/4799). For Community debates, show the detail card (not yet loaded as workspace).
 function DebateTableDetail({
-  activeDebate, selectedCommunityDebate, lastOpenedVariant, handleExport, exportStatus,
+  activeDebate, selectedCommunityDebate, lastOpenedVariant, handleExport, exportStatus, handleDebateTopic,
 }: {
   activeDebate: DebateSession | null;
   selectedCommunityDebate: CommunityDebate | null;
   lastOpenedVariant: 'my' | 'community';
   handleExport: (format?: string) => void;
   exportStatus: string | null;
+  handleDebateTopic: (topic: string) => void;
 }) {
   return (
     <div className="debate-tab-table-detail">
@@ -744,7 +752,7 @@ function DebateTableDetail({
       {lastOpenedVariant === 'community' && selectedCommunityDebate ? (
         <CommunityDebateDetail debate={selectedCommunityDebate} onExport={handleExport} exportStatus={exportStatus} />
       ) : activeDebate ? (
-        <DebateWorkspace onExport={handleExport} exportStatus={exportStatus} />
+        <DebateWorkspace onExport={handleExport} exportStatus={exportStatus} onDebateTopic={handleDebateTopic} />
       ) : null}
     </div>
   );
@@ -824,7 +832,7 @@ function DebateRightPane(props: DebateRightPaneProps) {
 function DebateDetailPane(props: DebateRightPaneProps) {
   const {
     onMouseDown, onTouchStart, isPhone, activeDebate, selectedCommunityDebate,
-    lastOpenedVariant, handleExport, exportStatus, handleNewDebate,
+    lastOpenedVariant, handleExport, exportStatus, handleNewDebate, handleDebateTopic,
   } = props;
   const debateAuth = useAuthStatus();
   return (
@@ -835,7 +843,7 @@ function DebateDetailPane(props: DebateRightPaneProps) {
           <CommunityDebateDetail debate={selectedCommunityDebate} onExport={handleExport} exportStatus={exportStatus} />
         ) : activeDebate ? (
           isPhone ? (
-            <DebateWorkspace onExport={handleExport} exportStatus={exportStatus} />
+            <DebateWorkspace onExport={handleExport} exportStatus={exportStatus} onDebateTopic={handleDebateTopic} />
           ) : (
             <DebateDetailSummary
               debate={activeDebate}

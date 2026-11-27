@@ -142,7 +142,13 @@ function ConvertTo-NumericGroundingKey {
 #   LeadingDot: ".5" is 0.5, not 5, unless it follows a word's final full stop (a footnote marker).
 #   Superscript: "10^26" is grounded by the concatenation "1026", which is how the PDF text reads.
 # With every flag off, the keys are the t/375 keys.
-$script:NumericGroundingFeatures = @{ Percent = $false; Scale = $false; LeadingDot = $false; Superscript = $false }
+# Defaults (CL's ruling on t/384 after reading every changed claim against its snapshot): Scale, LeadingDot and
+# Superscript are ON; alone they drop no claim and keep 3, 8 and 2 that the t/375 keys dropped. Percent is OFF and
+# its evaluation is closed as not met (4 of 10 correct drops against a bar of 9; a chart prints percent values as
+# bare numbers, which a percent-aware rule cannot accept). If the matcher changes, CL re-reads the per-flag counts.
+# Known limit of LeadingDot, accepted by CL: a section number that PDF text glues to the next word
+# ("SectionB.3onextensions", "Wis.2d") reads as 0.3 or 0.2, because a letter follows the digits.
+$script:NumericGroundingFeatures = @{ Percent = $false; Scale = $true; LeadingDot = $true; Superscript = $true }
 $script:NumericScaleWords = @{ 'k' = 1e3; 'thousand' = 1e3; 'm' = 1e6; 'million' = 1e6; 'bn' = 1e9; 'b' = 1e9; 'billion' = 1e9; 'trillion' = 1e12; 'tn' = 1e12 }
 
 # Number words the Percent rule reads before "percent" in a source (t/384#16). Longest first within Units,
@@ -230,8 +236,20 @@ function Get-NumericGroundingKeys {
         }
         if ($Suffix -and $F.Scale) {
             $Scale = $script:NumericScaleWords[$Suffix.ToLowerInvariant()]
-            $Full = [decimal]::Parse($Num.Replace(',', ''), [cultureinfo]::InvariantCulture) * [decimal]$Scale
-            $FullKey = $Full.ToString('G29', [cultureinfo]::InvariantCulture)
+            $FullKey = $null
+            try {
+                $Full = [decimal]::Parse($Num.Replace(',', ''), [cultureinfo]::InvariantCulture) * [decimal]$Scale
+                $FullKey = $Full.ToString('G29', [cultureinfo]::InvariantCulture)
+            }
+            catch {
+                # t/780: a scaled figure too large for a decimal is not grounded; it never throws out of the guard.
+                Write-Warning "Finalize-Summary: numeric grounding could not scale '$($m.Value)' ($($_.Exception.Message)); the figure is treated as not grounded (t/780)"
+            }
+            if ($null -eq $FullKey) {
+                # A claim keeps a key no source has, so the claim is not grounded; a source gets its plain number only.
+                if ($AsClaim) { [void]$keys.Add("unscalable:$($m.Value)") } else { [void]$keys.Add($Base) }
+                continue
+            }
             if ($AsClaim) {
                 # A claim "75K" is grounded by the source's full value or its plain number, either one.
                 [void]$keys.Add("$FullKey|$Base")

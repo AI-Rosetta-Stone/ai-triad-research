@@ -93,6 +93,33 @@ function logDraftId(draftId: DraftId): string {
   return draftId.slice(0, 8);
 }
 
+// A record path contains the whole drf_<32hex> id, which is the capability to read and finalize that
+// draft. Logs carry only the short form (t/756).
+function logRecordPath(recordPath: string): string {
+  return recordPath.replace(/drf_[0-9a-f]{8,}/g, (id) => logDraftId(id as DraftId));
+}
+
+// Any drf_<hex> in text (an fs or Blob error message names the path) is cut to the short form.
+function redactDraftIds(text: string): string {
+  return text.replace(/drf_[0-9a-f]{8,}/g, (id) => logDraftId(id as DraftId));
+}
+
+// What a log line may say about a caught error: its message with draft ids shortened (t/756, Security).
+function logSafeError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : 'non-Error thrown';
+  return redactDraftIds(msg);
+}
+
+// A corrupt or bad-expiry record is deleted only after it has been seen, with identical content, by two
+// sweeps at least this far apart. A torn write finishes in far less (t/756).
+const CORRUPT_MIN_AGE_MS = 10 * 60 * 1000;
+
+// Only an ISO-like string is a date. null, true, or a small number would otherwise become a valid Date
+// (epoch, 1 ms) and classify the record as expired (t/756).
+function parseExpiry(v: unknown): number {
+  return typeof v === 'string' ? new Date(v).getTime() : NaN;
+}
+
 /**
  * Wrapper around stripSensitiveKeysCore that applies the server's sanitizeUserText
  */
@@ -210,14 +237,14 @@ class DraftStoreImpl implements DraftStore {
           rec = JSON.parse(data);
         } catch (err) {
           // A corrupt record has no readable client id, so it cannot be charged to this client (t/507 item 3).
-          log.server.warn(`countClientPendingDrafts: unparseable draft record ${path}: ${(err as any)?.message} (not attributable to a client)`);
+          log.server.warn(`countClientPendingDrafts: unparseable draft record ${logRecordPath(path)} (parse error kind ${(err as Error)?.name ?? 'unknown'}; not attributable to a client)`);
           continue;
         }
         // Expired drafts do not count: they are dead content awaiting sweep (TL t/185#44, blocker 1).
         if (rec.clientId === clientId && new Date(rec.expiresAt as string).getTime() >= this.now()) count++;
       }
     } catch (err) {
-      log.server.error(`countClientPendingDrafts: list/read failed: ${(err as any)?.message}`);
+      log.server.error(`countClientPendingDrafts: list/read failed: ${logSafeError(err)}`);
       // Fail closed: if we can't count, assume limit is reached
       return DRAFT_PER_CLIENT_CAP;
     }
@@ -254,8 +281,8 @@ class DraftStoreImpl implements DraftStore {
         type: 'system.error',
         component: 'draftStore',
         level: 'error',
-        message: `createDraft sanitization failed: ${(err as any)?.message}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        message: `createDraft sanitization failed: ${logSafeError(err)}`,
+        error: { name: (err as Error).name ?? 'Error', message: logSafeError(err), stack: redactDraftIds((err as Error).stack ?? '') },
       });
       throw new ActionableError({
         goal: 'Sanitize draft payload',
@@ -385,7 +412,7 @@ class DraftStoreImpl implements DraftStore {
     try {
       await this.sweepExpiredDrafts();
     } catch (err) {
-      log.server.warn(`createDraft: pre-count sweep failed: ${(err as any)?.message} (counts still enforce the caps)`);
+      log.server.warn(`createDraft: pre-count sweep failed: ${logSafeError(err)} (counts still enforce the caps)`);
     }
 
     // Check caps (global + per-client)
@@ -417,8 +444,8 @@ class DraftStoreImpl implements DraftStore {
         type: 'system.error',
         component: 'draftStore',
         level: 'error',
-        message: `createDraft write failed: ${(err as any)?.message}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        message: `createDraft write failed: ${logSafeError(err)}`,
+        error: { name: (err as Error).name ?? 'Error', message: logSafeError(err), stack: redactDraftIds((err as Error).stack ?? '') },
       });
       throw new ActionableError({
         goal: 'Write the draft submission',
@@ -471,8 +498,8 @@ class DraftStoreImpl implements DraftStore {
         type: 'system.error',
         component: 'draftStore',
         level: 'error',
-        message: `getDraft failed: ${(err as any)?.message}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        message: `getDraft failed: ${logSafeError(err)}`,
+        error: { name: (err as Error).name ?? 'Error', message: logSafeError(err), stack: redactDraftIds((err as Error).stack ?? '') },
       });
       throw new ActionableError({
         goal: 'Read the draft',
@@ -497,7 +524,7 @@ class DraftStoreImpl implements DraftStore {
     } catch (err) {
       // Fail closed: when the claim state cannot be read, the draft is treated as claimed and refused.
       // Letting the guard pass would rely on the strict write alone (Security, t/185).
-      log.server.warn(`checkAlreadyClaimed: read failed for draft ${logDraftId(draftId)}: ${(err as any)?.message} (treated as claimed; fail closed)`);
+      log.server.warn(`checkAlreadyClaimed: read failed for draft ${logDraftId(draftId)}: ${logSafeError(err)} (treated as claimed; fail closed)`);
       return true;
     }
     return false;
@@ -512,8 +539,8 @@ class DraftStoreImpl implements DraftStore {
         type: 'system.error',
         component: 'draftStore',
         level: 'error',
-        message: `Failed to read draft: ${(err as any)?.message}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        message: `Failed to read draft: ${logSafeError(err)}`,
+        error: { name: (err as Error).name ?? 'Error', message: logSafeError(err), stack: redactDraftIds((err as Error).stack ?? '') },
       });
       throw new ActionableError({
         goal: 'Retrieve draft by ID',
@@ -566,8 +593,8 @@ class DraftStoreImpl implements DraftStore {
         type: 'system.error',
         component: 'draftStore',
         level: 'error',
-        message: `Failed to write submission: ${(err as any)?.message}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        message: `Failed to write submission: ${logSafeError(err)}`,
+        error: { name: (err as Error).name ?? 'Error', message: logSafeError(err), stack: redactDraftIds((err as Error).stack ?? '') },
       });
       throw new ActionableError({
         goal: 'Write finalized submission',
@@ -583,14 +610,14 @@ class DraftStoreImpl implements DraftStore {
       const claimMarker = { draftId, expiresAt: record.expiresAt, claimedAt: new Date(this.now()).toISOString() };
       await writeFileIfAbsentStrict(this.backend, claimPath, JSON.stringify(claimMarker));
     } catch (err) {
-      log.server.warn(`finalizeDraft: claim marker write failed: ${(err as any)?.message}`);
+      log.server.warn(`finalizeDraft: claim marker write failed: ${logSafeError(err)}`);
     }
 
     // Delete draft body (best-effort)
     try {
       await this.backend.deleteFile(`community/_drafts/${draftId}.json`);
     } catch (err) {
-      log.server.warn(`finalizeDraft: draft delete failed: ${(err as any)?.message}`);
+      log.server.warn(`finalizeDraft: draft delete failed: ${logSafeError(err)}`);
     }
     return 'written';
   }
@@ -644,7 +671,7 @@ class DraftStoreImpl implements DraftStore {
       // Claim markers live in claims/ (listDirectory is not recursive). They carry expiresAt, so the same rule applies.
       await this.sweepExpiredClaimMarkers((n) => { deleted += n; });
     } catch (err) {
-      log.server.error(`sweepExpiredDrafts failed: ${(err as any)?.message}`);
+      log.server.error(`sweepExpiredDrafts failed: ${logSafeError(err)}`);
       throw new ActionableError({
         goal: 'Sweep expired draft submissions',
         problem: 'Failed to sweep expired drafts',
@@ -666,7 +693,7 @@ class DraftStoreImpl implements DraftStore {
       /* telemetry — silent by design (the caller logs what it does with a corrupt record) */
       return 'corrupt';
     }
-    const expiry = new Date((rec as { expiresAt?: unknown } | null)?.expiresAt as string).getTime();
+    const expiry = parseExpiry((rec as { expiresAt?: unknown } | null)?.expiresAt);
     if (Number.isNaN(expiry)) return 'bad_expiry';
     return expiry < this.now() ? 'expired' : 'live';
   }
@@ -679,37 +706,59 @@ class DraftStoreImpl implements DraftStore {
   //   a second read returns the identical content (one truncated or torn read must not delete a live
   //   record), and every such delete is logged with its path and reason (t/507 SO follow-up; t/738, Security).
   private async sweepRecord(recordPath: string, kind: 'draft' | 'claim marker'): Promise<boolean> {
+    const shown = logRecordPath(recordPath);
     try {
       const data = await this.backend.readFile(recordPath);
-      if (data === null) return false;
+      if (data === null) {
+        this.corruptSeen.delete(recordPath);
+        return false;
+      }
       const verdict = this.classifyRecord(data);
-      if (verdict === 'live') return false;
+      if (verdict === 'live') {
+        this.corruptSeen.delete(recordPath);
+        return false;
+      }
       if (verdict === 'empty') {
-        log.server.warn(`sweepExpiredDrafts: ${kind} ${recordPath} read as empty (kept; an empty read is not proof the record is dead)`);
+        log.server.warn(`sweepExpiredDrafts: ${kind} ${shown} read as empty (kept; an empty read is not proof the record is dead)`);
         return false;
       }
       if (verdict !== 'expired') {
         const again = await this.backend.readFile(recordPath);
         if (again !== data) {
-          log.server.warn(`sweepExpiredDrafts: ${kind} ${recordPath} read as ${verdict}, but a second read differed (kept; retried on next sweep)`);
+          log.server.warn(`sweepExpiredDrafts: ${kind} ${shown} read as ${verdict}, but a second read differed (kept; retried on next sweep)`);
           return false;
         }
-        log.server.warn(`sweepExpiredDrafts: deleting ${kind} ${recordPath} on sight, reason ${verdict} (two identical reads, ${data.length} chars)`);
+        // Minimum age: the backend gives no mtime, so the store remembers when it first saw this exact content.
+        const seen = this.corruptSeen.get(recordPath);
+        if (!seen || seen.content !== data) {
+          this.corruptSeen.set(recordPath, { content: data, firstSeen: this.now() });
+          log.server.warn(`sweepExpiredDrafts: ${kind} ${shown} read as ${verdict} (kept; first sighting, deleted only if unchanged after ${CORRUPT_MIN_AGE_MS / 60000} min)`);
+          return false;
+        }
+        if (this.now() - seen.firstSeen < CORRUPT_MIN_AGE_MS) {
+          log.server.warn(`sweepExpiredDrafts: ${kind} ${shown} read as ${verdict} (kept; below the minimum age)`);
+          return false;
+        }
+        log.server.warn(`sweepExpiredDrafts: deleting ${kind} ${shown} on sight, reason ${verdict} (unchanged since first seen, ${data.length} chars)`);
       }
       await this.backend.deleteFile(recordPath);
+      this.corruptSeen.delete(recordPath);
       return true;
     } catch (err) {
-      log.server.warn(`sweepExpiredDrafts: could not sweep ${kind} ${recordPath}: ${(err as any)?.message} (skipped; retried on next sweep)`);
+      log.server.warn(`sweepExpiredDrafts: could not sweep ${kind} ${shown}: ${logSafeError(err)} (skipped; retried on next sweep)`);
       return false;
     }
   }
+
+  // path -> content first seen as corrupt and when; in memory, so a restart only delays a delete.
+  private readonly corruptSeen = new Map<string, { content: string; firstSeen: number }>();
 
   private async sweepExpiredClaimMarkers(addDeleted: (n: number) => void): Promise<void> {
     let files: string[];
     try {
       files = await this.backend.listDirectory('community/_drafts/claims');
     } catch (err) {
-      log.server.warn(`sweepExpiredDrafts: could not list claim markers: ${(err as any)?.message} (claim markers not swept this tick)`);
+      log.server.warn(`sweepExpiredDrafts: could not list claim markers: ${logSafeError(err)} (claim markers not swept this tick)`);
       return;
     }
     for (const file of files) {
@@ -732,7 +781,7 @@ class DraftStoreImpl implements DraftStore {
           rec = JSON.parse(data);
         } catch (err) {
           // One corrupt record must not block every create. Count it conservatively: it may still be live.
-          log.server.warn(`countPendingDrafts: unparseable draft record ${path}: ${(err as any)?.message} (counted as pending)`);
+          log.server.warn(`countPendingDrafts: unparseable draft record ${logRecordPath(path)} (parse error kind ${(err as Error)?.name ?? 'unknown'}; counted as pending)`);
           count++;
           continue;
         }
@@ -740,7 +789,7 @@ class DraftStoreImpl implements DraftStore {
       }
     } catch (err) {
       // B2: a listing failure must refuse, never admit. A partial count would let a draft past the cap.
-      log.server.error(`countPendingDrafts: list/read failed: ${(err as any)?.message} (failing closed)`);
+      log.server.error(`countPendingDrafts: list/read failed: ${logSafeError(err)} (failing closed)`);
       throw new ActionableError({
         goal: 'Count pending drafts',
         problem: 'Failed to list/read drafts directory (fail-closed for cap check)',
@@ -765,7 +814,7 @@ class DraftStoreImpl implements DraftStore {
         }
       }
     } catch (err) {
-      log.server.error(`countUserPendingSubmissions: list/read failed: ${(err as any)?.message} (failing closed)`);
+      log.server.error(`countUserPendingSubmissions: list/read failed: ${logSafeError(err)} (failing closed)`);
       throw new ActionableError({
         goal: 'Count user pending submissions',
         problem: 'Failed to list/read submissions directory (fail-closed for cap check)',
@@ -790,7 +839,7 @@ class DraftStoreImpl implements DraftStore {
         }
       }
     } catch (err) {
-      log.server.error(`countGlobalPendingSubmissions: list/read failed: ${(err as any)?.message} (failing closed)`);
+      log.server.error(`countGlobalPendingSubmissions: list/read failed: ${logSafeError(err)} (failing closed)`);
       throw new ActionableError({
         goal: 'Count global pending submissions',
         problem: 'Failed to list/read submissions directory (fail-closed for cap check)',
@@ -824,7 +873,7 @@ export function startDraftSweeper(intervalMs?: number): () => void {
 
   const timer = setInterval(() => {
     store.sweepExpiredDrafts().catch(err => {
-      log.server.error(`Draft sweep error: ${(err as any)?.message}`);
+      log.server.error(`Draft sweep error: ${logSafeError(err)}`);
     });
   }, interval);
 

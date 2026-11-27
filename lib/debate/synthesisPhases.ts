@@ -17,6 +17,7 @@ import { parseJsonRobust, stripCodeFences } from './helpers.js';
 import { salvageJsonArray } from './partialJsonSalvage.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
 import { prepareSynthesisLists } from './synthesisOrder.js';
+import { assignDisagreementIds, linkPreferencesToDisagreements, splitUnresolvedQuestions } from './synthesisLinks.js';
 import type { UsageCallDeps } from '../ai-client/usageRegistry.js';
 import { callByUsage } from '../ai-client/usageRegistry.js';
 
@@ -212,6 +213,9 @@ export async function runSynthesisPhases(
     warn?.('Synthesis Phase 1', 'AI returned empty or unparseable output — synthesis data will be incomplete', 'Proceeding with partial synthesis');
   }
   mergePhaseData(data, extractData, PHASE_KEYS.extract);
+  // t/808: ids on the disagreements (so Phase 3 can name them) and themes split off the questions.
+  assignDisagreementIds(data.areas_of_disagreement);
+  splitUnresolvedQuestions(data);
   noteRecoveredPhase(degradedPhases, extractData, 'extract');
 
   if (maxPhase === 1) {
@@ -226,7 +230,7 @@ export async function runSynthesisPhases(
   // Phase 2: Build argument map
   checkAborted?.();
   onProgress?.(2, 'Phase 2/3: Building argument map');
-  const disagreementsSummary = JSON.stringify(extractData.areas_of_disagreement ?? []);
+  const disagreementsSummary = JSON.stringify(data.areas_of_disagreement ?? []);
   const mapRaw = await synthGenerate(
     'synthesis.map',
     synthMapPrompt(input.topic, input.transcript, disagreementsSummary, input.hasSourceDoc ?? false, input.audience),
@@ -296,6 +300,7 @@ export async function runSynthesisPhases(
     }
   }
   mergePhaseData(data, evalData, PHASE_KEYS.evaluate);
+  linkPreferencesToDisagreements(data.preferences, data.areas_of_disagreement, warn);
   noteRecoveredPhase(degradedPhases, evalData, 'evaluate');
   applyDegradedMarker(data, degradedPhases);
 

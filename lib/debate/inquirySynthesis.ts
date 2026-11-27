@@ -179,6 +179,47 @@ function warn(message: string): void {
   });
 }
 
+/**
+ * Structure of a response that did not parse, with none of its text (t/820): safe to write to the console log
+ * (which outlives the in-memory flight recorder when a replica scales to zero) without user content. Character
+ * classes, length, whether it looks fenced, whether it has brackets and they balance, and which required keys it names.
+ */
+export function describeResponseShape(raw: string): {
+  length: number; first: string; last: string; fenced: boolean; balanced: boolean;
+  namesDirectAnswer: boolean; namesCampVerdicts: boolean;
+} {
+  const cls = (ch: string | undefined): string => {
+    if (ch === undefined) return 'empty';
+    if (ch === '{' || ch === '}' || ch === '[' || ch === ']') return ch;
+    if (ch === '`') return 'fence';
+    if (/\p{L}/u.test(ch)) return 'letter';
+    if (/\d/.test(ch)) return 'digit';
+    return 'other';
+  };
+  const t = raw.trim();
+  let depth = 0;
+  let sawBracket = false;
+  let inStr = false;
+  let esc = false;
+  for (const ch of t) {
+    if (esc) { esc = false; continue; }
+    if (ch === '\\' && inStr) { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === '{' || ch === '[') { depth++; sawBracket = true; }
+    if (ch === '}' || ch === ']') depth--;
+  }
+  return {
+    length: raw.length,
+    first: cls(t[0]),
+    last: cls(t[t.length - 1]),
+    fenced: t.startsWith('```'),
+    balanced: sawBracket && depth === 0 && !inStr,
+    namesDirectAnswer: t.includes('"directAnswer"'),
+    namesCampVerdicts: t.includes('"campVerdicts"'),
+  };
+}
+
 /** Build a flat lookup map nodeId → NodeRef from the grounding snapshot. */
 function buildNodeRefMap(grounding: GroundingEnvelope): Map<string, NodeRef> {
   const map = new Map<string, NodeRef>();
@@ -293,6 +334,31 @@ export function buildQuestionDrift(input: { debatedTopic?: string; driftScore?: 
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/** Attempts at the synthesis call: the first plus one retry on a response that doesn't parse (t/820). */
+const SYNTHESIS_MAX_ATTEMPTS = 2;
+
+/**
+ * The synthesis call and its parse, with one retry when the response doesn't parse (t/820). A full inquiry
+ * job is dozens of calls and this is its last step, so one bad final response must not discard all of them.
+ * The retry is one extra call on the failing path only. Returns null after the last failed attempt.
+ */
+async function generateSynthesisJson(adapter: AIAdapter, prompt: string, model: string): Promise<LlmSynthesisOutput | null> {
+  for (let attempt = 1; attempt <= SYNTHESIS_MAX_ATTEMPTS; attempt++) {
+    const rawText = await adapter.generateText(prompt, model);
+    const parsed = parseAIJson<LlmSynthesisOutput>(rawText);
+    if (parsed) return parsed;
+    // t/1626: log a bounded payload before giving up on a parse failure
+    const head = rawText.slice(0, 200);
+    const tail = rawText.length > 400 ? `…tail: ${rawText.slice(-100)}` : '';
+    // Console too: the flight recorder is in memory and is lost when the replica scales to zero. No response text.
+    console.warn(`[inquiry-synthesis] response did not parse (attempt ${attempt} of ${SYNTHESIS_MAX_ATTEMPTS}): ${JSON.stringify(describeResponseShape(rawText))}`);
+    warn(
+      `synthesizeInquiry: parseAIJson returned null (attempt ${attempt} of ${SYNTHESIS_MAX_ATTEMPTS}${attempt < SYNTHESIS_MAX_ATTEMPTS ? ', retrying' : ''}) — discarded payload head: ${head}${tail ? ` ${tail}` : ''}`,
+    );
+  }
+  return null;
+}
+
 /**
  * Run the LLM synthesis pass for an inquiry and return a validated InquiryResult.
  *
@@ -333,17 +399,9 @@ export async function synthesizeInquiry(
     debatedTopic,
   );
 
-  // 2. LLM call
-  const rawText = await adapter.generateText(prompt, evaluatorModel);
-
-  // 3. Parse LLM JSON — t/1626: log bounded payload before throwing on parse failure
-  const parsed = parseAIJson<LlmSynthesisOutput>(rawText);
+  // 2. LLM call and 3. parse JSON, with one retry on a response that doesn't parse (t/820)
+  const parsed = await generateSynthesisJson(adapter, prompt, evaluatorModel);
   if (!parsed) {
-    const head = rawText.slice(0, 200);
-    const tail = rawText.length > 400 ? `…tail: ${rawText.slice(-100)}` : '';
-    warn(
-      `synthesizeInquiry: parseAIJson returned null — discarded payload head: ${head}${tail ? ` ${tail}` : ''}`,
-    );
     throw new ActionableError({
       goal: 'Synthesize inquiry debate into a validated InquiryResult',
       problem: 'LLM response could not be parsed as JSON',

@@ -6,6 +6,8 @@
 
 Full mechanics for how implementation reviews are routed, queued, and handled in the multi-agent fleet. The Tech Lead AGENTS.md keeps only the one-line load-bearing routing rule inline and points here for the detail.
 
+**Read a PR's review state from the PR and never assume it; the rules are in "Reading a PR's review state (no assumptions)" below (t/819).**
+
 ## Review Routing — Quality (TL) vs Main (TL)
 
 To reduce review queue bottleneck, **Quality (Tech Lead)** (`quality.engineering-tech-lead@ai-triad-research.orca.local`) handles routine implementation reviews. Route directly to Main (TL) only when escalation criteria are met.
@@ -40,6 +42,12 @@ Design's review is a **gate** for user-facing changes, on top of the tier's own 
 - **Hold label (until `design-review-guard` is required):** the T0 enqueue sweep can't read comments and re-enqueues any green T0 PR, and dequeuing doesn't stop it (#4410 merged over "Changes requested", t/4781#2). The author applies `no-auto-enqueue` at PR creation, and Design re-applies it with any `Changes requested (Design):`. Remove it only after Design passes the current head.
 - **Checklist and evidence standard:** `docs/design-review.md` (t/4783). Turnaround target: 4 working hours. If Design is unavailable, the TL may grant a time-boxed exemption with a recorded reason.
 - **Enforcement:** `design-review-guard` (t/4782) reports pass/fail on every PR; it becomes a required context after its warn-only period (T2, PI flips branch protection).
+- **Rule D (t/751, t/752):** a user-facing change needs the Design role's reviewer-App `Approved (Design):` or `Design-exempt (Design): <reason>` at the head, at every tier. A comment counts only if it was posted after the head's push. merge-approval, enqueue-pr and the sweeps all enforce it through one helper, `operations/devops/design-gate.mjs`. Design's approval is not the T1 review, and Quality's approval is not Design's. The exemption is never a line in the PR body.
+- **Design-gated paths outside the renderer (t/752#2):** `lib/debate/prompts/**`, `prompts.ts`, `argumentNetwork/prompts.ts`, `entrySummaries.ts`, `factCheckFinding.ts`, `factCheckValidator.ts`, `synthesisOrder.ts`, `synthesisPipeline.ts`, `synthesisPhases.ts`, `inquirySynthesis.ts`, `explorationSummary.ts`, `debateExport.ts`, `formatters.ts`, `types/synthesis.ts`, and the renderer's `useDebateStore`, `shared/factCheckFormat.ts` and `prompts.ts`. Exempt: tests, `*.generated.ts`, `exp-*` files and context builders (`context.ts`, `taxonomyContext.ts`, `vocabularyContext.ts`, `embedTexts.ts`). The code list is `design-review-scope.mjs`.
+
+## PR Body Tier Line (t/751)
+
+A PR body with no `Tier:` first line is treated as **T1** by the guard and merge-approval, and `enqueue-pr` refuses it outright. Only a Dependabot PR is exempt, and only when every commit is verified, authored by `dependabot[bot]` and committed by `web-flow`. A lockfile-healed Dependabot PR is not exempt and needs a T1 review.
 
 ## Meta-Doc Accuracy Skim — LessonsLearned / AGENTS.md PRs (t/3362, audit G4)
 
@@ -70,6 +78,16 @@ An approval binds to a head, so any push after approval needs a new stamp. When 
    - one line on what changed and why.
 2. **The reviewer** reads only `git diff <approved-head>..<new-head>`. If it is delta-only and correct, they post `Approved (<role>):` at the new head, saying in the body that it's a delta re-stamp from `<approved-head>`.
 3. **Not delta-only** (new behaviour, new files, or a rebase that changed the code under review): the reviewer says so and does a full review. A rebase with no content change counts as delta-only when `git range-diff` shows no change in the PR's own commits; the author pastes that output.
+
+## Reading a PR's review state (no assumptions)
+
+PI request (2026-11-27, t/819). A report said "an older Changes requested review ... I did not confirm who posted it, and I assumed Debate Engine's fixes address it." That is an assumption presented as a status. A review state is read from the PR; it is never inferred.
+
+1. **List every review from the PR itself** (`gh api repos/<owner>/<repo>/pulls/<N>/reviews`): reviewer login and role, state, commit SHA, and whether that SHA is the current head. Quote it; do not paraphrase from memory.
+2. **A review at an older head is "at an older head", not "stale",** until you have read it. Then say what it asked for, who posted it, and for each point either the commit that addresses it (verified in the diff) or "not addressed".
+3. **A `CHANGES_REQUESTED` review stays open** until its author has withdrawn it, dismissed it or approved at a later head, or you have verified each point is resolved and say so. Never write that a requested change is "probably" or "presumably" addressed.
+4. **Do not write "I assumed", "probably" or "should be" for a fact you could read.** Either verify it, or list it under "Unverified" with the one person to ask and what you asked.
+5. **A report ends with three lists:** reviews at the current head (who, state); reviews at older heads (who, state, resolved or not); and the Unverified list.
 
 ## Async Review (implement-then-review)
 

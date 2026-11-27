@@ -206,7 +206,7 @@ Describe 'Invoke-AIApi retry policy and empty-text handling (t/4078)' -Tag 'enri
                 'generativelanguage' = @((script:New-GeminiOk 'gemini served'))
             }
             $out = script:Invoke-Call @{ Prompt = 'p'; Model = $script:Groq; ApiKey = $script:Key; MaxRetries = 3; RetryDelays = @(1)
-                FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash') }
+                FallbackModels = @('claude-haiku-4-5', 'gemini-3.6-flash') }
             $out.Result.Text | Should -BeExactly 'gemini served'
             script:Get-Hosts | Should -BeExactly 'api.groq.com,api.groq.com,api.groq.com,api.anthropic.com,api.anthropic.com,generativelanguage.googleapis.com'
             ($script:Sleeps -join ',') | Should -BeExactly '1,1,5' -Because 'primary: two retries at 1s; claude link: one timeout retry at its 5s'
@@ -215,7 +215,7 @@ Describe 'Invoke-AIApi retry policy and empty-text handling (t/4078)' -Tag 'enri
                 "groq: HTTP 502 $($script:D) retrying in 1s (attempt 2/3)"
                 'Cascade: falling back to claude-haiku-4-5 (claude)'
                 "claude: timeout $($script:D) retrying in 5s (attempt 1/2)"
-                'Cascade: falling back to gemini-2.5-flash (gemini)'
+                'Cascade: falling back to gemini-3.6-flash (gemini)'
             ) -join "`n")
         }
 
@@ -246,7 +246,7 @@ Describe 'Invoke-AIApi retry policy and empty-text handling (t/4078)' -Tag 'enri
 
         It 'without -TimeoutSec, each link uses its own model''s default timeout' {
             $env:GROQ_API_KEY = 'groq-test-value'; $env:GEMINI_API_KEY = 'gemini-test-value'
-            $primary = 'claude-haiku-4-5'; $fb1 = 'groq-openai-gpt-oss-20b'; $fb2 = 'gemini-2.5-flash'
+            $primary = 'claude-haiku-4-5'; $fb1 = 'groq-openai-gpt-oss-20b'; $fb2 = 'gemini-3.6-flash'
             $defaults = script:Get-ModuleValue { param($a, $b, $c) @((Get-AIDefaultTimeoutSec -Model $a), (Get-AIDefaultTimeoutSec -Model $b), (Get-AIDefaultTimeoutSec -Model $c)) } @($primary, $fb1, $fb2)
             script:Set-Replies @{ 'api.anthropic.com' = @((script:New-HttpError 400)); 'api.groq.com' = @((script:New-HttpError 400)); 'generativelanguage' = @((script:New-GeminiOk)) }
             $out = script:Invoke-Call @{ Prompt = 'p'; Model = $primary; ApiKey = $script:Key; FallbackModels = @($fb1, $fb2) }
@@ -262,7 +262,7 @@ Describe 'Invoke-AIApi retry policy and empty-text handling (t/4078)' -Tag 'enri
         }
 
         It 'New-AICascadeLinkParams: TimeoutSec <In> for <Model> -> <Expected>' -ForEach @(
-            @{ In = 0;  Model = 'gemini-2.5-flash'; Expected = 'default' }
+            @{ In = 0;  Model = 'gemini-3.6-flash'; Expected = 'default' }
             @{ In = 0;  Model = 'claude-haiku-4-5'; Expected = 'default' }
             @{ In = 42; Model = 'claude-haiku-4-5'; Expected = '42' }
         ) {
@@ -275,7 +275,7 @@ Describe 'Invoke-AIApi retry policy and empty-text handling (t/4078)' -Tag 'enri
     Context '§3 a 200 with no text' {
 
         It '<Name>: WARNs with the stop reason "<Reason>" and returns $null' -ForEach @(
-            @{ Name = 'gemini MAX_TOKENS, no parts text'; Model = 'gemini-2.5-flash'; HostFrag = 'generativelanguage'; Reason = 'finishReason=MAX_TOKENS'
+            @{ Name = 'gemini MAX_TOKENS, no parts text'; Model = 'gemini-3.6-flash'; HostFrag = 'generativelanguage'; Reason = 'finishReason=MAX_TOKENS'
                Envelope = [pscustomobject]@{ candidates = @([pscustomobject]@{ finishReason = 'MAX_TOKENS'; content = [pscustomobject]@{ parts = @([pscustomobject]@{ text = '' }) } }) } }
             @{ Name = 'claude max_tokens, thinking only'; Model = 'claude-haiku-4-5'; HostFrag = 'api.anthropic.com'; Reason = 'stop_reason=max_tokens'
                Envelope = [pscustomobject]@{ content = @([pscustomobject]@{ type = 'thinking'; thinking = 'hmm' }); stop_reason = 'max_tokens' } }
@@ -309,7 +309,7 @@ Describe 'Invoke-AIApi retry policy and empty-text handling (t/4078)' -Tag 'enri
                 'api.anthropic.com'  = @([pscustomobject]@{ content = @(); stop_reason = 'refusal' })
                 'generativelanguage' = @((script:New-GeminiOk 'gemini text'))
             }
-            $out = script:Invoke-Call @{ Prompt = 'p'; Model = $script:Groq; ApiKey = $script:Key; FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash') }
+            $out = script:Invoke-Call @{ Prompt = 'p'; Model = $script:Groq; ApiKey = $script:Key; FallbackModels = @('claude-haiku-4-5', 'gemini-3.6-flash') }
             $out.Result.Text | Should -BeExactly 'gemini text'
             $out.Warnings | Should -Contain 'Anthropic Claude: response had no text (backend claude, model claude-haiku-4-5, stop_reason=refusal). Returning $null so a fallback can be tried.'
         }

@@ -99,10 +99,11 @@ describe('models:drift exit-code contract (TL t/4159#10)', () => {
   };
 
   it('an unreferenced model superseded in its family (still listed): exit 0, reported as info', async () => {
-    withExtra([gm('gemini-3.5-flash')]);
-    geminiIds = [...geminiIds, 'gemini-3.5-flash', 'gemini-3.8-flash'];
+    // gemini-3.4-flash is a fixture id nothing in code names; real ids the code names (gemini-3.5-flash, 3.6-flash) would be referenced, not curated away.
+    withExtra([gm('gemini-3.4-flash')]);
+    geminiIds = [...geminiIds, 'gemini-3.4-flash', 'gemini-3.8-flash'];
     expect(await run({ GEMINI_API_KEY: GEMINI_KEY, GROQ_API_KEY: GROQ_KEY })).toBe(0);
-    expect(out.join('\n')).toMatch(/info: a refresh would also curate away .*gemini-3\.5-flash/);
+    expect(out.join('\n')).toMatch(/info: a refresh would also curate away .*gemini-3\.4-flash/);
     expect(out.join('\n')).toContain('no drift');
   });
 

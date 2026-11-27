@@ -10,6 +10,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { extractTicketRefs, isForeignCommit, evaluateForeignInheritance, formatResult } from './foreign-commit-predicate.mjs';
 
 // ── extractTicketRefs ──
@@ -222,12 +225,24 @@ test('formatResult: fire message states the residual, never claims general ances
 });
 
 // ── CLI shim: prove the RUNTIME the workflow invokes (test == runtime, t/3270#4 discipline) ──
-// Exercised against THIS repo's real git history, inside the actual worktree checkout.
+// Exercised in a throwaway git repo whose HEAD == origin/main (t/729: never the real checkout, whose
+// range is empty only on a branch with no commits).
 
 const MODULE = fileURLToPath(new URL('./foreign-commit-predicate.mjs', import.meta.url));
+function emptyRangeRepo() {
+  const dir = mkdtempSync(join(tmpdir(), 'fcp-empty-'));
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) if (k.startsWith('GIT_')) delete env[k];
+  const g = (...a) => execFileSync('git', a, { cwd: dir, env, windowsHide: true, stdio: 'pipe' });
+  g('init', '-q');
+  g('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'base');
+  g('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  return { dir, env };
+}
 function runShim(prTitle, optedOut) {
+  const { dir, env } = emptyRangeRepo();
   try {
-    const out = execFileSync(process.execPath, [MODULE, prTitle, optedOut ? '1' : '0'], { encoding: 'utf8' });
+    const out = execFileSync(process.execPath, [MODULE, prTitle, optedOut ? '1' : '0'], { encoding: 'utf8', cwd: dir, env });
     return { out, code: 0 };
   } catch (e) {
     return { out: e.stdout, code: e.status };

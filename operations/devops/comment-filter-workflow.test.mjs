@@ -456,6 +456,7 @@ async function runGuard({ payload, comments = [], reviews = [] }) {
       head: { sha: PR_HEAD, ref: 'devops/comment-filter' }, base: { ref: 'main' },
     }; },
     'pulls.listCommits': () => [{ commit: { committer: { date: PUSH_AT } } }],
+    'pulls.listFiles': () => [{ filename: 'docs/notes.md', status: 'modified' }], // t/776: the guard lists the PR's files
     'issues.listComments': () => comments,
     'pulls.listReviews': () => reviews,
     'issues.createComment': () => ({}),

@@ -30,6 +30,21 @@ import { deriveCommunityPseudonymKey } from '../security/anonSessionSigning.js';
 export const PSEUDONYM_FALLBACK = 'Contributor';
 const PSEUDONYM_HEX_CHARS = 8;
 
+// How many displays the fixed word has stood in for a missing key. A cached listing index built while this
+// moved would keep the fixed word after the key loads, so the index builder compares before and after (t/693#29).
+let keylessFallbacks = 0;
+export function keylessFallbackCount(): number {
+  return keylessFallbacks;
+}
+
+let warnedUnpersistedIndex = false;
+/** WARN, once per process, that a listing index was not cached for want of the pseudonym key. */
+export function warnIndexNotPersisted(dir: string): void {
+  if (warnedUnpersistedIndex) return;
+  warnedUnpersistedIndex = true;
+  log.server.warn(`Community listing index for ${dir} not persisted: the pseudonym key is not loaded, so entries show the fixed display. Each list call rebuilds until it loads (warned once per process).`);
+}
+
 /**
  * The public display name for a submitter's storage id. Never returns the storage id or any part of it.
  * Call it only at publish time. An empty storage id, or no installed secret, gives the fixed fallback.
@@ -38,6 +53,7 @@ export function communityPseudonym(storageUserId: string): string {
   if (!storageUserId) return PSEUDONYM_FALLBACK;
   const subkey = deriveCommunityPseudonymKey();
   if (!subkey) {
+    keylessFallbacks++;
     log.server.warn(
       'Community pseudonym key is unavailable (anon-session-hmac is not loaded): publishing the fixed display "Contributor" instead of a per-contributor pseudonym (t/693)',
     );

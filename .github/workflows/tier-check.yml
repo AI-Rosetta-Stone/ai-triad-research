@@ -313,6 +313,14 @@ jobs:
               return;
             }
             if (isRelay) relayHeadSha = headSha;
+            // t/674 item 5: the predicate loads from pr.base.ref, and this workflow holds `checks: write`, so a PR
+            // into a non-default branch would run THAT branch's predicate with it. Evaluate PRs into the default
+            // branch only (t1-approval-guard.yml skips the same way). tier-check is not a required check.
+            const defaultBranch = context.payload.repository?.default_branch || 'main';
+            if (pr.base.ref !== defaultBranch) {
+              core.notice(`tier-check: base is '${pr.base.ref}', not ${defaultBranch}; tier-check evaluates PRs into ${defaultBranch} only -- skipped.`);
+              return;
+            }
             execSync(`git fetch origin ${JSON.stringify(pr.base.ref)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
             const baseTipSha = execSync(`git rev-parse FETCH_HEAD`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
 
@@ -430,17 +438,27 @@ jobs:
               return;
             }
 
-            // t/116(b): the predicate imports latestRoleVerdicts from role-review-verdicts.mjs, so the base
-            // copy of that module goes into the same temp dir. Without it the import fails.
-            const baseVerdictsText = showFromBase('operations/devops/role-review-verdicts.mjs');
-            if (baseVerdictsText === null) {
-              await r1FallbackCheck(config, "role-review-verdicts.mjs not yet on the base branch's tip (predicate imports it)");
-              return;
-            }
+            // t/116(b), t/674 item 4: the predicate imports sibling modules (role-review-verdicts.mjs today). Copy its
+            // whole local import closure from the base tip instead of a hard-coded list, so a later import
+            // cannot break the run. A module the base cannot show is a fallback (R1 only), never a crash.
             const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tier-check-base-'));
             const predicatePath = path.join(tmpDir, 'tier-check-predicate.mjs');
-            fs.writeFileSync(predicatePath, basePredicateText);
-            fs.writeFileSync(path.join(tmpDir, 'role-review-verdicts.mjs'), baseVerdictsText);
+            const closure = new Map([['tier-check-predicate.mjs', basePredicateText]]);
+            const pending = ['tier-check-predicate.mjs'];
+            while (pending.length > 0) {
+              const text = closure.get(pending.pop());
+              for (const m of text.matchAll(/(?:from|import)\s*['"]\.\/([A-Za-z0-9._-]+\.mjs)['"]/g)) {
+                if (closure.has(m[1])) continue;
+                const depText = showFromBase('operations/devops/' + m[1]);
+                if (depText === null) {
+                  await r1FallbackCheck(config, m[1] + " not yet on the base branch's tip (the predicate's import closure needs it)");
+                  return;
+                }
+                closure.set(m[1], depText);
+                pending.push(m[1]);
+              }
+            }
+            for (const [name, text] of closure) fs.writeFileSync(path.join(tmpDir, name), text);
             const baseModule = await import(pathToFileURL(predicatePath).href);
 
             // checkApiVersion comes from the BASE module (trusted); the head contributes only a number.

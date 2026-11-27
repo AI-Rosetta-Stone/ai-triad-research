@@ -219,7 +219,7 @@ export async function countTokens(
   if (key) {
     assertKeyForBackend(key, 'gemini', 'countTokens'); // t/4105 C5: a direct send that bypasses callProvider, so the foreign-key guard runs here
     try {
-      const url = `${GEMINI_BASE}/gemini-2.5-flash:countTokens?key=${key}`;
+      const url = `${GEMINI_BASE}/gemini-3.5-flash-lite:countTokens?key=${key}`;
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

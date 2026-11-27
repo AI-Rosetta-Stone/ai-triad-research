@@ -1,0 +1,194 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+   Licensed under the MIT License. See LICENSE file in the project root. */
+
+/* t/809 synthesis panel v2 (docs/ux/debate-synthesis-v2.md). Theme tokens only: no hex, so light,
+   dark, bkc and harvard all follow. A camp fill is the camp colour with --bg-primary text, which is
+   the pair each theme already keeps readable against that colour. */
+
+.syn-panel {
+  container-type: inline-size;
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+.syn-panel p { margin: 0; }
+.syn-panel ul, .syn-panel ol { margin: 0; padding: 0; list-style: none; }
+
+.syn-camp-acc { --syn-camp: var(--color-acc); }
+.syn-camp-saf { --syn-camp: var(--color-saf); }
+.syn-camp-skp { --syn-camp: var(--color-skp); }
+.syn-camp-other { --syn-camp: var(--text-secondary); }
+
+/* Header */
+.syn-heading { margin: 0; font-size: var(--text-xl); font-weight: 600; line-height: 1.25; }
+.syn-camp-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 var(--sp-2); border: 1px solid var(--syn-camp); border-radius: 999px;
+  color: var(--syn-camp); background: transparent; font-size: var(--text-sm); line-height: 1.7;
+}
+.syn-camp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--syn-camp); }
+.syn-nav { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); margin-top: var(--sp-3); font-size: var(--text-sm); }
+.syn-nav-link { color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; min-height: 24px; }
+.syn-nav-link:focus-visible, .syn-panel button:focus-visible, .syn-panel input:focus-visible, .syn-panel h3:focus-visible {
+  outline: 2px solid var(--text-primary); outline-offset: 2px;
+}
+.syn-nav-count { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* Headings, cards */
+.syn-h { margin: 0 0 var(--sp-1); font-size: var(--text-lg); font-weight: 600; }
+.syn-intro { color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--sp-3) !important; }
+.syn-card {
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding: var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-secondary);
+}
+.syn-bottom { font-size: var(--text-md); }
+.syn-crux-line { font-size: var(--text-sm); color: var(--text-secondary); }
+.syn-crux-line strong { color: var(--text-primary); }
+
+/* Type chips are neutral on purpose: the label is the signal, not a hue. */
+.syn-type-chip {
+  display: inline-block; padding: 0 var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--radius-sm);
+  background: var(--bg-tertiary); color: var(--text-primary); font-size: var(--text-xs); line-height: 1.7; white-space: nowrap;
+}
+
+/* Buttons: >= 40px tall */
+.syn-more, .syn-panel .syn-more { min-height: 40px; }
+.syn-inline { min-height: 0; padding: 0 var(--sp-1); text-decoration: underline; }
+
+/* Outcome strip */
+.syn-strip-heading { margin: 0 0 var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
+.syn-strip-bar { display: flex; gap: 4px; }
+.syn-seg {
+  flex: 1 1 0; min-width: 0; text-align: center; padding: var(--sp-1) 0; border-radius: var(--radius-sm);
+  font-family: var(--font-mono, monospace); font-size: var(--text-xs); font-weight: 600;
+}
+.syn-seg-camp { color: var(--bg-primary); border: 1px solid transparent; }
+/* The fill is spelled out per camp (not through --syn-camp) so the token-contrast gate can resolve
+   it in every theme (t/2264): --syn-camp is set by a class, not on this rule's element. */
+.syn-seg-camp.syn-camp-acc { background: var(--color-acc); border-color: var(--color-acc); }
+.syn-seg-camp.syn-camp-saf { background: var(--color-saf); border-color: var(--color-saf); }
+.syn-seg-camp.syn-camp-skp { background: var(--color-skp); border-color: var(--color-skp); }
+.syn-seg-camp.syn-camp-other { background: var(--text-secondary); border-color: var(--text-secondary); }
+/* Unresolved / no verdict: light fill and a dashed border, so it differs from a camp by more than hue. */
+.syn-seg-unresolved { background: var(--bg-primary); color: var(--text-primary); border: 1px dashed var(--text-secondary); }
+.syn-legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); margin-top: var(--sp-2) !important; font-size: var(--text-sm); }
+.syn-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.syn-legend-swatch { width: 14px; height: 14px; border-radius: 3px; }
+
+.syn-settle-h { margin: 0 0 var(--sp-1); font-size: var(--text-sm); font-weight: 600; }
+.syn-settle li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); padding: 2px 0; }
+.syn-settle-ids { color: var(--text-secondary); }
+
+/* Next moves */
+.syn-moves { display: grid; grid-template-columns: 1fr; gap: var(--sp-3); }
+.syn-move { padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.syn-move-title { font-weight: 600; font-size: var(--text-md); }
+.syn-move-chip {
+  display: inline-block; margin: var(--sp-1) 0; padding: 0 var(--sp-2); border-radius: 999px;
+  border: 1px solid var(--text-secondary); font-size: var(--text-xs); color: var(--text-primary);
+}
+.syn-move p { font-size: var(--text-sm); color: var(--text-secondary); }
+@container (min-width: 640px) { .syn-moves { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); } }
+
+/* Common ground */
+.syn-agree { border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.syn-agree-item { display: flex; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); font-size: var(--text-md); }
+.syn-agree-item + .syn-agree-item { border-top: 1px solid var(--border-color); }
+.syn-check { flex: none; margin-top: 3px; color: var(--text-primary); }
+.syn-unreadable { color: var(--text-secondary); font-size: var(--text-sm); }
+
+/* Disputes */
+.syn-disputes { display: flex; flex-direction: column; gap: var(--sp-3); }
+.syn-dispute { padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.syn-dispute-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); }
+.syn-dispute-n { font-family: var(--font-mono, monospace); font-weight: 600; }
+.syn-about { color: var(--text-secondary); }
+.syn-dispute-verdict { margin-left: auto; }
+.syn-verdict-chip {
+  display: inline-block; padding: 0 var(--sp-2); border-radius: 999px; font-size: var(--text-xs); line-height: 1.8;
+  border: 1px solid var(--syn-camp); color: var(--syn-camp); background: transparent; font-weight: 600;
+}
+.syn-verdict-none { border: 1px dashed var(--text-secondary); color: var(--text-primary); --syn-camp: var(--text-secondary); }
+.syn-dispute-q { margin: var(--sp-2) 0; font-size: var(--text-md); font-weight: 600; }
+.syn-dispute-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.syn-why { font-size: var(--text-sm); color: var(--text-secondary); }
+.syn-positions { display: grid; grid-template-columns: 1fr; gap: var(--sp-3); margin-top: var(--sp-2); }
+.syn-position p { margin-top: var(--sp-1); font-size: var(--text-sm); }
+@container (min-width: 640px) { .syn-positions { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); } }
+
+/* Cruxes */
+.syn-cruxes { display: flex; flex-direction: column; gap: var(--sp-2); }
+.syn-crux { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-1) var(--sp-2); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: var(--text-md); }
+.syn-crux-n { font-family: var(--font-mono, monospace); font-weight: 600; }
+.syn-crux .syn-type-chip { justify-self: start; }
+.syn-crux p { grid-column: 1 / -1; }
+
+/* Open questions */
+.syn-questions { display: flex; flex-direction: column; gap: var(--sp-1); }
+.syn-question { display: flex; align-items: flex-start; gap: var(--sp-2); min-height: 40px; padding: var(--sp-1) 0; font-size: var(--text-md); }
+.syn-question input { flex: none; width: 18px; height: 18px; margin-top: 3px; }
+.syn-question label { cursor: pointer; }
+.syn-question-groups { display: grid; grid-template-columns: 1fr; gap: var(--sp-3); }
+.syn-question-group { margin: 0; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--radius-md); min-width: 0; }
+.syn-question-group legend { padding: 0 var(--sp-1); font-size: var(--text-sm); font-weight: 600; }
+.syn-question-ungrouped { grid-column: 1 / -1; }
+@container (min-width: 640px) { .syn-question-groups { grid-template-columns: 1fr 1fr; } }
+
+/* t/824 (§13.2): the button sits under the question text on narrow widths and to the right when there is room. */
+.syn-debate { margin-left: auto; align-self: flex-start; }
+.syn-question { flex-wrap: wrap; }
+.syn-question label { flex: 1 1 14rem; }
+.syn-crux .syn-crux-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.syn-crux .syn-debate { margin-left: 0; }
+.syn-crux-details { flex: 1 0 100%; display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--text-sm); color: var(--text-secondary); }
+.syn-crux-details strong { color: var(--text-primary); }
+.syn-crux-details p { margin: 0; }
+/* t/825 (§13.3): strongest arguments, one card per camp; a 3-up grid at >=1024px container width. */
+.syn-arg-camps { display: grid; grid-template-columns: 1fr; gap: var(--sp-3); }
+@container (min-width: 1024px) { .syn-arg-camps { grid-template-columns: repeat(3, 1fr); } }
+.syn-arg-camp { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--radius-md); min-width: 0; }
+.syn-arg-camp > .syn-camp-chip { align-self: flex-start; }
+.syn-arg-list { display: flex; flex-direction: column; gap: var(--sp-3); padding-left: var(--sp-5) !important; list-style: decimal !important; }
+.syn-arg { font-size: var(--text-md); }
+.syn-arg-meta, .syn-arg-none { font-size: var(--text-sm); color: var(--text-secondary); }
+.syn-arg-link { font-size: var(--text-sm); color: var(--text-primary); text-decoration: underline; text-underline-offset: 2px; }
+.syn-arg-link:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+/* the statement an argument links to flashes briefly; plain outline, no hue */
+.syn-flash { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.syn-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); color: var(--text-secondary); font-size: var(--text-sm); }
+
+@media (prefers-reduced-motion: reduce) { .syn-panel * { scroll-behavior: auto; transition: none; } }
+
+/* §12: top-of-page placement. The panel scrolls with the page (no inner scroll box, not sticky). */
+.syn-top { margin: var(--sp-4) 0; outline: none; }
+.syn-header-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
+.syn-collapse, .syn-export { min-height: 40px; }
+.syn-header-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.syn-move-ctx { margin: var(--sp-1) 0; }
+.syn-body { display: flex; flex-direction: column; gap: var(--sp-6); }
+.syn-pointer {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--radius-md);
+  background: var(--bg-secondary); color: var(--text-secondary); font-size: var(--text-sm);
+}
+
+/* t/823 (§13.1): D# links with a question tooltip on hover and keyboard focus. */
+.syn-ref { position: relative; display: inline-block; }
+.syn-ref-block { display: block; }
+.syn-ref-link { color: inherit; text-decoration: none; }
+.syn-ref-block .syn-ref-link { display: block; }
+.syn-ref:not(.syn-ref-block) .syn-ref-link { text-decoration: underline; text-underline-offset: 2px; }
+.syn-ref-link:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.syn-tip {
+  display: none; position: absolute; z-index: 3; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  width: max-content; max-width: min(320px, 70vw); padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-color); border-radius: var(--radius-sm);
+  background: var(--bg-primary); color: var(--text-primary); font-size: var(--text-sm); font-weight: 400;
+  font-family: var(--font-ui); line-height: 1.4; text-align: left; white-space: normal;
+}
+.syn-ref:hover .syn-tip, .syn-ref:focus-within .syn-tip { display: block; }
+.syn-strip-bar > li:last-child .syn-tip { left: auto; right: 0; transform: none; }
+.syn-strip-bar > li:first-child .syn-tip { left: 0; transform: none; }

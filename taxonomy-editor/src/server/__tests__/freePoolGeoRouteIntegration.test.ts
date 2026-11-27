@@ -37,6 +37,7 @@ vi.mock('../security/userContext.js', () => ({
   getStorageUserId: vi.fn(() => 'testuser'),
   getStableId: vi.fn(() => undefined), // t/4328: isAdmin() reads the stableId; testuser is not an admin
   isHostedAnonymousRequest: vi.fn(() => false), // t/723: signed-in caller, the anonymous debate limits don't apply
+  isAuthDisabledMode: () => false, // t/746: the daily token gate asks whether this is single-operator local mode
 }));
 
 vi.mock('../logger.js', () => ({

@@ -8,7 +8,7 @@
 // CI/offline. The render-only sibling `render/cli.ts` stays for --spec/--narration
 // re-render; this is the whole pipeline from a debate session.
 //
-//   node lib/brief/cli.js --path debate.json --model gemini-2.5-flash \
+//   node lib/brief/cli.js --path debate.json --model gemini-3.5-flash-lite \
 //     --preset conference --out ./out [--checker-model ...] [--skip-narration] \
 //     [--allow-open] [--template deck.potx] [--no-framing-meta]
 //

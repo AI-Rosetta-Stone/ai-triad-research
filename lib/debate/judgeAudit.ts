@@ -13,11 +13,11 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createCLIAdapter } from './aiAdapter.js';
-import { DEFAULT_MODEL } from '../ai-client/index.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
 import type { DebateSession, TranscriptEntry, TaxonomyRef, DebatePhase } from './types.js';
 import { getDebatePhase } from './types.js';
 import { parseJsonRobust } from './helpers.js';
+import { resolveModelAlias } from './judgeAuditAliases.js';
 
 // ── Types ───────────────────────────────────────────────
 
@@ -166,20 +166,6 @@ function parseJudgeVerdict(raw: string): JudgeVerdict {
 }
 
 // ── Model alias resolution ──────────────────────────────
-
-const MODEL_ALIASES: Record<string, string> = {
-  haiku: 'claude-haiku-4-5',
-  sonnet: 'claude-sonnet-4-6',
-  gemini: DEFAULT_MODEL,
-  'gemini-flash': 'gemini-2.5-flash',
-  'gemini-lite': DEFAULT_MODEL,
-  groq: 'groq-openai-gpt-oss-120b',
-  llama: 'groq-openai-gpt-oss-120b',
-};
-
-function resolveModelAlias(input: string): string {
-  return MODEL_ALIASES[input.toLowerCase()] ?? input;
-}
 
 // ── Agreement computation ───────────────────────────────
 

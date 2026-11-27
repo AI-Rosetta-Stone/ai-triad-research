@@ -4,7 +4,7 @@
     "[Cyan] === Regenerate Lineage Content ===",
     "[default]   Nodes to process: 6",
     "[default]   Batch size: 3 nodes/batch",
-    "[default]   Model: gemini-2.5-flash",
+    "[default]   Model: gemini-3.6-flash",
     "[default]   Total batches: 2",
     "[default] \nWhatIf: Would regenerate 6 nodes in 2 batches",
     "[DarkGray]   r-1: Label r-1 (1 entries)",

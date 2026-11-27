@@ -7,6 +7,7 @@
  */
 
 import { orderSynthesisLists } from './synthesisOrder.js';
+import { synthesisBrief, hasStructuredSynthesis } from './synthesisBrief.js';
 import { factCheckExportLines } from './factCheckExport.js';
 
 // ── Minimal types (avoids importing full renderer types) ──
@@ -37,6 +38,8 @@ export interface ExportableDebateSession {
   active_povers: string[];
   user_is_pover: boolean;
   transcript: TranscriptEntry[];
+  /** The debate's argument network, for the synthesis brief's Strongest arguments (t/827). */
+  argument_network?: { nodes?: unknown; edges?: unknown } | null;
   synthesis?: {
     areas_of_agreement?: unknown[];
     areas_of_disagreement?: unknown[];
@@ -85,13 +88,28 @@ function formatTimestamp(iso: string): string {
 }
 
 /** One transcript entry's body in the text export. A fact check's verdict lives in metadata, not content (t/771). */
-function textEntryBody(entry: TranscriptEntry): string[] {
-  return entry.type === 'fact-check' ? factCheckExportLines(entry, 'text') : [entry.content];
+function textEntryBody(entry: TranscriptEntry, session: ExportableDebateSession): string[] {
+  if (entry.type === 'fact-check') return factCheckExportLines(entry, 'text');
+  return synthesisEntryBrief(entry, session, 'text') ?? [entry.content];
+}
+
+/**
+ * t/810: a synthesis entry with structured data exports as the brief, in the synthesis panel's sections and
+ * order. An older entry with no structured data, or none the brief can show, keeps its stored content.
+ */
+function synthesisEntryBrief(entry: TranscriptEntry, session: ExportableDebateSession, format: 'markdown' | 'text'): string[] | null {
+  if (entry.type !== 'concluding') return null; // the engine's synthesis entry (formatters.ts, the panel)
+  const raw = (entry.metadata as Record<string, unknown> | undefined)?.synthesis;
+  if (!hasStructuredSynthesis(raw)) return null;
+  const ordered = orderSynthesisLists(raw as Record<string, unknown>);
+  return synthesisBrief(ordered, { debaters: session.active_povers, topic: session.topic.final, argumentNetwork: session.argument_network }, { level: 4, format });
 }
 
 /** One transcript entry's body in the Markdown export. A fact check's verdict lives in metadata, not content (t/771). */
-function markdownEntryBody(entry: TranscriptEntry): string[] {
+function markdownEntryBody(entry: TranscriptEntry, session: ExportableDebateSession): string[] {
   if (entry.type === 'fact-check') return factCheckExportLines(entry, 'markdown');
+  const brief = synthesisEntryBrief(entry, session, 'markdown');
+  if (brief) return brief;
   if (entry.speaker === 'system') return [`> *${entry.content}*`];
   return [`**${speakerName(entry.speaker)}:**`, '', entry.content];
 }
@@ -104,6 +122,7 @@ function entryTypeLabel(type: string): string {
     answer: 'Answer',
     clarification: 'Clarification',
     synthesis: 'Synthesis',
+    concluding: 'Synthesis',
     probing: 'Probing Questions',
     'fact-check': 'Fact Check',
     system: 'System',
@@ -138,7 +157,7 @@ export function debateToText(session: ExportableDebateSession, options?: DebateE
     lines.push('');
     lines.push(`[${speakerName(entry.speaker)} — ${entryTypeLabel(entry.type)}]`);
     lines.push('');
-    lines.push(...textEntryBody(entry));
+    lines.push(...textEntryBody(entry, session));
 
     if (opts.includeTaxonomyRefs && entry.taxonomy_refs && entry.taxonomy_refs.length > 0) {
       lines.push('');
@@ -223,7 +242,7 @@ export function debateToMarkdown(session: ExportableDebateSession, options?: Deb
     }
 
     lines.push('');
-    lines.push(...markdownEntryBody(entry));
+    lines.push(...markdownEntryBody(entry, session));
 
     if (opts.includeTaxonomyRefs && entry.taxonomy_refs && entry.taxonomy_refs.length > 0) {
       lines.push('');
@@ -296,6 +315,7 @@ export function markdownToHtml(md: string): string {
   html = html.replace(/<\/blockquote>\n<blockquote>/g, '\n');
 
   // Headers
+  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
@@ -340,6 +360,7 @@ const PDF_STYLES = `
   h1 { font-size: 18pt; margin-top: 0; border-bottom: 2px solid #333; padding-bottom: 6px; }
   h2 { font-size: 14pt; margin-top: 24px; color: #444; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
   h3 { font-size: 12pt; margin-top: 18px; color: #555; }
+  h4 { font-size: 11pt; margin-top: 14px; color: #555; }
   p { margin: 8px 0; }
   strong { color: #111; }
   code {

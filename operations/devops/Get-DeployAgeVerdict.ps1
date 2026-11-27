@@ -60,6 +60,25 @@ function Get-DeployAgeVerdict {
     return [PSCustomObject]@{ Action = 'warn-proceed'; Reason = "git-error-exit-$MergeBaseExitCode"; RunningShort = $runningShort }
 }
 
+function Get-DeployApplyFailure {
+    <#
+    .SYNOPSIS
+        t/674 item 2: read a failed `git apply --cached --check -R` output. Pure.
+    .OUTPUTS
+        [pscustomobject] { Error [string]; Files [string[]] }. A `fatal:` line means git could not
+        run the check at all (for example a lazy blob fetch failed), so Error is set and the caller
+        reports 'unverifiable'. Otherwise Files names the files whose changes are not all present.
+    #>
+    param([AllowNull()][object[]]$Output)
+    $lines = @($Output | ForEach-Object { "$_" })
+    $fatal = @($lines | Where-Object { $_ -match '^fatal:' })
+    if ($fatal.Count) {
+        return [PSCustomObject]@{ Error = "git apply could not run the check ($($fatal[0].Trim()))"; Files = @() }
+    }
+    $bad = @($lines | ForEach-Object { if ($_ -match '^error: (?:patch failed|while searching for):?\s*([^:]+)') { $Matches[1].Trim() } elseif ($_ -match '^error: ([^:]+): patch does not apply') { $Matches[1].Trim() } } | Where-Object { $_ } | Select-Object -Unique)
+    return [PSCustomObject]@{ Error = $null; Files = $bad }
+}
+
 function Test-DeployChangesContained {
     <#
     .SYNOPSIS
@@ -79,6 +98,10 @@ function Test-DeployChangesContained {
     $patch = $null
     $index = $null
     try {
+        # t/674 item 1: say so when the running commit itself is not in this clone (its branch may
+        # be gone), instead of the misleading 'no merge-base' the next call would report.
+        & git -C $RepoPath cat-file -e "$Running^{commit}" 2>$null
+        if ($LASTEXITCODE -ne 0) { $result.Error = "running commit $Running not fetchable (its branch may have been deleted while prod still runs it)"; return $result }
         $mb = (& git -C $RepoPath merge-base $Running $Requested 2>$null)
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($mb)) { $result.Error = "no merge-base of $Running and $Requested (exit code $LASTEXITCODE)"; return $result }
         $result.MergeBase = $mb.Trim()
@@ -97,9 +120,9 @@ function Test-DeployChangesContained {
         if ($LASTEXITCODE -ne 0) { $result.Error = "git read-tree $Requested failed (exit $LASTEXITCODE)"; return $result }
         $out = & git -C $RepoPath apply --cached --check -R $patch 2>&1
         if ($LASTEXITCODE -eq 0) { $result.Contained = $true; return $result }
-        # Name the files whose changes are not (all) present.
-        $bad = @($out | ForEach-Object { if ("$_" -match '^error: (?:patch failed|while searching for):?\s*([^:]+)') { $Matches[1].Trim() } elseif ("$_" -match '^error: ([^:]+): patch does not apply') { $Matches[1].Trim() } } | Where-Object { $_ } | Select-Object -Unique)
-        if ($bad.Count) { $result.Files = $bad }
+        $failure = Get-DeployApplyFailure -Output $out
+        if ($failure.Error) { $result.Error = $failure.Error; return $result }
+        if (@($failure.Files).Count) { $result.Files = @($failure.Files) }
         return $result
     } catch {
         $result.Contained = $false

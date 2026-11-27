@@ -37,7 +37,7 @@ function Invoke-AttributeExtraction {
     .EXAMPLE
         Invoke-AttributeExtraction -POV accelerationist
     .EXAMPLE
-        Invoke-AttributeExtraction -Force -Model 'gemini-2.5-pro'
+        Invoke-AttributeExtraction -Force -Model 'gemini-3.8-flash'
     .LINK
         Show-AITriadHelp
     .LINK

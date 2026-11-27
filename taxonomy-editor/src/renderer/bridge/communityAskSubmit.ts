@@ -9,6 +9,8 @@
 
 import { resilientFetch, categorizeEndpoint } from './resilience';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import type { InquiryResult } from '@lib/inquiry';
+import { toCommunityInquiryResult } from '@lib/inquiry/communityProjection';
 
 // Matches web-bridge.ts's own DEFAULT_MUTATION_TIMEOUT_MS (documented independently in
 // embeddingsBatch.ts) — kept as a local literal rather than importing a private const.
@@ -20,16 +22,19 @@ const MUTATION_TIMEOUT_MS = 180_000;
  *  queue. A non-ok response's server-supplied error message is thrown verbatim (t/4611: every
  *  failure must reach the renderer, never swallowed). */
 export async function submitAskToCommunityRest(
-  result: unknown,
+  result: InquiryResult,
   note: string,
 ): Promise<{ draftId: string; link: string }> {
   const path = '/api/community/submit/draft';
+  // t/733 (t/285#53): the upload schema is strict and refuses a result that still carries the gated fields
+  // (questionDrift.warning, a camp's answeredLiteralQuestion and answerNote), so project before sending.
+  const projected = toCommunityInquiryResult(result);
   let res: Response;
   try {
     res = await resilientFetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ result, note }),
+      body: JSON.stringify({ result: projected, note }),
     }, {
       timeoutMs: MUTATION_TIMEOUT_MS,
       maxRetries: 0, // non-idempotent POST

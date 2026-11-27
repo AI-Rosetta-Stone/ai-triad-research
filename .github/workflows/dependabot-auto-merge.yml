@@ -1,16 +1,29 @@
-# Auto-merges Dependabot MINOR and PATCH update PRs once CI passes, so routine
-# dependency bumps stop piling up (owner-requested, p/66). It arms GitHub's NATIVE
-# auto-merge, which only lands the PR when the required `ci-gate` check is green —
-# so a bump that breaks the build is never merged. MAJOR bumps are deliberately
-# excluded: they need human review (e.g. the TypeScript 7 decision, closed by owner).
+# Arms GitHub's NATIVE auto-merge on Dependabot MINOR and PATCH update PRs, but only after a PERSON has
+# released the PR by removing its `no-auto-enqueue` label (t/797, t/753). Dependabot PRs open with that
+# label (dependabot.yml) so nothing arms or enqueues them until someone has read the commits.
 #
-# Since the merge queue (2026-10-28), this arm alone does NOT enqueue: auto-merge armed
-# with GITHUB_TOKEN never entered the queue. The arm is now the minor/patch POLICY MARKER;
-# enqueue-sweep.yml enqueues armed, green PRs as a GitHub App.
+# Why this runs on `pull_request_target`, from the base branch (t/797): a `pull_request` run takes its workflow
+# file from the PR's merge ref. #5618's base predated the label guard (#5614), so its run used the OLD,
+# unguarded copy of this file and armed the PR at 22:57:33Z with the label on it (run 45907959749). A
+# `pull_request_target` run always uses the file on the base branch tip, so a stale PR branch cannot run an
+# older copy. Nothing in this workflow checks out or runs the PR's code: it only reads the PR through the API
+# and arms it. The docker gate is loaded from the default branch, never the PR head.
+#
+# It does NOT fire on opened, synchronize or reopened: those never arm (a push onto an armed branch must not
+# arm anything, and a new PR is held anyway). The only trigger is a label removal by a person.
+#
+# Since the merge queue (2026-10-28), this arm alone does NOT enqueue: auto-merge armed with GITHUB_TOKEN never
+# entered the queue. The arm is the minor/patch POLICY MARKER; enqueue-sweep.yml enqueues armed, green PRs as a
+# GitHub App. MAJOR bumps are deliberately excluded: they need human review.
 name: Dependabot auto-merge
 
-on: pull_request
+on:
+  pull_request_target:
+    types: [unlabeled]
 
+# Least privilege: the job reads the PR and arms auto-merge, nothing else. `contents: write` is what GitHub's enable-auto-merge
+# call requires of the token (Dependabot's own documented auto-merge workflow sets the same pair); a token without it cannot arm.
+# It is not used to write any file: no step checks out the PR or pushes. Security to confirm (t/797).
 permissions:
   contents: write
   pull-requests: write
@@ -18,14 +31,40 @@ permissions:
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
-    # Only Dependabot's own PRs — never touches human/agent PRs.
-    if: github.actor == 'dependabot[bot]'
+    # Only the release of a Dependabot PR: the removed label is `no-auto-enqueue`, the PR author is Dependabot, the head
+    # is in this repository, the base is the default branch, and the label was removed by a person (not a bot: a bot
+    # removing the hold must never arm). Event payload values are compared here and never interpolated into a script.
+    if: >-
+      github.event.label.name == 'no-auto-enqueue' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      github.event.sender.type == 'User' &&
+      github.actor != 'dependabot[bot]' &&
+      github.actor != 'github-actions[bot]'
     steps:
       - name: Fetch Dependabot metadata
         id: meta
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98  # v3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # The live labels, through the API, not the event payload: the payload is a snapshot of the moment the event was
+      # created. If `no-auto-enqueue` is back (or the labels cannot be read, or the list may be cut short) the step
+      # fails, the job fails, and nothing arms (fail closed).
+      - name: Read the PR's live labels (fail closed)
+        id: labels
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const number = context.payload.pull_request.number;
+            const labels = await github.paginate(github.rest.issues.listLabelsOnIssue, { owner, repo, issue_number: number, per_page: 100 });
+            if (labels.length >= 100) core.setFailed('t/797: the label list may be cut short; not arming.');
+            const held = labels.some((l) => l.name === 'no-auto-enqueue');
+            core.info(`t/797 live labels: ${labels.map((l) => l.name).join(', ')} (held=${held})`);
+            if (held) core.setFailed('t/797: no-auto-enqueue is on the PR again; not arming.');
+            core.setOutput('held', held ? 'true' : 'false');
 
       # t/315 (t/313 P4): docker updates arm only when every changed FROM keeps the same image:tag
       # and only the @sha256: digest changes. #5015 (python 3.12 -> 3.15) was armed as
@@ -77,11 +116,14 @@ jobs:
             core.setOutput('arm', verdict.arm ? 'true' : 'false');
 
       - name: Arm auto-merge for minor/patch bumps
+        # Arms only a live-label-clear PR (steps.labels) of a minor or patch update, and a docker one only when the digest-only
+        # gate allows it. The URL is built from the repository and the event's numeric PR number only and goes through env; no PR title, branch, label or body is used.
         if: >-
+          steps.labels.outputs.held == 'false' &&
           (steps.meta.outputs.update-type == 'version-update:semver-minor' ||
            steps.meta.outputs.update-type == 'version-update:semver-patch') &&
           (steps.meta.outputs.package-ecosystem != 'docker' || steps.docker_gate.outputs.arm == 'true')
         run: gh pr merge --auto --squash "$PR_URL"
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_URL: ${{ github.server_url }}/${{ github.repository }}/pull/${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

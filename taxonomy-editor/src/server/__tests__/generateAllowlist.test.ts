@@ -20,6 +20,18 @@ const h = vi.hoisted(() => ({
 
 const BYOK = { level: 'byok', allowedBackends: ['gemini', 'claude'], pinnedModel: undefined, limits: { requestsPerMinute: 100, tokensPerDay: 1_000_000 }, serverProvidedKey: false };
 
+// t/746: these tests are about the route's other behaviour; the durable daily allowance is covered in dailyTokenGateWiring.test.ts.
+vi.mock('../routes/dailyTokenGate.js', () => ({
+  reserveDailyTokens: vi.fn(async () => ({ ok: true, hold: { id: 'h', docName: 'd', keyTag: 't', reserved: 0, limit: 0, inMemory: false } })),
+  refuseDailyReserve: vi.fn(),
+  settleDailyTokens: vi.fn(async () => undefined),
+  assumedOutputCapTokens: () => 65_536,
+  estimateUsage: () => ({ inputTokens: 0, outputTokens: 0 }),
+  getDailyTokenBudget: vi.fn(),
+  bookDailyTokens: vi.fn(async () => undefined),
+  dailyTokenBudgetHealth: () => ({ store: 'unused', durable: false }),
+}));
+
 vi.mock('../ai/proxyTiers.js', () => ({
   resolveTier: () => h.tier,
   isBackendAllowed: () => true,

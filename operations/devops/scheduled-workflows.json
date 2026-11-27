@@ -13,7 +13,6 @@
     { "file": "codeql.yml",                   "maxSilentHours": 348 },
     { "file": "complexity-report.yml",        "maxSilentHours": 348 },
     { "file": "compliance-live.yml",          "maxSilentHours": 60  },
-    { "file": "debate-tested-sweep.yml",      "maxSilentHours": 60  },
     { "file": "dependabot-weekly.yml",        "maxSilentHours": 348 },
     { "file": "deploy-drift-check.yml",       "maxSilentHours": 18  },
     { "file": "deployed-image-scan.yml",      "maxSilentHours": 348 },

@@ -456,6 +456,10 @@ jobs:
               Write-Host "::warning::t/4194 guard: $($Verdict.Reason) — skipping the older-than-running check (fail-open)."
             }
             default {
+              # t/674 item 3 (TL p/9#665): the relaxed path must show in the run summary, not only in the log.
+              if ($Verdict.Reason -eq 'not-ancestor-but-changes-contained') {
+                Write-Host "::warning::t/670 guard: $Requested is not a descendant of running $RunningFull; proceeding because every change is contained (merge-base $($Containment.MergeBase))"
+              }
               Write-Host "t/4194 guard: $($Verdict.Reason) — proceeding."
             }
           }
@@ -1214,6 +1218,8 @@ jobs:
               WEBSITE_AUTH_ENABLED               = 'true'
               HOME                               = '/home/aitriad'
               AI_TRIAD_DATA_ROOT                 = '/mnt/shared'
+              AI_TRIAD_STATE_ROOT                = '/mnt/prod-state'  # t/624 phase 3 — prod-only state share, must match main.bicep baseEnv
+              ANON_SESSION_DIR                   = '/mnt/prod-state/anon-sessions'  # t/624 phase 3 — must match main.bicep baseEnv
               TAXONOMY_CACHE_DIR                 = '/home/aitriad/.cache/taxonomy-github-api'  # t/4298/t/4299/t/4300 — deliberately NOT /mnt/shared, see main.bicep baseEnv comment
               NLI_CLASSIFY_SCRIPT                = ''  # t/4596 — explicit disable of the NLI gate on hosted (CL, t/4596#7)
               MAX_REPLICAS                       = '1'  # t/4176 — must equal main.bicep maxReplicas (AI RPM + rate limits divide by it)

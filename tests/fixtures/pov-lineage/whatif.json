@@ -16,7 +16,7 @@
     "[default]   Validate: 19 URLs via HTTP HEAD",
     "[default]   Update: 4 taxonomy files",
     "[default]   Cache: <ROOT>/calibration/core/lineage-enrichments.json",
-    "[default]   Model: gemini-2.5-flash | Temperature: 0.2",
+    "[default]   Model: gemini-3.6-flash | Temperature: 0.2",
     "[default]   Est. cost: ~$0.02 (Gemini free tier)",
     "[Yellow] \n── Per-POV Breakdown ───────────────────────────",
     "[default]   accelerationist: 2 nodes, 20 bare entries",

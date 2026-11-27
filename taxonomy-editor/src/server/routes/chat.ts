@@ -22,6 +22,8 @@ import { extractHttpUrls } from '../../../../lib/url-fetch/extractHttpUrls.js';
 import type { UrlFetchOptions, UrlFetchResult } from '../../../../lib/url-fetch/types.js';
 import * as proxyTiers from '../ai/proxyTiers.js';
 import * as rateLimiter from '../security/rateLimiter.js';
+import { reserveDailyTokens, refuseDailyReserve, settleDailyTokens, assumedOutputCapTokens } from './dailyTokenGate.js';
+import type { TokenHold } from '../security/dailyTokenBudget.js';
 import * as ai from '../ai/aiBackends.js';
 import { resolveGenerationContext } from './generationContext.js';
 import { getApiKeys, hasApiKey, getStoredUserKeysBeforeFreePool, type AIBackend } from '../config.js';
@@ -407,6 +409,8 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
     let geminiUsage: TurnUsage | undefined;
     // t/494: set once the turn is about to reach the provider; settled in `finally`.
     let providerTurn: ProviderTurn | null = null;
+    // t/746: the durable daily token hold; settled in `finally` (the provider's usage when reported, zeros otherwise).
+    let dailyHold: TokenHold | null = null;
     try {
       const { tier, isFree, limitKey, effectiveModel, backend } = resolveGenerationContext(req, model);
 
@@ -436,6 +440,16 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
           linkedDebateId: boundedId(linkedDebateId),
         },
       });
+
+      // t/746: reserve the turn's worst case against the caller's durable daily allowance BEFORE the SSE head is
+      // written, so a refusal is still a JSON status (429 daily limit, 413 per-call ceiling, 503 store down).
+      const reservedDaily = await reserveDailyTokens(limitKey, tier.limits.tokensPerDay, {
+        promptBytes: Buffer.byteLength(JSON.stringify(messages) + String(systemInstruction ?? ''), 'utf8'),
+        outputCapTokens: assumedOutputCapTokens(),
+        poolFunded: isFree || tier.level === 'platform',
+      });
+      if (!reservedDaily.ok) { refuseDailyReserve(res, reservedDaily); return; }
+      dailyHold = reservedDaily.hold;
 
       // Commit SSE headers — no JSON error responses after this point.
       res.writeHead(200, {
@@ -503,6 +517,11 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
       // the prompt-size estimate. Only a turn that never reached the provider returns its reservation.
       if (providerTurn) await settleProviderTurn(freePoolBudget, providerTurn, geminiUsage);
       else await freePoolBudget.releaseIfUnsettled();
+      // t/746: settle the durable hold on every exit. Same policy as the in-process bucket above (TL p/16#260):
+      // only a turn the provider reported usage for is charged; a failed or unreported turn settles with zeros.
+      await settleDailyTokens(dailyHold, chargesVisitorDailyBucket(geminiUsage) && geminiUsage
+        ? { inputTokens: chatTurnTokens(geminiUsage, 0).inputTokens, outputTokens: chatTurnTokens(geminiUsage, 0).outputTokens }
+        : null);
     }
   });
 }

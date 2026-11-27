@@ -176,7 +176,7 @@ LONG DESCRIPTION
   EXAMPLE: RUNNING A DEBATE
     # From the command line
     Invoke-AITDebate -Topic 'Should AI development be paused?' `
-        -Rounds 3 -Model 'gemini-2.5-pro'
+        -Rounds 3 -Model 'gemini-3.8-flash'
 
     # From the Taxonomy Editor
     # 1. Click "New Debate" in the toolbar

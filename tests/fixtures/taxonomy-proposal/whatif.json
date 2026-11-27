@@ -2,7 +2,7 @@
   "scenario": "whatif",
   "host": [
     "[Cyan] \n▶  Validating environment",
-    "[Green]    ✓  Model       : gemini-2.5-flash",
+    "[Green]    ✓  Model       : gemini-3.6-flash",
     "[Green]    ✓  Temperature : 0.3",
     "[Cyan] \n▶  Preparing health data",
     "[Green]    ✓  Using pre-computed health data (42 summaries)",
@@ -13,7 +13,7 @@
     "[Green]    ✓  High-variance nodes : 1",
     "[Yellow]    ⚠  Dictionary not found at <ROOT>/dictionary — vocabulary constraints will be omitted",
     "[Green]    ✓  Prompt assembled: 4217 chars (~1054 tokens est.)",
-    "[Cyan] \n▶  Calling AI API (gemini-2.5-flash)",
+    "[Cyan] \n▶  Calling AI API (gemini-3.6-flash)",
     "[Gray]    →  Sending request...",
     "[Green]    ✓  Response received from mock-backend in 0s",
     "[Cyan] \n▶  Parsing AI response",
@@ -41,7 +41,7 @@
     },
     {
       "call": "ai",
-      "model": "gemini-2.5-flash",
+      "model": "gemini-3.6-flash",
       "apiKey": "",
       "temperature": 0.3,
       "maxTokens": 65536,
