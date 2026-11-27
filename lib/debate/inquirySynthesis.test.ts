@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { synthesizeInquiry } from './inquirySynthesis.js';
+import { synthesizeInquiry, describeResponseShape } from './inquirySynthesis.js';
 import { SINGLE_RUN_CAVEAT } from './prompts/inquiry.js';
 import type { AIAdapter } from './aiAdapter.js';
 import type { DebateSession } from './types/session.js';
@@ -258,6 +258,71 @@ describe('synthesizeInquiry — parse failure (t/1626)', () => {
     ).rejects.toMatchObject({
       problem: expect.stringContaining('JSON'),
     });
+  });
+});
+
+// ── t/820 one retry on a response that doesn't parse ───────────────
+
+describe('describeResponseShape (t/820)', () => {
+  it('describes a truncated JSON answer without quoting it', () => {
+    const shape = describeResponseShape('{"directAnswer":{"text":"SECRET-USER-WORDS","agreement":"split"},"campVerdicts":[{"camp":"acc","verdict":"cut off here');
+    expect(shape).toMatchObject({ first: '{', last: 'letter', fenced: false, balanced: false, namesDirectAnswer: true, namesCampVerdicts: true });
+    expect(JSON.stringify(shape)).not.toContain('SECRET');
+  });
+  it('tells prose, a fenced answer and an empty response apart', () => {
+    expect(describeResponseShape('I cannot help with that.')).toMatchObject({ first: 'letter', last: 'other', balanced: false, namesDirectAnswer: false });
+    expect(describeResponseShape('```json\n{"a":1}\n```')).toMatchObject({ first: 'fence', last: 'fence', fenced: true, balanced: true });
+    expect(describeResponseShape('')).toMatchObject({ length: 0, first: 'empty', last: 'empty', balanced: false });
+  });
+});
+
+describe('synthesizeInquiry — one retry on a null parse (t/820)', () => {
+  const run = (adapter: AIAdapter) => synthesizeInquiry(
+    makeSession(), makeGrounding(), makeCalibration(), makeDerivation(), makeRequest(), adapter,
+  );
+
+  it('a good first response makes exactly one call', async () => {
+    const adapter = makeAdapter(validLlmResponse());
+    await run(adapter);
+    expect(adapter.generateText).toHaveBeenCalledTimes(1);
+  });
+
+  it('succeeds when the second attempt parses, after one call more, with the same model and prompt', async () => {
+    const generateText = vi.fn()
+      .mockResolvedValueOnce('I am sorry, I cannot do that.')
+      .mockResolvedValueOnce(JSON.stringify(validLlmResponse()));
+    const result = await run({ generateText });
+    expect(result.campVerdicts.length).toBeGreaterThan(0);
+    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(generateText.mock.calls[1]).toEqual(generateText.mock.calls[0]);
+  });
+
+  it('logs the response structure, never its text, on each failed parse', async () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await run({ generateText: vi.fn().mockResolvedValue('USER-TEXT-IN-REPLY, not json') }).catch(() => undefined);
+      const lines = spy.mock.calls.map(c => String(c[0])).filter(l => l.includes('[inquiry-synthesis]'));
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toContain('attempt 1 of 2');
+      expect(lines.join('')).not.toContain('USER-TEXT');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('fails with the same error when the second attempt also fails to parse, after exactly two calls', async () => {
+    const generateText = vi.fn().mockResolvedValue('still not json');
+    await expect(run({ generateText })).rejects.toMatchObject({
+      goal: expect.stringContaining('Synthesize'),
+      problem: expect.stringContaining('parsed as JSON'),
+    });
+    expect(generateText).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a response that parses but fails validation', async () => {
+    const generateText = vi.fn().mockResolvedValue(JSON.stringify({ campVerdicts: 'not an array' }));
+    await run({ generateText }).catch(() => undefined);
+    expect(generateText).toHaveBeenCalledTimes(1);
   });
 });
 
