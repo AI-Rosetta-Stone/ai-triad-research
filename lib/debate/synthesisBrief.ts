@@ -22,11 +22,6 @@ export interface BriefOptions {
   format?: 'markdown' | 'text';
 }
 
-/** `if_yes` / `if_no` per crux question, in stored order: kept from the stored synthesis because the view model doesn't carry
- *  them. A list per question text so two cruxes with identical text each keep their own detail (t/822). */
-type CruxDetail = { ifYes?: string; ifNo?: string };
-type CruxDetails = ReadonlyMap<string, readonly CruxDetail[]>;
-
 export const BRIEF_ASSESSMENT = "(model's assessment)";
 
 /** A structured synthesis has at least one list or paragraph the brief can show. */
@@ -165,23 +160,14 @@ function writeStrongestArguments(w: Writer, view: SynthesisView): void {
 }
 
 /** 6. Cruxes. */
-/** The next unused detail for this question text, in order. */
-function takeDetail(details: CruxDetails, question: string, taken: Map<string, number>): CruxDetail | undefined {
-  const n = taken.get(question) ?? 0;
-  taken.set(question, n + 1);
-  return details.get(question)?.[n];
-}
-
-function writeCruxes(w: Writer, view: SynthesisView, details: CruxDetails): void {
+function writeCruxes(w: Writer, view: SynthesisView): void {
   if (view.cruxes.length === 0) return;
-  const taken = new Map<string, number>();
   w.heading('Cruxes');
   w.para('Answer one of these and a position should move.');
   for (const c of view.cruxes) {
     w.bullet(`${w.bold(c.n)}${c.typeLabel ? ` (${c.typeLabel})` : ''} ${c.question}`);
-    const d = takeDetail(details, c.question, taken);
-    if (d?.ifYes) w.sub(`If yes, weakens: ${d.ifYes}`);
-    if (d?.ifNo) w.sub(`If no, weakens: ${d.ifNo}`);
+    if (c.ifYes) w.sub(`${w.bold('If yes:')} ${c.ifYes}`);
+    if (c.ifNo) w.sub(`${w.bold('If no:')} ${c.ifNo}`);
   }
   w.blank();
 }
@@ -199,7 +185,7 @@ function writeOpenQuestions(w: Writer, view: SynthesisView): void {
 }
 
 /** The brief as lines, from a ready SynthesisView. */
-export function synthesisBriefLines(view: SynthesisView, options: BriefOptions = {}, cruxDetails: CruxDetails = new Map()): string[] {
+export function synthesisBriefLines(view: SynthesisView, options: BriefOptions = {}): string[] {
   const w = makeWriter(options);
   writeHeader(w, view);
   writeBottomLine(w, view);
@@ -207,27 +193,11 @@ export function synthesisBriefLines(view: SynthesisView, options: BriefOptions =
   writeCommonGround(w, view);
   writeDisputes(w, view);
   writeStrongestArguments(w, view);
-  writeCruxes(w, view, cruxDetails);
+  writeCruxes(w, view);
   writeOpenQuestions(w, view);
   w.para(w.italic('Synthesis of the full debate transcript.'));
   while (w.out.length && w.out[w.out.length - 1] === '') w.out.pop();
   return w.out;
-}
-
-function cruxDetailsOf(synthesis: unknown): CruxDetails {
-  const out = new Map<string, CruxDetail[]>();
-  const list = (synthesis as { cruxes?: unknown } | null)?.cruxes;
-  for (const c of Array.isArray(list) ? list : []) {
-    const r = c as { question?: unknown; if_yes?: unknown; if_no?: unknown };
-    if (typeof r?.question !== 'string' || r.question.trim() === '') continue;
-    const key = r.question.trim();
-    const detail: CruxDetail = {
-      ifYes: typeof r.if_yes === 'string' && r.if_yes.trim() ? r.if_yes.trim() : undefined,
-      ifNo: typeof r.if_no === 'string' && r.if_no.trim() ? r.if_no.trim() : undefined,
-    };
-    out.set(key, [...(out.get(key) ?? []), detail]);
-  }
-  return out;
 }
 
 /** Build the view from a stored synthesis and render it. */
@@ -236,5 +206,5 @@ export function synthesisBrief(
   context: { debaters: readonly string[]; topic?: string; argumentNetwork?: { nodes?: unknown; edges?: unknown } | null },
   options: BriefOptions = {},
 ): string[] {
-  return synthesisBriefLines(buildSynthesisView({ synthesis, debaters: context.debaters, topic: context.topic, argumentNetwork: context.argumentNetwork }), options, cruxDetailsOf(synthesis));
+  return synthesisBriefLines(buildSynthesisView({ synthesis, debaters: context.debaters, topic: context.topic, argumentNetwork: context.argumentNetwork }), options);
 }
