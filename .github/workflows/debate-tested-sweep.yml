@@ -10,6 +10,8 @@
 #   - commit ONLY when entriesCreated > 0 (no empty-commit noise)
 #   - post-sweep assert-visible: a dry-run re-read must report lag == 0 (the committed data repo
 #     reflects the sweep, not just a local run)
+#   - t/709: a run that reads 0 debate files is reported as `no input (0 files)` (a warning and a summary line); it is
+#     not a clean reading, and the lag assertion is not evaluated on it
 # Credential: pushes to ai-triad-data via DATA_REPO_TOKEN (contents:write on that repo — the same
 #   secret cluster-conflicts.yml / ci.yml use). The workflow's own GITHUB_TOKEN stays read-only.
 
@@ -77,6 +79,18 @@ jobs:
           created=$(printf '%s\n' "$out" | grep -oE 'Entries created: [0-9]+' | grep -oE '[0-9]+$' | tail -1)
           echo "created=${created:-0}" >> "$GITHUB_OUTPUT"
           echo "entriesCreated=${created:-0}"
+          # t/709: how many debate session files did the sweep read? 0 is "no input", not a clean reading: it harvested nothing and the
+          # lag audit below it had nothing to audit, so `Lag: 0` there means nothing. An unreadable count is an error (never a guess).
+          if ! files=$(printf '%s\n' "$out" | node operations/devops/debate-tested-input.mjs); then
+            echo "::error::t/709: could not read the 'Found N debate session files' line from the sweep output, so whether it read any input is unknown."
+            exit 1
+          fi
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "sessionFiles=$files"
+          if [ "$files" = "0" ]; then
+            echo "::warning::t/709: the debate-tested sweep read 0 debate session files (no input). Nothing was harvested and no lag was evaluated: this is not a clean reading. If the debates moved out of the data repo (t/651), retire this workflow or point it at its new input."
+            echo "**no input (0 files)**: the debate-tested sweep read no debate session files, so nothing was harvested and the lag was not evaluated." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Commit + push harvested records to ai-triad-data (gated on entriesCreated > 0)
         if: steps.sweep.outputs.created != '0'
@@ -114,6 +128,12 @@ jobs:
           AI_TRIAD_DATA_ROOT: ${{ github.workspace }}/ai-triad-data
         run: |
           set -o pipefail
+          # t/709: with no input the lag audit has nothing to audit and its `Lag: 0` proves nothing, so it is not asserted or reported as a pass.
+          if [ "${{ steps.sweep.outputs.files }}" = "0" ]; then
+            echo "::warning::t/709: no input (0 files): the post-sweep lag assertion was NOT evaluated (a lag of 0 on no input is not a clean reading)."
+            echo "**no input (0 files)**: the post-sweep lag assertion was not evaluated." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           out=$(pnpm exec tsx lib/debate/backfillDebateTested.ts | tee /dev/stderr)
           lag=$(printf '%s\n' "$out" | grep -oE 'Lag: [0-9]+' | grep -oE '[0-9]+$' | tail -1)
           echo "post-sweep lag=${lag:-<unparsed>}"
