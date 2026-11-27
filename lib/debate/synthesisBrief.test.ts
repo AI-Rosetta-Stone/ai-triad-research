@@ -64,8 +64,8 @@ describe('synthesisBrief (t/810)', () => {
 
   it('writes next moves and what settles each from the rule table', () => {
     expect(md).toContain('Definitional → Clearer terms (D3)');
-    expect(md).toMatch(/\*\*Find a way to measure .+\*\* \(Bears on D2\)/);
-    expect(md).toMatch(/\*\*Name the trade-off on .+\*\* \(Answers D1\)/);
+    expect(md).toContain('**Find a way to measure it** (Bears on D2)');
+    expect(md).toContain('**Name the trade-off** (Answers D1)');
   });
 
   it('keeps each crux if-yes and if-no as nested lines', () => {
