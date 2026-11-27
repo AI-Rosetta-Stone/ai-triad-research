@@ -54,6 +54,19 @@ export interface NextMoveView {
   context: string | null;
 }
 
+export interface StrongestArgument {
+  id: string;
+  text: string;
+  /** Incoming `supports` edges on this node. */
+  supportedBy: number;
+  /** Incoming `attacks` edges on this node. */
+  challengedBy: number;
+  /** Outgoing `supports`/`attacks` edges, where this node is the source: how many other arguments it engages. */
+  engages: number;
+  sourceEntryId: string;
+}
+export interface StrongestArgumentsCamp { camp: CampRef; items: StrongestArgument[] }
+
 export interface SettleRow { key: DisputeTypeKey; type: string; action: string; ids: string[] }
 
 export interface SynthesisView {
@@ -79,12 +92,17 @@ export interface SynthesisView {
   nextMoves: NextMoveView[];
   agreements: { items: string[]; unreadable: boolean };
   disputes: DisputeCardView[];
-  cruxes: { n: string; type: DisputeTypeKey | null; typeLabel: string | null; rawType: string | null; question: string }[];
+  /** Strongest arguments (spec §13.3, t/827): one entry per debater camp in the fixed order accelerationist, safetyist,
+   *  skeptic, each with its top engaged arguments (`items: []` when the camp has none). `[]` when there is no
+   *  argument network or no camp has an engaged node: the section and its nav link are hidden. */
+  strongestArguments: StrongestArgumentsCamp[];
+  /** `ifYes` / `ifNo` are the model's prose on how positions move if the crux resolves each way (t/830); absent when not given. */
+  cruxes: { n: string; type: DisputeTypeKey | null; typeLabel: string | null; rawType: string | null; question: string; ifYes?: string; ifNo?: string }[];
   openQuestions: { id: string; text: string }[];
   /** Open questions in render order: one untitled group (flat), or themed groups (spec §8). */
   openQuestionGroups: { theme: string | null; questions: { id: string; text: string }[] }[];
   /** Section nav: only sections with items (or the unreadable line). */
-  nav: { key: 'common-ground' | 'disputes' | 'cruxes' | 'open-questions'; label: string; count: number }[];
+  nav: { key: 'common-ground' | 'disputes' | 'strongest-arguments' | 'cruxes' | 'open-questions'; label: string; count: number }[];
 }
 
 // ── Label tables (spec §5–§7) ──────────────────────────────────────────────
@@ -258,6 +276,9 @@ export interface BuildSynthesisInput {
   topic?: string;
   /** True while the synthesis is still running: the strip shows "Verdicts pending". */
   pending?: boolean;
+  /** The debate's `argument_network` (nodes with id, text, speaker, source_entry_id, computed_strength, turn_number;
+   *  edges with source, target, type), for Strongest arguments (spec §13.3, t/827). Absent or null: no section. */
+  argumentNetwork?: { nodes?: unknown; edges?: unknown } | null;
 }
 
 interface Pref { conflict: string; prevails: string | null; criterion: string | null; rationale: string | null; change: string | null; disagreementId: string | null }
@@ -412,7 +433,12 @@ function buildCruxes(s: Rec): SynthesisView['cruxes'] {
   return arr(s.cruxes).filter(isRec).filter(c => str(c.question)).map((c, i) => {
     const raw = str(c.type);
     const key = typeKeyOf(raw);
-    return { n: `C${i + 1}`, type: key, typeLabel: raw ? (key ? TYPE_LABEL[key] : raw) : null, rawType: raw, question: str(c.question) as string };
+    const ifYes = str(c.if_yes);
+    const ifNo = str(c.if_no);
+    return {
+      n: `C${i + 1}`, type: key, typeLabel: raw ? (key ? TYPE_LABEL[key] : raw) : null, rawType: raw, question: str(c.question) as string,
+      ...(ifYes ? { ifYes } : {}), ...(ifNo ? { ifNo } : {}),
+    };
   });
 }
 
@@ -441,13 +467,72 @@ function buildQuestionGroups(themes: unknown, questions: { id: string; text: str
   return groups;
 }
 
-function buildNav(c: { agreements: number; agreementsUnreadable: boolean; disputes: number; cruxes: number; questions: number }): SynthesisView['nav'] {
+function buildNav(c: { agreements: number; agreementsUnreadable: boolean; disputes: number; strongest: number; cruxes: number; questions: number }): SynthesisView['nav'] {
   const nav: SynthesisView['nav'] = [];
   if (c.agreements || c.agreementsUnreadable) nav.push({ key: 'common-ground', label: 'Common ground', count: c.agreements });
   if (c.disputes) nav.push({ key: 'disputes', label: 'Disputes', count: c.disputes });
+  if (c.strongest) nav.push({ key: 'strongest-arguments', label: 'Strongest arguments', count: c.strongest });
   if (c.cruxes) nav.push({ key: 'cruxes', label: 'Cruxes', count: c.cruxes });
   if (c.questions) nav.push({ key: 'open-questions', label: 'Open questions', count: c.questions });
   return nav;
+}
+
+// ── Strongest arguments (spec §13.3, t/827) ────────────────────────────────
+
+const CAMP_ORDER = ['accelerationist', 'safetyist', 'skeptic'] as const;
+const STRONGEST_PER_CAMP = 3;
+
+interface AnNode { id: string; text: string; speaker: string; sourceEntryId: string; strength: number; turn: number; supports: number; attacks: number; outgoing: number; edges: number }
+
+function readNodes(v: unknown): AnNode[] {
+  const out: AnNode[] = [];
+  for (const n of arr(v)) {
+    if (!isRec(n)) continue;
+    const id = str(n.id);
+    const text = str(n.text);
+    const speaker = str(n.speaker);
+    if (!id || !text || !speaker) continue;
+    out.push({
+      id, text, speaker, sourceEntryId: str(n.source_entry_id) ?? '',
+      strength: typeof n.computed_strength === 'number' && Number.isFinite(n.computed_strength) ? n.computed_strength : -Infinity,
+      turn: typeof n.turn_number === 'number' && Number.isFinite(n.turn_number) ? n.turn_number : Infinity,
+      supports: 0, attacks: 0, outgoing: 0, edges: 0,
+    });
+  }
+  return out;
+}
+
+/**
+ * The best-engaged arguments per camp. Same rule for every camp: a node counts only with at least one `supports` or
+ * `attacks` edge, as source or target (a `revoice_of` edge is identity across register, not engagement); speakers
+ * 'system' and 'document' are excluded; rank by `computed_strength` (a missing one below any number), then total
+ * edges, then earlier `turn_number`, then input order; top 3. Camps in a fixed order, so no key depends on which
+ * camp it is. `[]` when nothing is engaged for any camp.
+ */
+function buildStrongestArguments(network: BuildSynthesisInput['argumentNetwork'], debaters: CampRef[]): StrongestArgumentsCamp[] {
+  if (!network || !isRec(network)) return [];
+  const nodes = readNodes(network.nodes);
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  for (const e of arr(network.edges)) {
+    if (!isRec(e)) continue;
+    const type = str(e.type);
+    if (type !== 'supports' && type !== 'attacks') continue;
+    const src = byId.get(str(e.source) ?? '');
+    const tgt = byId.get(str(e.target) ?? '');
+    if (src) { src.edges++; src.outgoing++; }
+    if (tgt) { tgt.edges++; if (type === 'supports') tgt.supports++; else tgt.attacks++; }
+  }
+  const camps = CAMP_ORDER.filter(c => debaters.some(d => d.id === c));
+  const result = camps.map(camp => {
+    const items = nodes
+      .map((n, i) => ({ n, i }))
+      .filter(({ n }) => n.speaker === camp && n.edges > 0)
+      .sort((a, b) => b.n.strength - a.n.strength || b.n.edges - a.n.edges || a.n.turn - b.n.turn || a.i - b.i)
+      .slice(0, STRONGEST_PER_CAMP)
+      .map(({ n }) => ({ id: n.id, text: n.text, supportedBy: n.supports, challengedBy: n.attacks, engages: n.outgoing, sourceEntryId: n.sourceEntryId }));
+    return { camp: campRef(camp), items };
+  });
+  return result.some(c => c.items.length > 0) ? result : [];
 }
 
 export function buildSynthesisView(input: BuildSynthesisInput): SynthesisView {
@@ -458,6 +543,7 @@ export function buildSynthesisView(input: BuildSynthesisInput): SynthesisView {
   const agreementItems = arr(s.areas_of_agreement).map(textOf2).filter((x): x is string => !!x);
   const agreementsUnreadable = agreementItems.length === 0 && arr(s.unreadable_lists).includes('areas_of_agreement');
   const cruxes = buildCruxes(s);
+  const strongestArguments = buildStrongestArguments(input.argumentNetwork, debaters);
   const openQuestions = arr(s.unresolved_questions).map(textOf).filter((x): x is string => !!x)
     .map((text, i) => ({ id: `Q${i + 1}`, text }));
 
@@ -469,12 +555,13 @@ export function buildSynthesisView(input: BuildSynthesisInput): SynthesisView {
     nextMoves: buildNextMoves(disputes),
     agreements: { items: agreementItems, unreadable: agreementsUnreadable },
     disputes,
+    strongestArguments,
     cruxes,
     openQuestions,
     openQuestionGroups: buildQuestionGroups(s.unresolved_question_themes, openQuestions),
     nav: buildNav({
       agreements: agreementItems.length, agreementsUnreadable, disputes: disputes.length,
-      cruxes: cruxes.length, questions: openQuestions.length,
+      strongest: strongestArguments.filter(c => c.items.length > 0).length, cruxes: cruxes.length, questions: openQuestions.length,
     }),
   };
 }
