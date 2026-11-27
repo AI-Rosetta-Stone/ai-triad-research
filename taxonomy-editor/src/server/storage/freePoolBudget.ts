@@ -754,8 +754,9 @@ export function getFreePoolBudgetConfig(): FreePoolBudgetConfig | null {
 // t/4677: Boot-time initialization guard. Extract env vars, validate cap, and call initFreePoolBudget.
 // Logs WARN if unset (local/Electron mode); validates cap and falls back to 1500 if NaN or ≤0.
 // init parameter is injectable for testing (allows injecting a throwing init).
-// t/812 caveat: a day's caps are written into that day's document by whichever process creates it first
-// (freshDoc), so a changed FREE_POOL_DAILY_CALLS_CAP / FREE_POOL_DAILY_TOKENS_CAP applies from the NEXT UTC day, not mid-day.
+// t/812: admission (overCap) compares against THIS process's configured caps, never the caps stored in the day's
+// document (t/4733; those are forensics only). So a changed FREE_POOL_DAILY_CALLS_CAP / FREE_POOL_DAILY_TOKENS_CAP
+// applies as soon as the new revision serves, mid-day included, and two replicas can briefly differ during a swap.
 // info is optional so existing injected loggers keep working (t/812).
 type BootLogger = { server: { warn(obj: object, msg: string): void; error(obj: object, msg: string): void; info?(obj: object, msg: string): void } };
 
