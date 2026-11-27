@@ -3,14 +3,14 @@
 
 // t/809 (spec §12, human decision 2026-11-27): the synthesis panel sits at the top of the debate
 // page, under the header and toolbar, only once a synthesis exists (nothing reserved before). The
-// concluding entry stays in the transcript as a one-line pointer row. Behind the short-lived
-// `synthesisV2` switch (default OFF), removed one train after the human signs off.
+// concluding entry stays in the transcript as a one-line pointer row. On by default since t/826.
 
 import { useCallback, useMemo, useState } from 'react';
 import type { TranscriptEntry } from '../../types/debate';
 import { buildSynthesisView, type SynthesisView } from '@lib/debate/synthesisView';
+import { hasStructuredSynthesis } from '@lib/debate/synthesisBrief';
 import { synthesisFindOffsets } from './synthesisFind';
-import { isSynthesisV2On, readCollapsed, writeCollapsed } from './synthesisStorage';
+import { readCollapsed, writeCollapsed } from './synthesisStorage';
 import { SynthesisPanelView, type PanelFind } from './SynthesisPanel';
 
 const TOP_ID = 'synthesis-v2-top';
@@ -26,10 +26,10 @@ interface DebateLike {
 
 export interface SynthesisTopData { entry: TranscriptEntry; view: SynthesisView }
 
-/** The structured synthesis of a debate that has concluded, when the switch is on. Null otherwise
+/** The structured synthesis of a debate that has concluded. Null otherwise
  *  (a running or failed synthesis reserves nothing). */
 export function useSynthesisTop(debate: DebateLike | null | undefined): SynthesisTopData | null {
-  const entry = debate && isSynthesisV2On() ? findSynthesisEntry(debate.transcript) : null;
+  const entry = debate ? findSynthesisEntry(debate.transcript) : null;
   const synthesis = entry?.metadata?.synthesis;
   const povers = debate?.active_povers?.join('|') ?? '';
   const topic = debate?.topic?.final;
@@ -47,7 +47,9 @@ export function useSynthesisTop(debate: DebateLike | null | undefined): Synthesi
 export function findSynthesisEntry(transcript: readonly TranscriptEntry[]): TranscriptEntry | null {
   for (let i = transcript.length - 1; i >= 0; i--) {
     const e = transcript[i];
-    if (e.type === 'concluding' && e.metadata && typeof e.metadata.synthesis === 'object' && e.metadata.synthesis !== null) return e;
+    // The same "has something to show" test the export uses: `{}` or a fully degraded synthesis keeps the
+    // entry's own rendering (its stored conclusion text) instead of an empty panel and a pointer row.
+    if (e.type === 'concluding' && hasStructuredSynthesis(e.metadata?.synthesis)) return e;
   }
   return null;
 }
