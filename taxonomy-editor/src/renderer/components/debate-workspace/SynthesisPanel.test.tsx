@@ -285,6 +285,10 @@ describe('SynthesisTop placement (spec §12)', () => {
     expect(renderHook(() => useSynthesisTop(concluded)).result.current?.view.disputes).toHaveLength(2);
     expect(renderHook(() => useSynthesisTop(debate([entry('statement')]))).result.current).toBeNull(); // still running
     expect(renderHook(() => useSynthesisTop(debate([entry('concluding', { metadata: {} })]))).result.current).toBeNull(); // failed
+    // an empty or fully degraded synthesis has nothing to show: the entry keeps its own text (Quality, #5655)
+    expect(renderHook(() => useSynthesisTop(debate([entry('concluding', { metadata: { synthesis: {} } })]))).result.current).toBeNull();
+    expect(renderHook(() => useSynthesisTop(debate([entry('concluding', { metadata: { synthesis: { degraded: true, degraded_phases: ['extract', 'map'] } } })]))).result.current).toBeNull();
+    expect(findSynthesisEntry([entry('concluding', { metadata: { synthesis: {} } }) as never])).toBeNull();
     expect(renderHook(() => useSynthesisTop(null)).result.current).toBeNull();
   });
 
