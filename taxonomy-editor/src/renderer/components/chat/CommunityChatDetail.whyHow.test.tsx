@@ -68,9 +68,10 @@ describe('CommunityChatDetail Why and How (t/595)', () => {
     // Opened: the shared BDI view, grouped, one row per ref. Closing hides it again.
     fireEvent.click(why);
     expect(why).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('group', { name: /Desires, 1 node/ })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: /Beliefs, 1 node/ })).toBeInTheDocument();
+    // t/778: no Desires/Beliefs group headings any more, and the explanations start collapsed.
     expect(screen.getByRole('button', { name: /acc-desires-001/ })).toBeInTheDocument();
+    expect(screen.queryByText('Why this belief applies.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
     expect(screen.getByText('Why this belief applies.')).toBeInTheDocument();
     fireEvent.click(why);
     expect(container.querySelector('.chat-why')).toBeNull();
@@ -102,7 +103,7 @@ describe('CommunityChatDetail Why and How (t/595)', () => {
 
     expect(container.querySelector('.how-panel')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Why (1)' }));
-    expect(screen.getByRole('group', { name: /Intentions, 1 node/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /acc-intentions-074/ })).toBeInTheDocument(); // t/778: no group heading, one row
   });
 
   it('shows the How toggle without Why when an answer has raw fields but no refs', async () => {
