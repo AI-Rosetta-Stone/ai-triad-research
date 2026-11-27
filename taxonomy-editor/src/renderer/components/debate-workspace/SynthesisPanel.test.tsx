@@ -71,10 +71,12 @@ describe('SynthesisPanelView', () => {
     expect(onExportBrief).toHaveBeenCalledOnce();
   });
 
-  it('a next-move title that lost text keeps the full dispute in the card', () => {
-    mount(synthesis({ areas_of_disagreement: [{ point: 'Whether a pause works, and who pays for it afterwards', type: 'EMPIRICAL', positions: [] }], preferences: [] }));
-    expect(screen.getByText('Find a way to measure a pause works')).toBeTruthy();
-    expect(screen.getAllByText('Whether a pause works, and who pays for it afterwards').length).toBeGreaterThan(1);
+  it('a next-move card has a fixed title with no dispute text, and the full dispute in the card (t/835)', () => {
+    const point = 'Above what trade size a separate model can be enforced without entrenching incumbents';
+    mount(synthesis({ areas_of_disagreement: [{ point, type: 'EMPIRICAL', positions: [] }], preferences: [] }));
+    expect(screen.getByText('Find a way to measure it')).toBeTruthy();
+    expect(screen.getAllByText(point).length).toBeGreaterThan(1); // the dispute card and the next-move card's context
+    expect(screen.queryByText(/Find a way to measure above/)).toBeNull();
   });
 
   it('common ground shows 3 then Show all N points with aria-expanded', () => {
