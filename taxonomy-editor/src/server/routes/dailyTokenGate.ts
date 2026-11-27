@@ -6,6 +6,17 @@
 // SETTLES with the provider's real usage on every way out of the handler (success with the reported usage; a
 // failure, abort or refusal with zeros, which releases the hold). One process-wide budget over one document
 // store; the limit key is the SAME one the rate limiter uses, and it is never logged (only the returned keyTag).
+//
+// What this allowance can still miss (Security p/93#150; the rest of the bound is in dailyTokenBudget.ts):
+//   - The routes send NO output cap to the provider, so a call's hold is its prompt bytes plus an ASSUMED output cap
+//     (sessions.dailyTokenDefaultOutputCapTokens). A call whose real output exceeds that cap overshoots its hold by
+//     up to (the provider's real maximum output minus the assumed cap): about 57,000 tokens a call when the assumed
+//     cap is 8,192 and the provider maximum is 65,536. The overshoot is recorded when the call settles, and is
+//     bounded by the per-IP RPM limit and the free pool's daily calls cap, not by this allowance.
+//   - A provider-level retry made inside one request is counted once, at the usage the final attempt reports, so
+//     retries are UNDER-counted.
+//   - Op-ed runs are RECORDED durably (bookDailyTokens) but ENFORCED in-process (the run-level admission estimate):
+//     do not describe the op-ed allowance as durable until a run-level reserve exists (follow-up).
 
 import type { ServerResponse } from 'http';
 import { DailyTokenBudget, type CallShape, type ReserveResult, type TokenHold, type TokenDocStore } from '../security/dailyTokenBudget.js';
@@ -14,6 +25,7 @@ import { getConfig } from '../runtimeConfig.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { nextDailyResetUtc } from '../security/rateLimiter.js';
+import { isAuthDisabledMode } from '../security/userContext.js';
 
 const DOC_PREFIX = '_system/daily-tokens';
 
@@ -24,7 +36,7 @@ let storeKind: StoreKind | 'unused' = 'unused';
 /** A hosted profile on the in-memory store is not durable: log an ERROR (and a recorder entry) and never call it durable. */
 function noteStoreKind(kind: StoreKind): void {
   if (kind !== 'memory') return;
-  const hosted = process.env.AUTH_DISABLED !== '1';
+  const hosted = !isAuthDisabledMode(); // single-operator local mode is AUTH_DISABLED=1 outside production (Security p/93#150)
   if (hosted) {
     log.server.error({ component: 'daily-token-gate', kind }, 'The daily token allowance is on the IN-MEMORY store on a hosted profile: it resets on every restart and is per replica. Set AZURE_STORAGE_ACCOUNT_URL (t/746)');
     getGlobalRecorder()?.record({ type: 'system.error', component: 'daily-token-gate', level: 'error', message: 'Daily token allowance is in memory on a hosted profile (not durable)', data: { kind } });

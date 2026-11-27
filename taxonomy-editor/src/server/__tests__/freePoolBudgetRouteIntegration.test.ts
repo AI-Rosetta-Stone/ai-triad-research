@@ -50,6 +50,7 @@ vi.mock('../security/userContext.js', () => ({
   getCurrentUser: vi.fn(() => ({ principalName: 'testuser', idp: 'aad' })),
   getCurrentUserId: vi.fn(() => 'testuser'),
   getStorageUserId: vi.fn(() => 'testuser'),
+  isAuthDisabledMode: () => process.env.AUTH_DISABLED === '1' && process.env.NODE_ENV !== 'production',
 }));
 
 vi.mock('../logger.js', () => ({

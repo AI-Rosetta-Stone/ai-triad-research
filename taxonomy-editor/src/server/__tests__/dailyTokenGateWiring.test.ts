@@ -52,6 +52,7 @@ vi.mock('../security/userContext.js', () => ({
   getCurrentUser: vi.fn(() => ({ principalName: 'testuser', idp: 'aad' })),
   getCurrentUserId: vi.fn(() => 'testuser'),
   getStorageUserId: vi.fn(() => 'testuser'),
+  isAuthDisabledMode: () => process.env.AUTH_DISABLED === '1' && process.env.NODE_ENV !== 'production',
 }));
 
 vi.mock('../logger.js', () => ({
@@ -154,6 +155,9 @@ vi.mock('../storage/allowlistStore.js', () => ({ isAllowlisted: vi.fn(() => fals
 import { registerAiRoutes } from '../routes/ai.js';
 import { registerChatRoutes } from '../routes/chat.js';
 import { _setDailyTokenBudgetForTest } from '../routes/dailyTokenGate.js';
+import { getConfig } from '../runtimeConfig.js';
+import { getDailyTokenBudget } from '../routes/dailyTokenGate.js';
+import { log } from '../logger.js';
 
 type Handler = (req: IncomingMessage, res: ServerResponse, body?: unknown) => Promise<void> | void;
 
@@ -302,5 +306,64 @@ describe('durable daily token allowance wiring on generate and chat-stream (t/74
     await handlers['POST /api/ai/chat-stream'](fakeReq(), fakeRes(), { messages: [{ role: 'user', content: 'hi again' }] });
     expect((await b.usage(LIMIT_KEY)).tokensToday).toBe(500); // unchanged
     expect((await b.usage(LIMIT_KEY)).heldTokens).toBe(0);
+  });
+
+  // TL p/16#481: can a Quick Take's own parallel calls starve each other? The overgeneration pipeline runs 3 drafts at
+  // once (DEFAULT_N = 3) and claim verifications run in the background, so take 6 calls in flight, each a median-size
+  // debate prompt (32,664 bytes, measured). Each hold is prompt bytes + the assumed output cap.
+  async function sixInFlight(): Promise<{ statuses: number[]; heldWhileInFlight: number; heldAfter: number }> {
+    const resolvers: Array<(v: unknown) => void> = [];
+    generateTextByUsage.mockImplementation(() => new Promise((resolve) => { resolvers.push(resolve); }));
+    const b = budgetOver(store); useBudget(b);
+    const handlers = registerAll();
+    const results = Array.from({ length: 6 }, () => ({ res: fakeRes(), done: undefined as unknown as Promise<void> }));
+    results.forEach((r) => { r.done = Promise.resolve(handlers['POST /api/ai/generate'](fakeReq(), r.res, { prompt: 'x'.repeat(32_664) })) as Promise<void>; });
+    for (let i = 0; i < 200 && resolvers.length + results.filter((r) => r.res._statusCode === 429).length < 6; i++) await new Promise((r) => setTimeout(r, 5));
+    const heldWhileInFlight = (await b.usage(LIMIT_KEY)).heldTokens;
+    resolvers.forEach((resolve) => resolve({ text: 'ok', tokenUsage: { inputTokens: 8_000, outputTokens: 900 } }));
+    await Promise.all(results.map((r) => r.done));
+    return { statuses: results.map((r) => r.res._statusCode), heldWhileInFlight, heldAfter: (await b.usage(LIMIT_KEY)).heldTokens };
+  }
+
+  it('proposed config (output cap 16,384, 500,000 a day): six parallel median-size calls are all admitted and every hold is released', async () => {
+    const sessions = getConfig().sessions; const prevCap = sessions.dailyTokenDefaultOutputCapTokens; const prevLimit = FREE_TIER.limits.tokensPerDay;
+    sessions.dailyTokenDefaultOutputCapTokens = 16_384; FREE_TIER.limits.tokensPerDay = 500_000;
+    try {
+      const r = await sixInFlight();
+      expect(r.statuses.every((c) => c === 200)).toBe(true);
+      expect(r.heldWhileInFlight).toBe(6 * (32_664 + 16_384)); // 294,288 of 500,000
+      expect(r.heldAfter).toBe(0);
+    } finally { sessions.dailyTokenDefaultOutputCapTokens = prevCap; FREE_TIER.limits.tokensPerDay = prevLimit; }
+  });
+
+  it('the code default (output cap 65,536) over-holds: the same six calls on 500,000 a day are NOT all admitted', async () => {
+    const prevLimit = FREE_TIER.limits.tokensPerDay;
+    FREE_TIER.limits.tokensPerDay = 500_000;
+    try {
+      const r = await sixInFlight();
+      expect(r.statuses.some((c) => c === 429)).toBe(true); // 6 x (32,664 + 65,536) = 589,200 > 500,000
+      expect(r.heldAfter).toBe(0); // the refused ones never held anything, the admitted ones settled
+    } finally { FREE_TIER.limits.tokensPerDay = prevLimit; }
+  });
+
+  // Security p/93#150: 'hosted' means NOT single-operator local mode (AUTH_DISABLED=1 outside production).
+  it.each([
+    ['hosted (AUTH_DISABLED unset)', {}, 'error'],
+    ['production with AUTH_DISABLED=1 (the flag is ignored there)', { AUTH_DISABLED: '1', NODE_ENV: 'production' }, 'error'],
+    ['local mode (AUTH_DISABLED=1, not production)', { AUTH_DISABLED: '1', NODE_ENV: 'test' }, 'warn'],
+  ])('the in-memory store on %s logs at %s', (_name, env, level) => {
+    const saved = { AUTH_DISABLED: process.env.AUTH_DISABLED, NODE_ENV: process.env.NODE_ENV, AZURE_STORAGE_ACCOUNT_URL: process.env.AZURE_STORAGE_ACCOUNT_URL };
+    delete process.env.AUTH_DISABLED; delete process.env.AZURE_STORAGE_ACCOUNT_URL;
+    Object.assign(process.env, env);
+    const err = vi.mocked(log.server.error); const warn = vi.mocked(log.server.warn);
+    err.mockClear(); warn.mockClear();
+    try {
+      _setDailyTokenBudgetForTest(null);
+      getDailyTokenBudget();
+      expect(err.mock.calls.some((c) => JSON.stringify(c).includes('IN-MEMORY'))).toBe(level === 'error');
+      expect(warn.mock.calls.some((c) => JSON.stringify(c).includes('in memory (local run)'))).toBe(level === 'warn');
+    } finally {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
   });
 });
