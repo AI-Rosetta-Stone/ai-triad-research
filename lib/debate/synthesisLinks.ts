@@ -17,24 +17,12 @@
  * Everything is optional: debates saved before t/808 have none of it and stay readable.
  */
 
+import { matchPointIndex } from './synthesisView.js';
+
 type Item = Record<string, unknown>;
 type Warn = (operation: string, problem: string, recovery: string) => void;
 
 const isItem = (v: unknown): v is Item => !!v && typeof v === 'object' && !Array.isArray(v);
-
-/** Lower-case, letters and digits only, single spaces. */
-export function normaliseForMatch(text: string): string {
-  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-}
-
-function tokenOverlap(a: string, b: string): number {
-  const ta = new Set(a.split(' ').filter(Boolean));
-  const tb = new Set(b.split(' ').filter(Boolean));
-  if (ta.size === 0 || tb.size === 0) return 0;
-  let shared = 0;
-  for (const t of ta) if (tb.has(t)) shared++;
-  return shared / (ta.size + tb.size - shared);
-}
 
 /**
  * Give every disagreement a unique string `id`. Keeps a valid, unique id already present; otherwise assigns
@@ -60,24 +48,6 @@ export function assignDisagreementIds(disagreements: unknown): number {
   return assigned;
 }
 
-/** Best disagreement for a preference's free-text `conflict`: exact, then containment, then word overlap >= 0.5. */
-function matchDisagreement(conflict: string, disagreements: Item[]): string | undefined {
-  const c = normaliseForMatch(conflict);
-  if (c === '') return undefined;
-  const pts = disagreements.map(d => ({ id: d.id as string, p: normaliseForMatch(typeof d.point === 'string' ? d.point : '') }));
-  const exact = pts.filter(x => x.p === c);
-  if (exact.length === 1) return exact[0].id;
-  const contained = pts.filter(x => x.p.length >= 20 && c.length >= 20 && (x.p.includes(c) || c.includes(x.p)));
-  if (contained.length === 1) return contained[0].id;
-  let best: { id: string; s: number } | undefined;
-  let tie = false;
-  for (const x of pts) {
-    const s = tokenOverlap(c, x.p);
-    if (!best || s > best.s) { best = { id: x.id, s }; tie = false; } else if (s === best.s) tie = true;
-  }
-  return best && best.s >= 0.5 && !tie ? best.id : undefined;
-}
-
 export interface PreferenceLinkCounts { total: number; kept: number; matched: number; unmatched: number }
 
 /**
@@ -99,7 +69,8 @@ export function linkPreferencesToDisagreements(
     counts.total++;
     if (typeof p.disagreement_id === 'string' && ids.has(p.disagreement_id)) { counts.kept++; continue; }
     delete p.disagreement_id;
-    const id = typeof p.conflict === 'string' ? matchDisagreement(p.conflict, ds) : undefined;
+    const at = typeof p.conflict === 'string' ? matchPointIndex(p.conflict, ds.map(d => (typeof d.point === 'string' ? d.point : ''))) : -1;
+    const id = at >= 0 ? (ds[at].id as string) : undefined;
     if (id) { p.disagreement_id = id; counts.matched++; } else counts.unmatched++;
   }
   if (counts.matched + counts.unmatched > 0) {
