@@ -151,14 +151,32 @@ function tokenOverlap(a: string, b: string): number {
   return both / (A.size + B.size - both);
 }
 
-/** Matches when the normalised texts are equal, one contains the other, or the word sets overlap
- *  by at least 60% (the model often paraphrases a `conflict` slightly). */
-export function textMatches(a: string, b: string): boolean {
-  const x = normaliseText(a);
-  const y = normaliseText(b);
-  if (!x || !y) return false;
-  if (x === y || x.includes(y) || y.includes(x)) return true;
-  return tokenOverlap(x, y) >= 0.6;
+/**
+ * The one text join for a preference's free-text `conflict` against the disagreements' `point`s, shared
+ * by the engine (synthesisLinks.ts, when the model gave no valid disagreement_id) and this builder (old
+ * debates with no ids). Returns the index of the matching point, or -1 when nothing matches clearly:
+ * exactly one point equal after normalising; else exactly one point containing or contained by the
+ * conflict (both at least 20 characters); else the single best word-overlap of at least 0.5 with no tie.
+ * Never the first of several candidates: an unlinked preference stays unlinked (t/810, Design).
+ */
+export function matchPointIndex(conflict: string, points: readonly string[]): number {
+  const c = normaliseText(conflict);
+  if (c === '') return -1;
+  const ps = points.map(normaliseText);
+  const only = (hits: number[]): number => (hits.length === 1 ? hits[0] : -1);
+  const idx = (pred: (p: string) => boolean): number[] => ps.flatMap((p, i) => (pred(p) ? [i] : []));
+  const exact = idx(p => p === c);
+  if (exact.length > 0) return only(exact);
+  const contained = only(idx(p => p.length >= 20 && c.length >= 20 && (p.includes(c) || c.includes(p))));
+  if (contained >= 0) return contained;
+  let best = -1;
+  let bestScore = 0;
+  let tie = false;
+  ps.forEach((p, i) => {
+    const score = tokenOverlap(c, p);
+    if (score > bestScore) { best = i; bestScore = score; tie = false; } else if (score === bestScore && score > 0) tie = true;
+  });
+  return bestScore >= 0.5 && !tie ? best : -1;
 }
 
 const TRAILING_FILLER = new Set(['and', 'or', 'the', 'a', 'an', 'of', 'to', 'in', 'on', 'for', 'with', 'without', 'that', 'can', 'be', 'is', 'are', 'will', 'whether', 'if', 'by', 'as']);
@@ -279,22 +297,21 @@ function disputeFromRaw(d: Rec, pref: Pref | null, claims: Map<string, string>, 
   };
 }
 
-/** Disputes with the preference join (id first, then text); a preference that matches no
- *  disagreement keeps its own card at the end, never dropped. Numbers them D1…Dn. */
+/** Disputes with the preference join (a valid disagreement_id first, then the engine's unique text
+ *  match); a preference that matches no disagreement keeps its own card at the end, never dropped.
+ *  Numbers them D1…Dn. */
 function buildDisputes(s: Rec, claims: Map<string, string>, debaters: CampRef[]): DisputeCardView[] {
   const prefs = readPrefs(s.preferences);
+  const raw = arr(s.areas_of_disagreement).filter(isRec).filter(d => str(d.point));
+  const points = raw.map(d => str(d.point) as string);
+  const ids = raw.map(d => str(d.id));
+  const target = prefs.map(p => {
+    const byId = p.disagreementId ? ids.indexOf(p.disagreementId) : -1;
+    return byId >= 0 ? byId : matchPointIndex(p.conflict, points);
+  });
   const used = new Set<number>();
-  const findPref = (d: Rec): number => {
-    const id = str(d.id);
-    const point = str(d.point) as string;
-    if (id) {
-      const byId = prefs.findIndex((p, i) => !used.has(i) && p.disagreementId === id);
-      if (byId >= 0) return byId;
-    }
-    return prefs.findIndex((p, i) => !used.has(i) && !(p.disagreementId && id) && textMatches(p.conflict, point));
-  };
-  const disputes = arr(s.areas_of_disagreement).filter(isRec).filter(d => str(d.point)).map(d => {
-    const pi = findPref(d);
+  const disputes = raw.map((d, di) => {
+    const pi = target.findIndex((t, k) => t === di && !used.has(k));
     if (pi >= 0) used.add(pi);
     return disputeFromRaw(d, pi >= 0 ? prefs[pi] : null, claims, debaters);
   });
