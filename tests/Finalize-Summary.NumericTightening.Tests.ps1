@@ -112,9 +112,24 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
             Invoke-NumericDrop "It cost $Big dollars." "It cost $Big dollars." @{ Scale = $true } | Should -Be 1
         }
         It 'a scaled source figure that overflows a decimal does not throw and grounds only its plain number (t/780)' {
-            $Big = '99999999999999999999999999 billion'
-            { Invoke-NumericDrop 'It cost 5 dollars.' "It cost $Big dollars and 5 more." @{ Scale = $true } } | Should -Not -Throw
-            Invoke-NumericDrop 'It cost 5 dollars.' "It cost $Big dollars and 5 more." @{ Scale = $true } | Should -Be 0
+            # The source has no other copy of the number, so only the plain number of the overflowing figure can
+            # ground the claim (Quality, t/780: with another plain 5 in the source the key was not needed).
+            $Src = 'It cost 99999999999999999999999999 billion dollars.'
+            { Invoke-NumericDrop 'It cost 99999999999999999999999999 dollars.' $Src @{ Scale = $true } } | Should -Not -Throw
+            Invoke-NumericDrop 'It cost 99999999999999999999999999 dollars.' $Src @{ Scale = $true } | Should -Be 0
+            Invoke-NumericDrop 'It cost 7 dollars.' $Src @{ Scale = $true } | Should -Be 1
+        }
+        It 'the overflow writes a WARN naming the figure (t/780)' {
+            $Warn = & (Get-Module AITriad) {
+                $Saved = @{} + $script:NumericGroundingFeatures
+                $script:NumericGroundingFeatures['Scale'] = $true
+                try {
+                    $All = @(Get-NumericGroundingKeys -Text 'It cost 99999999999999999999999999 billion dollars.' 3>&1)
+                    ($All | Where-Object { $_ -is [System.Management.Automation.WarningRecord] } | ForEach-Object { "$_" }) -join "`n"
+                }
+                finally { foreach ($K in $Saved.Keys) { $script:NumericGroundingFeatures[$K] = $Saved[$K] } }
+            }
+            $Warn | Should -Match "could not scale '99999999999999999999999999 billion'"
         }
     }
 
