@@ -252,6 +252,27 @@ describe('Security p/93#142: moderator mode and dialectical diagnostics', () => 
   });
 });
 
+describe('TL p/16#477: an anonymous save keeps no turn_validations stage_diagnostics', () => {
+  const sd = { prompt: 'SECRET-PROMPT', taxonomy_context: 'SECRET-CONTEXT' };
+  const trails = () => ({ e1: { attempts: [{ attempt: 1, raw_response: 'kept', stage_diagnostics: sd }, { attempt: 2, stage_diagnostics: sd }], final: { outcome: 'pass' } }, e2: { attempts: [] , final: {} } });
+  it('drops stage_diagnostics from every attempt, keeping the rest of the trail, in a PUT, PATCH meta and PATCH changedFields', () => {
+    const put = { id: 'd', turn_validations: trails() };
+    const bytes = as(ANON, () => stripAnonDiagnostics(put, 'PUT /api/debates'));
+    expect(bytes).toBe(2 * Buffer.byteLength(JSON.stringify(sd)));
+    expect(put.turn_validations.e1.attempts).toEqual([{ attempt: 1, raw_response: 'kept' }, { attempt: 2 }]);
+    expect(put.turn_validations.e1.final).toEqual({ outcome: 'pass' });
+    const d = { debateId: 'd', baseVersion: 1, meta: { turn_validations: trails() }, changedFields: { turn_validations: trails() } };
+    as(ANON, () => stripAnonDiagnostics(d, 'PATCH /api/debates/:id'));
+    expect(JSON.stringify(d)).not.toContain('SECRET');
+  });
+  it('is a no-op for a signed-in save and for malformed trails (no throw)', () => {
+    const put = { id: 'd', turn_validations: trails() };
+    expect(as(SIGNED_IN, () => stripAnonDiagnostics(put, 'PUT /api/debates'))).toBe(0);
+    expect(JSON.stringify(put)).toContain('SECRET');
+    expect(() => as(ANON, () => stripAnonDiagnostics({ turn_validations: { a: null, b: { attempts: 'x' }, c: 5 } }, 'PUT /api/debates'))).not.toThrow();
+  });
+});
+
 describe('TL p/16#466: an anonymous save keeps no diagnostics', () => {
   const diag = { entries: { e1: { prompt: 'SECRET-PROMPT', raw_response: 'SECRET-RESPONSE' } }, enabled: true };
   it('strips diagnostics from a PUT body, a PATCH meta and a PATCH changedFields, and reports the bytes', () => {

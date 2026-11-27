@@ -142,7 +142,7 @@ export function refuseAnonLimit(res: ServerResponse, routePattern: string, v: An
   return true;
 }
 
-/** TL ruling p/16#466 (data minimisation): a hosted anonymous save does not keep `diagnostics` (the raw prompts, raw
+/** TL rulings p/16#466 and p/16#477 (data minimisation): a hosted anonymous save does not keep `diagnostics` (the raw prompts, raw
  *  responses and taxonomy context of each AI call: developer data that holds more of the visitor's text than the
  *  24-hour promise needs, and about 74 KB per entry). Removed in place from a PUT body (the session) or a PATCH body
  *  (`meta.diagnostics` and `changedFields.diagnostics`) BEFORE the shape check and the write. Logs once per save at
@@ -160,9 +160,24 @@ export function stripAnonDiagnostics(payload: unknown, route: string): number {
     delete h[key];
   };
   const drop = (holder: unknown): void => dropKey(holder, 'diagnostics');
+  const dropStageDiagnostics = (holder: unknown): void => {
+    if (!holder || typeof holder !== 'object') return;
+    const tv = (holder as Record<string, unknown>).turn_validations;
+    if (!tv || typeof tv !== 'object') return;
+    for (const trail of Object.values(tv as Record<string, unknown>)) {
+      const attempts = (trail as { attempts?: unknown } | null)?.attempts;
+      if (!Array.isArray(attempts)) continue;
+      for (const a of attempts) dropKey(a, 'stage_diagnostics');
+    }
+  };
   drop(p);
   drop(p.meta);
   drop(p.changedFields);
+  // TL p/16#477: turn_validations[*].attempts[*].stage_diagnostics is the same developer data per validated statement
+  // (about 305 KB each: prompt and taxonomy context). The trail's verdicts and raw_response summary stay.
+  dropStageDiagnostics(p);
+  dropStageDiagnostics(p.meta);
+  dropStageDiagnostics(p.changedFields);
   dropKey(p, 'dialectical_diagnostics'); // Security p/93#142: Talmudic per-round records (model prose); a hostile client could send them
   dropKey(p.meta, 'dialectical_diagnostics');
   dropKey(p.changedFields, 'dialectical_diagnostics');
