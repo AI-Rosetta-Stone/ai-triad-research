@@ -8,7 +8,7 @@
 
 import { createContext, useCallback, useContext, useId, useMemo, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
-import type { CampRef, DisputeCardView, StripLegendItem, StripSegment, SynthesisView } from '@lib/debate/synthesisView';
+import type { CampRef, DisputeCardView, StripLegendItem, StripSegment, StrongestArgumentsCamp, SynthesisView } from '@lib/debate/synthesisView';
 import { readCheckedQuestions, writeCheckedQuestions } from './synthesisStorage';
 import { HighlightedText } from './StatementCard';
 import './SynthesisPanel.css';
@@ -87,7 +87,7 @@ function CampChip({ camp }: { camp: CampRef }) {
 }
 
 /** First 3 items, then a button. */
-function Capped<T>({ items, render, listClass, showAll, showMore, tag = 'ul' }: {
+function Capped<T>({ items, render, listClass, showAll, showMore, tag = 'ul', onShowFewer }: {
   items: T[];
   render: (item: T, i: number) => React.ReactNode;
   listClass: string;
@@ -96,6 +96,8 @@ function Capped<T>({ items, render, listClass, showAll, showMore, tag = 'ul' }: 
   /** Button text when collapsed: "Show N more cruxes" (gets the hidden count). */
   showMore?: (hidden: number) => string;
   tag?: 'ul' | 'div';
+  /** Called when "Show fewer" is pressed (a parent may reset its own per-row state). */
+  onShowFewer?: () => void;
 }) {
   const [picked, setPicked] = useState(false);
   const findOpen = useFindOpen();
@@ -108,7 +110,7 @@ function Capped<T>({ items, render, listClass, showAll, showMore, tag = 'ul' }: 
     <>
       <Tag id={listId} className={listClass}>{shown.map(render)}</Tag>
       {hidden > 0 && (
-        <button type="button" className="btn btn-ghost syn-more" aria-expanded={open} aria-controls={listId} onClick={() => setPicked(o => !o)}>
+        <button type="button" className="btn btn-ghost syn-more" aria-expanded={open} aria-controls={listId} onClick={() => { if (picked) onShowFewer?.(); setPicked(o => !o); }}>
           {open ? 'Show fewer' : showAll ? showAll(items.length) : showMore ? showMore(hidden) : `Show ${hidden} more`}
         </button>
       )}
@@ -216,7 +218,7 @@ function OpenQuestions({ groups, debateId }: { groups: SynthesisView['openQuesti
   );
 }
 
-export type SectionKey = 'common-ground' | 'disputes' | 'cruxes' | 'open-questions';
+export type SectionKey = 'common-ground' | 'disputes' | 'strongest-arguments' | 'cruxes' | 'open-questions';
 
 function SectionHead({ id, sectionKey, text, intro }: { id: string; sectionKey: SectionKey; text: string; intro: string }) {
   return (
@@ -351,7 +353,35 @@ function CommonGround({ agreements, id }: { agreements: SynthesisView['agreement
   );
 }
 
+/** t/829 (spec §13.7): "If yes / If no" behind a Details button; only the lines that exist, and no
+ *  button when neither does. A find match inside opens it. */
+function CruxDetails({ crux, open, onToggle }: { crux: SynthesisView['cruxes'][number]; open: boolean; onToggle: () => void }) {
+  const findOpen = useFindOpen();
+  const detailsId = useId();
+  if (!crux.ifYes && !crux.ifNo) return null;
+  const shown = open || findOpen;
+  return (
+    <>
+      <button type="button" className="btn btn-ghost btn-xs syn-crux-details-btn" aria-expanded={shown} aria-controls={detailsId} onClick={onToggle}>
+        {shown ? 'Details ▴' : 'Details ▸'}
+      </button>
+      {shown && (
+        <div id={detailsId} className="syn-crux-details">
+          {crux.ifYes && <p><strong>If yes:</strong> <Hl k={`${crux.n}.yes`} text={crux.ifYes} /></p>}
+          {crux.ifNo && <p><strong>If no:</strong> <Hl k={`${crux.n}.no`} text={crux.ifNo} /></p>}
+        </div>
+      )}
+    </>
+  );
+}
+
 function Cruxes({ cruxes, id }: { cruxes: SynthesisView['cruxes']; id: string }) {
+  const [openDetails, setOpenDetails] = useState<Set<string>>(new Set());
+  const toggle = (n: string) => setOpenDetails(prev => {
+    const next = new Set(prev);
+    if (next.has(n)) next.delete(n); else next.add(n);
+    return next;
+  });
   return (
     <section aria-labelledby={id}>
       <SectionHead id={id} sectionKey="cruxes" text="Cruxes" intro="Answer one of these and a position should move." />
@@ -360,15 +390,69 @@ function Cruxes({ cruxes, id }: { cruxes: SynthesisView['cruxes']; id: string })
         tag="div"
         listClass="syn-cruxes"
         showMore={n => `Show ${n} more cruxes`}
+        onShowFewer={() => setOpenDetails(new Set())}
         render={c => (
           <div key={c.n} className="syn-crux">
             <span className="syn-crux-n">{c.n}</span>
             {c.typeLabel && <span className="syn-type-chip" data-type={c.rawType ?? undefined}>{c.typeLabel}</span>}
             <p><Hl k={c.n} text={c.question} /></p>
-            <DebateThisQuestion text={c.question} />
+            <div className="syn-crux-actions">
+              <CruxDetails crux={c} open={openDetails.has(c.n)} onToggle={() => toggle(c.n)} />
+              <DebateThisQuestion text={c.question} />
+            </div>
           </div>
         )}
       />
+    </section>
+  );
+}
+
+/** t/825 (spec §13.3): "Show in transcript" scrolls to the statement and flashes it. */
+function showInTranscript(entryId: string): void {
+  const el = document.getElementById(`debate-entry-${entryId}`);
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  el.classList.add('syn-flash');
+  window.setTimeout(() => el.classList.remove('syn-flash'), 2000);
+}
+
+function argumentLine(a: StrongestArgumentsCamp['items'][number]): string | null {
+  const parts = [a.supportedBy > 0 && `Supported by ${a.supportedBy}`, a.challengedBy > 0 && `Challenged by ${a.challengedBy}`].filter(Boolean);
+  if (parts.length > 0) return parts.join(' · ');
+  return a.engages > 0 ? `Engages ${a.engages} other argument${a.engages === 1 ? '' : 's'}` : null;
+}
+
+function StrongestArguments({ camps, id }: { camps: SynthesisView['strongestArguments']; id: string }) {
+  return (
+    <section aria-labelledby={id}>
+      <SectionHead id={id} sectionKey="strongest-arguments" text="Strongest arguments" intro="The best-engaged arguments from each camp. Strength is the model's estimate." />
+      <div className="syn-arg-camps">
+        {camps.map(c => (
+          <section key={c.camp.id} className="syn-arg-camp" aria-label={`Strongest arguments: ${c.camp.label}`}>
+            <CampChip camp={c.camp} />
+            {c.items.length === 0 ? (
+              <p className="syn-arg-none">No argument from {c.camp.label} was supported or challenged by another.</p>
+            ) : (
+              <ol className="syn-arg-list">
+                {c.items.map(a => {
+                  const line = argumentLine(a);
+                  return (
+                    <li key={a.id} className="syn-arg">
+                      <p><Hl k={`arg.${c.camp.id}.${a.id}`} text={a.text} /></p>
+                      {line && <p className="syn-arg-meta">{line}</p>}
+                      <a href={`#debate-entry-${a.sourceEntryId}`} className="syn-arg-link"
+                        aria-label={`Show in transcript: ${a.text.split(/\s+/).slice(0, 6).join(' ')}`}
+                        onClick={e => { e.preventDefault(); showInTranscript(a.sourceEntryId); }}>
+                        Show in transcript
+                      </a>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </section>
+        ))}
+      </div>
     </section>
   );
 }
@@ -385,6 +469,7 @@ function ExpandedSections({ view, ids, debateId, onExportBrief }: { view: Synthe
           <div className="syn-disputes">{view.disputes.map(d => <DisputeCard key={d.n} d={d} />)}</div>
         </section>
       )}
+      {view.strongestArguments.length > 0 && <StrongestArguments camps={view.strongestArguments} id={ids['strongest-arguments']} />}
       {view.cruxes.length > 0 && <Cruxes cruxes={view.cruxes} id={ids.cruxes} />}
       {view.openQuestions.length > 0 && (
         <section aria-labelledby={ids['open-questions']}>
@@ -419,7 +504,7 @@ export function SynthesisPanelView({ view, debateId, find = null, collapsed = fa
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyId = useId();
   const ids: Record<SectionKey, string> = {
-    'common-ground': useId(), disputes: useId(), cruxes: useId(), 'open-questions': useId(),
+    'common-ground': useId(), disputes: useId(), 'strongest-arguments': useId(), cruxes: useId(), 'open-questions': useId(),
   };
   // A find in progress shows everything, so every counted match has an element.
   const isCollapsed = collapsed && !find?.query;
