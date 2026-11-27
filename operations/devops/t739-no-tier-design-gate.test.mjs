@@ -64,7 +64,7 @@ const appComment = (body, at) => ({ user: { login: APP }, body, created_at: at, 
 function mpr(over = {}) {
   return {
     number: 9, headSha: HEAD, body: 'Tier: T1\n\nfeature', headRefName: 'renderer/t1-x',
-    files: [{ filename: 'docs/readme.md' }], filesTruncated: false, reviews: [], comments: [], labels: [],
+    files: [{ filename: 'docs/readme.md' }], filesTruncated: false, scriptsGatePaths: [], reviews: [], comments: [], labels: [],
     headPushedAtMs: PUSH_MS, ...over,
   };
 }
@@ -388,6 +388,9 @@ function enqueueFake({ body, files, reviews = [], comments = [], commits = [huma
     calls.push(args);
     const joined = args.join(' ');
     const last = args[args.length - 1];
+    // t/559: the package.json scripts read (merge base, then the contents at base and head); scripts are identical on both sides here
+    if (joined.includes('/compare/')) return JSON.stringify({ sha: 'b'.repeat(40) });
+    if (joined.includes('/contents/')) return JSON.stringify({ name: 'x', scripts: { build: 'tsc' }, dependencies: { 'left-pad': '^1.0.0' } });
     if (joined.includes('{changed_files}')) return JSON.stringify({ changed_files: files.length });
     if (joined.includes('/files?per_page=100') && args.includes('--slurp')) return JSON.stringify([files.map((x) => (x === 'package.json' ? pkg(x) : { filename: x }))]); // t/776
     if (joined.includes('/files?per_page=100')) return files.map((f) => JSON.stringify([f, ''])).join('\n');
