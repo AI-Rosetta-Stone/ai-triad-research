@@ -61,6 +61,8 @@ export interface StrongestArgument {
   supportedBy: number;
   /** Incoming `attacks` edges on this node. */
   challengedBy: number;
+  /** Outgoing `supports`/`attacks` edges, where this node is the source: how many other arguments it engages. */
+  engages: number;
   sourceEntryId: string;
 }
 export interface StrongestArgumentsCamp { camp: CampRef; items: StrongestArgument[] }
@@ -474,7 +476,7 @@ function buildNav(c: { agreements: number; agreementsUnreadable: boolean; disput
 const CAMP_ORDER = ['accelerationist', 'safetyist', 'skeptic'] as const;
 const STRONGEST_PER_CAMP = 3;
 
-interface AnNode { id: string; text: string; speaker: string; sourceEntryId: string; strength: number; turn: number; supports: number; attacks: number; edges: number }
+interface AnNode { id: string; text: string; speaker: string; sourceEntryId: string; strength: number; turn: number; supports: number; attacks: number; outgoing: number; edges: number }
 
 function readNodes(v: unknown): AnNode[] {
   const out: AnNode[] = [];
@@ -488,7 +490,7 @@ function readNodes(v: unknown): AnNode[] {
       id, text, speaker, sourceEntryId: str(n.source_entry_id) ?? '',
       strength: typeof n.computed_strength === 'number' && Number.isFinite(n.computed_strength) ? n.computed_strength : -Infinity,
       turn: typeof n.turn_number === 'number' && Number.isFinite(n.turn_number) ? n.turn_number : Infinity,
-      supports: 0, attacks: 0, edges: 0,
+      supports: 0, attacks: 0, outgoing: 0, edges: 0,
     });
   }
   return out;
@@ -511,7 +513,7 @@ function buildStrongestArguments(network: BuildSynthesisInput['argumentNetwork']
     if (type !== 'supports' && type !== 'attacks') continue;
     const src = byId.get(str(e.source) ?? '');
     const tgt = byId.get(str(e.target) ?? '');
-    if (src) src.edges++;
+    if (src) { src.edges++; src.outgoing++; }
     if (tgt) { tgt.edges++; if (type === 'supports') tgt.supports++; else tgt.attacks++; }
   }
   const camps = CAMP_ORDER.filter(c => debaters.some(d => d.id === c));
@@ -521,7 +523,7 @@ function buildStrongestArguments(network: BuildSynthesisInput['argumentNetwork']
       .filter(({ n }) => n.speaker === camp && n.edges > 0)
       .sort((a, b) => b.n.strength - a.n.strength || b.n.edges - a.n.edges || a.n.turn - b.n.turn || a.i - b.i)
       .slice(0, STRONGEST_PER_CAMP)
-      .map(({ n }) => ({ id: n.id, text: n.text, supportedBy: n.supports, challengedBy: n.attacks, sourceEntryId: n.sourceEntryId }));
+      .map(({ n }) => ({ id: n.id, text: n.text, supportedBy: n.supports, challengedBy: n.attacks, engages: n.outgoing, sourceEntryId: n.sourceEntryId }));
     return { camp: campRef(camp), items };
   });
   return result.some(c => c.items.length > 0) ? result : [];

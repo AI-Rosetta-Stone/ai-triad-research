@@ -155,7 +155,9 @@ function writeStrongestArguments(w: Writer, view: SynthesisView): void {
     w.line(w.bold(c.camp.label));
     if (c.items.length === 0) { w.line(`No argument from ${c.camp.label} was supported or challenged by another.`); continue; }
     c.items.forEach((a, i) => {
-      const parts = [a.supportedBy > 0 ? `Supported by ${a.supportedBy}` : '', a.challengedBy > 0 ? `Challenged by ${a.challengedBy}` : ''].filter(Boolean);
+      const incoming = [a.supportedBy > 0 ? `Supported by ${a.supportedBy}` : '', a.challengedBy > 0 ? `Challenged by ${a.challengedBy}` : ''].filter(Boolean);
+      // Engaged only as a source: say so, so the argument doesn't look unengaged (Design, t/827)
+      const parts = incoming.length === 0 && a.engages > 0 ? [`Engages ${a.engages} other argument${a.engages === 1 ? '' : 's'}`] : incoming;
       w.num(i + 1, parts.length > 0 ? `${a.text} (${parts.join(' · ')})` : a.text);
     });
     w.blank();
