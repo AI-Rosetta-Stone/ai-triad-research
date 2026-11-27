@@ -81,6 +81,12 @@ export interface RuntimeConfig {
     anonOpEdMaxVoices: number;
     /** t/500: anonymous admission bound, words per voice (TL t/500#27: the largest outlet band, 1,500). */
     anonOpEdMaxWords: number;
+    /** t/811 check C: the most AI calls ONE anonymous debate id may make (a stop for a runaway loop, not the spend control). */
+    anonDebateCallCeiling: number;
+    /** t/811 check C: debates (distinct ids) one anonymous visitor may run per UTC day (PI: 2). */
+    anonDebatesPerDay: number;
+    /** t/811 check C: the largest anonymous debate save, in bytes, after the server's strips (measured about 1.18 MB for a finished Quick Take, plus 25%). */
+    anonDebateSaveMaxBytes: number;
   };
   analytics: {
     retentionDays: number;
@@ -210,6 +216,9 @@ const DEFAULTS: RuntimeConfig = {
     anonOpEdByteCap: 106_496,
     anonOpEdMaxVoices: 1,
     anonOpEdMaxWords: 1_500,
+    anonDebateCallCeiling: 200,
+    anonDebatesPerDay: 2,
+    anonDebateSaveMaxBytes: 1_572_864,
   },
   analytics: {
     retentionDays: 90,
@@ -459,6 +468,9 @@ export function validateAndMerge(raw: unknown, defaults: RuntimeConfig): { confi
       anonOpEdByteCap: vNum(sess.anonOpEdByteCap, defaults.sessions.anonOpEdByteCap, { min: 1_024, max: 10_485_760, integer: true }, 'sessions.anonOpEdByteCap', errors),
       anonOpEdMaxVoices: vNum(sess.anonOpEdMaxVoices, defaults.sessions.anonOpEdMaxVoices, { min: 1, max: 3, integer: true }, 'sessions.anonOpEdMaxVoices', errors),
       anonOpEdMaxWords: vNum(sess.anonOpEdMaxWords, defaults.sessions.anonOpEdMaxWords, { min: 100, max: 1_500, integer: true }, 'sessions.anonOpEdMaxWords', errors),
+      anonDebateCallCeiling: vNum(sess.anonDebateCallCeiling, defaults.sessions.anonDebateCallCeiling, { min: 1, max: 100_000, integer: true }, 'sessions.anonDebateCallCeiling', errors),
+      anonDebatesPerDay: vNum(sess.anonDebatesPerDay, defaults.sessions.anonDebatesPerDay, { min: 1, max: 1_000, integer: true }, 'sessions.anonDebatesPerDay', errors),
+      anonDebateSaveMaxBytes: vNum(sess.anonDebateSaveMaxBytes, defaults.sessions.anonDebateSaveMaxBytes, { min: 65_536, max: 52_428_800, integer: true }, 'sessions.anonDebateSaveMaxBytes', errors),
     },
     analytics: {
       retentionDays: vNum(an.retentionDays, defaults.analytics.retentionDays, { min: 1, max: 3_650, integer: true }, 'analytics.retentionDays', errors),

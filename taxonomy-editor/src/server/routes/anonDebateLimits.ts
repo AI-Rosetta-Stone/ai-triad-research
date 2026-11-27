@@ -21,6 +21,8 @@ import type { ServerResponse } from 'http';
 import { getStorageUserId, isHostedAnonymousRequest } from '../security/userContext.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
+import { admitAnonDebateCall } from '../storage/anonDebateCounter.js';
+import { getConfig } from '../runtimeConfig.js';
 import { applyDebateDelta } from '../../../../lib/debate/applyDebateDelta.js';
 import type { DebateDelta, DebateSession } from '../../../../lib/debate/types/session.js';
 
@@ -50,13 +52,34 @@ export function anonDebateMaxDebaterEntries(debaters: number): number {
  *  shaped debate had 35 entries; Deep dive shaped ones reached 56. */
 export const ANON_DEBATE_MAX_TOTAL_ENTRIES = 45;
 
+let limitsWarned = false;
+/** The three check-C numbers, read from the live config on every call (a reload takes effect with no restart). One WARN per
+ *  process lists any that sit at their code default, so an unset value is visible at rollout (Security p/93#150 note 3). */
+export function anonDebateLimitsConfig(): { perDebateCalls: number; debatesPerDay: number; saveMaxBytes: number } {
+  const s = getConfig().sessions;
+  if (!limitsWarned) {
+    limitsWarned = true;
+    log.api.warn({ component: 'anon-limits', perDebateCalls: s.anonDebateCallCeiling, debatesPerDay: s.anonDebatesPerDay, saveMaxBytes: s.anonDebateSaveMaxBytes },
+      'Anonymous debate limits in effect (sessions.anonDebateCallCeiling, anonDebatesPerDay, anonDebateSaveMaxBytes); set them explicitly in runtime-config (t/811)');
+  }
+  return { perDebateCalls: s.anonDebateCallCeiling, debatesPerDay: s.anonDebatesPerDay, saveMaxBytes: s.anonDebateSaveMaxBytes };
+}
+export function _resetAnonDebateLimitsWarnForTest(): void { limitsWarned = false; }
+
+/** Check C, size: an anonymous save larger than the ceiling (after the strips) is refused as the debate being too long. */
+function saveSizeViolation(session: unknown): AnonDebateViolation | null {
+  const max = anonDebateLimitsConfig().saveMaxBytes;
+  const bytes = Buffer.byteLength(JSON.stringify(session) ?? '', 'utf8');
+  return bytes > max ? { code: 'anon_debate_turns', detail: 'bytes', limit: max } : null;
+}
+
 /** True for the only callers these limits apply to. Synchronous, so a route can skip the async checks (and their
  *  extra await) for everyone else. */
 export function anonDebateLimitsApply(): boolean {
   return isHostedAnonymousRequest();
 }
 
-export type AnonDebateLimitCode = 'anon_debate_kind' | 'anon_debate_turns' | 'anon_debate_unsaved' | 'anon_oped_voices';
+export type AnonDebateLimitCode = 'anon_debate_kind' | 'anon_debate_turns' | 'anon_debate_unsaved' | 'anon_oped_voices' | 'anon_debate_budget' | 'anon_debate_daily';
 export interface AnonDebateViolation { code: AnonDebateLimitCode; detail: string; limit?: number }
 
 const MESSAGES: Record<AnonDebateLimitCode, string> = {
@@ -64,6 +87,8 @@ const MESSAGES: Record<AnonDebateLimitCode, string> = {
   anon_debate_turns: 'This debate is longer than a Quick Take. Sign in to continue it.',
   anon_debate_unsaved: 'This debate is not available to continue. Start a new Quick Take, or sign in.',
   anon_oped_voices: 'Without an account an op-ed has one voice. Sign in to write with more.',
+  anon_debate_budget: 'This debate has used all the AI calls available without signing in. Sign in to continue it.',
+  anon_debate_daily: 'You have started the most debates available today without signing in. Try again tomorrow, or sign in.',
 };
 
 function kind(detail: string): AnonDebateViolation { return { code: 'anon_debate_kind', detail }; }
@@ -232,7 +257,7 @@ export type LoadOwnDebate = (debateId: string) => Promise<unknown>;
 export function refuseAnonDebateSave(res: ServerResponse, session: unknown): boolean {
   if (!isHostedAnonymousRequest()) return false;
   if (refuseUnkeyedAnonDebate(res, 'PUT /api/debates')) return true;
-  const v = anonDebateShapeViolation(session);
+  const v = anonDebateShapeViolation(session) ?? saveSizeViolation(session);
   return v ? refuseAnonLimit(res, 'PUT /api/debates', v) : false;
 }
 
@@ -260,35 +285,61 @@ export async function refuseAnonDebatePatch(res: ServerResponse, delta: DebateDe
   if (!existing) return false;
   if ((existing._saveVersion ?? 0) !== delta.baseVersion) return false;
   if (isTitleOnlyDelta(delta)) return false;
-  const v = anonDebateShapeViolation(applyDebateDelta(existing, delta));
+  const merged = applyDebateDelta(existing, delta);
+  const v = anonDebateShapeViolation(merged) ?? saveSizeViolation(merged);
   return v ? refuseAnonLimit(res, route, v) : false;
 }
 
 /** Checks B1 and B on a debate AI call (POST /api/ai/generate with a debateId). True when the response was written;
  *  nothing may be reserved, counted or sent then. */
+/** The shape verdict for a debate AI call: the caller's OWN saved session checked by check A, with the short-lived cache keyed
+ *  by storage id + debate id. A missing session, an unsafe id or a storage failure all read as 'unsaved' (fail closed). */
+async function callShapeVerdict(debateId: string, loadOwn: LoadOwnDebate, now: number, route: string): Promise<ShapeVerdict> {
+  const key = cacheKey(debateId);
+  const cached = shapeCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.verdict;
+  let own: unknown = null;
+  try {
+    own = await loadOwn(debateId);
+  } catch (err) {
+    // An unsafe id, or a storage failure: refuse (fail closed), exactly as for a debate that isn't there.
+    log.api.warn({ component: 'anon-limits', route, err }, 'Anonymous debate call refused: the saved session could not be read (fail closed, t/723)');
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'anon-limits', level: 'warn', message: 'Anonymous debate session read failed; refusing the call',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  }
+  const verdict = own ? anonDebateShapeViolation(own) : UNSAVED;
+  remember(key, verdict, now);
+  return verdict;
+}
+
+/** Check C (t/802): a server-owned per-visitor per-day counter, ONE atomic CAS per admitted call. True when the response was
+ *  written. Fails closed: a counter failure is a 503 retryable:true, never an admission. */
+async function refuseOverCounter(res: ServerResponse, route: string, debateId: string): Promise<boolean> {
+  const limits = anonDebateLimitsConfig();
+  try {
+    const admission = await admitAnonDebateCall(getStorageUserId(), debateId, { perDebateCalls: limits.perDebateCalls, debatesPerDay: limits.debatesPerDay });
+    if (admission.admitted) return false;
+    return refuseAnonLimit(res, route, { code: admission.reason === 'budget' ? 'anon_debate_budget' : 'anon_debate_daily', detail: admission.reason, limit: admission.limit });
+  } catch (err) {
+    log.api.warn({ component: 'anon-limits', route, code: (err as { code?: string }).code, err: String(err) }, 'Anonymous debate call refused: the per-visitor counter could not be read or written (fail closed, t/811)');
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'anon-limits', level: 'warn', message: 'Anonymous debate counter failed; refusing the call',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '5' });
+    res.end(JSON.stringify({ error: 'The usage counter is temporarily unavailable; retry shortly.', retryable: true, retryAfterMs: 5000 }));
+    return true;
+  }
+}
+
 export async function refuseAnonDebateCall(res: ServerResponse, debateId: string | undefined, loadOwn: LoadOwnDebate, now: number = Date.now()): Promise<boolean> {
   if (!debateId || !isHostedAnonymousRequest()) return false;
   const route = 'POST /api/ai/generate';
   if (refuseUnkeyedAnonDebate(res, route)) return true;
-  const key = cacheKey(debateId);
-  const cached = shapeCache.get(key);
-  let verdict: ShapeVerdict;
-  if (cached && cached.expiresAt > now) {
-    verdict = cached.verdict;
-  } else {
-    let own: unknown = null;
-    try {
-      own = await loadOwn(debateId);
-    } catch (err) {
-      // An unsafe id, or a storage failure: refuse (fail closed), exactly as for a debate that isn't there.
-      log.api.warn({ component: 'anon-limits', route, err }, 'Anonymous debate call refused: the saved session could not be read (fail closed, t/723)');
-      getGlobalRecorder()?.record({
-        type: 'system.error', component: 'anon-limits', level: 'warn', message: 'Anonymous debate session read failed; refusing the call',
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-    }
-    verdict = own ? anonDebateShapeViolation(own) : UNSAVED;
-    remember(key, verdict, now);
-  }
-  return verdict ? refuseAnonLimit(res, route, verdict) : false;
+  const verdict = await callShapeVerdict(debateId, loadOwn, now, route);
+  if (verdict) return refuseAnonLimit(res, route, verdict);
+  // The counter runs AFTER the flag, B1, ownership and shape checks, so a call refused earlier creates no record.
+  return refuseOverCounter(res, route, debateId);
 }

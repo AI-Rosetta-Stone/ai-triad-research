@@ -16,6 +16,10 @@ vi.mock('../logger.js', () => {
 });
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 
+import { setAnonDebateCounterStore } from '../storage/anonDebateCounter.js';
+import { InMemoryJsonDocStore } from '../storage/jsonDocStore.js';
+import { getConfig } from '../runtimeConfig.js';
+import { _resetAnonDebateLimitsWarnForTest } from '../routes/anonDebateLimits.js';
 import { enforceAuthGate, enforceAnonRouteGuard, type AuthGateCtx, type AuthGateDeps } from '../authGates.js';
 import { normalizedRequestPath } from '../httpKit.js';
 import { computeIsPublicPath } from '../publicPaths.js';
@@ -34,6 +38,8 @@ const saved: Record<string, string | undefined> = {};
 const store = new Map<string, Map<string, Record<string, unknown>>>();
 const loadOwn = async (id: string): Promise<unknown> => store.get(getStorageUserId())?.get(id) ?? null;
 let lastPatch: Record<string, unknown> | null = null;
+let counterStore: InMemoryJsonDocStore;
+let savedLimits: { calls: number; perDay: number; bytes: number };
 let server: http.Server;
 let base: string;
 
@@ -96,8 +102,18 @@ beforeEach(() => {
   process.env.FREE_TIER_GEMINI_KEY = 'AIzaFAKE-NOT-A-KEY'; // the free tier is on, so anonymous generate passes the route guard
   store.clear();
   _resetAnonDebateShapeCacheForTest();
+  counterStore = new InMemoryJsonDocStore({ prefix: 'anon-debate-counter' });
+  setAnonDebateCounterStore(counterStore);
+  _resetAnonDebateLimitsWarnForTest();
+  const sess = getConfig().sessions;
+  savedLimits = { calls: sess.anonDebateCallCeiling, perDay: sess.anonDebatesPerDay, bytes: sess.anonDebateSaveMaxBytes };
 });
-afterEach(() => { for (const n of ENV) { if (saved[n] === undefined) delete process.env[n]; else process.env[n] = saved[n]; } });
+afterEach(() => {
+  for (const n of ENV) { if (saved[n] === undefined) delete process.env[n]; else process.env[n] = saved[n]; }
+  const sess = getConfig().sessions;
+  sess.anonDebateCallCeiling = savedLimits.calls; sess.anonDebatesPerDay = savedLimits.perDay; sess.anonDebateSaveMaxBytes = savedLimits.bytes;
+  setAnonDebateCounterStore(null);
+});
 
 const A = '0f8fad5b-d9cb-469f-a165-8c7c0e2c1a11';
 const B = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
@@ -209,6 +225,72 @@ describe('TL p/16#466 over real HTTP: diagnostics are not kept for an anonymous 
     expect((await send('PATCH', '/api/debates/q1', signed(A), delta('q1', { meta: { title: 'T', diagnostics: diag }, changedFields: { diagnostics: diag } }))).text).toBe('reached');
     expect(lastPatch?.meta).toEqual({ title: 'T' });
     expect(lastPatch?.changedFields).toEqual({});
+  });
+});
+
+describe('t/802 check C over real HTTP: the server-owned per-visitor per-day counter and the save size ceiling', () => {
+  const gen = (cookie: string, id: string) => send('POST', '/api/ai/generate', cookie, { prompt: 'p', debateId: id });
+
+  it('the per-debate ceiling: calls up to it reach the provider, the next is 403 anon_debate_budget with the limit', async () => {
+    getConfig().sessions.anonDebateCallCeiling = 3;
+    await send('PUT', '/api/debates', signed(A), session('q1'));
+    for (let i = 0; i < 3; i++) expect((await gen(signed(A), 'q1')).text).toBe('reached');
+    const refused = await gen(signed(A), 'q1');
+    expectAnonLimit(refused, 'anon_debate_budget');
+    expect(refused.json).toMatchObject({ limit: 3 });
+  });
+
+  it('the per-day debate limit: a third debate id is 403 anon_debate_daily, the first two keep working, another visitor is unaffected', async () => {
+    getConfig().sessions.anonDebatesPerDay = 2;
+    for (const id of ['q1', 'q2', 'q3']) await send('PUT', '/api/debates', signed(A), session(id));
+    expect((await gen(signed(A), 'q1')).text).toBe('reached');
+    expect((await gen(signed(A), 'q2')).text).toBe('reached');
+    const third = await gen(signed(A), 'q3');
+    expectAnonLimit(third, 'anon_debate_daily');
+    expect(third.json).toMatchObject({ limit: 2 });
+    expect((await gen(signed(A), 'q1')).text).toBe('reached'); // an id already counted today is not a new debate
+    await send('PUT', '/api/debates', signed(B), session('b1'));
+    expect((await gen(signed(B), 'b1')).text).toBe('reached');
+  });
+
+  it('a call refused earlier (unsaved id, forged cookie, a Deep dive) creates no counter record', async () => {
+    store.set(`anon-${A}`, new Map([['old', deep('old')]]));
+    expectAnonLimit(await gen(signed(A), 'missing'), 'anon_debate_unsaved');
+    expectAnonLimit(await gen(signed(A), 'old'), 'anon_debate_kind');
+    expect((await gen(FORGED, 'q1')).status).toBe(401);
+    expect(counterStore._sizeForTest()).toBe(0);
+    await send('PUT', '/api/debates', signed(A), session('q1'));
+    expect((await gen(signed(A), 'q1')).text).toBe('reached');
+    expect(counterStore._sizeForTest()).toBe(1); // only the admitted call wrote
+  });
+
+  it('the counter store failing is a 503 retryable:true (not a sign-in limit), the provider is not reached, and nothing is admitted', async () => {
+    await send('PUT', '/api/debates', signed(A), session('q1'));
+    counterStore.forceFailures('download', 50);
+    const r = await gen(signed(A), 'q1');
+    expect(r.status).toBe(503);
+    expect(r.json).toMatchObject({ retryable: true });
+    expect(r.json).not.toHaveProperty('signInRequired');
+    expect(r.text).not.toBe('reached');
+  });
+
+  it('the save size ceiling: an anonymous PUT over it is 403 anon_debate_turns with the byte limit; under it passes; a title-only PATCH is unaffected', async () => {
+    getConfig().sessions.anonDebateSaveMaxBytes = 70_000;
+    const big = session('big', { padding: 'x'.repeat(100_000) });
+    const refused = await send('PUT', '/api/debates', signed(A), big);
+    expectAnonLimit(refused, 'anon_debate_turns');
+    expect(refused.json).toMatchObject({ limit: 70_000 });
+    expect(store.get(`anon-${A}`)?.has('big') ?? false).toBe(false);
+    expect((await send('PUT', '/api/debates', signed(A), session('small'))).text).toBe('reached');
+    store.set(`anon-${A}`, new Map([['old', { ...deep('old'), padding: 'x'.repeat(100_000) }]]));
+    expect((await send('PATCH', '/api/debates/old', signed(A), delta('old', { meta: { title: 'Renamed' } }))).text).toBe('reached');
+  });
+
+  it('a PATCH that grows a saved Quick Take past the size ceiling is refused on the merged session', async () => {
+    getConfig().sessions.anonDebateSaveMaxBytes = 70_000;
+    store.set(`anon-${A}`, new Map([['q1', session('q1', { padding: 'x'.repeat(60_000) })]]));
+    const grow = delta('q1', { changedFields: { padding2: 'y'.repeat(30_000) } });
+    expectAnonLimit(await send('PATCH', '/api/debates/q1', signed(A), grow), 'anon_debate_turns');
   });
 });
 
