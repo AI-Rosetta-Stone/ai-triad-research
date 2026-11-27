@@ -129,6 +129,11 @@ export const WORKFLOW_RUN_SCRIPTS = [
 // Directory prefixes that count in full. `.github/ci/` holds data the gates load
 // (required-contexts.json, tier-paths.json, the allowlists); `.github/scripts/` the check scripts
 // ci.yml runs; `.github/codeql/` the CodeQL query and path config (t/543).
+// t/559 follow-up (Security p/131#116): files that change what `pnpm install` does inside every required check. `.pnpmfile.cjs` is code
+// pnpm executes at install; `.npmrc` sets the registry, script handling and linker. Protected at ANY depth (pnpm reads them per
+// project directory), not only at the root.
+export const INSTALL_BEHAVIOUR_BASENAMES = ['.npmrc', '.pnpmfile.cjs', 'pnpmfile.cjs'];
+
 export const GATE_PREFIXES = ['.github/workflows/', '.github/actions/', '.github/ci/', '.github/scripts/', '.github/codeql/'];
 
 // t/543 (agreed boundary, TL + Security, t/543#6): outside operations/devops and .github, protect
@@ -229,7 +234,6 @@ export const CODE_UNDER_TEST = [
   // Product config and data named in ci.yml path filters (what a change triggers) or read by checks.
   '.aitriad.json', // product data-root config; schema/container filters
   '.dockerignore', // container build context; container filter
-  '.npmrc', // package manager config; container filter
   'ai-models.json', // product model registry; the subject of the config gates
   'ai-usages.json', // product usage registry; debate/container filters
   'CHANGELOG.md', // product doc copied into the image; container filter
@@ -355,7 +359,7 @@ export function isGateFile(path) {
   if (typeof path !== 'string' || !path) return false;
   const p = path.replace(/\\/g, '/').replace(/^\.\//, '');
   return GATE_PREFIXES.some((pre) => p.startsWith(pre)) || GATE_SCRIPTS.includes(p) || WORKFLOW_RUN_SCRIPTS.includes(p) ||
-    VERDICT_SCRIPTS.includes(p);
+    VERDICT_SCRIPTS.includes(p) || INSTALL_BEHAVIOUR_BASENAMES.includes(p.slice(p.lastIndexOf('/') + 1));
 }
 
 /**
@@ -489,11 +493,52 @@ function readForStatus(read, side, status) {
   return allowed ? read : { error: new Error(`a ${side} read of a ${status ?? 'status-less'} file returned 404`) };
 }
 
+/** Top-level keys of pnpm-workspace.yaml that may change without review: dependency overrides and catalogs (Dependabot-adjacent, routine security bumps). */
+export const WORKSPACE_FREE_KEYS = Object.freeze(['overrides', 'catalog', 'catalogs']);
+
+/**
+ * PURE. The reviewable facts of a pnpm-workspace.yaml (Security p/131#116, INVERTED): every top-level key EXCEPT overrides, catalog and
+ * catalogs is a fact, so a key pnpm adds tomorrow (patchedDependencies, packageExtensions, dangerouslyAllowAllBuilds, verifyDepsBeforeRun,
+ * registry, ignoreScripts, allowBuilds, hooks, pnpmfile...) is covered without being named. \`packages:\` is compared as a sorted,
+ * unique member list (order, quotes and comments do not matter); every other gated key is compared as its block text with full-line
+ * comments and blank lines removed. A line at column 0 that is not a `key:` (a document marker, a stray list item, a tab) makes the file
+ * unrecognised: { ok: false } (fail closed).
+ */
+export function workspaceFactsOf(text) {
+  if (typeof text !== 'string') return { ok: false };
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const blocks = new Map();
+  let key = null;
+  for (const l of lines) {
+    if (l.trim() === '' || /^\s*#/.test(l)) continue;
+    const m = /^([A-Za-z_][\w.-]*)\s*:(.*)$/.exec(l);
+    if (/^\S/.test(l)) {
+      if (!m || blocks.has(m[1])) return { ok: false };      // not a key line, or the same key twice
+      key = m[1];
+      blocks.set(key, [l.trim()]);
+    } else {
+      if (key === null) return { ok: false };               // indented content before any key
+      blocks.get(key).push(l.replace(/\s+$/, ''));
+    }
+  }
+  const fact = {};
+  for (const [k, body] of blocks) {
+    if (WORKSPACE_FREE_KEYS.includes(k)) continue;
+    if (k === 'packages') {
+      const w = workspacePackagesOf(body.join('\n'));
+      if (!w.ok) return { ok: false };
+      fact[k] = w.packages;
+    } else {
+      fact[k] = body.join('\n');
+    }
+  }
+  return { ok: true, fact };
+}
+
 function factOfRead(read, kind) {
   if (kind === 'workspace') {
     if (read?.missing === true) return { ok: true, fact: null };
-    const w = workspacePackagesOf(read?.text);
-    return { ok: w.ok, fact: w.packages };
+    return workspaceFactsOf(read?.text);
   }
   const r = scriptsOfRead(read);
   return { ok: r.ok, fact: r.scripts };
@@ -501,7 +546,7 @@ function factOfRead(read, kind) {
 
 /**
  * PURE. The paths that are gate changes by manifest rules (t/559): a package.json whose `scripts` changed; ANY changed package.yaml or
- * package.json5; a pnpm-workspace.yaml whose `packages:` list changed (a new workspace member). `reads` is
+ * package.json5; a pnpm-workspace.yaml whose `packages:` list or any top-level key other than overrides/catalog/catalogs changed. `reads` is
  * { base: { [basePath]: read }, head: { [path]: read } } with each read { text } | { missing: true } | { error }. A missing read entry,
  * a read error, unparseable content, or a 404 that the file's status does not allow counts as a change.
  */
