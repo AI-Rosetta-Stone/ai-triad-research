@@ -31,11 +31,11 @@ describe('TranscriptOutline', () => {
     render(<TranscriptOutline transcript={transcript} />);
     const labels = screen.getAllByRole('button').map(b => b.textContent);
     expect(labels).toEqual([
+      'Synthesis',
       'Opening Statements',
       'Cross-Examination',
       'Round 1',
       'Round 2',
-      'Synthesis',
     ]);
   });
 
@@ -74,7 +74,7 @@ describe('TranscriptOutline', () => {
     ];
     render(<TranscriptOutline transcript={transcript} />);
     const labels = screen.getAllByRole('button').map(b => b.textContent);
-    expect(labels).toEqual(['Opening Statements', 'Synthesis', 'Fact Check', 'Fact Check 1', 'Fact Check 2']);
+    expect(labels).toEqual(['Synthesis', 'Opening Statements', 'Fact Check', 'Fact Check 1', 'Fact Check 2']);
   });
 
   it('renders no "Fact Check" section when the debate has zero fact-checks (t/2275)', () => {
@@ -97,8 +97,8 @@ describe('TranscriptOutline', () => {
     ];
     render(<TranscriptOutline transcript={transcript} />);
     const labels = screen.getAllByRole('button').map(b => b.textContent);
-    // Fact Check section is appended last, after Synthesis, despite f1 being interleaved.
-    expect(labels).toEqual(['Cross-Examination', 'Round 1', 'Synthesis', 'Fact Check', 'Fact Check 1', 'Fact Check 2']);
+    // Synthesis leads (t/826); the Fact Check section is appended last despite f1 being interleaved.
+    expect(labels).toEqual(['Synthesis', 'Cross-Examination', 'Round 1', 'Fact Check', 'Fact Check 1', 'Fact Check 2']);
   });
 
   it('anchors a fact-check sub-item to its transcript entry id (t/2275)', () => {
