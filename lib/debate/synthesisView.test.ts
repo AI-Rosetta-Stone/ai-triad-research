@@ -230,6 +230,9 @@ describe('helpers', () => {
     // cut, ending in a -ly noun: kept
     expect(termOf('Whether labs and firms and the whole larger family dispute pricing'))
       .toEqual({ term: 'labs and firms and the whole larger family', lost: true });
+    // policy nouns ending in -ly: kept
+    expect(termOf('Whether labs and firms and the whole larger oligopoly dispute pricing').term).toBe('labs and firms and the whole larger oligopoly');
+    expect(termOf('Whether labs and firms and the whole larger duopoly dispute pricing').term).toBe('labs and firms and the whole larger duopoly');
     // cut, ending in a -ly word shorter than 6 letters: kept
     expect(termOf('Whether labs and firms and the whole larger only dispute pricing'))
       .toEqual({ term: 'labs and firms and the whole larger only', lost: true });

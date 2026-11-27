@@ -182,7 +182,7 @@ export function matchPointIndex(conflict: string, points: readonly string[]): nu
 const TRAILING_FILLER = new Set(['and', 'or', 'the', 'a', 'an', 'of', 'to', 'in', 'on', 'for', 'with', 'without', 'that', 'can', 'be', 'is', 'are', 'will', 'whether', 'if', 'by', 'as']);
 
 /** Words ending in -ly that are nouns (or names), so a cut title ending in one keeps it (t/822). */
-const LY_NOUNS = new Set(['family', 'supply', 'assembly', 'monopoly', 'anomaly', 'ally', 'apply', 'reply', 'rally', 'tally', 'bully', 'belly', 'jelly', 'italy']);
+const LY_NOUNS = new Set(['family', 'supply', 'assembly', 'monopoly', 'oligopoly', 'duopoly', 'anomaly', 'ally', 'apply', 'reply', 'rally', 'tally', 'bully', 'belly', 'jelly', 'italy']);
 
 /** A trailing adverb ("effectively"): 6+ letters ending in -ly and not a known noun. Only used on a title that was already cut. */
 const isTrailingAdverb = (w: string): boolean => /ly$/i.test(w) && w.length >= 6 && !LY_NOUNS.has(w.toLowerCase());
