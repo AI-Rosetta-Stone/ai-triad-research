@@ -189,7 +189,18 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
   });
 
   it('t/4733: /health block reports wired:false with null container and cap when unwired', () => {
-    expect(freePoolBudgetHealth()).toEqual(expect.objectContaining({ wired: false, container: null, callsCap: null }));
+    expect(freePoolBudgetHealth()).toEqual(expect.objectContaining({ wired: false, container: null, callsCap: null, tokensCap: null }));
+  });
+
+  it('t/811: /health.freePoolBudget reports the effective tokensCap (null when none, the number when set)', () => {
+    process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://test.blob.core.windows.net';
+    delete process.env.FREE_POOL_DAILY_TOKENS_CAP;
+    ensureFreePoolBudgetBooted({ server: { warn: () => {}, error: () => {} } });
+    expect(freePoolBudgetHealth().tokensCap).toBeNull();
+    _resetFreePoolBudgetForTest();
+    process.env.FREE_POOL_DAILY_TOKENS_CAP = '21500000';
+    ensureFreePoolBudgetBooted({ server: { warn: () => {}, error: () => {} } });
+    expect(freePoolBudgetHealth()).toMatchObject({ wired: true, tokensCap: 21_500_000 });
   });
 
   it('t/812: the real boot records the effective tokensCap in the config /health reads', () => {
