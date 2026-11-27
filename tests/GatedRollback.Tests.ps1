@@ -206,3 +206,136 @@ Describe 'Invoke-GatedRollbackCore (t/266 b, SO condition 1)' -Tag 'devops' {
         }
     }
 }
+
+Describe 'Get-DeactivatePreviousDecision (t/588)' -Tag 'devops' {
+
+    BeforeAll {
+        . "$PSScriptRoot/../operations/devops/GatedRollback.ps1"
+        $script:Shifted = [pscustomobject]@{ Action = 'shifted'; Verified = $true }
+    }
+
+    It 'DEFAULT OFF: without -DeactivatePrevious nothing is deactivated, whatever else is true' {
+        $d = Get-DeactivatePreviousDecision -Result $script:Shifted -PreviousRevisions @('rev-old')
+        $d.Skip | Should -BeTrue
+        $d.Reason | Should -Match 'not given'
+        @($d.Revisions).Count | Should -Be 0
+    }
+
+    It 'a verified shift with the switch deactivates the previous revisions it read before the shift, never the target' {
+        $d = Get-DeactivatePreviousDecision -Result $script:Shifted -PreviousRevisions @('rev-old', 'rev-target', 'rev-old', '') -TargetRevision 'rev-target' -DeactivatePrevious
+        $d.Skip | Should -BeFalse
+        @($d.Revisions) | Should -Be @('rev-old')
+    }
+
+    It 'already-serving + verified is allowed too (the list is then normally empty and it skips for that reason)' {
+        $ok = [pscustomobject]@{ Action = 'already-serving'; Verified = $true }
+        (Get-DeactivatePreviousDecision -Result $ok -PreviousRevisions @('rev-old') -TargetRevision 'rev-t' -DeactivatePrevious).Skip | Should -BeFalse
+        $d = Get-DeactivatePreviousDecision -Result $ok -PreviousRevisions @() -TargetRevision 'rev-t' -DeactivatePrevious
+        $d.Skip | Should -BeTrue
+        $d.Reason | Should -Match 'no other revision'
+    }
+
+    It 'FAILING ARMS: a refused, measured, unverified or errored run deactivates nothing' {
+        foreach ($r in @(
+                [pscustomobject]@{ Action = 'refused'; Verified = $false },
+                [pscustomobject]@{ Action = 'measured'; Verified = $false },
+                [pscustomobject]@{ Action = 'shifted'; Verified = $false },
+                [pscustomobject]@{ Action = 'already-serving'; Verified = $false },
+                [pscustomobject]@{ Action = 'shifted'; Verified = $null })) {
+            $d = Get-DeactivatePreviousDecision -Result $r -PreviousRevisions @('rev-old') -TargetRevision 'rev-t' -DeactivatePrevious
+            $d.Skip | Should -BeTrue -Because "$($r.Action) verified=$($r.Verified)"
+            $d.Reason | Should -Match 'not a verified shift'
+            @($d.Revisions).Count | Should -Be 0
+        }
+    }
+
+    It 'an unreadable pre-shift read deactivates nothing (never read as "none carried traffic" and acted on)' {
+        $d = Get-DeactivatePreviousDecision -Result $script:Shifted -PreviousRevisions @('rev-old') -TargetRevision 'rev-t' -ReadFailed -DeactivatePrevious
+        $d.Skip | Should -BeTrue
+        $d.Reason | Should -Match 'could not be read'
+    }
+}
+
+Describe 'Invoke-GuardedDeactivate (t/588)' -Tag 'devops' {
+
+    BeforeAll {
+        . "$PSScriptRoot/../operations/devops/GatedRollback.ps1"
+        $script:Deactivated = @()
+    }
+    BeforeEach { $script:Deactivated = @() }
+
+    It 'a guard that says deactivate: the revision is deactivated once, and reported' {
+        $r = Invoke-GuardedDeactivate -RevisionName 'rev-old' `
+            -GetVerdict { param($n) [pscustomobject]@{ Action = 'deactivate'; Reason = 'ok'; RevisionName = $n } } `
+            -Deactivate { param($n) $script:Deactivated += $n }
+        $r.Deactivated | Should -BeTrue
+        $script:Deactivated | Should -Be @('rev-old')
+        $r.Warning | Should -BeNullOrEmpty
+    }
+
+    It 'a guard that says skip (it carries traffic): nothing is deactivated, with the guard reason, and no warning' {
+        $r = Invoke-GuardedDeactivate -RevisionName 'rev-old' `
+            -GetVerdict { param($n) [pscustomobject]@{ Action = 'skip'; Reason = 'nonzero-traffic-weight'; RevisionName = $n } } `
+            -Deactivate { param($n) $script:Deactivated += $n }
+        $r.Deactivated | Should -BeFalse
+        $script:Deactivated.Count | Should -Be 0
+        $r.Reason | Should -Match 'nonzero-traffic-weight'
+        $r.Warning | Should -BeNullOrEmpty
+    }
+
+    It 'a guard that cannot be read, or returns nothing: nothing is deactivated, never thrown' {
+        $r = Invoke-GuardedDeactivate -RevisionName 'rev-old' -GetVerdict { throw 'az failed' } -Deactivate { param($n) $script:Deactivated += $n }
+        $r.Deactivated | Should -BeFalse
+        $r.Warning | Should -Match 'could not be read: az failed'
+        $script:Deactivated.Count | Should -Be 0
+        $n = Invoke-GuardedDeactivate -RevisionName 'rev-old' -GetVerdict { $null } -Deactivate { param($n) $script:Deactivated += $n }
+        $n.Deactivated | Should -BeFalse
+        $n.Reason | Should -Match 'returned nothing'
+    }
+
+    It 'a failed deactivation is a WARN and never throws or touches traffic (no rollback of the rollback)' {
+        $touched = 0
+        $r = Invoke-GuardedDeactivate -RevisionName 'rev-old' `
+            -GetVerdict { param($n) [pscustomobject]@{ Action = 'deactivate'; Reason = 'ok'; RevisionName = $n } } `
+            -Deactivate { param($n) $script:touched = 1; throw 'az containerapp revision deactivate exited 1' }
+        $r.Deactivated | Should -BeFalse
+        $r.Warning | Should -Match 'deactivation failed: az containerapp revision deactivate exited 1'
+    }
+}
+
+Describe 'Invoke-GatedRollback.ps1 wiring of -DeactivatePrevious (t/588)' -Tag 'devops' {
+
+    BeforeAll {
+        $script:Wrapper = Get-Content -Raw "$PSScriptRoot/../operations/devops/Invoke-GatedRollback.ps1"
+    }
+
+    It 'the switch exists, is a plain [switch] (default off) and is used by the decision before anything is deactivated' {
+        $script:Wrapper | Should -Match '\[switch\] \$DeactivatePrevious,'
+        $script:Wrapper | Should -Match 'Get-DeactivatePreviousDecision -Result \$r'
+        $script:Wrapper | Should -Match 'Invoke-GuardedDeactivate -RevisionName \$prevRev'
+    }
+
+    It 'the revisions carrying traffic are read only when the switch is given, and BEFORE the shift (before Invoke-GatedRollbackCore)' {
+        $read = $script:Wrapper.IndexOf('az containerapp revision list')
+        $core = $script:Wrapper.IndexOf('$r = Invoke-GatedRollbackCore')
+        $read | Should -BeGreaterThan 0
+        $read | Should -BeLessThan $core
+        $script:Wrapper.Substring(0, $read) | Should -Match 'if \(\$DeactivatePrevious\) \{\s*\r?\n\s*\$names = $'
+    }
+
+    It 'the deactivation block runs after the core result and before the exit-code line, and never changes the exit code' {
+        $dec = $script:Wrapper.IndexOf('Get-DeactivatePreviousDecision -Result $r')
+        $core = $script:Wrapper.IndexOf('$r = Invoke-GatedRollbackCore')
+        $exit = $script:Wrapper.IndexOf("if (`$r.Action -eq 'measured' -or")
+        $dec | Should -BeGreaterThan $core
+        $dec | Should -BeLessThan $exit
+        $block = $script:Wrapper.Substring($dec, $exit - $dec)
+        $block | Should -Not -Match '\bexit\b'
+        $block | Should -Not -Match 'traffic set|ShiftTraffic'
+    }
+
+    It 'the guard passes the same double-sourced facts as the drill (own weight AND ingress config) and protects the serving target' {
+        $script:Wrapper | Should -Match 'Get-IngressTrafficWeightForRevision -RevisionName \$Rev'
+        $script:Wrapper | Should -Match '-ServingRevisionName \$RevisionName'
+    }
+}
