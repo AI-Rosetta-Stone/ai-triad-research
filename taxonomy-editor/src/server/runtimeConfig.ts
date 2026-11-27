@@ -81,6 +81,8 @@ export interface RuntimeConfig {
     anonOpEdMaxVoices: number;
     /** t/500: anonymous admission bound, words per voice (TL t/500#27: the largest outlet band, 1,500). */
     anonOpEdMaxWords: number;
+    /** t/818: how many anonymous sessions ONE IP address may mint per hour (a request with a valid cookie is not a mint). */
+    anonMintPerIpPerHour: number;
     /** t/746: the per-call ceiling (prompt bytes + output cap) of the durable daily token allowance; provisional until measured. */
     dailyTokenPerCallCeilingTokens: number;
     /** t/746: the output cap held for a call that sends none (the assumed provider maximum). */
@@ -218,6 +220,7 @@ const DEFAULTS: RuntimeConfig = {
     anonOpEdByteCap: 106_496,
     anonOpEdMaxVoices: 3,
     anonOpEdMaxWords: 1_500,
+    anonMintPerIpPerHour: 60,
     dailyTokenPerCallCeilingTokens: 128_000,
     dailyTokenDefaultOutputCapTokens: 65_536,
     dailyTokenBytesPerToken: 3.5,
@@ -471,6 +474,7 @@ export function validateAndMerge(raw: unknown, defaults: RuntimeConfig): { confi
       anonOpEdByteCap: vNum(sess.anonOpEdByteCap, defaults.sessions.anonOpEdByteCap, { min: 1_024, max: 10_485_760, integer: true }, 'sessions.anonOpEdByteCap', errors),
       anonOpEdMaxVoices: vNum(sess.anonOpEdMaxVoices, defaults.sessions.anonOpEdMaxVoices, { min: 1, max: 3, integer: true }, 'sessions.anonOpEdMaxVoices', errors),
       anonOpEdMaxWords: vNum(sess.anonOpEdMaxWords, defaults.sessions.anonOpEdMaxWords, { min: 100, max: 1_500, integer: true }, 'sessions.anonOpEdMaxWords', errors),
+      anonMintPerIpPerHour: vNum(sess.anonMintPerIpPerHour, defaults.sessions.anonMintPerIpPerHour, { min: 1, max: 100_000, integer: true }, 'sessions.anonMintPerIpPerHour', errors),
       dailyTokenPerCallCeilingTokens: vNum(sess.dailyTokenPerCallCeilingTokens, defaults.sessions.dailyTokenPerCallCeilingTokens, { min: 1_000, max: 2_000_000, integer: true }, 'sessions.dailyTokenPerCallCeilingTokens', errors),
       dailyTokenDefaultOutputCapTokens: vNum(sess.dailyTokenDefaultOutputCapTokens, defaults.sessions.dailyTokenDefaultOutputCapTokens, { min: 256, max: 1_000_000, integer: true }, 'sessions.dailyTokenDefaultOutputCapTokens', errors),
       dailyTokenBytesPerToken: vNum(sess.dailyTokenBytesPerToken, defaults.sessions.dailyTokenBytesPerToken, { min: 1, max: 4 }, 'sessions.dailyTokenBytesPerToken', errors),
