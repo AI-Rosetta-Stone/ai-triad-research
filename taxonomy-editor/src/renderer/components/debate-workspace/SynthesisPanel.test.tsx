@@ -223,6 +223,25 @@ describe('D# links (spec §13.1, t/823)', () => {
   });
 });
 
+describe('Debate this question (spec §13.2, t/824)', () => {
+  it('is not rendered without a handler', () => {
+    mount();
+    expect(screen.queryByRole('button', { name: /Debate this question/ })).toBeNull();
+  });
+
+  it('every open question and crux gets the button, which only opens the dialog with that question as the topic', () => {
+    const onDebateTopic = vi.fn();
+    mount(synthesis(), { onDebateTopic });
+    fireEvent.click(screen.getByRole('button', { name: 'Show 1 more cruxes' }));
+    expect(screen.getAllByRole('button', { name: /^Debate this question:/ })).toHaveLength(4 + 2); // 4 cruxes, 2 open questions
+    fireEvent.click(screen.getByRole('button', { name: 'Debate this question: Who pays?' }));
+    expect(onDebateTopic).toHaveBeenCalledOnce();
+    expect(onDebateTopic).toHaveBeenCalledWith('Who pays?');
+    fireEvent.click(screen.getByRole('button', { name: 'Debate this question: c2' }));
+    expect(onDebateTopic).toHaveBeenLastCalledWith('c2');
+  });
+});
+
 describe('SynthesisTop placement (spec §12)', () => {
   const entry = (type: string, extra: Record<string, unknown> = {}) => ({ id: type, type, speaker: 'system', content: 'x', ...extra });
   const debate = (transcript: unknown[]) => ({ id: 'd1', active_povers: CAMPS, topic: { final: 'T' }, transcript }) as never;

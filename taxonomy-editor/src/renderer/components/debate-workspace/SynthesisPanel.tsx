@@ -29,6 +29,19 @@ function useFindOpen(): boolean {
   return !!useContext(FindContext)?.query;
 }
 
+/** t/824 (spec §13.2): opens the New Debate dialog with a question prefilled; absent = no button. */
+const DebateTopicContext = createContext<((topic: string) => void) | null>(null);
+
+function DebateThisQuestion({ text }: { text: string }) {
+  const open = useContext(DebateTopicContext);
+  if (!open) return null;
+  return (
+    <button type="button" className="btn btn-ghost btn-xs syn-debate" aria-label={`Debate this question: ${text}`} onClick={() => open(text)}>
+      Debate this question
+    </button>
+  );
+}
+
 /** t/823 (spec §13.1): every D# in the panel links to its dispute card and shows the question. */
 interface DisputeLinks { points: Map<string, string>; jump: (n: string) => void }
 const DisputeLinksContext = createContext<DisputeLinks | null>(null);
@@ -187,6 +200,7 @@ function OpenQuestions({ groups, debateId }: { groups: SynthesisView['openQuesti
           <li key={q.id} className="syn-question">
             <input id={id} type="checkbox" checked={checked.has(q.id)} onChange={() => toggle(q.id)} />
             <label htmlFor={id}><Hl k={q.id} text={q.text} /></label>
+            <DebateThisQuestion text={q.text} />
           </li>
         );
       })}
@@ -351,6 +365,7 @@ function Cruxes({ cruxes, id }: { cruxes: SynthesisView['cruxes']; id: string })
             <span className="syn-crux-n">{c.n}</span>
             {c.typeLabel && <span className="syn-type-chip" data-type={c.rawType ?? undefined}>{c.typeLabel}</span>}
             <p><Hl k={c.n} text={c.question} /></p>
+            <DebateThisQuestion text={c.question} />
           </div>
         )}
       />
@@ -396,9 +411,11 @@ export interface SynthesisPanelViewProps {
   onSkip?: () => void;
   /** Exports the debate's Markdown brief; "Export brief" is hidden when there is no handler. */
   onExportBrief?: () => void;
+  /** Opens the New Debate dialog on a question; the "Debate this question" buttons are hidden without it. */
+  onDebateTopic?: (topic: string) => void;
 }
 
-export function SynthesisPanelView({ view, debateId, find = null, collapsed = false, onToggleCollapsed, onSkip, onExportBrief }: SynthesisPanelViewProps) {
+export function SynthesisPanelView({ view, debateId, find = null, collapsed = false, onToggleCollapsed, onSkip, onExportBrief, onDebateTopic }: SynthesisPanelViewProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyId = useId();
   const ids: Record<SectionKey, string> = {
@@ -427,6 +444,7 @@ export function SynthesisPanelView({ view, debateId, find = null, collapsed = fa
   return (
     <FindContext.Provider value={find}>
      <DisputeLinksContext.Provider value={disputeLinks}>
+     <DebateTopicContext.Provider value={onDebateTopic ?? null}>
       <div className="syn-panel" ref={rootRef} data-testid="synthesis-v2" data-collapsed={isCollapsed || undefined}>
         <PanelHeader view={view} ids={ids} collapsed={isCollapsed} bodyId={bodyId} onJump={jump} onSkip={onSkip} onToggle={onToggleCollapsed} onExportBrief={onExportBrief} />
         <div id={bodyId} className="syn-body">
@@ -434,6 +452,7 @@ export function SynthesisPanelView({ view, debateId, find = null, collapsed = fa
           {!isCollapsed && <ExpandedSections view={view} ids={ids} debateId={debateId} onExportBrief={onExportBrief} />}
         </div>
       </div>
+     </DebateTopicContext.Provider>
      </DisputeLinksContext.Provider>
     </FindContext.Provider>
   );

@@ -1212,8 +1212,10 @@ function useDebateSelectionMenu(activeDebate: DWStore['activeDebate'], defaultTi
 
 // ── Main component ───────────────────────────────────────
 
-export function DebateWorkspace({ onExport, exportStatus }: {
+export function DebateWorkspace({ onExport, exportStatus, onDebateTopic }: {
   onExport?: (format: string) => void;
+  /** Opens the New Debate dialog with a topic prefilled (t/824); the panel's buttons are hidden without it. */
+  onDebateTopic?: (topic: string) => void;
   exportStatus?: string | null;
 } = {}) {
   const {
@@ -1354,7 +1356,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
         />
         <DebatePhaseHeader activeDebate={activeDebate} isDebatePhase={isDebatePhase} isOpeningPhase={isOpeningPhase} />
         {synthTop && (
-          <SynthesisTop key={activeDebate.id} top={synthTop} debateId={activeDebate.id} findQuery={findQuery} findCurrentIndex={findCurrentIndex} onExport={onExport} />
+          <SynthesisTop key={activeDebate.id} top={synthTop} debateId={activeDebate.id} findQuery={findQuery} findCurrentIndex={findCurrentIndex} onExport={onExport} onDebateTopic={onDebateTopic} />
         )}
         <DebateTranscriptColumn
           synthesisEntryId={synthTop?.entry.id ?? null}
