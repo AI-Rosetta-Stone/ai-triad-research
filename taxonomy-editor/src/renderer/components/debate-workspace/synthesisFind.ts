@@ -7,7 +7,7 @@
 // is active the panel renders fully expanded so every counted match has an element.
 
 import { countOccurrences } from './utils';
-import type { SynthesisView } from './synthesisView';
+import type { SynthesisView } from '@lib/debate/synthesisView';
 
 /** Keyed text in render order. Keys are what the panel passes to its highlighter. */
 export function synthesisFindTexts(view: SynthesisView): [string, string][] {

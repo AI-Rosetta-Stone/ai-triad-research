@@ -8,7 +8,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import type { TranscriptEntry } from '../../types/debate';
-import { buildSynthesisView, type SynthesisView } from './synthesisView';
+import { buildSynthesisView, type SynthesisView } from '@lib/debate/synthesisView';
 import { synthesisFindOffsets } from './synthesisFind';
 import { isSynthesisV2On, readCollapsed, writeCollapsed } from './synthesisStorage';
 import { SynthesisPanelView, type PanelFind } from './SynthesisPanel';
