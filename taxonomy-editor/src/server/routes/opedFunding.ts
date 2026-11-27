@@ -14,6 +14,7 @@ import type http from 'http';
 import { getClientIp } from '../httpKit.js';
 import { getCurrentUser, isAnonymousUser, isHostedAnonymousRequest } from '../security/userContext.js';
 import * as rateLimiter from '../security/rateLimiter.js';
+import { bookDailyTokens } from './dailyTokenGate.js';
 import * as proxyTiers from '../ai/proxyTiers.js';
 import { getFreePoolKeys } from '../ai/freePoolKeyAccess.js';
 import { getStoredUserKeysBeforeFreePool, type AIBackend } from '../config.js';
@@ -87,7 +88,11 @@ export async function resolveOpEdFunding(
         budgetKey: `${opedRequesterKeyPrefix(requesterId)}${input.runId}`,
       },
       // Signed-in pool runs: the per-user daily token bucket, as chat does. Anonymous runs have the shared ledger.
-      bookUserTokens: isAnonymousUser() ? undefined : (inTok, outTok) => { rateLimiter.recordTokenUsage(limitKey, inTok, outTok, tier.limits.tokensPerDay); },
+      bookUserTokens: isAnonymousUser() ? undefined : (inTok, outTok) => {
+        rateLimiter.recordTokenUsage(limitKey, inTok, outTok, tier.limits.tokensPerDay);
+        // t/746: also booked in the durable daily document (shared across replicas, survives a restart). Pool runs only.
+        void bookDailyTokens(limitKey, tier.limits.tokensPerDay, { inputTokens: inTok, outputTokens: outTok }, true);
+      },
     },
   };
 }

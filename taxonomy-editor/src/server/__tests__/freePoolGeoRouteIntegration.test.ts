@@ -36,6 +36,7 @@ vi.mock('../security/userContext.js', () => ({
   getCurrentUserId: vi.fn(() => 'testuser'),
   getStorageUserId: vi.fn(() => 'testuser'),
   getStableId: vi.fn(() => undefined), // t/4328: isAdmin() reads the stableId; testuser is not an admin
+  isAuthDisabledMode: () => false, // t/746: the daily token gate asks whether this is single-operator local mode
 }));
 
 vi.mock('../logger.js', () => ({
