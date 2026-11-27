@@ -89,7 +89,11 @@ function buildOutline(transcript: readonly OutlineTranscriptEntry[]): OutlineIte
 }
 
 function scrollToEntry(entryId: string): void {
-  document.getElementById(`debate-entry-${entryId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const el = document.getElementById(`debate-entry-${entryId}`);
+  // t/809 §12: with the synthesis panel on top, the concluding entry is a one-line pointer;
+  // the outline's SYNTHESIS item goes to the panel itself.
+  const target = el?.querySelector?.('.syn-pointer') ? document.getElementById('synthesis-v2-top') : el;
+  target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 /**
