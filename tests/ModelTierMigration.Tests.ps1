@@ -42,8 +42,8 @@ $script:MigratedSites = @(
         @{ Path = 'Public/Get-TopicFrequency.ps1';             Tier = 'basic';    Literal = 'gemini-3.5-flash-lite'; Count = 1 }
         @{ Path = 'Public/Invoke-PolicyRefinement.ps1';        Tier = 'basic';    Literal = 'gemini-3.5-flash-lite'; Count = 1 }
         @{ Path = 'Public/Invoke-AITDebate.ps1';               Tier = 'basic';    Literal = 'gemini-3.5-flash-lite'; Count = 1 }
-        @{ Path = 'Private/Invoke-DirectionalJudge.ps1';       Tier = 'advanced'; Literal = 'gemini-3.1-pro-preview'; Count = 1 }
-        @{ Path = 'Private/Invoke-PolarityGatePass.ps1';       Tier = 'advanced'; Literal = 'gemini-3.1-pro-preview'; Count = 1 }
+        @{ Path = 'Private/Invoke-DirectionalJudge.ps1';       Tier = 'advanced'; Literal = 'gemini-4-hydrogen'; Count = 1 }
+        @{ Path = 'Private/Invoke-PolarityGatePass.ps1';       Tier = 'advanced'; Literal = 'gemini-4-hydrogen'; Count = 1 }
     )
 
 BeforeAll {
@@ -57,8 +57,8 @@ Describe 'Phase-2 model-default migration (t/3572)' -Tag 'config' {
         It 'Get-AITierModel -Tier basic resolves to gemini-3.5-flash-lite' {
             Get-AITierModel -Tier basic | Should -Be 'gemini-3.5-flash-lite'
         }
-        It 'Get-AITierModel -Tier advanced resolves to gemini-3.1-pro-preview' {
-            Get-AITierModel -Tier advanced | Should -Be 'gemini-3.1-pro-preview'
+        It 'Get-AITierModel -Tier advanced resolves to gemini-4-hydrogen (t/781: the human moved the Advanced Gemini tier off gemini-3.1-pro-preview)' {
+            Get-AITierModel -Tier advanced | Should -Be 'gemini-4-hydrogen'
         }
     }
 

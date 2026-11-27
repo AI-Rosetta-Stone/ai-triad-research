@@ -72,8 +72,8 @@ Describe 'Get-AIDefaultTimeoutSec — frontier 2x tier (requires ai-models.json 
     }
 
     It 'Returns 240 for the gemini advanced-tier model (2x base)' {
-        # gemini advanced = gemini-3.1-pro-preview; basic = gemini-3.5-flash-lite — different
-        $result = Invoke-DefaultTimeout 'gemini-3.1-pro-preview'
+        # gemini advanced = gemini-4-hydrogen (t/781); basic = gemini-3.5-flash-lite — different
+        $result = Invoke-DefaultTimeout 'gemini-4-hydrogen'
         $result | Should -Be 240
     }
 
