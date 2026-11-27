@@ -40,8 +40,10 @@ export function trivyInstallViolations(yaml) {
   const t = install.text;
   const versionLines = t.split('\n').filter((l) => /^\s+TRIVY_VERSION:/.test(l));
   const shaLines = t.split('\n').filter((l) => /^\s+TRIVY_SHA256:/.test(l));
-  if (versionLines.length !== 1 || !new RegExp(`TRIVY_VERSION:\\s*'${PINNED_VERSION.replace(/\./g, '\\.')}'`).test(versionLines[0])) out.push('TRIVY_VERSION is not pinned on exactly one line');
-  if (shaLines.length !== 1 || !new RegExp(`TRIVY_SHA256:\\s*'${PINNED_SHA}'`).test(shaLines[0])) out.push('TRIVY_SHA256 is not the pinned hash on exactly one line');
+  // Plain string comparison of the value after the key, not a RegExp built from a constant (CodeQL js/incomplete-sanitization).
+  const valueOf = (line, key) => line.replace(new RegExp(`^\\s*${key}:\\s*`), '').trim();
+  if (versionLines.length !== 1 || valueOf(versionLines[0], 'TRIVY_VERSION') !== `'${PINNED_VERSION}'`) out.push('TRIVY_VERSION is not pinned on exactly one line');
+  if (shaLines.length !== 1 || valueOf(shaLines[0], 'TRIVY_SHA256') !== `'${PINNED_SHA}'`) out.push('TRIVY_SHA256 is not the pinned hash on exactly one line');
   const run = t.slice(t.indexOf('run: |'));
   if (!/set -euo pipefail/.test(run)) out.push('no set -euo pipefail');
   if (/\|\|\s*true|continue-on-error/.test(t)) out.push('the step swallows a failure (|| true or continue-on-error)');
