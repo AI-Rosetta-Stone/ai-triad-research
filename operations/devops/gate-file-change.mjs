@@ -370,7 +370,7 @@ export function isGateFile(path) {
  *   'override_invalid'         refuse -- the named review does not qualify (detail says why)
  *   'gate_files_overridden'    allow  -- a qualifying review at this head was named
  */
-export function gateFileChangeVerdict({ files, headSha, override, reviewerLogin = REVIEWER_APP_REST_LOGIN }) {
+export function gateFileChangeVerdict({ files, headSha, override, reviewerLogin = REVIEWER_APP_REST_LOGIN, scriptsPaths = [] }) {
   const paths = files?.paths;
   if (!Array.isArray(paths)) return { allow: false, reason: 'files_unreadable', gateFiles: [], detail: 'the list of changed files could not be read' };
   if (paths.length >= PR_FILES_API_CAP) {
@@ -379,7 +379,9 @@ export function gateFileChangeVerdict({ files, headSha, override, reviewerLogin 
   if (!Number.isInteger(files.expectedCount) || files.expectedCount !== files.listedCount) {
     return { allow: false, reason: 'files_unreadable', gateFiles: [], detail: `the API listed ${files.listedCount} changed file(s) but the PR reports ${files.expectedCount}` };
   }
-  const gateFiles = [...new Set(paths.filter(isGateFile))].sort();
+  // t/559: a package.json whose `scripts` block changed (or could not be read, or parsed) at base or head is a gate change too:
+  // `scripts` decide what `pnpm run lint/test` runs inside required checks. Computed by scriptsGatePaths from the two reads.
+  const gateFiles = [...new Set([...paths.filter(isGateFile), ...scriptsPaths])].sort();
   if (gateFiles.length === 0) return { allow: true, reason: 'no_gate_files', gateFiles, detail: null };
   if (!override) return { allow: false, reason: 'gate_files_no_override', gateFiles, detail: null };
   const r = override.review;
@@ -397,6 +399,84 @@ export function gateFileChangeVerdict({ files, headSha, override, reviewerLogin 
   return { allow: true, reason: 'gate_files_overridden', gateFiles, detail: `review ${r.id} by ${role}`, role };
 }
 
+// ── t/559: a change under a package.json `scripts` key is a gate change ─────────────────────────────────────────────
+// package.json and taxonomy-editor/package.json stay unprotected as FILES (protecting them would put every dependency bump in
+// front of the Tech Lead or Security), but their scripts decide what a required check executes. The caller reads each changed
+// package.json at the PR's merge base and at its head; scriptsGatePaths decides from those reads. Dependency-only changes are
+// unaffected. Fail closed: a read that failed, or JSON that does not parse, on either side counts as a gate change.
+export const PACKAGE_JSON_PATH = /(?:^|\/)package\.json$/;
+
+function canonicalJson(v) {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(',')}]`;
+  if (v && typeof v === 'object') return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(v[k])}`).join(',')}}`;
+  return JSON.stringify(v);
+}
+
+/** PURE. The scripts of one side's read: { ok, scripts } (scripts null when there is no file or no scripts key). */
+export function scriptsOfRead(read) {
+  if (!read || typeof read !== 'object') return { ok: false };
+  if (read.missing === true) return { ok: true, scripts: null };
+  if (typeof read.text !== 'string') return { ok: false };
+  try {
+    const j = JSON.parse(read.text);
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return { ok: false };
+    return { ok: true, scripts: Object.prototype.hasOwnProperty.call(j, 'scripts') ? j.scripts : null };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** PURE. The package.json files of a change list as { path, basePath }: basePath is where the file was before a rename. */
+export function packageJsonTargets(entries) {
+  return (entries ?? [])
+    .filter((e) => typeof e?.filename === 'string' && (PACKAGE_JSON_PATH.test(e.filename) || (typeof e.previous_filename === 'string' && PACKAGE_JSON_PATH.test(e.previous_filename))))
+    .map((e) => ({ path: e.filename, basePath: e.previous_filename || e.filename }));
+}
+
+/**
+ * PURE. The package.json paths whose `scripts` changed. `reads` is { base: { [basePath]: read }, head: { [path]: read } } with each
+ * read { text } | { missing: true } | { error }. A missing read entry counts as unreadable.
+ */
+export function scriptsGatePaths({ entries, reads }) {
+  const out = [];
+  for (const { path, basePath } of packageJsonTargets(entries)) {
+    const b = scriptsOfRead(reads?.base?.[basePath]);
+    const h = scriptsOfRead(reads?.head?.[path]);
+    if (!b.ok || !h.ok || canonicalJson(b.scripts) !== canonicalJson(h.scripts)) out.push(path);
+  }
+  return out;
+}
+
+/** One side's read through gh: { text } | { missing: true } | { error }. A 404 is a missing file; anything else is an error. */
+function readContentAt(repo, path, ref, ghFn) {
+  try {
+    return { text: ghFn(['api', '-H', 'Accept: application/vnd.github.raw', `repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`]) };
+  } catch (err) {
+    return /404|Not Found/i.test(String(err?.stderr ?? err?.message ?? err)) ? { missing: true } : { error: err };
+  }
+}
+
+/**
+ * Reads what scriptsGatePaths needs through gh (sync). Returns { paths, error }: a failure to find the merge base is an error, and the
+ * caller must refuse. When no package.json changed, nothing is read.
+ */
+export function fetchScriptsGatePaths(repo, baseRef, headSha, entries, ghFn = gh) {
+  const targets = packageJsonTargets(entries);
+  if (targets.length === 0) return { paths: [], error: null };
+  try {
+    const mergeBase = JSON.parse(ghFn(['api', `repos/${repo}/compare/${encodeURIComponent(baseRef)}...${headSha}`, '--jq', '{sha: .merge_base_commit.sha}'])).sha;
+    if (typeof mergeBase !== 'string' || !/^[0-9a-f]{40}$/.test(mergeBase)) throw new Error('no merge base for the compare');
+    const reads = { base: {}, head: {} };
+    for (const { path, basePath } of targets) {
+      reads.base[basePath] = readContentAt(repo, basePath, mergeBase, ghFn);
+      reads.head[path] = readContentAt(repo, path, headSha, ghFn);
+    }
+    return { paths: scriptsGatePaths({ entries, reads }), error: null };
+  } catch (err) {
+    return { paths: targets.map((t) => t.path), error: err };
+  }
+}
+
 /**
  * Reads the PR's changed files from the GitHub API (both names of a rename), with the PR's own
  * count for a completeness check. Never throws: a failure returns { paths: null }.
@@ -407,7 +487,7 @@ export function fetchChangedFiles(repo, prNumber, ghFn = gh) {
     const out = ghFn(['api', '--paginate', `repos/${repo}/pulls/${prNumber}/files?per_page=100`, '--jq', '.[] | [.filename, (.previous_filename // "")] | @json']);
     const rows = out.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
     const paths = rows.flatMap(([name, prev]) => (prev ? [name, prev] : [name]));
-    return { paths, listedCount: rows.length, expectedCount, error: null };
+    return { paths, entries: rows.map(([filename, prev]) => ({ filename, previous_filename: prev || undefined })), listedCount: rows.length, expectedCount, error: null };
   } catch (err) {
     return { paths: null, listedCount: null, expectedCount: null, error: err };
   }
@@ -428,7 +508,7 @@ export function gateFileRefusalMessage({ repo, prNumber, headSha, verdict }) {
   const shown = verdict.gateFiles.slice(0, 8).join(', ') + (verdict.gateFiles.length > 8 ? `, and ${verdict.gateFiles.length - 8} more` : '');
   const problem = {
     files_unreadable: `cannot tell whether this PR changes a workflow or a gate script: ${verdict.detail}.`,
-    gate_files_no_override: `this PR changes workflow or gate-script files (${shown}), which need a second reader before they land.`,
+    gate_files_no_override: `this PR changes workflow or gate-script files, or a package.json scripts block (${shown}), which need a second reader before they land.`,
     override_unreadable: `this PR changes workflow or gate-script files (${shown}), and ${verdict.detail}.`,
     override_invalid: `this PR changes workflow or gate-script files (${shown}), and the named review does not release it: ${verdict.detail}.`,
   }[verdict.reason];

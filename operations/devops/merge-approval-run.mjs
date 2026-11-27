@@ -31,6 +31,7 @@
 import { failureVerdict, evaluateGroup, CHECK_NAME } from './merge-approval-verdict.mjs';
 import { parseTier } from './t1-approval-guard-predicate.mjs';
 import { earliestCheckRunStartMs } from './design-gate.mjs';
+import { packageJsonTargets, scriptsGatePaths } from './gate-file-change.mjs';
 
 export const EXPECTED_INSTALLATION_REPOS = Object.freeze(['AI-Rosetta-Stone/ai-triad-research']);
 export const GROUP_RELAY_WORKFLOW = 'merge-approval-group-relay';
@@ -200,6 +201,38 @@ export async function postCheck(appGithub, context, headSha, verdict, { retry = 
 }
 
 /**
+ * t/559: the package.json paths of this PR whose `scripts` changed, or that cannot be read or parsed at the merge base or head
+ * (a gate change). Reads each side through the API; the decision is gate-file-change.mjs's scriptsGatePaths, shared with
+ * enqueue-pr.mjs. When nothing is read (no package.json changed) nothing is asked of the API. Any failure to find the merge base is
+ * unreadable for every changed package.json (fail closed).
+ */
+export async function readScriptsGatePaths({ github, retry = noRetry, owner, repo, pr, files }) {
+  const targets = packageJsonTargets(files);
+  if (targets.length === 0) return [];
+  const side = async (path, ref) => {
+    try {
+      const { data } = await retry(`repos.getContent ${path}`, () => github.rest.repos.getContent({ owner, repo, path, ref, mediaType: { format: 'raw' } }));
+      return typeof data === 'string' ? { text: data } : { error: new Error('the content was not text') };
+    } catch (err) {
+      return err?.status === 404 ? { missing: true } : { error: err };
+    }
+  };
+  try {
+    const { data: cmp } = await retry('repos.compareCommitsWithBasehead', () => github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${pr.base.ref}...${pr.head.sha}` }));
+    const mergeBase = cmp?.merge_base_commit?.sha;
+    if (typeof mergeBase !== 'string' || !/^[0-9a-f]{40}$/.test(mergeBase)) throw new Error('no merge base for the compare');
+    const reads = { base: {}, head: {} };
+    for (const { path, basePath } of targets) {
+      reads.base[basePath] = await side(basePath, mergeBase);
+      reads.head[path] = await side(path, pr.head.sha);
+    }
+    return scriptsGatePaths({ entries: files, reads });
+  } catch {
+    return targets.map((t) => t.path);
+  }
+}
+
+/**
  * One PR's verdict input, read fresh. `expectedHead`: when set, the head must still be this SHA.
  * The head is read before and after the other reads; a push in between is reported as a moved
  * head so the caller judges again rather than mixing two heads' facts.
@@ -208,6 +241,9 @@ export async function fetchPullRequestInput(github, context, prNumber, { retry =
   const { owner, repo } = repoOf(context);
   const { data: pr } = await retry('pulls.get', () => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
   const files = await retry('pulls.listFiles', () => github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 }));
+  // t/559: a changed package.json whose `scripts` changed, or that cannot be read or parsed at the merge base or the head, is a
+  // gate change: read both sides through the API and let the shared helper decide (same helper as enqueue-pr.mjs).
+  const scriptsGatePathsList = await readScriptsGatePaths({ github, retry, owner, repo, pr, files });
   const reviews = await retry('pulls.listReviews', () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
   const comments = await retry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
   // t/751: the Dependabot exemption reads every commit, so list them only for a PR with no Tier line
@@ -231,6 +267,7 @@ export async function fetchPullRequestInput(github, context, prNumber, { retry =
       headRefName: pr.head?.ref,
       files: files.map((f) => ({ filename: f.filename, previous_filename: f.previous_filename, status: f.status })),
       filesTruncated: files.length >= PR_FILES_API_CAP || files.length !== pr.changed_files,
+      scriptsGatePaths: scriptsGatePathsList,
       reviews,
       comments,
       dependabot: { authorLogin: pr.user?.login ?? null, headRepo: pr.head?.repo?.full_name ?? null, baseRepo: pr.base?.repo?.full_name ?? null, commits, commitsTotal: pr.commits, files: files.map((f) => ({ filename: f.filename, previous_filename: f.previous_filename, status: f.status, patch: f.patch })), filesTotal: pr.changed_files },

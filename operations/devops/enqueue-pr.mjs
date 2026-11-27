@@ -69,7 +69,7 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { extractTier } from './tier-check-predicate.mjs';
-import { REVIEWER_APP_REST_LOGIN, fetchChangedFiles, fetchReview, gateFileChangeVerdict, gateFileRefusalMessage } from './gate-file-change.mjs';
+import { REVIEWER_APP_REST_LOGIN, fetchChangedFiles, fetchReview, fetchScriptsGatePaths, gateFileChangeVerdict, gateFileRefusalMessage } from './gate-file-change.mjs';
 import { checkRunningCopy, currencyOkLine, currencyRefusalMessage } from './running-copy-current.mjs';
 import { checkLandingVehicle, vehicleOkLine, vehicleRefusalMessage } from './landing-vehicle.mjs';
 import { pingVehicleRefusal } from './pr-budget-notify.mjs';
@@ -268,7 +268,7 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
   }
   console.log(vehicleOkLine({ repo, prNumber, verdict: bv }));
 
-  const prMeta = JSON.parse(ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft,labels']));
+  const prMeta = JSON.parse(ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft,labels,baseRefName']));
   const headSha = prMeta.headRefOid;
   const tier = extractTier(prMeta.body);
   // t/564 (Second Opinion on #5473, C), kept for t/656: the vehicle (and any budget-exempt review) was
@@ -319,7 +319,11 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
   if (changed.error) console.warn(`WARN: enqueue-pr could not read the changed files of #${prNumber} on ${repo} (${changed.error.message ?? changed.error}); refusing.`);
   const override = gateChangeReviewId == null ? null : fetchReview(repo, prNumber, gateChangeReviewId, ghFn);
   if (override?.error) console.warn(`WARN: enqueue-pr could not read review ${gateChangeReviewId} on #${prNumber} (${override.error.message ?? override.error}); refusing.`);
-  const gateVerdict = gateFileChangeVerdict({ files: changed, headSha, override });
+  // t/559: a package.json whose `scripts` changed (or could not be read) at the PR's merge base or head is a gate change too.
+  // enqueue-pr and merge-approval feed the same gateFileChangeVerdict from the same scriptsGatePaths helper.
+  const scripts = changed.error ? { paths: [], error: null } : fetchScriptsGatePaths(repo, prMeta.baseRefName ?? 'main', headSha, changed.entries, ghFn);
+  if (scripts.error) console.warn(`WARN: enqueue-pr could not read a package.json of #${prNumber} on ${repo} (${scripts.error.message ?? scripts.error}); treating every changed package.json as a scripts change.`);
+  const gateVerdict = gateFileChangeVerdict({ files: changed, headSha, override, scriptsPaths: scripts.paths });
   if (gateVerdict.allow && gateVerdict.reason === 'gate_files_overridden' && !(typeof by === 'string' && by.trim())) {
     throw new Error(
       `enqueue-pr: refusing to arm/enqueue #${prNumber} on ${repo} (override_without_by).\n` +

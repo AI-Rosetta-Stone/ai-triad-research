@@ -30,7 +30,7 @@ function comment({ login = APP, body, at = '2026-11-20T10:00:00Z' }) {
 function pr(over = {}) {
   return {
     number: 7, headSha: HEAD, body: 'Tier: T0\n\nchore', headRefName: 'devops/t537-x',
-    files: [{ filename: 'docs/readme.md' }], filesTruncated: false, reviews: [], comments: [], lastPushAt: null, labels: [],
+    files: [{ filename: 'docs/readme.md' }], filesTruncated: false, scriptsGatePaths: [], reviews: [], comments: [], lastPushAt: null, labels: [],
     ...over,
   };
 }
