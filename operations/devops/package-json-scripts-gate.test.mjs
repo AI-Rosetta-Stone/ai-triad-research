@@ -338,8 +338,8 @@ test('t/559 follow-up (b): a NEW top-level key, or a removed one, is a gate chan
 test('t/559 follow-up (b): changes confined to overrides, catalog and catalogs pass; comments and blank lines are not changes', () => {
   assert.deepEqual(wsd(BASE_WS, BASE_WS.replace('x: 1.0.0', 'x: 2.0.0')), [], 'overrides: a version bump of a name already present');
   assert.deepEqual(wsd(BASE_WS, BASE_WS.replace('react: 18.0.0', 'react: 19.0.0')), [], 'catalog');
-  assert.deepEqual(wsd(BASE_WS, BASE_WS + 'catalogs:\n  legacy:\n    react: 17.0.0\n'), [W2], 'a new catalogs entry is a NEW name: no longer free (t/806)');
-  assert.deepEqual(wsd(BASE_WS + 'catalogs:\n  a:\n    x: 1\n', BASE_WS), [], 'catalogs removed');
+  assert.deepEqual(wsd(BASE_WS, BASE_WS + 'catalogs:\n  legacy:\n    react: 17.0.0\n'), [], 'a new catalogs entry with a plain version spec is free (t/806, new names allowed)');
+  assert.deepEqual(wsd(BASE_WS + 'catalogs:\n  a:\n    x: 1\n', BASE_WS), [W2], 'catalogs removed with no lockfile change is a gate change (t/806)');
   assert.deepEqual(wsd(BASE_WS, '# a new comment\n' + BASE_WS.replace('overrides:', '\n\n# note\noverrides:')), [], 'comments and blank lines');
   assert.deepEqual(wsd(BASE_WS + 'ignoreScripts: true\n', BASE_WS.replace('x: 1.0.0', 'x: 9.9.9') + 'ignoreScripts: true\n'), [], 'a gated key unchanged beside an override change');
   // the packages: check stays: order and quotes are not changes, a new member is
@@ -380,7 +380,7 @@ test('t/806: a version-only bump of names already present is free (overrides, ca
   assert.deepEqual(wsFree(wsReplace('react: 17.0.0', 'react: 17.0.2')), [], 'catalogs, two levels');
   assert.deepEqual(wsFree(wsReplace("'>=7.1.0 <8'", "'>=7.2.0 <8'")), [], 'a quoted key and value');
   assert.deepEqual(wsFree(WS_BASE.replace('  # a comment\n', '  # another comment\n')), [], 'a comment change');
-  assert.deepEqual(wsFree(wsReplace('  axios: ">=1.20.0 <2"\n', '')), [], 'a REMOVED override cannot add code');
+  assert.deepEqual(decide([E(WS, undefined, 'modified'), E('pnpm-lock.yaml', undefined, 'modified')], { [WS]: { text: WS_BASE }, 'pnpm-lock.yaml': { text: 'a' } }, { [WS]: { text: wsReplace('  axios: ">=1.20.0 <2"\n', '') }, 'pnpm-lock.yaml': { text: 'b' } }), [], 'a REMOVED override with a lockfile change');
 });
 
 test('t/806: an override or catalog value that is a URL, an npm: alias, a git spec, file:, link:, workspace:, a $ref or "-" is a gate change', () => {
@@ -398,22 +398,25 @@ test('t/806: an override or catalog value that is a URL, an npm: alias, a git sp
   assert.deepEqual(wsFree(withUrl.replace('https://old.example/odd.tgz', 'https://evil.example/odd.tgz'), withUrl), [WS], 'but touching it is judged');
 });
 
-test('t/806: a NEW override, catalog or catalogs name is a gate change by default (the spec as written); a changed key is free only for a name already present', () => {
-  assert.deepEqual(wsFree(wsReplace('overrides:\n', 'overrides:\n  brand-new: ">=1.0.0"\n')), [WS], 'a new override name');
-  assert.deepEqual(wsFree(wsReplace('catalog:\n', 'catalog:\n  vue: ^3.0.0\n')), [WS], 'a new catalog name');
-  assert.deepEqual(wsFree(wsReplace('    react: 17.0.0\n', '    react: 17.0.0\n    vue: 2.0.0\n')), [WS], 'a new catalogs entry');
-  assert.deepEqual(wsFree(WS_BASE + '  second:\n    react: 16.0.0\n'), [WS], 'a new catalogs catalog');
-  // a rename is a removal plus a new name
+test('t/806: a NEW name with a plain version spec is free; with the switch off it is a gate change; a rename without a lockfile change is a gate change', () => {
+  const off = (head) => workspaceFreeValuesOk(WS_BASE, head, { allowNewNames: false }).ok;
+  assert.deepEqual(wsFree(wsReplace('overrides:\n', 'overrides:\n  brand-new: ">=1.0.0"\n')), [], 'a new override name');
+  assert.deepEqual(wsFree(wsReplace('catalog:\n', 'catalog:\n  vue: ^3.0.0\n')), [], 'a new catalog name');
+  assert.deepEqual(wsFree(wsReplace('    react: 17.0.0\n', '    react: 17.0.0\n    vue: 2.0.0\n')), [], 'a new catalogs entry');
+  assert.deepEqual(wsFree(WS_BASE + '  second:\n    react: 16.0.0\n'), [], 'a new catalogs catalog');
+  assert.equal(off(wsReplace('overrides:\n', 'overrides:\n  brand-new: ">=1.0.0"\n')), false, 'switch off: new name');
+  // a rename is a removal plus a new name: the removal needs a lockfile or package.json change
   assert.deepEqual(wsFree(wsReplace('fast-xml-parser:', 'fast-xml-parser-2:')), [WS]);
+  assert.deepEqual(decide([E(WS, undefined, 'modified'), E('pnpm-lock.yaml', undefined, 'modified')], { [WS]: { text: WS_BASE } }, { [WS]: { text: wsReplace('fast-xml-parser:', 'fast-xml-parser-2:') }, 'pnpm-lock.yaml': { text: 'x' } }), []);
   // the same new name with a URL is refused in either mode
   assert.equal(workspaceFreeValuesOk(WS_BASE, wsReplace('overrides:\n', 'overrides:\n  brand-new: https://evil.example/x.tgz\n'), { allowNewNames: true }).ok, false);
 });
 
 test('t/806: with WORKSPACE_FREE_ALLOW_NEW_NAMES a new name passes only with a plain version spec (the switch, backtested on the real history)', () => {
-  assert.equal(WORKSPACE_FREE_ALLOW_NEW_NAMES, false, 'the shipped default is the spec as written');
+  assert.equal(WORKSPACE_FREE_ALLOW_NEW_NAMES, true, 'decided: a new name with a plain version spec is free (Lead p/233#333, Security p/131#138)');
   const head = wsReplace('overrides:\n', 'overrides:\n  brand-new: ">=1.0.0 <2"\n');
-  assert.equal(workspaceFreeValuesOk(WS_BASE, head).ok, false);
-  assert.equal(workspaceFreeValuesOk(WS_BASE, head, { allowNewNames: true }).ok, true);
+  assert.equal(workspaceFreeValuesOk(WS_BASE, head).ok, true);
+  assert.equal(workspaceFreeValuesOk(WS_BASE, head, { allowNewNames: false }).ok, false);
   // the real shapes of the historical bumps that ADD a name (values as committed on main)
   for (const entry of ['">=4.35.0"', '">=7.0.0 <7.30.1"', '">=7.1.0 <8"', '">=5.0.0 <5.1.0"', '"^2.0.0"']) {
     assert.equal(workspaceFreeValuesOk(WS_BASE, wsReplace('overrides:\n', `overrides:\n  newcve: ${entry}\n`), { allowNewNames: true }).ok, true, entry);
@@ -456,4 +459,48 @@ test('t/806: workspaceFreeEntriesOf on its own', () => {
   ]);
   assert.equal(workspaceFreeEntriesOf(undefined).ok, false);
   assert.deepEqual([...workspaceFreeEntriesOf('packages:\n  - a\nignoreScripts: true\n').entries], [], 'other keys are not free entries');
+});
+
+// ── t/806 amend (Lead p/233#333/#334, Security p/131#138) ──
+
+test('t/806: a removed override, catalog or catalogs entry is free only with a package.json or pnpm-lock.yaml change in the same PR', () => {
+  const rm = (from) => wsReplace(from, '');
+  const withFile = (f) => decide([E(WS, undefined, 'modified'), E(f, undefined, 'modified')], { [WS]: { text: WS_BASE }, [f]: { text: 'a' } }, { [WS]: { text: rm('  axios: ">=1.20.0 <2"\n') }, [f]: { text: 'b' } });
+  assert.deepEqual(wsFree(rm('  axios: ">=1.20.0 <2"\n')), [WS], 'alone');
+  assert.deepEqual(wsFree(rm('  react: ^18.0.0\n')), [WS], 'a catalog removal alone');
+  assert.deepEqual(wsFree(rm('    react: 17.0.0\n')), [WS], 'a catalogs removal alone');
+  assert.deepEqual(withFile('pnpm-lock.yaml'), [], 'with a root lockfile');
+  assert.deepEqual(withFile('taxonomy-editor/pnpm-lock.yaml'), [], 'with a nested lockfile');
+  assert.deepEqual(withFile('package.json').filter((p) => p === WS), [], 'with a package.json (its own scripts check still applies)');
+  assert.deepEqual(wsFree(rm('  axios: ">=1.20.0 <2"\n').replace('<5.13.0', '<5.14.0')), [WS], 'a removal plus an edit, alone');
+  // an unrelated file does not license a removal
+  assert.deepEqual(withFile('README.md'), [WS]);
+});
+
+test('t/806: NAMED refusals of a changed override, catalog or catalogs value', () => {
+  const named = {
+    'npm: alias': 'npm:other@1.0.0', 'file:': 'file:../x', 'link:': 'link:../x', 'git+https': 'git+https://github.com/x/y.git#abc', 'github:': 'github:owner/repo',
+    'http URL': 'http://example.com/a', 'https URL': 'https://example.com/a', 'tarball URL': 'https://example.com/x.tgz', 'workspace:*': 'workspace:*', 'workspace:^': 'workspace:^1.0.0',
+  };
+  for (const [label, bad] of Object.entries(named)) {
+    assert.deepEqual(wsFree(wsReplace('>=1.20.0 <2', bad)), [WS], `overrides ${label}`);
+    assert.deepEqual(wsFree(wsReplace('react: ^18.0.0', `react: "${bad}"`)), [WS], `catalog ${label}`);
+    assert.deepEqual(wsFree(wsReplace('react: 17.0.0', `react: '${bad}'`)), [WS], `catalogs ${label}`);
+    assert.deepEqual(wsFree(wsReplace('overrides:\n', `overrides:\n  brand-new: "${bad}"\n`)), [WS], `NEW name ${label}`);
+  }
+  // a nested object value under an override name is unparseable, so a gate change
+  assert.deepEqual(wsFree(wsReplace('  axios: ">=1.20.0 <2"\n', '  axios:\n    version: 1.0.0\n')), [WS], 'overrides nested object');
+  assert.deepEqual(wsFree(wsReplace('  react: ^18.0.0\n', '  react:\n    version: 1.0.0\n')), [WS], 'catalog nested object');
+  assert.deepEqual(wsFree(wsReplace('    react: 17.0.0\n', '    react:\n      version: 1.0.0\n')), [WS], 'catalogs nested object');
+});
+
+test('t/806: an open-ended override value (no concrete lower bound) is a gate change, a legitimate one is free', () => {
+  for (const bad of ['*', 'x', 'X', '>=0', '>0', '>=0.0.0', '>0.0.0', '0.x', '^0', '~0', '0.0.0-0', '<2', '<=1.0.0', '>=0 <2', '1.0.0 || *', '1.0.0 || >=0']) {
+    assert.deepEqual(wsFree(wsReplace('>=1.20.0 <2', bad)), [WS], `overrides axios -> ${bad}`);
+    assert.deepEqual(wsFree(wsReplace('react: ^18.0.0', `react: "${bad}"`)), [WS], `catalog -> ${bad}`);
+  }
+  assert.deepEqual(wsFree(wsReplace('>=1.20.0 <2', '')), [WS], 'an empty value');
+  for (const ok of ['^1.2.3', '~0.5.1', '>=7.0.0 <11.0.1', '1.2.3 - 2.0.0', '1.x', '^0.0.3', '>=1.20.0 <2', '1.0.0 || ^2.0.0', '>=4.35.0']) {
+    assert.deepEqual(wsFree(wsReplace('>=1.20.0 <2', ok)), [], `overrides axios -> ${ok}`);
+  }
 });
