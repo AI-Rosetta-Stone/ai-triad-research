@@ -142,7 +142,7 @@ param anonOpEdLifecyclePrefix string = 'anon-oped/'
 // It takes effect on the next main.bicep apply (deploy-azure.yml; the staging auto-deploy applies no Bicep).
 param anonOpEdLifecycleStagingEnabled bool = true
 @description('Apply the anonymous op-ed delete rule to user-content (prod). Only after staging has run clean and the PI is told.')
-param anonOpEdLifecycleProdEnabled bool = false
+param anonOpEdLifecycleProdEnabled bool = true
 @description('Age in days after last modification before an anonymous op-ed blob is deleted. Two days: the stamp rewrites at most hourly, and the policy runs daily.')
 param anonOpEdLifecycleAgeDays int = 2
 
