@@ -4,8 +4,8 @@
 // t/802 (for t/724 check C): the server-owned counter for hosted ANONYMOUS debate AI calls.
 //
 // One record per (anonymous storage id, UTC day): `{ debates: { <debateId>: <calls> } }`, in the
-// user-content container under `anon-debate-counter/<YYYY-MM-DD>/<storageUserId>.json`. It is separate
-// from the saved session, so a client PUT/PATCH, or deleting and recreating a debate, cannot reach or
+// user-content container under `anon-debate-counter/<YYYY-MM-DD>/<sha256 hex of the lower-cased storage id>.json`. It is separate
+// from the saved session, and the name holds only a hash of the id (JsonDocStore logs names on a failure), so a client PUT/PATCH, or deleting and recreating a debate, cannot reach or
 // reset it. Every admission is ONE ETag compare-and-swap (`JsonDocStore.rmw`), so 50 parallel calls at
 // count 199 admit exactly one, on any number of replicas, with no lease.
 //
@@ -17,6 +17,7 @@
 // day-first layout lets a blob lifecycle rule on the `anon-debate-counter/` prefix (delete after
 // 2 days since modification) do it. That rule is DeployAzure's, with an SO round (see t/802).
 
+import { createHash } from 'crypto';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { createJsonDocStore, type JsonDocStore } from './jsonDocStore.js';
 
@@ -76,7 +77,8 @@ function checkRecord(doc: unknown): CounterRecord {
 
 function recordName(storageUserId: string, now: Date): string {
   const day = now.toISOString().slice(0, 10);
-  return `${PREFIX}/${day}/${storageUserId.toLowerCase()}.json`;
+  const hashed = createHash('sha256').update(storageUserId.toLowerCase()).digest('hex'); // never the raw id: names reach logs
+  return `${PREFIX}/${day}/${hashed}.json`;
 }
 
 /**

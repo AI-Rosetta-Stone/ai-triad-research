@@ -6,6 +6,7 @@
  * "Two instances" are two stores over one shared backing map via a shared InMemory store object.
  */
 
+import { createHash } from 'crypto';
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import {
   admitAnonDebateCall, setAnonDebateCounterStore, ANON_DEBATE_COUNTER_INVALID_INPUT, ANON_DEBATE_COUNTER_RECORD_INVALID,
@@ -17,7 +18,8 @@ const OTHER = 'anon-223e4567-e89b-12d3-a456-426614174000';
 const LIMITS = { perDebateCalls: 200, debatesPerDay: 2 };
 const DAY1 = new Date('2026-11-27T10:00:00Z');
 const DAY2 = new Date('2026-11-28T00:00:01Z');
-const NAME1 = `anon-debate-counter/2026-11-27/${USER}.json`;
+const hashName = (id: string, day = '2026-11-27') => `anon-debate-counter/${day}/${createHash('sha256').update(id.toLowerCase()).digest('hex')}.json`;
+const NAME1 = hashName(USER);
 
 let store: InMemoryJsonDocStore;
 beforeEach(() => {
@@ -28,7 +30,7 @@ afterAll(() => setAnonDebateCounterStore(null));
 
 /** Seed the day's record directly. */
 async function seed(debates: Record<string, number>, user = USER, name?: string): Promise<void> {
-  store._setRawForTest(name ?? `anon-debate-counter/2026-11-27/${user}.json`, JSON.stringify({ debates }));
+  store._setRawForTest(name ?? hashName(user), JSON.stringify({ debates }));
 }
 
 describe('admitAnonDebateCall (t/802)', () => {
@@ -118,6 +120,35 @@ describe('admitAnonDebateCall (t/802)', () => {
   it('survives lost races: forced conflicts are retried and the count is still correct', async () => {
     store.forceConflicts(3);
     expect(await admitAnonDebateCall(USER, 'd1', LIMITS, DAY1)).toEqual({ admitted: true, debateCalls: 1, debatesToday: 1 });
+  });
+
+  describe('record names carry no raw id', () => {
+    it('no document name the module touches contains the uuid or any of its 8-4-4-4-12 fragments', async () => {
+      await admitAnonDebateCall(USER, 'd1', LIMITS, DAY1);
+      await admitAnonDebateCall(USER, 'd1', LIMITS, DAY2);
+      const names = store._namesForTest();
+      expect(names).toHaveLength(2);
+      const fragments = USER.slice('anon-'.length).split('-');
+      expect(fragments).toHaveLength(5);
+      for (const name of names) {
+        expect(name).toMatch(/^anon-debate-counter\/\d{4}-\d{2}-\d{2}\/[0-9a-f]{64}\.json$/);
+        expect(name).not.toContain(USER);
+        for (const frag of fragments) expect(name).not.toContain(frag);
+      }
+      expect(names).toContain(hashName(USER));
+    });
+
+    it('failure errors name only the hashed document', async () => {
+      store.forceFailures('download', 1);
+      const err = await admitAnonDebateCall(USER, 'd1', LIMITS, DAY1).catch(e => e);
+      expect(String(err.message) + String(err.problem ?? '') + String(err.goal ?? '')).not.toContain(USER.slice(5));
+    });
+
+    it('ids differing only in case map to the same name', async () => {
+      await admitAnonDebateCall(USER, 'd1', LIMITS, DAY1);
+      await admitAnonDebateCall(USER.toUpperCase().replace('ANON-', 'anon-'), 'd1', LIMITS, DAY1);
+      expect(store._namesForTest()).toEqual([hashName(USER)]);
+    });
   });
 
   describe('fail closed', () => {
