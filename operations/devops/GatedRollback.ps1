@@ -125,6 +125,33 @@ function Invoke-GuardedDeactivate {
     $out
 }
 
+<#
+.SYNOPSIS
+    t/588 (DeployAzure p/227#53): the record of a -DeactivatePrevious run, as lines the log, the step summary and the returned object keep.
+.DESCRIPTION
+    One line per revision: "deactivate-previous: deactivated '<rev>' (<reason>)" or "deactivate-previous: NOT deactivated '<rev>': <reason>",
+    then one summary line naming both lists. Returns @{ Lines; Deactivated; NotDeactivated }. An empty input still gives the summary line, so
+    a run that deactivated nothing says so.
+#>
+function Format-DeactivatePreviousRecord {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Results)
+    $lines = @()
+    $done = @()
+    $not = @()
+    foreach ($x in $Results) {
+        if ($x.Deactivated) {
+            $done += $x.RevisionName
+            $lines += "deactivate-previous: deactivated '$($x.RevisionName)' ($($x.Reason))"
+        } else {
+            $not += $x.RevisionName
+            $lines += "deactivate-previous: NOT deactivated '$($x.RevisionName)': $($x.Reason)"
+        }
+    }
+    $fmt = { param($l) if ($l.Count -eq 0) { 'none' } else { ($l | ForEach-Object { "'$_'" }) -join ', ' } }
+    $lines += "deactivate-previous: record: deactivated $($done.Count) ($(& $fmt $done)); not deactivated $($not.Count) ($(& $fmt $not))"
+    @{ Lines = $lines; Deactivated = $done; NotDeactivated = $not }
+}
+
 function Invoke-GatedRollbackCore {
     param(
         [Parameter(Mandatory)][string] $RevisionName,
