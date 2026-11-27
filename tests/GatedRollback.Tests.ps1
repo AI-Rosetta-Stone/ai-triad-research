@@ -309,10 +309,11 @@ Describe 'Invoke-GatedRollback.ps1 wiring of -DeactivatePrevious (t/588)' -Tag '
         $script:Wrapper = Get-Content -Raw "$PSScriptRoot/../operations/devops/Invoke-GatedRollback.ps1"
     }
 
-    It 'the switch exists, is a plain [switch] (default off) and is used by the decision before anything is deactivated' {
+    It 'the switch exists, is a plain [switch] (default off) and the post-shift step is ONE call to Invoke-DeactivatePreviousStep' {
         $script:Wrapper | Should -Match '\[switch\] \$DeactivatePrevious,'
-        $script:Wrapper | Should -Match 'Get-DeactivatePreviousDecision -Result \$r'
-        $script:Wrapper | Should -Match 'Invoke-GuardedDeactivate -RevisionName \$prevRev'
+        $script:Wrapper | Should -Match 'Invoke-DeactivatePreviousStep -Result \$r'
+        $script:Wrapper | Should -Not -Match 'Invoke-GuardedDeactivate'
+        $script:Wrapper | Should -Not -Match '-ServingRevisionName'
     }
 
     It 'the revisions carrying traffic are read only when the switch is given, and BEFORE the shift (before Invoke-GatedRollbackCore)' {
@@ -324,8 +325,8 @@ Describe 'Invoke-GatedRollback.ps1 wiring of -DeactivatePrevious (t/588)' -Tag '
         $script:Wrapper.Substring(0, $read) | Should -Match 'if \(\$DeactivatePrevious\) \{\s*\r?\n\s*\$pre = Get-PreviousRevisionsSafely -TargetRevision \$RevisionName -Read \{\s*\r?\n\s*\$names = $'
     }
 
-    It 'the deactivation block runs after the core result and before the exit-code line, and never changes the exit code' {
-        $dec = $script:Wrapper.IndexOf('Get-DeactivatePreviousDecision -Result $r')
+    It 'the deactivation step runs after the core result and before the exit-code line, and never changes the exit code' {
+        $dec = $script:Wrapper.IndexOf('Invoke-DeactivatePreviousStep -Result $r')
         $core = $script:Wrapper.IndexOf('$r = Invoke-GatedRollbackCore')
         $exit = $script:Wrapper.IndexOf('exit (Get-GatedRollbackExitCode -Result $r)')
         $dec | Should -BeGreaterThan $core
@@ -335,9 +336,11 @@ Describe 'Invoke-GatedRollback.ps1 wiring of -DeactivatePrevious (t/588)' -Tag '
         $block | Should -Not -Match 'traffic set|ShiftTraffic'
     }
 
-    It 'the guard passes the same double-sourced facts as the drill (own weight AND ingress config) and protects the serving target' {
-        $script:Wrapper | Should -Match 'Get-IngressTrafficWeightForRevision -RevisionName \$Rev'
-        $script:Wrapper | Should -Match '-ServingRevisionName \$RevisionName'
+    It 'the guard reads the same double-sourced facts as the drill (own weight AND ingress config) and is told the REAL rollback target' {
+        $fn = Get-Content -Raw "$PSScriptRoot/../operations/devops/GatedRollback.ps1"
+        $fn | Should -Match 'Get-IngressTrafficWeightForRevision -RevisionName \$Rev'
+        $fn | Should -Match '-ServingRevisionName \$guardServingTarget'
+        $fn | Should -Not -Match '-ServingRevisionName \$RevisionName'
     }
 }
 
@@ -371,14 +374,15 @@ Describe 'Format-DeactivatePreviousRecord and the help text (t/588, DeployAzure 
         $rec.Lines[0] | Should -Be 'deactivate-previous: record: deactivated 0 (none); not deactivated 0 (none)'
     }
 
-    It 'the wrapper prints the record, appends it to the GitHub step summary when there is one, and keeps it on the returned object' {
-        $script:Wrapper | Should -Match 'Format-DeactivatePreviousRecord -Results \$deactResults'
-        $script:Wrapper | Should -Match 'foreach \(\$line in \$rec\.Lines\) \{ Write-Host'
-        $script:Wrapper | Should -Match 'if \(\$env:GITHUB_STEP_SUMMARY\) \{ Add-Content -LiteralPath \$env:GITHUB_STEP_SUMMARY'
-        $script:Wrapper | Should -Match "Add-Member -NotePropertyName PreviousDeactivated"
-        $script:Wrapper | Should -Match "Add-Member -NotePropertyName PreviousNotDeactivated"
+    It 'the step prints the record, appends it to the GitHub step summary when there is one, and keeps it on the returned object' {
+        $fn = Get-Content -Raw "$PSScriptRoot/../operations/devops/GatedRollback.ps1"
+        $fn | Should -Match 'Format-DeactivatePreviousRecord -Results \$deactResults'
+        $fn | Should -Match 'foreach \(\$line in \$rec\.Lines\) \{ Write-Host'
+        $fn | Should -Match 'if \(\$env:GITHUB_STEP_SUMMARY\) \{ Add-Content -LiteralPath \$env:GITHUB_STEP_SUMMARY'
+        $fn | Should -Match 'Add-Member -NotePropertyName PreviousDeactivated'
+        $fn | Should -Match 'Add-Member -NotePropertyName PreviousNotDeactivated'
         # a failed deactivation is still a WARN-level line
-        $script:Wrapper | Should -Match 'Write-Warning "WARN: deactivate-previous:'
+        $fn | Should -Match 'Write-Warning "WARN: deactivate-previous:'
     }
 
     It 'the help text says: drill or planned rollback only, NOT after an incident rollback, and why' {
@@ -488,16 +492,16 @@ Describe 'The optional -DeactivatePrevious steps can never stop a rollback or ch
             $script:Wrapper | Should -Not -Match 'LASTEXITCODE -eq 0\) \{ \$previousRevisions'
         }
 
-        It 'the WHOLE post-shift deactivate-previous block is inside Invoke-PostShiftStepSafely: the decision, the dot-source, the summary append and both Add-Member calls' {
+        It 'the WHOLE post-shift step runs inside Invoke-PostShiftStepSafely: the call, its arguments, the verdict-script dot-source path' {
             $open = $script:Wrapper.IndexOf("Invoke-PostShiftStepSafely -Name 'deactivate-previous' -Block {")
             $close = $script:Wrapper.IndexOf('exit (Get-GatedRollbackExitCode -Result $r)')
             $open | Should -BeGreaterThan 0
             $close | Should -BeGreaterThan $open
             $inside = $script:Wrapper.Substring($open, $close - $open)
-            foreach ($needle in 'Get-DeactivatePreviousDecision -Result $r', "Get-RevisionDeactivationVerdict.ps1')", 'Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY', 'Add-Member -NotePropertyName PreviousDeactivated', 'Add-Member -NotePropertyName PreviousNotDeactivated') {
+            foreach ($needle in 'Invoke-DeactivatePreviousStep -Result $r', "Get-RevisionDeactivationVerdict.ps1')") {
                 $inside.IndexOf($needle) | Should -BeGreaterThan 0 -Because "$needle is inside the safe block"
             }
-            # and none of those calls sits OUTSIDE it, before the block
+            # none of the step's effects sits OUTSIDE the safe block in the script
             $before = $script:Wrapper.Substring(0, $open)
             $before | Should -Not -Match 'Add-Member -NotePropertyName PreviousDeactivated'
             $before | Should -Not -Match 'Add-Content -LiteralPath \$env:GITHUB_STEP_SUMMARY'
@@ -507,5 +511,200 @@ Describe 'The optional -DeactivatePrevious steps can never stop a rollback or ch
             $script:Wrapper | Should -Match 'exit \(Get-GatedRollbackExitCode -Result \$r\)'
             $script:Wrapper | Should -Not -Match "if \(\$r\.Action -eq 'measured' -or \(\$r\.Action -in @\('shifted', 'already-serving'\) -and \$r\.Verified\)\) \{ exit 0 \}"
         }
+    }
+}
+
+Describe 'Invoke-DeactivatePreviousStep with the PRODUCTION wiring, only az stubbed (t/588 scoping bug, DeployAzure staging test)' -Tag 'devops' {
+
+    # The earlier tests mocked the function under test and pinned its pieces: they never ran the real binding of the scriptblocks, so they could not see
+    # that a scriptblock run under Invoke-GuardedDeactivate read ITS $RevisionName (the revision being deactivated) instead of the rollback target, and
+    # -DeactivatePrevious deactivated nothing. These tests run the real Invoke-DeactivatePreviousStep -> Invoke-PreviousRevisionDeactivation ->
+    # Invoke-GuardedDeactivate -> the real Get-RevisionDeactivationVerdict chain with the SAME arguments the script passes. Only `az` is a stub.
+
+    BeforeAll {
+        . "$PSScriptRoot/../operations/devops/GatedRollback.ps1"
+        $script:RealVerdictScript = (Resolve-Path "$PSScriptRoot/../operations/devops/Get-RevisionDeactivationVerdict.ps1").Path
+        # A verdict script that loads the REAL guard and records the ServingRevisionName it is called with.
+        $script:SpyVerdictScript = Join-Path $TestDrive 'spy-verdict.ps1'
+        @"
+. '$($script:RealVerdictScript)'
+`$global:RealVerdict = (Get-Command Get-RevisionDeactivationVerdict -CommandType Function).ScriptBlock
+function Get-RevisionDeactivationVerdict {
+    param([string]`$RevisionName, `$TrafficWeight, [bool]`$Active = `$true, `$IngressWeight, [bool]`$IsLatestRevisionWithTraffic = `$false, [string]`$ServingRevisionName, [string[]]`$ProtectedNames = @())
+    `$global:SeenServing = `$ServingRevisionName
+    `$global:SeenRevision = `$RevisionName
+    & `$global:RealVerdict @PSBoundParameters
+}
+"@ | Set-Content -LiteralPath $script:SpyVerdictScript
+
+        # The az stub. Scenarios are set per test in $script:Az.
+        function script:az {
+            $joined = $args -join ' '
+            $script:AzCalls += $joined
+            if ($script:Az.ThrowOn -and $joined -match $script:Az.ThrowOn) { throw "az failed: $joined" }
+            $global:LASTEXITCODE = 0
+            if ($joined -match '^containerapp revision show .*--revision (\S+) -o json') {
+                [pscustomobject]@{ properties = [pscustomobject]@{ active = $true; trafficWeight = $script:Az.PreviousWeight } } | ConvertTo-Json -Depth 5
+            } elseif ($joined -match '^containerapp show ') {
+                $traffic = @([pscustomobject]@{ revisionName = $script:Az.Target; weight = $script:Az.TargetWeight })
+                if ($script:Az.PreviousIngressWeight -gt 0) { $traffic += [pscustomobject]@{ revisionName = $script:Az.Previous; weight = $script:Az.PreviousIngressWeight } }
+                [pscustomobject]@{ properties = [pscustomobject]@{ latestRevisionName = $script:Az.Target; configuration = [pscustomobject]@{ ingress = [pscustomobject]@{ traffic = $traffic } } } } | ConvertTo-Json -Depth 8
+            } elseif ($joined -match '^containerapp revision deactivate ') {
+                if ($script:Az.DeactivateExit) { $global:LASTEXITCODE = $script:Az.DeactivateExit }
+            }
+        }
+        function script:NewAz([hashtable]$Over = @{}) {
+            $script:AzCalls = @()
+            $script:Az = @{ Target = 'rev-target'; Previous = 'rev-old'; PreviousWeight = 0; PreviousIngressWeight = 0; TargetWeight = 100; ThrowOn = $null; DeactivateExit = 0 }
+            foreach ($k in $Over.Keys) { $script:Az[$k] = $Over[$k] }
+            $global:SeenServing = $null; $global:SeenRevision = $null
+        }
+        function script:Shifted { [pscustomobject]@{ Action = 'shifted'; Verified = $true; Reason = 'ok' } }
+        # EXACTLY the arguments Invoke-GatedRollback.ps1 passes (target from its own $RevisionName), through the same safe wrapper.
+        function script:RunStep($Result, [string[]]$Previous, [string]$Target = 'rev-target', [switch]$ReadFailed, [switch]$Switch, [string]$VerdictScript = $script:SpyVerdictScript) {
+            $script:Rec = $null
+            Invoke-PostShiftStepSafely -Name 'deactivate-previous' -WarningAction SilentlyContinue -Block {
+                $script:Rec = Invoke-DeactivatePreviousStep -Result $Result -PreviousRevisions $Previous -TargetRevision $Target `
+                    -AppName 'taxonomy-editor-staging' -ResourceGroup 'ai-triad' -ReadFailed:$ReadFailed -DeactivatePrevious:$Switch -VerdictScriptPath $VerdictScript
+            }
+            $script:Rec
+        }
+        function script:DeactivateCalls { @($script:AzCalls | Where-Object { $_ -match '^containerapp revision deactivate ' }) }
+    }
+    BeforeEach { $script:SavedEap = $ErrorActionPreference; $ErrorActionPreference = 'Stop'; NewAz }
+    AfterEach { $ErrorActionPreference = $script:SavedEap }
+
+    It 'a previous revision that is NOT serving IS deactivated: the deactivate call is made, the record line names it, and the guard is told the TARGET as the serving revision' {
+        $r = Shifted
+        $rec = RunStep $r @('rev-old') -Switch
+        @(DeactivateCalls).Count | Should -Be 1
+        @(DeactivateCalls)[0] | Should -Be 'containerapp revision deactivate -n taxonomy-editor-staging -g ai-triad --revision rev-old -o none'
+        $rec.Lines[0] | Should -Be "deactivate-previous: deactivated 'rev-old' (deactivated after the verified shift)"
+        @($r.PreviousDeactivated) | Should -Be @('rev-old')
+        # THE ASSERTION THAT WOULD HAVE FAILED ON THE BUG: the guard's ServingRevisionName is the rollback target, not the revision being deactivated
+        $global:SeenServing | Should -Be 'rev-target'
+        $global:SeenRevision | Should -Be 'rev-old'
+        $global:SeenServing | Should -Not -Be $global:SeenRevision
+    }
+
+    It 'a previous revision that IS the serving target is NOT deactivated, through the step (the decision drops it) and through the guard itself (is-serving-revision)' {
+        $rec = RunStep (Shifted) @('rev-target') -Switch
+        @(DeactivateCalls).Count | Should -Be 0
+        $rec | Should -BeNullOrEmpty -Because 'the decision skipped: no other revision carried traffic'
+        # bypass the decision: hand the target to the guard as the "previous" revision; the REAL guard must refuse it
+        # TargetWeight 0 isolates the serving-name check: no other rule (weight, ingress) can refuse it, so only ServingRevisionName == the revision does
+        NewAz @{ Previous = 'rev-target'; TargetWeight = 0 }
+        . $script:SpyVerdictScript
+        $out = Invoke-PreviousRevisionDeactivation -PreviousRevision 'rev-target' -ServingTarget 'rev-target' -AppName 'a' -ResourceGroup 'g'
+        $out.Deactivated | Should -BeFalse
+        $out.Reason | Should -Match 'is-serving-revision'
+        @(DeactivateCalls).Count | Should -Be 0
+    }
+
+    It 'the guard still protects a previous revision that carries traffic (weight or ingress), so the fix did not weaken it' {
+        NewAz @{ PreviousWeight = 30 }
+        (RunStep (Shifted) @('rev-old') -Switch).NotDeactivated | Should -Contain 'rev-old'
+        @(DeactivateCalls).Count | Should -Be 0
+        NewAz @{ PreviousIngressWeight = 20 }
+        $rec = RunStep (Shifted) @('rev-old') -Switch
+        $rec.Lines[0] | Should -Match 'nonzero-ingress-weight'
+        @(DeactivateCalls).Count | Should -Be 0
+    }
+
+    It 'the failure arms hold through the production wiring and the exit code equals the no-switch run: unreadable read, non-verified run, no switch' {
+        $baseline = Get-GatedRollbackExitCode -Result (Shifted)
+        # unreadable pre-shift read
+        $r1 = Shifted; RunStep $r1 @('rev-old') -ReadFailed -Switch | Out-Null
+        @(DeactivateCalls).Count | Should -Be 0
+        Get-GatedRollbackExitCode -Result $r1 | Should -Be $baseline
+        # a run that is not a verified shift
+        NewAz
+        $r2 = [pscustomobject]@{ Action = 'shifted'; Verified = $false; Reason = 'x' }; RunStep $r2 @('rev-old') -Switch | Out-Null
+        @(DeactivateCalls).Count | Should -Be 0
+        Get-GatedRollbackExitCode -Result $r2 | Should -Be (Get-GatedRollbackExitCode -Result ([pscustomobject]@{ Action = 'shifted'; Verified = $false }))
+        # the switch not given
+        NewAz
+        $r3 = Shifted; RunStep $r3 @('rev-old') | Out-Null
+        @(DeactivateCalls).Count | Should -Be 0
+        Get-GatedRollbackExitCode -Result $r3 | Should -Be $baseline
+    }
+
+    It 'a throw anywhere in the step (az read, az deactivate, the verdict-script dot-source) is contained: nothing escapes, nothing is deactivated, the exit code equals the no-switch run' {
+        $baseline = Get-GatedRollbackExitCode -Result (Shifted)
+        foreach ($case in @(
+                @{ Name = 'az revision show throws'; Over = @{ ThrowOn = '^containerapp revision show' }; Script = $script:SpyVerdictScript },
+                @{ Name = 'az deactivate throws'; Over = @{ ThrowOn = '^containerapp revision deactivate' }; Script = $script:SpyVerdictScript },
+                @{ Name = 'az deactivate exits non-zero'; Over = @{ DeactivateExit = 1 }; Script = $script:SpyVerdictScript },
+                @{ Name = 'the verdict script dot-source throws'; Over = @{}; Script = (Join-Path $TestDrive 'missing' 'verdict.ps1') })) {
+            NewAz $case.Over
+            $r = Shifted
+            $core = { param($x) "$($x.Action)|$($x.Verified)|$($x.Reason)" }
+            $before = & $core $r
+            $threw = $false
+            try { $rec = RunStep $r @('rev-old') -Switch -VerdictScript $case.Script } catch { $threw = $true }
+            $threw | Should -BeFalse -Because $case.Name
+            @($r.PreviousDeactivated) | Should -Not -Contain 'rev-old' -Because $case.Name
+            (& $core $r) | Should -Be $before -Because "$($case.Name): Action, Verified and Reason are untouched"
+            Get-GatedRollbackExitCode -Result $r | Should -Be $baseline -Because "$($case.Name): the exit code equals the run without the switch"
+        }
+    }
+
+    It 'LINT (the bug class): no scriptblock passed to one of our functions reads a variable that function declares or assigns (a dynamic-scope shadow)' {
+        $parse = { param($path) $e = $null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path).Path, [ref]$null, [ref]$e) }
+        $gr = & $parse "$PSScriptRoot/../operations/devops/GatedRollback.ps1"
+        $wrapper = & $parse "$PSScriptRoot/../operations/devops/Invoke-GatedRollback.ps1"
+        $isVar = { param($a) $a -is [System.Management.Automation.Language.VariableExpressionAst] }
+        $isAssign = { param($a) $a -is [System.Management.Automation.Language.AssignmentStatementAst] }
+        $names = { param($ast) @($ast.FindAll($isVar, $true) | ForEach-Object { $_.VariablePath.UserPath } | Where-Object { $_ -notmatch ':' } | Select-Object -Unique) }
+        $automatic = @('_', 'true', 'false', 'null', 'args', 'input', 'PSScriptRoot', 'LASTEXITCODE', 'ErrorActionPreference', 'PSBoundParameters', 'error', 'matches', 'this')
+        # what each of OUR functions declares: its parameters and every variable it assigns or loops over
+        $functions = @{}
+        foreach ($fn in $gr.FindAll({ param($a) $a -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+            $declared = @()
+            if ($fn.Body.ParamBlock) { $declared += @($fn.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }) }
+            foreach ($as in $fn.Body.FindAll($isAssign, $true)) { $declared += & $names $as.Left }
+            foreach ($fe in $fn.Body.FindAll({ param($a) $a -is [System.Management.Automation.Language.ForEachStatementAst] }, $true)) { $declared += $fe.Variable.VariablePath.UserPath }
+            $functions[$fn.Name] = @($declared | Select-Object -Unique)
+        }
+        # by design, not a bug: Invoke-GatedRollbackCore's own $RevisionName IS the rollback target (the script passes -RevisionName $RevisionName)
+        $allowed = @{ 'Invoke-GatedRollbackCore' = @('RevisionName') }
+        $findings = @()
+        foreach ($tree in @($gr, $wrapper)) {
+            foreach ($sb in $tree.FindAll({ param($a) $a -is [System.Management.Automation.Language.ScriptBlockExpressionAst] }, $true)) {
+                $cmd = $sb.Parent
+                while ($cmd -and $cmd -isnot [System.Management.Automation.Language.CommandAst]) { $cmd = $cmd.Parent }
+                if (-not $cmd) { continue }
+                $callee = $cmd.GetCommandName()
+                if (-not $callee -or -not $functions.ContainsKey($callee)) { continue }
+                $block = $sb.ScriptBlock
+                $own = @()
+                if ($block.ParamBlock) { $own += @($block.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }) }
+                foreach ($as in $block.FindAll($isAssign, $true)) { $own += & $names $as.Left }
+                $free = @(& $names $block | Where-Object { $_ -notin $own -and $_ -notin $automatic })
+                foreach ($v in $free) {
+                    if ($v -in $functions[$callee] -and $v -notin @($allowed[$callee])) { $findings += "a scriptblock passed to $callee reads `$$v, which $callee itself declares or assigns" }
+                }
+            }
+        }
+        $findings | Should -Be @()
+    }
+
+    It 'LINT arm: the lint catches the original bug shape (a block under Invoke-GuardedDeactivate reading $RevisionName)' {
+        $src = 'function Bad { param($Prev, $RevisionName) Invoke-GuardedDeactivate -RevisionName $Prev -GetVerdict { param($Rev) Get-X -ServingRevisionName $RevisionName } -Deactivate { param($Rev) } }'
+        $tree = [System.Management.Automation.Language.Parser]::ParseInput($src, [ref]$null, [ref]$null)
+        $sb = $tree.Find({ param($a) $a -is [System.Management.Automation.Language.ScriptBlockExpressionAst] }, $true)
+        $free = @($sb.ScriptBlock.FindAll({ param($a) $a -is [System.Management.Automation.Language.VariableExpressionAst] }, $true) | ForEach-Object { $_.VariablePath.UserPath })
+        $free | Should -Contain 'RevisionName'
+        # and Invoke-GuardedDeactivate really declares RevisionName, which is why that read was wrong
+        (Get-Command Invoke-GuardedDeactivate).Parameters.Keys | Should -Contain 'RevisionName'
+    }
+
+    It 'WIRING: the script calls Invoke-DeactivatePreviousStep with its own $RevisionName as the target, and the function binds it to a distinct variable the blocks read' {
+        $wrapper = Get-Content -Raw "$PSScriptRoot/../operations/devops/Invoke-GatedRollback.ps1"
+        $wrapper | Should -Match '(?s)Invoke-DeactivatePreviousStep -Result \$r -PreviousRevisions \$previousRevisions -TargetRevision \$RevisionName\s*`\s*\r?\n\s*-AppName \$AppName -ResourceGroup \$ResourceGroup'
+        $fn = Get-Content -Raw "$PSScriptRoot/../operations/devops/GatedRollback.ps1"
+        $fn | Should -Match '\$guardServingTarget = \$ServingTarget'
+        $fn | Should -Match '-ServingRevisionName \$guardServingTarget'
+        $fn | Should -Match '-ServingTarget \$TargetRevision'
     }
 }
