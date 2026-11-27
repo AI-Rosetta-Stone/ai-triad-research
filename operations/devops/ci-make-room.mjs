@@ -40,11 +40,19 @@ export function parseArgs(argv) {
   return out;
 }
 
+/**
+ * PURE. A run's workflow path without the `@<ref>` suffix GitHub appends to it for a workflow that ran from a ref
+ * (`.github/workflows/ci.yml@refs/heads/main`). Without this a suffixed path never matched and the pass silently listed nothing (t/806, SO p/136#129).
+ */
+export function workflowPathOf(path) {
+  return typeof path === 'string' ? path.replace(/@.*$/s, '') : '';
+}
+
 /** PURE. Which runs make room: ci.yml pull_request runs, queued or in progress, not on an incident/* branch. */
 export function selectRuns(runs) {
   return runs
     .filter((r) => r?.event === 'pull_request'
-      && r?.path?.endsWith(`/${WORKFLOW}`) === true
+      && workflowPathOf(r?.path).endsWith(`/${WORKFLOW}`) === true
       && STATUSES.includes(r?.status)
       && typeof r?.head_branch === 'string' && r.head_branch !== '' && !r.head_branch.startsWith('incident/'))
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
@@ -101,7 +109,10 @@ function jobCount(repo, id, ghFn) {
  * rest continue); a failure to read the run list throws and nothing is cancelled.
  */
 export function makeRoom({ repo, cancel = false, incident = null, by = null, ghFn = gh, now = Date.now(), log = console.log }) {
-  const runs = selectRuns(readRuns(repo, ghFn));
+  const examined = readRuns(repo, ghFn);
+  const runs = selectRuns(examined);
+  // Always printed, even at 0 matched, so a silent zero (a filter that stopped matching) is visible next to the number of runs looked at (t/806).
+  log(`ci-make-room: examined ${examined.length} runs, matched ${runs.length}`);
   log(`ci-make-room: ${runs.length} queued or in-progress pull_request ${WORKFLOW} run(s) not on an incident/* branch (${repo}, newest first)`);
   const listed = runs.map((r) => ({ run: r, jobs: jobCount(repo, r.id, ghFn) }));
   for (const { run, jobs } of listed) log(`  ${formatRun(run, jobs, now)}`);
