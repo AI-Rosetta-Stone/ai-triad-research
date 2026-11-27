@@ -119,6 +119,7 @@
 .syn-cruxes { display: flex; flex-direction: column; gap: var(--sp-2); }
 .syn-crux { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-1) var(--sp-2); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: var(--text-md); }
 .syn-crux-n { font-family: var(--font-mono, monospace); font-weight: 600; }
+.syn-crux .syn-type-chip { justify-self: start; }
 .syn-crux p { grid-column: 1 / -1; }
 
 /* Open questions */
