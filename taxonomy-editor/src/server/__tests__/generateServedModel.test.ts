@@ -23,6 +23,8 @@ vi.mock('../routes/dailyTokenGate.js', () => ({
   estimateUsage: () => ({ inputTokens: 0, outputTokens: 0 }),
   getDailyTokenBudget: vi.fn(),
   bookDailyTokens: vi.fn(async () => undefined),
+  reservePaidFallback: vi.fn(async () => ({ proceed: true, hold: null })),
+  estimateCallTokens: () => 2_000,
   dailyTokenBudgetHealth: () => ({ store: 'unused', durable: false }),
 }));
 
