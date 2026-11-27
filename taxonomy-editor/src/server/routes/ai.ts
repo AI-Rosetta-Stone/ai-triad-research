@@ -27,7 +27,7 @@ import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
 import { hasApiKey, getPaidGeminiFallbackKey, getStoredUserKeysBeforeFreePool, type AIBackend } from '../config.js';
 import * as proxyTiers from '../ai/proxyTiers.js';
 import * as rateLimiter from '../security/rateLimiter.js';
-import { reserveDailyTokens, refuseDailyReserve, settleDailyTokens, assumedOutputCapTokens, estimateUsage, getDailyTokenBudget } from './dailyTokenGate.js';
+import { reserveDailyTokens, refuseDailyReserve, settleDailyTokens, assumedOutputCapTokens, estimateUsage, getDailyTokenBudget, reservePaidFallback } from './dailyTokenGate.js';
 import type { TokenHold } from '../security/dailyTokenBudget.js';
 import * as ai from '../ai/aiBackends.js';
 import { callerHasKey } from '../ai/keyPresenceForCaller.js';
@@ -283,6 +283,9 @@ export async function generateWithPaidFallback(
   } catch (genErr) {
     const paidKey = (ai.is429Error(genErr) && isFree) ? await getPaidGeminiFallbackKey() : null;
     if (!paidKey) throw genErr; // non-free, non-429, or no paid key → outer 429 mapping records it
+    // t/811: the paid retry is reserved against the day's paid-fallback token cap first; over it, the original 429 stands.
+    const paidReservation = await reservePaidFallback(Buffer.byteLength(prompt, 'utf8'));
+    if (!paidReservation.proceed) throw genErr;
     // e/134 #6: a fallback path must record at WARN, not info (Fallback-Path Logging rule,
     // docs/error-handling.md) — at info it's below the default filter and the free-pool-exhausted
     // → paid-key degradation goes unseen. The search path (generateWithSearch) already does this.
@@ -296,6 +299,7 @@ export async function generateWithPaidFallback(
     await new Promise(r => setTimeout(r, 3000));
     try {
       const result = await ai.generateTextByUsage('server.chat-response:paid-fallback', { prompt }, usageOverrides, onRetry, paidKey, signal);
+      await settleDailyTokens(paidReservation.hold, result.tokenUsage ?? estimateUsage(Buffer.byteLength(prompt, 'utf8'), result.text));
       getGlobalRecorder()?.record({
         type: 'ai.response', component: 'ai-generate', level: 'info', duration_ms: Date.now() - t0,
         message: `Paid fallback succeeded for ${backend}/${requestModel}`,
@@ -313,6 +317,7 @@ export async function generateWithPaidFallback(
         data: { model: requestModel, backend, fallback: 'paid', delayMs: 3000 },
         error: { name: (fallbackErr as Error).name ?? 'Error', message: String(fallbackErr), stack: (fallbackErr as Error).stack },
       });
+      await settleDailyTokens(paidReservation.hold, null); // a failed paid call releases its hold
       throw genErr; // both pools exhausted → outer catch maps to a 429 for the client
     }
   }
@@ -370,6 +375,9 @@ export async function generateWithSearch(
   } catch (searchErr) {
     const paidKey = (ai.is429Error(searchErr) && isFree) ? await getPaidGeminiFallbackKey() : null;
     if (!paidKey) throw searchErr; // non-free, non-429, or no paid key → outer catch maps to 429
+    // t/811: same cap on the search path's paid retry.
+    const paidReservation = await reservePaidFallback(Buffer.byteLength(prompt, 'utf8'));
+    if (!paidReservation.proceed) throw searchErr;
     // t/3175 (TL GV): WARN, not info — free-pool exhaustion is the second-front signal we
     // want visible (Fallback-Path Logging rule, docs/error-handling.md); at info it's below
     // the detectable threshold. Records THAT the paid fallback fired and WHY (free 429).
@@ -381,6 +389,7 @@ export async function generateWithSearch(
     await new Promise(r => setTimeout(r, 3000));
     try {
       const result = await ai.generateTextWithSearchByUsage('server.search:paid-fallback', { prompt }, overrides, paidKey);
+      await settleDailyTokens(paidReservation.hold, (result as { tokenUsage?: { inputTokens: number; outputTokens: number } }).tokenUsage ?? estimateUsage(Buffer.byteLength(prompt, 'utf8'), (result as { text?: string }).text));
       recordSuccess(result, 'paid');
       return result;
     } catch (fallbackErr) {
@@ -390,6 +399,7 @@ export async function generateWithSearch(
         data: { model: requestModel, backend, fallback: 'paid', search: true },
         error: { name: (fallbackErr as Error).name ?? 'Error', message: String(fallbackErr), stack: (fallbackErr as Error).stack },
       });
+      await settleDailyTokens(paidReservation.hold, null);
       throw searchErr; // both exhausted → outer catch maps to a client 429
     }
   }

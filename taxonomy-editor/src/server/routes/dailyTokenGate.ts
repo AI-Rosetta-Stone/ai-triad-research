@@ -149,6 +149,34 @@ export async function bookDailyTokens(limitKey: string, limit: number, usage: { 
   }
 }
 
+/** The limit key of the ONE shared document that counts paid-key fallback tokens for the UTC day (t/811). */
+export const PAID_FALLBACK_LIMIT_KEY = '_system:paid-fallback';
+let paidCapUnsetWarned = false;
+
+/** t/811: the paid Gemini key may serve a free-tier caller's retry after a pool 429 (routes/ai.ts). This reserves that
+ *  retry against the day's paid-fallback token cap BEFORE the paid call, on the same durable reserve/settle path.
+ *  `sessions.paidFallbackDailyTokens` 0 (the default) means no cap: the retry proceeds as it does today, with a WARN once
+ *  per process saying so. Over the cap, the budget's per-call ceiling, or a store outage: `proceed: false` (fail closed:
+ *  the paid key is NOT called and the caller's original 429 stands). Settle the returned hold with the real usage. */
+export async function reservePaidFallback(promptBytes: number): Promise<{ proceed: true; hold: TokenHold | null } | { proceed: false; reason: string }> {
+  const cap = getConfig().sessions.paidFallbackDailyTokens;
+  if (!(cap > 0)) {
+    if (!paidCapUnsetWarned) {
+      paidCapUnsetWarned = true;
+      log.server.warn({ component: 'daily-token-gate', setting: 'sessions.paidFallbackDailyTokens' }, 'The paid-key fallback has NO daily cap (sessions.paidFallbackDailyTokens is unset or 0); set it before anonymous debates go on (t/811)');
+    }
+    return { proceed: true, hold: null };
+  }
+  const r = await reserveDailyTokens(PAID_FALLBACK_LIMIT_KEY, cap, { promptBytes, outputCapTokens: assumedOutputCapTokens(), poolFunded: true });
+  if (r.ok) return { proceed: true, hold: r.hold };
+  log.server.warn({ component: 'daily-token-gate', reason: r.reason, cap }, 'Paid-key fallback refused: the day\'s paid-fallback token cap is reached (or its store is unavailable); the original 429 stands (t/811)');
+  getGlobalRecorder()?.record({ type: 'ai.fallback', component: 'ai-generate', level: 'warn', message: 'Paid fallback refused by the daily cap', data: { reason: r.reason, cap } });
+  return { proceed: false, reason: r.reason };
+}
+
+/** Test seam: forget that the no-cap WARN was shown. */
+export function _resetPaidCapWarnForTest(): void { paidCapUnsetWarned = false; }
+
 /** Estimated usage for a call whose provider reported none, so a success is never counted as zero: about 4 bytes a token. */
 export function estimateUsage(promptBytes: number, outputText: string | undefined): { inputTokens: number; outputTokens: number } {
   return { inputTokens: Math.ceil(promptBytes / 4), outputTokens: Math.ceil(Buffer.byteLength(outputText ?? '', 'utf8') / 4) };
