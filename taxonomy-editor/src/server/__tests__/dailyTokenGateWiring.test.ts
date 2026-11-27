@@ -6,7 +6,7 @@
 // makes no provider call, settle on every exit (success with the real usage, failure with zeros), the count survives a
 // 'cold start' (a new budget over the same store), and a store outage refuses a pool-funded call.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DailyTokenBudget } from '../security/dailyTokenBudget.js';
 import { InMemoryJsonDocStore } from '../storage/jsonDocStore.js';
 import * as rateLimiter from '../security/rateLimiter.js';
@@ -156,7 +156,7 @@ import { registerAiRoutes } from '../routes/ai.js';
 import { registerChatRoutes } from '../routes/chat.js';
 import { _setDailyTokenBudgetForTest } from '../routes/dailyTokenGate.js';
 import { getConfig } from '../runtimeConfig.js';
-import { getDailyTokenBudget, dailyTokenBudgetHealth } from '../routes/dailyTokenGate.js';
+import { getDailyTokenBudget, dailyTokenBudgetHealth, reserveDailyTokens } from '../routes/dailyTokenGate.js';
 import { log } from '../logger.js';
 
 type Handler = (req: IncomingMessage, res: ServerResponse, body?: unknown) => Promise<void> | void;
@@ -193,8 +193,10 @@ function registerAll() {
 
 const LIMIT_KEY = 'free:user:testuser'; // what the real resolveGenerationContext derives for the mocked principal 'testuser'
 let store: InMemoryJsonDocStore;
+let savedSessions: { ceiling: number; cap: number; ratio: number };
 function budgetOver(s: InMemoryJsonDocStore, opts: { perCallCeilingTokens?: number } = {}): DailyTokenBudget {
-  return new DailyTokenBudget(s as never, opts);
+  // Production builds the budget with the config maximum as its own ceiling (the gate checks the live one first); do the same here.
+  return new DailyTokenBudget(s as never, { perCallCeilingTokens: 2_000_000, ...opts });
 }
 function useBudget(b: DailyTokenBudget): void { _setDailyTokenBudgetForTest(b); }
 /** The tokens counted for the limit key today, read the way /api/proxy/usage reads them. */
@@ -212,6 +214,14 @@ describe('durable daily token allowance wiring on generate and chat-stream (t/74
     generateViaGeminiStream.mockReset().mockResolvedValue(undefined);
     store = new InMemoryJsonDocStore({ prefix: '_system/daily-tokens' });
     useBudget(budgetOver(store));
+    const c = getConfig().sessions;
+    savedSessions = { ceiling: c.dailyTokenPerCallCeilingTokens, cap: c.dailyTokenDefaultOutputCapTokens, ratio: c.dailyTokenBytesPerToken };
+    c.dailyTokenBytesPerToken = 1; // the arithmetic in most tests below is bytes = tokens; the ratio tests set their own
+  });
+
+  afterEach(() => {
+    const c = getConfig().sessions;
+    c.dailyTokenPerCallCeilingTokens = savedSessions.ceiling; c.dailyTokenDefaultOutputCapTokens = savedSessions.cap; c.dailyTokenBytesPerToken = savedSessions.ratio;
   });
 
   it('generate: a reservation over the daily limit is a 429 with no provider call and no other caller\'s numbers', async () => {
@@ -226,7 +236,7 @@ describe('durable daily token allowance wiring on generate and chat-stream (t/74
   });
 
   it('generate: a request whose worst case is over the per-call ceiling is a 413 per_call_ceiling, no provider call', async () => {
-    useBudget(budgetOver(store, { perCallCeilingTokens: 70_000 }));
+    getConfig().sessions.dailyTokenPerCallCeilingTokens = 70_000;
     const handlers = registerAll();
     const res = fakeRes();
     await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'x'.repeat(10_000) }); // 10,000 + 65,536 > 70,000
@@ -286,7 +296,7 @@ describe('durable daily token allowance wiring on generate and chat-stream (t/74
   });
 
   it('chat-stream: a refused reservation is a JSON 429 before any SSE head, and the provider stream never starts', async () => {
-    useBudget(budgetOver(store, { perCallCeilingTokens: 1_000 }));
+    getConfig().sessions.dailyTokenPerCallCeilingTokens = 1_000;
     const handlers = registerAll();
     const res = fakeRes();
     await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }] });
@@ -352,6 +362,63 @@ describe('durable daily token allowance wiring on generate and chat-stream (t/74
       sessions.dailyTokenPerCallCeilingTokens = 250_000; sessions.dailyTokenDefaultOutputCapTokens = 16_384;
       expect(dailyTokenBudgetHealth()).toMatchObject({ perCallCeilingTokens: 250_000, defaultOutputCapTokens: 16_384 });
     } finally { [sessions.dailyTokenPerCallCeilingTokens, sessions.dailyTokenDefaultOutputCapTokens] = prev as [number, number]; }
+  });
+
+  // TL p/16#489 (1): the ceiling, the output cap and the ratio are read on EVERY reserve, so a config reload changes what is
+  // enforced with no restart, and /health reports exactly that value.
+  it('a runtime-config change takes effect on the next reserve with no restart, and /health reports the enforced value', async () => {
+    const c = getConfig().sessions;
+    const call = { promptBytes: 100_000, outputCapTokens: 16_384, poolFunded: true }; // holds 116,384 at 1 byte per token
+    c.dailyTokenPerCallCeilingTokens = 128_000;
+    const first = await reserveDailyTokens(LIMIT_KEY, 1_500_000, call);
+    expect(first.ok).toBe(true);
+    expect(dailyTokenBudgetHealth().perCallCeilingTokens).toBe(128_000);
+    c.dailyTokenPerCallCeilingTokens = 100_000; // "reload": the same process, the same budget object
+    const second = await reserveDailyTokens(LIMIT_KEY, 1_500_000, call);
+    expect(second).toMatchObject({ ok: false, reason: 'per_call_ceiling', ceiling: 100_000 });
+    expect(dailyTokenBudgetHealth().perCallCeilingTokens).toBe(100_000); // what /health says is what was just enforced
+    c.dailyTokenPerCallCeilingTokens = 250_000;
+    expect((await reserveDailyTokens(LIMIT_KEY, 1_500_000, call)).ok).toBe(true);
+    // the ratio and the output cap are live too
+    c.dailyTokenBytesPerToken = 4;
+    expect(dailyTokenBudgetHealth().bytesPerToken).toBe(4);
+    c.dailyTokenPerCallCeilingTokens = 40_000; // 100,000 / 4 + 16,384 = 41,384 > 40,000
+    expect(await reserveDailyTokens(LIMIT_KEY, 1_500_000, call)).toMatchObject({ ok: false, reason: 'per_call_ceiling', reserved: 41_384 });
+  });
+
+  // TL p/16#489 (2): a real chat prompt is 569,593 to 695,000 characters (140,000 to 175,000 tokens, t/494#1).
+  it('chat: a 695,000-character prompt is admitted at ceiling 250,000 with the measured ratio, and would be refused at 1 byte per token', async () => {
+    const c = getConfig().sessions;
+    c.dailyTokenPerCallCeilingTokens = 250_000; c.dailyTokenDefaultOutputCapTokens = 16_384;
+    FREE_TIER.limits.tokensPerDay = 1_500_000;
+    const big = { messages: [{ role: 'user', content: 'x'.repeat(695_000) }] };
+    c.dailyTokenBytesPerToken = 3.5; // never above the measured 4.0
+    const b = budgetOver(store); useBudget(b);
+    const handlers = registerAll();
+    const ok = fakeRes();
+    await handlers['POST /api/ai/chat-stream'](fakeReq(), ok, big);
+    expect(ok._statusCode).not.toBe(413);
+    expect(generateViaGeminiStream).toHaveBeenCalledTimes(1);
+    expect((await b.usage(LIMIT_KEY)).heldTokens).toBe(0); // settled
+    c.dailyTokenBytesPerToken = 1; // the module's old rule
+    generateViaGeminiStream.mockClear();
+    const refused = fakeRes();
+    await handlers['POST /api/ai/chat-stream'](fakeReq(), refused, big);
+    expect(refused._statusCode).toBe(413);
+    expect(refused._body).toMatchObject({ code: 'per_call_ceiling', ceiling: 250_000 });
+    expect(generateViaGeminiStream).not.toHaveBeenCalled();
+    FREE_TIER.limits.tokensPerDay = 100_000;
+  });
+
+  it('proposed ratio 3.5: the same six median-size debate calls hold 154,302, far under the old 294,288', async () => {
+    const c = getConfig().sessions; const prevLimit = FREE_TIER.limits.tokensPerDay;
+    c.dailyTokenDefaultOutputCapTokens = 16_384; c.dailyTokenBytesPerToken = 3.5; FREE_TIER.limits.tokensPerDay = 500_000;
+    try {
+      const r = await sixInFlight();
+      expect(r.statuses.every((code) => code === 200)).toBe(true);
+      expect(r.heldWhileInFlight).toBe(6 * (Math.ceil(32_664 / 3.5) + 16_384));
+      expect(r.heldAfter).toBe(0);
+    } finally { FREE_TIER.limits.tokensPerDay = prevLimit; }
   });
 
   // Security p/93#150: 'hosted' means NOT single-operator local mode (AUTH_DISABLED=1 outside production).

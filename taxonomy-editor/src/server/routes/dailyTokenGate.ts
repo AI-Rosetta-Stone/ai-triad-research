@@ -7,6 +7,10 @@
 // failure, abort or refusal with zeros, which releases the hold). One process-wide budget over one document
 // store; the limit key is the SAME one the rate limiter uses, and it is never logged (only the returned keyTag).
 //
+// Sizing: a hold is prompt bytes / sessions.dailyTokenBytesPerToken (3.5; measured about 4.0 on real chat prompts, so the
+// estimate never sits below the measured ratio) plus the output cap. At 1 byte per token a real chat turn (569,000 to
+// 695,000 characters, about 140,000 to 175,000 tokens) would hold 4x its real size and be refused 413 at any sane ceiling.
+//
 // What this allowance can still miss (Security p/93#150; the rest of the bound is in dailyTokenBudget.ts):
 //   - The routes send NO output cap to the provider, so a call's hold is its prompt bytes plus an ASSUMED output cap
 //     (sessions.dailyTokenDefaultOutputCapTokens). A call whose real output exceeds that cap overshoots its hold by
@@ -28,6 +32,8 @@ import { nextDailyResetUtc } from '../security/rateLimiter.js';
 import { isAuthDisabledMode } from '../security/userContext.js';
 
 const DOC_PREFIX = '_system/daily-tokens';
+/** The runtime config's maximum for sessions.dailyTokenPerCallCeilingTokens: the module's own check can never fire before ours. */
+const MODULE_CEILING_TOKENS = 2_000_000;
 
 type StoreKind = 'azure-blob' | 'memory';
 let budget: DailyTokenBudget | null = null;
@@ -51,16 +57,25 @@ export function getDailyTokenBudget(): DailyTokenBudget {
     const { store, kind } = createJsonDocStore({ prefix: DOC_PREFIX });
     storeKind = kind;
     noteStoreKind(kind);
-    budget = new DailyTokenBudget(store as unknown as TokenDocStore, { perCallCeilingTokens: getConfig().sessions.dailyTokenPerCallCeilingTokens });
+    // The module's own ceiling is set to the config maximum so it never refuses first: the live ceiling, the output cap and
+    // the bytes-per-token ratio are read from config on EVERY reserve below (TL p/16#489), so a config reload takes effect
+    // without a restart and /health reports exactly what is enforced.
+    budget = new DailyTokenBudget(store as unknown as TokenDocStore, { perCallCeilingTokens: MODULE_CEILING_TOKENS });
   }
   return budget;
 }
 
-/** For /health: which store the allowance is on ('unused' until the first reserve; `durable` is true only on Blob) and
- *  the two effective config values, so a rollout can be checked without a sign-in (no secrets here). */
-export function dailyTokenBudgetHealth(): { store: StoreKind | 'unused'; durable: boolean; perCallCeilingTokens: number; defaultOutputCapTokens: number } {
+/** The three enforced numbers, read from the live runtime config on every call. The reserve below and /health both read
+ *  them HERE, so /health can never show a value that is not the one enforced. */
+export function enforcedBudgetSettings(): { perCallCeilingTokens: number; defaultOutputCapTokens: number; bytesPerToken: number } {
   const s = getConfig().sessions;
-  return { store: storeKind, durable: storeKind === 'azure-blob', perCallCeilingTokens: s.dailyTokenPerCallCeilingTokens, defaultOutputCapTokens: s.dailyTokenDefaultOutputCapTokens };
+  return { perCallCeilingTokens: s.dailyTokenPerCallCeilingTokens, defaultOutputCapTokens: s.dailyTokenDefaultOutputCapTokens, bytesPerToken: s.dailyTokenBytesPerToken };
+}
+
+/** For /health: which store the allowance is on ('unused' until the first reserve; `durable` is true only on Blob) and
+ *  the enforced settings, so a rollout can be checked without a sign-in (no secrets here). */
+export function dailyTokenBudgetHealth(): { store: StoreKind | 'unused'; durable: boolean; perCallCeilingTokens: number; defaultOutputCapTokens: number; bytesPerToken: number } {
+  return { store: storeKind, durable: storeKind === 'azure-blob', ...enforcedBudgetSettings() };
 }
 
 /** Test seam: replace (or clear) the process-wide budget. */
@@ -72,8 +87,15 @@ export function assumedOutputCapTokens(requested?: number): number {
   return getConfig().sessions.dailyTokenDefaultOutputCapTokens;
 }
 
-export function reserveDailyTokens(limitKey: string, limit: number, call: CallShape): Promise<ReserveResult> {
-  return getDailyTokenBudget().reserve(limitKey, limit, call);
+/** Reserves a call's worst case: its prompt BYTES converted to tokens at the configured ratio (never below the measured
+ *  one), plus its output cap. The per-call ceiling is checked here against the live config; the budget is then handed
+ *  the already-converted token count (1 'byte' per token) so it adds nothing of its own. */
+export async function reserveDailyTokens(limitKey: string, limit: number, call: CallShape): Promise<ReserveResult> {
+  const { perCallCeilingTokens, bytesPerToken } = enforcedBudgetSettings();
+  const promptTokens = Math.ceil(Math.max(0, call.promptBytes) / bytesPerToken);
+  const reserved = promptTokens + Math.ceil(Math.max(0, call.outputCapTokens));
+  if (reserved > perCallCeilingTokens) return { ok: false, reason: 'per_call_ceiling', reserved, ceiling: perCallCeilingTokens };
+  return getDailyTokenBudget().reserve(limitKey, limit, { promptBytes: promptTokens, outputCapTokens: call.outputCapTokens, poolFunded: call.poolFunded });
 }
 
 /** Writes the refusal for a failed reservation (429 daily limit, 413 per-call ceiling, 503 store unavailable on a

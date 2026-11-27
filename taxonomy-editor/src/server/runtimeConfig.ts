@@ -85,6 +85,8 @@ export interface RuntimeConfig {
     dailyTokenPerCallCeilingTokens: number;
     /** t/746: the output cap held for a call that sends none (the assumed provider maximum). */
     dailyTokenDefaultOutputCapTokens: number;
+    /** t/746: how many prompt BYTES one token is assumed to be when sizing a hold. Measured about 4.0 on chat prompts (569,593 to 695,000 characters = 140,000 to 175,000 tokens, t/494#1); never set it above the measured value. */
+    dailyTokenBytesPerToken: number;
   };
   analytics: {
     retentionDays: number;
@@ -216,6 +218,7 @@ const DEFAULTS: RuntimeConfig = {
     anonOpEdMaxWords: 1_500,
     dailyTokenPerCallCeilingTokens: 128_000,
     dailyTokenDefaultOutputCapTokens: 65_536,
+    dailyTokenBytesPerToken: 3.5,
   },
   analytics: {
     retentionDays: 90,
@@ -467,6 +470,7 @@ export function validateAndMerge(raw: unknown, defaults: RuntimeConfig): { confi
       anonOpEdMaxWords: vNum(sess.anonOpEdMaxWords, defaults.sessions.anonOpEdMaxWords, { min: 100, max: 1_500, integer: true }, 'sessions.anonOpEdMaxWords', errors),
       dailyTokenPerCallCeilingTokens: vNum(sess.dailyTokenPerCallCeilingTokens, defaults.sessions.dailyTokenPerCallCeilingTokens, { min: 1_000, max: 2_000_000, integer: true }, 'sessions.dailyTokenPerCallCeilingTokens', errors),
       dailyTokenDefaultOutputCapTokens: vNum(sess.dailyTokenDefaultOutputCapTokens, defaults.sessions.dailyTokenDefaultOutputCapTokens, { min: 256, max: 1_000_000, integer: true }, 'sessions.dailyTokenDefaultOutputCapTokens', errors),
+      dailyTokenBytesPerToken: vNum(sess.dailyTokenBytesPerToken, defaults.sessions.dailyTokenBytesPerToken, { min: 1, max: 8 }, 'sessions.dailyTokenBytesPerToken', errors),
     },
     analytics: {
       retentionDays: vNum(an.retentionDays, defaults.analytics.retentionDays, { min: 1, max: 3_650, integer: true }, 'analytics.retentionDays', errors),
