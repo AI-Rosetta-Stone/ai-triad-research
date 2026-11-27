@@ -62,8 +62,10 @@ function skipToTranscript(): void {
   first.focus({ preventScroll: true });
 }
 
-export function SynthesisTop({ top, debateId, findQuery, findCurrentIndex, onExport }: {
+export function SynthesisTop({ top, debateId, findQuery, findCurrentIndex, onExport, onDebateTopic }: {
   top: SynthesisTopData; debateId: string; findQuery: string; findCurrentIndex: number;
+  /** Opens the New Debate dialog on a question (t/824); the buttons are hidden without it. */
+  onDebateTopic?: (topic: string) => void;
   /** The page's export handler; "Export brief" exports the Markdown brief and is hidden without it. */
   onExport?: (format: string) => void;
 }) {
@@ -83,6 +85,7 @@ export function SynthesisTop({ top, debateId, findQuery, findCurrentIndex, onExp
         onToggleCollapsed={toggle}
         onSkip={skipToTranscript}
         onExportBrief={onExport ? () => onExport('markdown') : undefined}
+        onDebateTopic={onDebateTopic}
       />
     </div>
   );
