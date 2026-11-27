@@ -84,6 +84,18 @@ describe('linkPreferencesToDisagreements (t/808)', () => {
     expect('disagreement_id' in prefs[0]).toBe(false);
   });
 
+  it('two disagreements with identical points: a preference with that text stays unlinked, not linked to the first (t/822)', () => {
+    const x = [dis('Who should bear liability when a deployed model causes harm'), dis('Who should bear liability when a deployed model causes harm')];
+    assignDisagreementIds(x);
+    const prefs = [{ conflict: 'Who should bear liability when a deployed model causes harm' }];
+    linkPreferencesToDisagreements(prefs, x);
+    expect('disagreement_id' in prefs[0]).toBe(false);
+    // but a model-given id still picks the right one of the twins
+    const given = [{ conflict: 'Who should bear liability when a deployed model causes harm', disagreement_id: 'd2' }];
+    linkPreferencesToDisagreements(given, x);
+    expect(given[0].disagreement_id).toBe('d2');
+  });
+
   it('handles an old debate with no ids, no preferences, or malformed entries', () => {
     expect(linkPreferencesToDisagreements(undefined, undefined)).toEqual({ total: 0, kept: 0, matched: 0, unmatched: 0 });
     const prefs = [null, 'x', { conflict: 5 }] as unknown[];

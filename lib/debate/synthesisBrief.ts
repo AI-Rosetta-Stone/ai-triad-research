@@ -21,8 +21,10 @@ export interface BriefOptions {
   format?: 'markdown' | 'text';
 }
 
-/** `if_yes` / `if_no` per crux question: kept from the stored synthesis because the view model doesn't carry them. */
-type CruxDetails = ReadonlyMap<string, { ifYes?: string; ifNo?: string }>;
+/** `if_yes` / `if_no` per crux question, in stored order: kept from the stored synthesis because the view model doesn't carry
+ *  them. A list per question text so two cruxes with identical text each keep their own detail (t/822). */
+type CruxDetail = { ifYes?: string; ifNo?: string };
+type CruxDetails = ReadonlyMap<string, readonly CruxDetail[]>;
 
 export const BRIEF_ASSESSMENT = "(model's assessment)";
 
@@ -142,13 +144,21 @@ function writeDisputes(w: Writer, view: SynthesisView): void {
 }
 
 /** 6. Cruxes. */
+/** The next unused detail for this question text, in order. */
+function takeDetail(details: CruxDetails, question: string, taken: Map<string, number>): CruxDetail | undefined {
+  const n = taken.get(question) ?? 0;
+  taken.set(question, n + 1);
+  return details.get(question)?.[n];
+}
+
 function writeCruxes(w: Writer, view: SynthesisView, details: CruxDetails): void {
   if (view.cruxes.length === 0) return;
+  const taken = new Map<string, number>();
   w.heading('Cruxes');
   w.para('Answer one of these and a position should move.');
   for (const c of view.cruxes) {
     w.bullet(`${w.bold(c.n)}${c.typeLabel ? ` (${c.typeLabel})` : ''} ${c.question}`);
-    const d = details.get(c.question);
+    const d = takeDetail(details, c.question, taken);
     if (d?.ifYes) w.sub(`If yes, weakens: ${d.ifYes}`);
     if (d?.ifNo) w.sub(`If no, weakens: ${d.ifNo}`);
   }
@@ -183,15 +193,17 @@ export function synthesisBriefLines(view: SynthesisView, options: BriefOptions =
 }
 
 function cruxDetailsOf(synthesis: unknown): CruxDetails {
-  const out = new Map<string, { ifYes?: string; ifNo?: string }>();
+  const out = new Map<string, CruxDetail[]>();
   const list = (synthesis as { cruxes?: unknown } | null)?.cruxes;
   for (const c of Array.isArray(list) ? list : []) {
     const r = c as { question?: unknown; if_yes?: unknown; if_no?: unknown };
-    if (typeof r?.question !== 'string') continue;
-    out.set(r.question.trim(), {
+    if (typeof r?.question !== 'string' || r.question.trim() === '') continue;
+    const key = r.question.trim();
+    const detail: CruxDetail = {
       ifYes: typeof r.if_yes === 'string' && r.if_yes.trim() ? r.if_yes.trim() : undefined,
       ifNo: typeof r.if_no === 'string' && r.if_no.trim() ? r.if_no.trim() : undefined,
-    });
+    };
+    out.set(key, [...(out.get(key) ?? []), detail]);
   }
   return out;
 }

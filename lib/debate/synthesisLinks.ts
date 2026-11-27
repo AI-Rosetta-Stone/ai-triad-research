@@ -26,7 +26,9 @@ const isItem = (v: unknown): v is Item => !!v && typeof v === 'object' && !Array
 
 /**
  * Give every disagreement a unique string `id`. Keeps a valid, unique id already present; otherwise assigns
- * `d<n>` (n = 1-based position). Mutates the items; returns how many were assigned.
+ * the next free `d<n>`, counting up from 1 and skipping ids already in use (so with no existing ids it is the
+ * item's 1-based position, but an item after a kept id may get a different n). Mutates the items; returns how
+ * many were assigned.
  */
 export function assignDisagreementIds(disagreements: unknown): number {
   if (!Array.isArray(disagreements)) return 0;
