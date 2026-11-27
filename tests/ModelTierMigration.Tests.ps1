@@ -42,8 +42,6 @@ $script:MigratedSites = @(
         @{ Path = 'Public/Get-TopicFrequency.ps1';             Tier = 'basic';    Literal = 'gemini-3.5-flash-lite'; Count = 1 }
         @{ Path = 'Public/Invoke-PolicyRefinement.ps1';        Tier = 'basic';    Literal = 'gemini-3.5-flash-lite'; Count = 1 }
         @{ Path = 'Public/Invoke-AITDebate.ps1';               Tier = 'basic';    Literal = 'gemini-3.5-flash-lite'; Count = 1 }
-        @{ Path = 'Private/Invoke-DirectionalJudge.ps1';       Tier = 'advanced'; Literal = 'gemini-4-hydrogen'; Count = 1 }
-        @{ Path = 'Private/Invoke-PolarityGatePass.ps1';       Tier = 'advanced'; Literal = 'gemini-4-hydrogen'; Count = 1 }
     )
 
 BeforeAll {
@@ -76,5 +74,22 @@ Describe 'Phase-2 model-default migration (t/3572)' -Tag 'config' {
             $hits = ([regex]::Matches($content, [regex]::Escape($needle))).Count
             $hits | Should -Be $Count -Because "$Path should reference $needle $Count time(s)"
         }
+    }
+}
+
+Describe 'Research judges are pinned, not tier-following (t/781, Comp-Linguist)' -Tag 'config' {
+    # Invoke-DirectionalJudge and Invoke-PolarityGatePass are research instruments: their frozen gates were validated on
+    # gemini-3.1-pro-preview, so a change of the Advanced tier (Hydrogen, t/781) must not change the judge.
+    It '<Path> defaults to the literal gemini-3.1-pro-preview and does not use the Advanced tier lookup' -TestCases @(
+        @{ Path = 'Private/Invoke-DirectionalJudge.ps1' }
+        @{ Path = 'Private/Invoke-PolarityGatePass.ps1' }
+    ) {
+        $content = Get-Content -Raw -Path (Join-Path $script:AITriadRoot $Path)
+        $content | Should -Match '\$(Model|JudgeModel) = ''gemini-3\.1-pro-preview'''
+        $content | Should -Not -Match '\$(Model|JudgeModel) = \(Get-AITierModel'
+    }
+    It 'the pinned judge model is still registered in ai-models.json' {
+        $registry = Get-Content -Raw -Path (Join-Path $PSScriptRoot '..' 'ai-models.json') | ConvertFrom-Json
+        $registry.models.id | Should -Contain 'gemini-3.1-pro-preview'
     }
 }

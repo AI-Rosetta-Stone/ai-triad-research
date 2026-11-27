@@ -9,7 +9,7 @@ function Invoke-DirectionalJudge {
         The deberta engine (stage 1) over-flags `opposes` on the agency→loss claim
         pattern — it cannot infer *AI-gains-agency ⊨ humans-lose-oversight*, so it
         reads a capability claim as contradicting a loss-of-control proposition
-        (t/2896#1). This LLM judge (the advanced-tier Gemini model) makes the propositional
+        (t/2896#1). This LLM judge (gemini-3.1-pro-preview) makes the propositional
         discrimination deberta structurally can't, on ONLY the candidates deberta
         already flagged (cost-bounded to the tiny opposes subset).
 
@@ -30,7 +30,7 @@ function Invoke-DirectionalJudge {
     .PARAMETER Camp
         The camp the claim is attributed to (accelerationist / safetyist / skeptic).
     .PARAMETER Model
-        Judge model (default: the advanced Gemini tier from ai-models.json, gemini-4-hydrogen since t/781; it was gemini-3.1-pro-preview, the CL rec).
+        Judge model (default gemini-3.1-pro-preview, pinned: the CL rec, registered in ai-models.json). It deliberately does not follow the Advanced tier, so a change of tier does not change the judge (t/781).
     .PARAMETER Temperature
         Sampling temp (default 0.3 — see contract).
     .PARAMETER Draws
@@ -45,7 +45,7 @@ function Invoke-DirectionalJudge {
         [Parameter(Mandatory)][string]$Claim,
         [Parameter(Mandatory)][string]$NodeProp,
         [Parameter(Mandatory)][string]$Camp,
-        [string]$Model = (Get-AITierModel -Tier advanced),
+        [string]$Model = 'gemini-3.1-pro-preview',  # research judge, pinned (t/781, Comp-Linguist): its frozen gates were validated on this model, so it does not follow the Advanced tier
         [ValidateRange(0.0, 2.0)][double]$Temperature = 0.3,
         [ValidateRange(1, 9)][int]$Draws = 3
     )
