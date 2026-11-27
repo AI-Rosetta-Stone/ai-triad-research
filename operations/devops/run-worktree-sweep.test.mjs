@@ -156,3 +156,45 @@ test('run: a fallback sh is used, and the WARN saying so is printed', async () =
   assert.equal(code, 1, 'node cannot run the shell script, so the sweep is reported as failed');
   assert.ok(warns.some((w) => /sh is not on PATH; using Git for Windows' own at /.test(w) && w.includes(process.execPath)));
 });
+
+// ── t/718 step 1: the remote-branch pass (report only) ──
+
+async function runWithRemote(remotePass) {
+  const logs = [];
+  const restore = [mock.method(console, 'log', (l) => logs.push(String(l))), mock.method(console, 'error', () => {}), mock.method(console, 'warn', () => {})];
+  let code;
+  try {
+    code = await run({
+      reportOnly: true, currency: CURRENT, gitFn: (args) => (args[0] === 'show' ? 'same\n' : '.git'), readLocal: () => 'same\n',
+      sweep: () => ({ status: 0, stdout: `sweep-landed-worktrees: skip /c (c): PR OPEN, not merged\n${DONE_LINE}\n`, stderr: '' }), remotePass,
+    });
+  } finally { restore.forEach((m) => m.mock.restore()); }
+  return { code, logs, json: JSON.parse(logs.filter((l) => l.startsWith('{')).pop()) };
+}
+
+test('t/718: the remote-branch pass summary is printed, its counts go in the JSON line, and it adds no WARN', async () => {
+  const counts = { withoutPr: 3, ancestor: 1, patchEquivalent: 1, unmerged: 1, protected: 4 };
+  const r = await runWithRemote(() => ({ evaluated: true, lines: ['remote-branch: ancestor feat/t1-a tip=aaaaaaaaa pushed=2026-11-26 ticket=t/1'], summary: 'remote branches: 3 without a PR; 1 ancestor, 1 patch-equivalent, 1 unmerged; 4 protected (report only, nothing deleted)', counts }));
+  assert.equal(r.code, 0);
+  assert.ok(r.logs.some((l) => l.startsWith('run-worktree-sweep: remote branches: 3 without a PR;')));
+  assert.deepEqual(r.json.remoteBranches, { evaluated: true, ...counts });
+  assert.deepEqual(r.json.warnings, [], 'the pass raises no WARN, so the wrapper does not ping daily');
+});
+
+test('t/718: a remote pass that cannot evaluate, or that throws, never fails the sweep and says so', async () => {
+  const cannot = await runWithRemote(() => ({ evaluated: false, lines: [], summary: 'remote branches: could not evaluate (open PR list: rate limit); nothing listed as merged', counts: null }));
+  assert.equal(cannot.code, 0);
+  assert.equal(cannot.json.remoteBranches.evaluated, false);
+  assert.ok(cannot.logs.some((l) => /could not evaluate \(open PR list: rate limit\)/.test(l)));
+  const threw = await runWithRemote(() => { throw new Error('boom'); });
+  assert.equal(threw.code, 0, 'a crash in the pass is not a sweep failure');
+  assert.equal(threw.json.remoteBranches.evaluated, false);
+  assert.ok(threw.logs.some((l) => /could not evaluate \(boom\)/.test(l)));
+});
+
+test('t/718: without a remotePass (a test run) nothing remote is read; the CLI wires the real pass', async () => {
+  const none = await runWithRemote(null);
+  assert.equal(none.json.remoteBranches, null);
+  const src = readFileSync(new URL('./run-worktree-sweep.mjs', import.meta.url), 'utf8');
+  assert.match(src, /run\(\{ reportOnly: args\.includes\('--report-only'\), remotePass: \(\) => remoteBranchPass\(\) \}\)/);
+});
