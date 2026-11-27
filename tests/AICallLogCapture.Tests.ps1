@@ -125,7 +125,7 @@ Describe 'AI Call Log capture — Invoke-AIApi IoC logger (t/3242)' -Tag 'unit' 
         $logger = { param($rc, $st) $global:AclCap.Add([pscustomobject]@{ RetryCount = $rc; Status = $st }) }
         # -MaxRetries 1: since t/4078 a 500 is retried; one primary attempt makes the fallback serve call 2.
         Invoke-AIApi -Prompt 'hi' -Model 'gemini-3.5-flash-lite' -ApiKey 'fake' -MaxRetries 1 `
-            -FallbackModels @('gemini-3.7-flash') -CallLogger $logger -WarningAction SilentlyContinue | Out-Null
+            -FallbackModels @('gemini-3.8-flash') -CallLogger $logger -WarningAction SilentlyContinue | Out-Null
         $global:AclCap.Count     | Should -Be 2
         $global:AclCap[0].Status | Should -Be '500'   # primary
         $global:AclCap[1].Status | Should -Be '200'   # fallback

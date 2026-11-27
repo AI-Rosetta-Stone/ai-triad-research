@@ -30,7 +30,7 @@ function Invoke-DirectionalJudge {
     .PARAMETER Camp
         The camp the claim is attributed to (accelerationist / safetyist / skeptic).
     .PARAMETER Model
-        Judge model (default gemini-3.1-pro-preview — CL rec, registered in ai-models.json).
+        Judge model (default gemini-3.1-pro-preview, pinned: the CL rec, registered in ai-models.json). It deliberately does not follow the Advanced tier, so a change of tier does not change the judge (t/781).
     .PARAMETER Temperature
         Sampling temp (default 0.3 — see contract).
     .PARAMETER Draws
@@ -45,7 +45,7 @@ function Invoke-DirectionalJudge {
         [Parameter(Mandatory)][string]$Claim,
         [Parameter(Mandatory)][string]$NodeProp,
         [Parameter(Mandatory)][string]$Camp,
-        [string]$Model = (Get-AITierModel -Tier advanced),
+        [string]$Model = 'gemini-3.1-pro-preview',  # research judge, pinned (t/781, Comp-Linguist): its frozen gates were validated on this model, so it does not follow the Advanced tier
         [ValidateRange(0.0, 2.0)][double]$Temperature = 0.3,
         [ValidateRange(1, 9)][int]$Draws = 3
     )

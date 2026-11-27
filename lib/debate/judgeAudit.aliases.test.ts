@@ -14,11 +14,11 @@ describe('judgeAudit Gemini aliases', () => {
 
   it('gemini-flash is a different model from gemini-lite', () => {
     expect(resolveModelAlias('gemini-flash')).not.toBe(resolveModelAlias('gemini-lite'));
-    expect(resolveModelAlias('gemini-flash')).toBe('gemini-3.5-flash');
+    expect(resolveModelAlias('gemini-flash')).toBe('gemini-3.6-flash');
   });
 
   it('is case-insensitive and passes an unknown id through', () => {
-    expect(resolveModelAlias('Gemini-Flash')).toBe('gemini-3.5-flash');
+    expect(resolveModelAlias('Gemini-Flash')).toBe('gemini-3.6-flash');
     expect(resolveModelAlias('some-other-model')).toBe('some-other-model');
   });
 });

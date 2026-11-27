@@ -115,7 +115,7 @@ Describe 'AI Model Configuration' {
 
     It 'Model validation should work for known models' -Skip:(-not $HasDataRepo) {
         # Test via parameter validation on a real cmdlet (requires taxonomy data)
-        { Find-PolicyAction -Model 'gemini-3.7-flash' -DryRun -POV accelerationist -ErrorAction Stop } | Should -Not -Throw
+        { Find-PolicyAction -Model 'gemini-3.8-flash' -DryRun -POV accelerationist -ErrorAction Stop } | Should -Not -Throw
     }
 
     It 'Model validation should reject invalid models' {

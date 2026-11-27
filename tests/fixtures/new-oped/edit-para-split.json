@@ -6,7 +6,7 @@
       "kind": "essay",
       "prompt": "<<op-ed-generation-user @ oped/prompts>>\n{{AUTHOR_BIO}}=(none supplied — write a generic authority line the author can replace, e.g. \"[Author], [affiliation]\")\n{{GROUNDING_NODES}}=(none — argue from your camp voice and general knowledge)\n{{NEWS_HOOK}}=(none supplied — invent a plausible current news hook and make clear in the lede what timely event it assumes, so the author can verify it against real events before submitting)\n{{OUTLET_GUIDANCE}}=TPP guidance\n{{SITUATIONS}}=(none supplied)\n{{SOURCE_ACTOR_TYPE}}=\n{{SOURCE_AUTHOR}}=\n{{SOURCE_KEY_CLAIMS}}=(none extracted)\n{{SOURCE_MATERIAL}}=(no external source supplied — argue from the topic and general knowledge)\n{{SOURCE_RECOMMENDATIONS}}=\n{{SOURCE_STANCE}}=\n{{SOURCE_THESIS}}=\n{{STYLE_BODY_FORMAT}}=sections\n{{THESIS}}=(none supplied — derive a clear, arguable thesis that follows from your camp value hierarchy)\n{{TOPIC}}=x\n{{WORD_COUNT}}=1500",
       "system": "<<op-ed-generation-system @ oped/prompts>>\n{{OUTLET_GUIDANCE}}=TPP guidance\n{{POV_LABEL}}=Fixture Safetyist\n{{STYLE_AUDIENCE}}=policy experts\n{{STYLE_JARGON}}=precise\n{{STYLE_PARAGRAPH}}=up to 120\n{{STYLE_READING_LEVEL}}=grade 13\n{{STYLE_SENTENCE}}=disciplined\n{{VOICE_BLOCK}}=PERSONALITY: a careful, evidence-first fixture voice\nDISPOSITION: cautious\nRHETORICAL STYLE: plain and direct\nREASONING MODE: precautionary\nPREFERRED EVIDENCE: incident reports\nSIGNATURE MOVE: names the irreversible harm\n\nPROSE STYLE: short sentences.\n\nVOICE HYGIENE: no hedging.\n\nVALUE HIERARCHY (in priority order):\n  1. safety\n  2. accountability\n\nEPISTEMIC STANCE:\n  - uncertainty favors caution\n\nANTI-PATTERNS (never do these):\n  - doom without a remedy\n  - jargon\n{{WORD_COUNT}}=1500",
-      "model": "gemini-3.7-flash",
+      "model": "gemini-3.8-flash",
       "temperature": 0.8,
       "maxTokens": 9500,
       "jsonMode": true,
@@ -42,7 +42,7 @@
       "kind": "edit",
       "prompt": "<<op-ed-readability-edit @ oped/prompts>>\n{{BODY}}=Frontier laboratories keep shipping larger systems while regulators wait for evidence that only arrives after the damage is done and the public is left to absorb the costs of a gamble it never agreed to take on behalf of companies that profit from speed.\n\nWe should require independent audits before release.\n{{FK_MAX}}=8\n{{MAX_PARA_WORDS}}=40\n{{MAX_SENT_WORDS}}=20\n{{STYLE_JARGON}}=precise\n{{STYLE_PARAGRAPH}}=up to 120\n{{STYLE_SENTENCE}}=disciplined\n{{VIOLATIONS}}=Flesch-Kincaid grade: 13.8 (target: no higher than 8)\nLongest paragraph: 44 words (target: at most ~40 words)\nLongest sentence: 44 words (target: no sentence over 20 words)",
       "system": null,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-3.8-flash",
       "temperature": 0.3,
       "maxTokens": 9500,
       "jsonMode": true,
@@ -69,7 +69,7 @@
   ],
   "warnings": [],
   "verbose": [
-    "Generating op-ed: pov='safetyist' outlet='TechPolicyPress' words=1500 model='gemini-3.7-flash' temp=0.8"
+    "Generating op-ed: pov='safetyist' outlet='TechPolicyPress' words=1500 model='gemini-3.8-flash' temp=0.8"
   ],
   "error": null,
   "output": {
@@ -79,7 +79,7 @@
     "WordCount": 56,
     "Pov": "safetyist",
     "Outlet": "TechPolicyPress",
-    "Model": "gemini-3.7-flash",
+    "Model": "gemini-3.8-flash",
     "Backend": "gemini",
     "Grounding": [],
     "StanceRelationship": "rebut",

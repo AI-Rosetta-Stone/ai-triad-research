@@ -10,7 +10,7 @@ const MODEL_ALIASES: Record<string, string> = {
   sonnet: 'claude-sonnet-4-6',
   gemini: DEFAULT_MODEL,
   // One tier above Lite: a cross-judge audit must not compare DEFAULT_MODEL with itself (t/781).
-  'gemini-flash': 'gemini-3.5-flash',
+  'gemini-flash': 'gemini-3.6-flash',
   'gemini-lite': DEFAULT_MODEL,
   groq: 'groq-openai-gpt-oss-120b',
   llama: 'groq-openai-gpt-oss-120b',

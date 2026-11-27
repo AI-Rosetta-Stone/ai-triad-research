@@ -22,7 +22,7 @@ Describe 'Test-AIBackendHealth' -Tag 'enrichment' {
     Context 'Single backend — ok' {
         BeforeEach {
             Mock Invoke-AIApi -ModuleName AITriad {
-                [PSCustomObject]@{ Text = 'pong'; Backend = 'gemini'; Model = 'gemini-3.7-flash'; Truncated = $false; Usage = $null; RawResponse = $null }
+                [PSCustomObject]@{ Text = 'pong'; Backend = 'gemini'; Model = 'gemini-3.8-flash'; Truncated = $false; Usage = $null; RawResponse = $null }
             }
         }
 

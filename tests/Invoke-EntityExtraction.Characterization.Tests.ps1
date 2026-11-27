@@ -115,7 +115,7 @@ $script:Scenarios = @(
        Responses = @{ 'node-1' = $script:OneMint['node-1']; 'node-2' = @{ Model = 'stub'; Text = '{"proposals":[],"org_mentions":[]}' } }
        Params = @{ MaxNodes = 2 } }
     @{ Name = 'all-failed-no-write'; Sei = $script:OneNodeSei; Responses = @{ 'node-1' = @{ Throw = 'backend down' } } }
-    @{ Name = 'path-overrides'; Sei = $script:OneNodeSei; Responses = $script:OneMint; Overrides = $true; Params = @{ Model = 'gemini-3.7-flash' } }
+    @{ Name = 'path-overrides'; Sei = $script:OneNodeSei; Responses = $script:OneMint; Overrides = $true; Params = @{ Model = 'gemini-3.8-flash' } }
     @{ Name = 'batch-21'; Sei = $script:OneNodeSei; Responses = $script:Batch21 }
     @{ Name = 'parallel'; Parallel = $true; Params = @{ Concurrency = 2 }
        Sei = [ordered]@{ 'node-1' = @{ facts = @(@{ claim = 'One'; doc_id = 'doc-1' }) }; 'node-2' = @{ facts = @(@{ claim = 'Two'; doc_id = 'doc-2' }) }
