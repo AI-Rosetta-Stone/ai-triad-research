@@ -87,7 +87,9 @@ jobs:
       - name: Checkout PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
-          ref: ${{ github.head_ref }}
+          # t/799: by SHA, not branch NAME. `github.head_ref` is the branch tip at run time, so a writer's later push (or a
+          # re-run of this event) would check out a different tree from the one the event saw. The SHA is immutable per event.
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0            # need base to diff what the PR changed
           persist-credentials: false
 
