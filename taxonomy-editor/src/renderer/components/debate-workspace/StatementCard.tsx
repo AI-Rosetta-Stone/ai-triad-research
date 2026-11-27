@@ -48,7 +48,7 @@ import {
 import { StatementSteelmans } from '../shared/Steelman';
 import { useDiagnoseEntry } from './useDiagnoseEntry';
 import { api } from '@bridge';
-import { ConcludingSections } from './SynthesisSections';
+import { ConcludingBody } from './SynthesisPanel';
 
 /** Remark pipeline for debate transcript text: GFM + POV colorization + ID-token ref links (t/1776). */
 const DEBATE_REMARK_PLUGINS = [remarkGfm, remarkColorizePov, remarkLinkifyRefs];
@@ -835,7 +835,7 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
       return <HighlightedText text={displayContent} query={findQuery} matchOffset={matchOffset} currentIndex={findCurrentIndex} />;
     }
     if (entry.type === 'concluding') {
-      return <ConcludingSections content={displayContent} mdComponents={mdComponents} />;
+      return <ConcludingBody entry={entry} content={displayContent} mdComponents={mdComponents} />;
     }
     if (structured) return <StructuredBrief claim={structured.claim} points={structured.points} />;
     return <Markdown remarkPlugins={DEBATE_REMARK_PLUGINS} components={mdComponents}>{fixMarkdownLinks(displayContent)}</Markdown>;
