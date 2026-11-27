@@ -233,17 +233,34 @@ function readPrefs(v: unknown): Pref[] {
   return out;
 }
 
-export function buildSynthesisView(input: BuildSynthesisInput): SynthesisView {
-  const s: Rec = isRec(input.synthesis) ? input.synthesis : {};
-  const debaters = input.debaters.filter(d => d in POVER_INFO && d !== 'user').map(campRef);
-  const claims = claimCamps(s.argument_map);
-  const unreadable = new Set(arr(s.unreadable_lists).filter((k): k is string => typeof k === 'string'));
-  const tr: Rec = isRec(s.topic_resolution) ? s.topic_resolution : {};
+function disputeFromRaw(d: Rec, pref: Pref | null, claims: Map<string, string>, debaters: CampRef[]): DisputeCardView {
+  const rawType = str(d.type);
+  const key = typeKeyOf(rawType);
+  const layer = str(d.bdi_layer)?.toLowerCase();
+  const verdict: DisputeVerdict = pref ? resolveVerdict(pref.prevails, claims, debaters) : { kind: 'none' };
+  return {
+    n: '',
+    id: str(d.id) ?? undefined,
+    point: str(d.point) as string,
+    type: rawType ? { label: key ? TYPE_LABEL[key] : rawType, raw: rawType, known: key !== null, key: key ?? undefined } : null,
+    about: layer ? BDI_ABOUT[layer] ?? null : null,
+    verdict,
+    why: pref ? whyLine(verdict, pref.criterion) : null,
+    rationale: pref?.rationale ?? null,
+    whatWouldChange: pref?.change ?? null,
+    resolvability: str(d.resolvability),
+    positions: arr(d.positions).filter(isRec)
+      .map(p => ({ camp: campRef(str(p.pover) ?? 'unknown'), stance: str(p.stance) ?? '' }))
+      .filter(p => p.stance),
+    unmatched: false,
+  };
+}
 
-  // Disputes + the preference join (id first, then text; unmatched preferences keep their own card).
+/** Disputes with the preference join (id first, then text); a preference that matches no
+ *  disagreement keeps its own card at the end, never dropped. Numbers them D1…Dn. */
+function buildDisputes(s: Rec, claims: Map<string, string>, debaters: CampRef[]): DisputeCardView[] {
   const prefs = readPrefs(s.preferences);
   const used = new Set<number>();
-  const rawDisputes = arr(s.areas_of_disagreement).filter(isRec).filter(d => str(d.point));
   const findPref = (d: Rec): number => {
     const id = str(d.id);
     const point = str(d.point) as string;
@@ -253,33 +270,11 @@ export function buildSynthesisView(input: BuildSynthesisInput): SynthesisView {
     }
     return prefs.findIndex((p, i) => !used.has(i) && !(p.disagreementId && id) && textMatches(p.conflict, point));
   };
-
-  const disputes: DisputeCardView[] = rawDisputes.map(d => {
+  const disputes = arr(s.areas_of_disagreement).filter(isRec).filter(d => str(d.point)).map(d => {
     const pi = findPref(d);
-    const pref = pi >= 0 ? prefs[pi] : null;
     if (pi >= 0) used.add(pi);
-    const rawType = str(d.type);
-    const key = typeKeyOf(rawType);
-    const layer = str(d.bdi_layer)?.toLowerCase();
-    const verdict: DisputeVerdict = pref ? resolveVerdict(pref.prevails, claims, debaters) : { kind: 'none' };
-    return {
-      n: '',
-      id: str(d.id) ?? undefined,
-      point: str(d.point) as string,
-      type: rawType ? { label: key ? TYPE_LABEL[key] : rawType, raw: rawType, known: key !== null, key: key ?? undefined } : null,
-      about: layer ? BDI_ABOUT[layer] ?? null : null,
-      verdict,
-      why: pref ? whyLine(verdict, pref.criterion) : null,
-      rationale: pref?.rationale ?? null,
-      whatWouldChange: pref?.change ?? null,
-      resolvability: str(d.resolvability),
-      positions: arr(d.positions).filter(isRec)
-        .map(p => ({ camp: campRef(str(p.pover) ?? 'unknown'), stance: str(p.stance) ?? '' }))
-        .filter(p => p.stance),
-      unmatched: false,
-    };
+    return disputeFromRaw(d, pi >= 0 ? prefs[pi] : null, claims, debaters);
   });
-
   prefs.forEach((p, i) => {
     if (used.has(i)) return;
     const verdict = resolveVerdict(p.prevails, claims, debaters);
@@ -290,102 +285,132 @@ export function buildSynthesisView(input: BuildSynthesisInput): SynthesisView {
     });
   });
   disputes.forEach((d, i) => { d.n = `D${i + 1}`; });
+  return disputes;
+}
 
-  // Outcome strip.
-  const pending = input.pending === true;
-  const segments: StripSegment[] = disputes.map(d => ({
-    n: d.n,
-    outcome: !pending && d.verdict.kind === 'camp' ? 'camp' : 'unresolved',
-    camp: !pending && d.verdict.kind === 'camp' ? d.verdict.camp : undefined,
-    noVerdict: d.verdict.kind === 'none',
-  }));
-  const campCounts = new Map<string, number>();
-  debaters.forEach(c => campCounts.set(c.id, 0));
-  const unresolvedCount = disputes.filter(d => d.verdict.kind === 'unresolved').length;
-  const noVerdictCount = disputes.filter(d => d.verdict.kind === 'none').length;
-  for (const sg of segments) if (sg.camp) campCounts.set(sg.camp.id, (campCounts.get(sg.camp.id) ?? 0) + 1);
+function outcomeText(d: DisputeCardView, pending: boolean): string {
+  if (pending) return 'verdict pending';
+  if (d.verdict.kind === 'camp') return `${d.verdict.camp?.label} stronger`;
+  return d.verdict.kind === 'none' ? 'no verdict' : 'unresolved';
+}
+
+function buildStrip(disputes: DisputeCardView[], debaters: CampRef[], pending: boolean): SynthesisView['strip'] {
+  if (disputes.length === 0) return null;
+  const segments: StripSegment[] = disputes.map(d => {
+    const camp = !pending && d.verdict.kind === 'camp' ? d.verdict.camp : undefined;
+    return { n: d.n, outcome: camp ? 'camp' : 'unresolved', camp, noVerdict: d.verdict.kind === 'none' };
+  });
+  const counts = new Map<string, number>(debaters.map(c => [c.id, 0]));
+  for (const sg of segments) if (sg.camp) counts.set(sg.camp.id, (counts.get(sg.camp.id) ?? 0) + 1);
+  const unresolved = disputes.filter(d => d.verdict.kind === 'unresolved').length;
+  const noVerdict = disputes.filter(d => d.verdict.kind === 'none').length;
   const legend: StripLegendItem[] = [
-    ...[...campCounts.entries()].map(([id, count]) => ({ key: id, label: campRef(id).label, count })),
-    { key: 'unresolved', label: 'Unresolved', count: pending ? disputes.length : unresolvedCount },
+    ...[...counts.entries()].map(([id, count]) => ({ key: id, label: campRef(id).label, count })),
+    { key: 'unresolved', label: 'Unresolved', count: pending ? disputes.length : unresolved },
   ];
-  if (!pending && noVerdictCount > 0) legend.push({ key: 'none', label: 'No verdict', count: noVerdictCount });
-  const outcomeText = (d: DisputeCardView): string =>
-    pending ? 'verdict pending'
-      : d.verdict.kind === 'camp' ? `${d.verdict.camp?.label} stronger`
-        : d.verdict.kind === 'none' ? 'no verdict' : 'unresolved';
-  const strip = disputes.length === 0 ? null : {
+  if (!pending && noVerdict > 0) legend.push({ key: 'none', label: 'No verdict', count: noVerdict });
+  return {
     segments,
     legend,
     heading: pending ? 'Verdicts pending' : 'Which camp made the stronger case (model’s assessment)',
-    ariaLabel: disputes.map(d => `${d.n}: ${outcomeText(d)}.`).join(' '),
+    ariaLabel: disputes.map(d => `${d.n}: ${outcomeText(d, pending)}.`).join(' '),
     pending,
   };
+}
 
-  // Bottom line.
+function templateParagraph(disputes: DisputeCardView[]): string | null {
+  if (disputes.length === 0) return null;
+  const decided = disputes.filter(d => d.verdict.kind === 'camp').length;
+  const unresolved = disputes.filter(d => d.verdict.kind === 'unresolved').length;
+  const none = disputes.filter(d => d.verdict.kind === 'none').length;
+  const parts = [`The camps stated a stronger case on ${decided} of ${disputes.length} disputes`];
+  if (unresolved) parts.push(`${unresolved} ${unresolved === 1 ? 'is' : 'are'} unresolved`);
+  if (none) parts.push(`${none} ${none === 1 ? 'has' : 'have'} no verdict`);
+  return `${parts.join('; ')}.`;
+}
+
+const TYPE_ORDER: DisputeTypeKey[] = ['definitional', 'empirical', 'values'];
+
+function buildBottomLine(tr: Rec, disputes: DisputeCardView[]): SynthesisView['bottomLine'] {
   const landed = str(tr.where_it_landed);
-  let paragraph: string | null = null;
-  let more: string | null = null;
-  let fromTemplate = false;
-  if (landed) {
-    const sentences = splitSentences(landed);
-    paragraph = sentences.slice(0, 3).join(' ');
-    more = sentences.length > 3 ? sentences.slice(3).join(' ') : null;
-  } else if (disputes.length > 0) {
-    const decided = disputes.filter(d => d.verdict.kind === 'camp').length;
-    const parts = [`The camps stated a stronger case on ${decided} of ${disputes.length} disputes`];
-    if (unresolvedCount) parts.push(`${unresolvedCount} ${unresolvedCount === 1 ? 'is' : 'are'} unresolved`);
-    if (noVerdictCount) parts.push(`${noVerdictCount} ${noVerdictCount === 1 ? 'has' : 'have'} no verdict`);
-    paragraph = `${parts.join('; ')}.`;
-    fromTemplate = true;
-  }
+  const sentences = landed ? splitSentences(landed) : [];
+  const ofType = (k: DisputeTypeKey): DisputeCardView[] => disputes.filter(d => d.type?.key === k);
+  return {
+    paragraph: landed ? sentences.slice(0, 3).join(' ') : templateParagraph(disputes),
+    more: sentences.length > 3 ? sentences.slice(3).join(' ') : null,
+    fromTemplate: !landed && disputes.length > 0,
+    decisiveCrux: str(tr.what_would_resolve_it),
+    settle: TYPE_ORDER.filter(k => ofType(k).length > 0)
+      .map(k => ({ key: k, type: TYPE_LABEL[k], action: SETTLE_ACTION[k], ids: ofType(k).map(d => d.n) })),
+  };
+}
 
-  const idsByType = (k: DisputeTypeKey): DisputeCardView[] => disputes.filter(d => d.type?.key === k);
-  const order: DisputeTypeKey[] = ['definitional', 'empirical', 'values'];
-  const settle: SettleRow[] = order
-    .filter(k => idsByType(k).length > 0)
-    .map(k => ({ key: k, type: TYPE_LABEL[k], action: SETTLE_ACTION[k], ids: idsByType(k).map(d => d.n) }));
-
-  // Next moves: rule table only (spec §7), cheapest first.
-  const nextMoves: NextMoveView[] = order.filter(k => idsByType(k).length > 0).map(k => {
-    const ds = idsByType(k);
-    const first = ds[0];
+/** Next moves: rule table only (spec §7), cheapest first. */
+function buildNextMoves(disputes: DisputeCardView[]): NextMoveView[] {
+  const moves: NextMoveView[] = [];
+  for (const kind of TYPE_ORDER) {
+    const ds = disputes.filter(d => d.type?.key === kind);
+    if (ds.length === 0) continue;
+    const term = shorten(ds[0].point);
     const ids = ds.map(d => d.n).join(', ');
-    const term = shorten(first.point);
     const body = ds.map(d => d.whatWouldChange ?? d.resolvability?.replace(/_/g, ' ') ?? null).find(Boolean) ?? null;
-    return k === 'definitional'
-      ? { kind: k, title: `Define ${term}`, chip: `Settles ${ids}`, body }
-      : k === 'empirical'
-        ? { kind: k, title: `Find a way to measure ${term}`, chip: `Bears on ${ids}`, body }
-        : { kind: k, title: `Name the trade-off on ${term}`, chip: `Answers ${ids}`, body };
-  });
+    const [title, chip] = kind === 'definitional' ? [`Define ${term}`, `Settles ${ids}`]
+      : kind === 'empirical' ? [`Find a way to measure ${term}`, `Bears on ${ids}`]
+        : [`Name the trade-off on ${term}`, `Answers ${ids}`];
+    moves.push({ kind, title, chip, body });
+  }
+  return moves;
+}
 
-  // Plain lists.
-  const agreementItems = arr(s.areas_of_agreement).map(a => (isRec(a) ? str(a.point) : str(a))).filter((x): x is string => !!x);
-  const cruxes = arr(s.cruxes).filter(isRec).filter(c => str(c.question)).map((c, i) => {
+function buildCruxes(s: Rec): SynthesisView['cruxes'] {
+  return arr(s.cruxes).filter(isRec).filter(c => str(c.question)).map((c, i) => {
     const raw = str(c.type);
     const key = typeKeyOf(raw);
     return { n: `C${i + 1}`, type: key, typeLabel: raw ? (key ? TYPE_LABEL[key] : raw) : null, rawType: raw, question: str(c.question) as string };
   });
-  const openQuestions = arr(s.unresolved_questions).map(q => (isRec(q) ? str(q.question) ?? str(q.text) : str(q)))
-    .filter((x): x is string => !!x).map((text, i) => ({ id: `Q${i + 1}`, text }));
+}
 
-  const agreementsUnreadable = agreementItems.length === 0 && unreadable.has('areas_of_agreement');
+function textOf(q: unknown): string | null {
+  return isRec(q) ? str(q.question) ?? str(q.text) : str(q);
+}
+
+function buildNav(c: { agreements: number; agreementsUnreadable: boolean; disputes: number; cruxes: number; questions: number }): SynthesisView['nav'] {
   const nav: SynthesisView['nav'] = [];
-  if (agreementItems.length || agreementsUnreadable) nav.push({ key: 'common-ground', label: 'Common ground', count: agreementItems.length });
-  if (disputes.length) nav.push({ key: 'disputes', label: 'Disputes', count: disputes.length });
-  if (cruxes.length) nav.push({ key: 'cruxes', label: 'Cruxes', count: cruxes.length });
-  if (openQuestions.length) nav.push({ key: 'open-questions', label: 'Open questions', count: openQuestions.length });
+  if (c.agreements || c.agreementsUnreadable) nav.push({ key: 'common-ground', label: 'Common ground', count: c.agreements });
+  if (c.disputes) nav.push({ key: 'disputes', label: 'Disputes', count: c.disputes });
+  if (c.cruxes) nav.push({ key: 'cruxes', label: 'Cruxes', count: c.cruxes });
+  if (c.questions) nav.push({ key: 'open-questions', label: 'Open questions', count: c.questions });
+  return nav;
+}
+
+export function buildSynthesisView(input: BuildSynthesisInput): SynthesisView {
+  const s: Rec = isRec(input.synthesis) ? input.synthesis : {};
+  const debaters = input.debaters.filter(d => d in POVER_INFO && d !== 'user').map(campRef);
+  const tr: Rec = isRec(s.topic_resolution) ? s.topic_resolution : {};
+  const disputes = buildDisputes(s, claimCamps(s.argument_map), debaters);
+  const agreementItems = arr(s.areas_of_agreement).map(textOf2).filter((x): x is string => !!x);
+  const agreementsUnreadable = agreementItems.length === 0 && arr(s.unreadable_lists).includes('areas_of_agreement');
+  const cruxes = buildCruxes(s);
+  const openQuestions = arr(s.unresolved_questions).map(textOf).filter((x): x is string => !!x)
+    .map((text, i) => ({ id: `Q${i + 1}`, text }));
 
   return {
     title: str(tr.restated_question) ?? input.topic ?? 'Debate synthesis',
     debaters,
-    bottomLine: { paragraph, more, fromTemplate, decisiveCrux: str(tr.what_would_resolve_it), settle },
-    strip,
-    nextMoves,
+    bottomLine: buildBottomLine(tr, disputes),
+    strip: buildStrip(disputes, debaters, input.pending === true),
+    nextMoves: buildNextMoves(disputes),
     agreements: { items: agreementItems, unreadable: agreementsUnreadable },
     disputes,
     cruxes,
     openQuestions,
-    nav,
+    nav: buildNav({
+      agreements: agreementItems.length, agreementsUnreadable, disputes: disputes.length,
+      cruxes: cruxes.length, questions: openQuestions.length,
+    }),
   };
+}
+
+function textOf2(a: unknown): string | null {
+  return isRec(a) ? str(a.point) : str(a);
 }
