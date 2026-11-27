@@ -15,6 +15,22 @@
     # Staging drill: measure activate-to-warm without shifting traffic, then deactivate again.
     ./operations/devops/Invoke-GatedRollback.ps1 -AppName taxonomy-editor-staging -RevisionName <rev> -MeasureOnly -DeactivateAfterMeasure
 
+.PARAMETER DeactivatePrevious
+    t/588. After a VERIFIED shift, deactivate the revision(s) that carried traffic before it, each behind the fresh,
+    double-sourced traffic guard. Default OFF.
+    USE IT for a drill or a PLANNED rollback.
+    DO NOT USE IT after an INCIDENT rollback (DeployAzure, p/227#53): the revision rolled away from is the suspect one, and
+    deactivating it ends its exec access and its live replica state, which forensics may need. (Its logs stay in Log Analytics,
+    and its revision definition stays and can be reactivated, but the live replica does not come back.) After an incident, leave
+    it active at weight 0 until the investigation says otherwise.
+    Each deactivation is recorded: a 'deactivate-previous: deactivated ...' line, a summary line (also appended to the GitHub step
+    summary when run in a workflow), and PreviousDeactivated / PreviousNotDeactivated on the returned object. A failure is a WARN
+    and never undoes the shift or changes the exit code.
+
+.EXAMPLE
+    # Planned rollback on staging, then retire the revision it left (NOT for an incident):
+    ./operations/devops/Invoke-GatedRollback.ps1 -AppName taxonomy-editor-staging -RevisionName <rev> -DeactivatePrevious
+
 .NOTES
     Exits 0 only on 'shifted' + verified, 'already-serving' + verified (t/513: the target already had
     100% and passed every gate), or 'measured'. A refusal exits 1 and changes no traffic.
@@ -28,6 +44,10 @@ param(
     [string] $ResourceGroup = 'ai-triad',
     [switch] $MeasureOnly,
     [switch] $DeactivateAfterMeasure,
+    # t/588: after a VERIFIED shift, deactivate the revision rolled away from (guarded; default OFF). For a drill or a PLANNED
+    # rollback; NOT after an INCIDENT rollback: the revision rolled away from is the suspect one, and deactivating it ends its exec
+    # and live replica state that forensics may need (see .PARAMETER DeactivatePrevious).
+    [switch] $DeactivatePrevious,
     [int] $ProvisionTimeoutSec = 300,
     [int] $WarmTimeoutSec = 420,
     [int] $PollIntervalSec = 10
@@ -37,6 +57,20 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '..' '..' 'scripts' 'AITriad' 'AITriad.psm1') -Force
 
 $appUrl = 'https://' + (az containerapp show -n $AppName -g $ResourceGroup --query 'properties.configuration.ingress.fqdn' -o tsv)
+
+# t/588: only when asked, read which revisions carry traffic BEFORE the shift (after it they would all read 0). An unreadable read
+# deactivates nothing.
+$previousRevisions = @()
+$previousReadFailed = $false
+# $ErrorActionPreference is 'Stop' here, so the read goes through Get-PreviousRevisionsSafely: nothing it throws can stop the rollback (SO p/136#135).
+if ($DeactivatePrevious) {
+    $pre = Get-PreviousRevisionsSafely -TargetRevision $RevisionName -Read {
+        $names = az containerapp revision list -n $AppName -g $ResourceGroup --query '[?properties.trafficWeight > `0`].name' -o tsv 2>$null
+        @{ ExitCode = $LASTEXITCODE; Names = $names }
+    }
+    $previousRevisions = @($pre.Revisions)
+    $previousReadFailed = [bool]$pre.Failed
+}
 
 $r = Invoke-GatedRollbackCore -RevisionName $RevisionName -MeasureOnly:$MeasureOnly `
     -ProvisionTimeoutSec $ProvisionTimeoutSec -WarmTimeoutSec $WarmTimeoutSec -PollIntervalSec $PollIntervalSec `
@@ -101,6 +135,46 @@ if ($r.Action -eq 'measured' -and $DeactivateAfterMeasure) {
     }
 }
 
+# t/588: after a VERIFIED shift, deactivate the revision(s) rolled away from. Default off. Each one goes through the same fresh,
+# double-sourced traffic guard as the deploy's cleanup; a failure is a WARN and never undoes the shift (exit code unchanged).
+# The WHOLE block runs inside Invoke-PostShiftStepSafely: with $ErrorActionPreference = 'Stop' an exception from the dot-source, the step summary
+# append or Add-Member would otherwise fail the script after the shift (SO p/136#135). Any exception is a WARN with its message.
+if ($DeactivatePrevious) {
+  Invoke-PostShiftStepSafely -Name 'deactivate-previous' -Block {
+    $dec = Get-DeactivatePreviousDecision -Result $r -PreviousRevisions $previousRevisions -TargetRevision $RevisionName -ReadFailed:$previousReadFailed -DeactivatePrevious:$DeactivatePrevious
+    if ($dec.Skip) {
+        Write-Host "  deactivate-previous: NOT deactivating: $($dec.Reason)"
+    } else {
+        . (Join-Path $PSScriptRoot 'Get-RevisionDeactivationVerdict.ps1')
+        $deactResults = @()
+        foreach ($prevRev in $dec.Revisions) {
+            $d = Invoke-GuardedDeactivate -RevisionName $prevRev -GetVerdict {
+                param($Rev)
+                $raw = az containerapp revision show -n $AppName -g $ResourceGroup --revision $Rev -o json | ConvertFrom-Json
+                $app = az containerapp show -n $AppName -g $ResourceGroup -o json | ConvertFrom-Json
+                $entries = if ($app.properties.configuration.ingress.PSObject.Properties['traffic']) { @($app.properties.configuration.ingress.traffic) } else { $null }
+                $ingress = Get-IngressTrafficWeightForRevision -RevisionName $Rev -TrafficEntries $entries -LatestRevisionName $app.properties.latestRevisionName
+                $weight = if ($raw.properties.PSObject.Properties['trafficWeight']) { $raw.properties.trafficWeight } else { $null }
+                Get-RevisionDeactivationVerdict -RevisionName $Rev -TrafficWeight $weight -Active ([bool]$raw.properties.active) `
+                    -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic -ServingRevisionName $RevisionName
+            } -Deactivate {
+                param($Rev)
+                az containerapp revision deactivate -n $AppName -g $ResourceGroup --revision $Rev -o none
+                if ($LASTEXITCODE -ne 0) { throw "az containerapp revision deactivate exited $LASTEXITCODE" }
+            }
+            $deactResults += $d
+            if ($d.Warning) { Write-Warning "WARN: deactivate-previous: '$prevRev' was NOT deactivated: $($d.Warning). The shift stands; deactivate it by hand when ready." }
+        }
+        # The record: one line per revision plus a summary, printed, appended to the GitHub step summary when there is one, and kept on the
+        # returned object (PreviousDeactivated / PreviousNotDeactivated). t/588 (DeployAzure p/227#53).
+        $rec = Format-DeactivatePreviousRecord -Results $deactResults
+        foreach ($line in $rec.Lines) { Write-Host "  $line" }
+        if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ($rec.Lines -join [Environment]::NewLine) }
+        $r | Add-Member -NotePropertyName PreviousDeactivated -NotePropertyValue @($rec.Deactivated) -Force
+        $r | Add-Member -NotePropertyName PreviousNotDeactivated -NotePropertyValue @($rec.NotDeactivated) -Force
+    }
+  }
+}
+
 $r
-if ($r.Action -eq 'measured' -or ($r.Action -in @('shifted', 'already-serving') -and $r.Verified)) { exit 0 }
-exit 1
+exit (Get-GatedRollbackExitCode -Result $r)

@@ -67,6 +67,145 @@ function Get-DrillDeactivateDecision {
     @{ Skip = $false; Reason = 'the drill activated it, so it deactivates it again (subject to the traffic guard)' }
 }
 
+<#
+.SYNOPSIS
+    t/588: whether -DeactivatePrevious may act after a gated rollback, and on which revisions.
+.DESCRIPTION
+    After a VERIFIED shift, the revision rolled away from keeps answering on its own URL until someone deactivates it
+    (prod: 77 s on 2026-11-24, t/501). -DeactivatePrevious deactivates it, but only when: the switch was given (default
+    off, so nothing changes unless asked); the run ended 'shifted' or 'already-serving' AND verified; the previous
+    revisions carrying traffic were READ before the shift (an unreadable read deactivates nothing). The target itself is
+    never in the list. Each revision still goes through the traffic guard (Invoke-GuardedDeactivate). Returns
+    @{ Skip = bool; Reason = string; Revisions = string[] }.
+#>
+function Get-DeactivatePreviousDecision {
+    param(
+        [Parameter(Mandatory)] $Result,
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]] $PreviousRevisions,
+        [string] $TargetRevision,
+        [switch] $ReadFailed,
+        [switch] $DeactivatePrevious
+    )
+    if (-not $DeactivatePrevious) { return @{ Skip = $true; Reason = '-DeactivatePrevious not given'; Revisions = @() } }
+    if ($Result.Action -notin @('shifted', 'already-serving') -or $Result.Verified -ne $true) {
+        return @{ Skip = $true; Reason = "the run ended '$($Result.Action)' (verified: $($Result.Verified)), not a verified shift"; Revisions = @() }
+    }
+    if ($ReadFailed) { return @{ Skip = $true; Reason = 'the revisions carrying traffic before the shift could not be read, so nothing is deactivated'; Revisions = @() } }
+    $list = @($PreviousRevisions | Where-Object { $_ -and $_ -ne $TargetRevision } | Select-Object -Unique)
+    if ($list.Count -eq 0) { return @{ Skip = $true; Reason = 'no other revision carried traffic before the shift'; Revisions = @() } }
+    @{ Skip = $false; Reason = 'a verified shift left these revisions without traffic (each is still checked by the traffic guard)'; Revisions = $list }
+}
+
+<#
+.SYNOPSIS
+    t/588: deactivate ONE revision only if a fresh, double-sourced traffic guard says so; a failure is a WARN, never a rollback of the rollback.
+.DESCRIPTION
+    GetVerdict (param($RevisionName)) returns the Get-RevisionDeactivationVerdict result from fresh reads (the revision's own weight AND
+    the ingress traffic config, the t/4242 guard); Deactivate (param($RevisionName)) throws on failure. Neither a guard that cannot be read
+    nor a failed deactivation throws out of here and neither touches traffic: the shift already verified, and this never undoes it.
+#>
+function Invoke-GuardedDeactivate {
+    param(
+        [Parameter(Mandatory)][string] $RevisionName,
+        [Parameter(Mandatory)][scriptblock] $GetVerdict,
+        [Parameter(Mandatory)][scriptblock] $Deactivate
+    )
+    $out = [pscustomobject]@{ RevisionName = $RevisionName; Deactivated = $false; Reason = ''; Warning = $null }
+    try { $v = & $GetVerdict $RevisionName } catch {
+        $out.Reason = "the traffic guard could not be read: $($_.Exception.Message)"; $out.Warning = $out.Reason
+        return $out
+    }
+    if ($null -eq $v -or $v.Action -ne 'deactivate') {
+        $out.Reason = if ($null -eq $v) { 'the traffic guard returned nothing' } else { "traffic guard: $($v.Reason)" }
+        return $out
+    }
+    try { & $Deactivate $RevisionName; $out.Deactivated = $true; $out.Reason = 'deactivated after the verified shift' } catch {
+        $out.Reason = "deactivation failed: $($_.Exception.Message)"; $out.Warning = $out.Reason
+    }
+    $out
+}
+
+<#
+.SYNOPSIS
+    t/588 (DeployAzure p/227#53): the record of a -DeactivatePrevious run, as lines the log, the step summary and the returned object keep.
+.DESCRIPTION
+    One line per revision: "deactivate-previous: deactivated '<rev>' (<reason>)" or "deactivate-previous: NOT deactivated '<rev>': <reason>",
+    then one summary line naming both lists. Returns @{ Lines; Deactivated; NotDeactivated }. An empty input still gives the summary line, so
+    a run that deactivated nothing says so.
+#>
+function Format-DeactivatePreviousRecord {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Results)
+    $lines = @()
+    $done = @()
+    $not = @()
+    foreach ($x in $Results) {
+        if ($x.Deactivated) {
+            $done += $x.RevisionName
+            $lines += "deactivate-previous: deactivated '$($x.RevisionName)' ($($x.Reason))"
+        } else {
+            $not += $x.RevisionName
+            $lines += "deactivate-previous: NOT deactivated '$($x.RevisionName)': $($x.Reason)"
+        }
+    }
+    $fmt = { param($l) if ($l.Count -eq 0) { 'none' } else { ($l | ForEach-Object { "'$_'" }) -join ', ' } }
+    $lines += "deactivate-previous: record: deactivated $($done.Count) ($(& $fmt $done)); not deactivated $($not.Count) ($(& $fmt $not))"
+    @{ Lines = $lines; Deactivated = $done; NotDeactivated = $not }
+}
+
+<#
+.SYNOPSIS
+    t/588 (SO p/136#135): the pre-shift read of the revisions carrying traffic, which can NEVER stop a rollback.
+.DESCRIPTION
+    Invoke-GatedRollback.ps1 runs with $ErrorActionPreference = 'Stop', so an exception in an optional read would stop the rollback before it
+    starts. $Read returns @{ ExitCode; Names } (the az call); anything it throws, or a non-zero ExitCode, is a Write-Warning WARN and
+    Failed = $true, so -DeactivatePrevious deactivates nothing and the rollback itself carries on untouched. Returns @{ Revisions; Failed }.
+#>
+function Get-PreviousRevisionsSafely {
+    param(
+        [Parameter(Mandatory)][scriptblock] $Read,
+        [string] $TargetRevision
+    )
+    try {
+        $x = & $Read
+        if ($null -eq $x -or $x.ExitCode -ne 0) {
+            Write-Warning "WARN: could not read the revisions carrying traffic before the shift (az exit $($x.ExitCode)); -DeactivatePrevious will deactivate nothing."
+            return @{ Revisions = @(); Failed = $true }
+        }
+        @{ Revisions = @($x.Names | Where-Object { $_ -and $_ -ne $TargetRevision }); Failed = $false }
+    } catch {
+        Write-Warning "WARN: the pre-shift read of the revisions carrying traffic threw ($($_.Exception.Message)); -DeactivatePrevious will deactivate nothing and the rollback carries on."
+        @{ Revisions = @(); Failed = $true }
+    }
+}
+
+<#
+.SYNOPSIS
+    t/588 (SO p/136#135): run an optional step AFTER the verified shift so that nothing it does can fail the script or undo the shift.
+.DESCRIPTION
+    Any exception from $Block (dot-sourcing the verdict script, the step summary append, Add-Member on the result, a thrown az error) is caught
+    and written as a Write-Warning WARN with the exception message. It never rethrows, never touches traffic and never changes the result the
+    exit code is computed from (Get-GatedRollbackExitCode), so the exit code equals the run without the switch.
+#>
+function Invoke-PostShiftStepSafely {
+    param(
+        [Parameter(Mandatory)][scriptblock] $Block,
+        [string] $Name = 'deactivate-previous'
+    )
+    try { & $Block } catch {
+        Write-Warning "WARN: $Name failed after the shift ($($_.Exception.Message)). The shift stands and the exit code is unchanged; finish it by hand if needed."
+    }
+}
+
+<#
+.SYNOPSIS
+    The wrapper's exit code from the result alone (extracted so a test can pin it and the optional steps cannot influence it).
+#>
+function Get-GatedRollbackExitCode {
+    param([Parameter(Mandatory)] $Result)
+    if ($Result.Action -eq 'measured' -or ($Result.Action -in @('shifted', 'already-serving') -and $Result.Verified)) { return 0 }
+    1
+}
+
 function Invoke-GatedRollbackCore {
     param(
         [Parameter(Mandatory)][string] $RevisionName,
