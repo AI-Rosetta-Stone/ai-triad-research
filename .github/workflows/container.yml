@@ -375,15 +375,35 @@ jobs:
           echo "::error::Per-SHA tag $ref is missing from GHCR after push. Deploys resolve this tag (Resolve-ImageDigest.ps1) and would fail with ImageTagNotFound. Check the metadata-action tags and the push step."
           exit 1
 
-      - name: Install Trivy
-        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567  # v0.3.1
-        with:
-          # C4 (t/3520): pin the trivy BINARY. Actions are SHA-pinned already; the binary
-          # floated to `latest`, so DB-schema / severity-mapping / fixed-version-detection /
-          # .trivyignore-parsing semantics could change with no repo diff. Pin so gate
-          # behaviour changes only by an explicit PR. (Verify on the next build's
-          # "Install Trivy" log; re-pin deliberately when bumping.)
-          version: v0.74.0
+      # C4 (t/3520): pin the trivy BINARY so gate behaviour (DB schema, severity mapping,
+      # fixed-version detection, .trivyignore parsing) changes only by an explicit PR.
+      # t/834: aquasecurity/setup-trivy ran install.sh against the github.com WEB route
+      # (releases/<tag>), which returns intermittent 504s with no retry and blocked the build
+      # twice on 2026-11-27. This step downloads the pinned release tarball directly (retried),
+      # verifies a PINNED sha256 BEFORE extracting, and asserts the installed version. It fails
+      # closed: a failed download, a checksum mismatch or a wrong version stops the job.
+      # To bump: edit TRIVY_VERSION and TRIVY_SHA256 together (the hash is the line for
+      # trivy_<version>_Linux-64bit.tar.gz in the release's trivy_<version>_checksums.txt).
+      # The sigstore bundle is NOT verified (an optional second layer, not a blocker).
+      - name: Install Trivy (pinned tarball, pinned sha256)
+        shell: bash
+        env:
+          TRIVY_VERSION: '0.74.0'
+          TRIVY_SHA256: '2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a'
+        run: |
+          set -euo pipefail
+          url="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/trivy.tgz" "$url"
+          echo "$TRIVY_SHA256  $RUNNER_TEMP/trivy.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/trivy-bin"
+          tar -xzf "$RUNNER_TEMP/trivy.tgz" -C "$RUNNER_TEMP/trivy-bin" trivy
+          installed="$("$RUNNER_TEMP/trivy-bin/trivy" --version)"
+          printf '%s\n' "$installed"
+          if ! printf '%s\n' "$installed" | grep -Fxq "Version: ${TRIVY_VERSION}"; then
+            echo "::error::installed trivy is not the pinned version ${TRIVY_VERSION}"
+            exit 1
+          fi
+          echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
 
       # C3 (t/3520): DB warm-up with retry — makes an INFRA failure (Trivy-DB registry
       # unreachable / rate-limited) distinct from a FINDING failure (the gate step's
