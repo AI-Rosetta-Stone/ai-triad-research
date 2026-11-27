@@ -6,7 +6,7 @@
 // SynthesisTop.tsx. Share, Export brief, Run another round and Debate this are not rendered:
 // nothing in the page can call them (listed in the PR). The panel has no inner scroll box.
 
-import { createContext, useCallback, useContext, useId, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useId, useMemo, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import type { CampRef, DisputeCardView, StripLegendItem, StripSegment, SynthesisView } from '@lib/debate/synthesisView';
 import { readCheckedQuestions, writeCheckedQuestions } from './synthesisStorage';
@@ -27,6 +27,47 @@ function Hl({ k, text }: { k: string; text: string }) {
 /** While a find is active every expander is open, so each counted match has an element. */
 function useFindOpen(): boolean {
   return !!useContext(FindContext)?.query;
+}
+
+/** t/824 (spec §13.2): opens the New Debate dialog with a question prefilled; absent = no button. */
+const DebateTopicContext = createContext<((topic: string) => void) | null>(null);
+
+function DebateThisQuestion({ text }: { text: string }) {
+  const open = useContext(DebateTopicContext);
+  if (!open) return null;
+  return (
+    <button type="button" className="btn btn-ghost btn-xs syn-debate" aria-label={`Debate this question: ${text}`} onClick={() => open(text)}>
+      Debate this question
+    </button>
+  );
+}
+
+/** t/823 (spec §13.1): every D# in the panel links to its dispute card and shows the question. */
+interface DisputeLinks { points: Map<string, string>; jump: (n: string) => void }
+const DisputeLinksContext = createContext<DisputeLinks | null>(null);
+
+/** A D# as a link. `block` fills its parent (a strip segment); otherwise it sits inline in text. */
+function DisputeRef({ n, block = false }: { n: string; block?: boolean }) {
+  const ctx = useContext(DisputeLinksContext);
+  const tipId = useId();
+  const point = ctx?.points.get(n);
+  if (!ctx || !point) return <>{n}</>;
+  return (
+    <span className={block ? 'syn-ref syn-ref-block' : 'syn-ref'}>
+      <a
+        href={`#syn-dispute-${n}`}
+        className="syn-ref-link"
+        aria-describedby={tipId}
+        onClick={e => { e.preventDefault(); ctx.jump(n); }}
+      >{n}</a>
+      <span id={tipId} role="tooltip" className="syn-tip">{point}</span>
+    </span>
+  );
+}
+
+/** Text with D# tokens turned into links ("Settles D1, D2"). */
+function WithDisputeRefs({ text }: { text: string }) {
+  return <>{text.split(/(D\d+)/).map((part, i) => (/^D\d+$/.test(part) ? <DisputeRef key={i} n={part} /> : part))}</>;
 }
 
 function prefersReducedMotion(): boolean {
@@ -81,7 +122,7 @@ function OutcomeStrip({ strip }: { strip: NonNullable<SynthesisView['strip']> })
       key={s.n}
       className={`syn-seg ${s.outcome === 'camp' && s.camp ? `syn-seg-camp ${campClass(s.camp.id)}` : 'syn-seg-unresolved'}`}
       data-no-verdict={s.noVerdict || undefined}
-    >{s.n}</li>
+    ><DisputeRef n={s.n} block /></li>
   );
   const dot = (l: StripLegendItem) => (
     <li key={l.key} className="syn-legend-item">
@@ -92,7 +133,9 @@ function OutcomeStrip({ strip }: { strip: NonNullable<SynthesisView['strip']> })
   return (
     <div className="syn-strip">
       <h4 className="syn-strip-heading">{strip.heading}</h4>
-      <ol className="syn-strip-bar" role="img" aria-label={strip.ariaLabel}>{strip.segments.map(seg)}</ol>
+      <div role="group" aria-label={strip.ariaLabel}>
+        <ol className="syn-strip-bar">{strip.segments.map(seg)}</ol>
+      </div>
       {!strip.pending && <ul className="syn-legend">{strip.legend.map(dot)}</ul>}
     </div>
   );
@@ -116,7 +159,7 @@ function DisputeCard({ d }: { d: DisputeCardView }) {
             : <span className="syn-verdict-chip syn-verdict-none">{v.kind === 'none' ? 'No verdict' : 'Unresolved'}</span>}
         </span>
       </div>
-      <h4 className="syn-dispute-q"><Hl k={`${d.n}.point`} text={d.point} /></h4>
+      <h4 id={`syn-dispute-${d.n}`} tabIndex={-1} data-dispute-heading={d.n} className="syn-dispute-q"><Hl k={`${d.n}.point`} text={d.point} /></h4>
       <div className="syn-dispute-foot">
         {d.why && <p className="syn-why"><Hl k={`${d.n}.why`} text={d.why} /></p>}
         {d.positions.length > 0 && (
@@ -157,6 +200,7 @@ function OpenQuestions({ groups, debateId }: { groups: SynthesisView['openQuesti
           <li key={q.id} className="syn-question">
             <input id={id} type="checkbox" checked={checked.has(q.id)} onChange={() => toggle(q.id)} />
             <label htmlFor={id}><Hl k={q.id} text={q.text} /></label>
+            <DebateThisQuestion text={q.text} />
           </li>
         );
       })}
@@ -260,7 +304,7 @@ function BottomLineCard({ view, collapsed }: { view: SynthesisView; collapsed: b
           <h4 className="syn-settle-h">What it takes to settle them</h4>
           <ul>
             {bl.settle.map(r => (
-              <li key={r.key}><span className="syn-type-chip">{r.type}</span> <span aria-hidden="true">→</span> {r.action} <span className="syn-settle-ids">({r.ids.join(', ')})</span></li>
+              <li key={r.key}><span className="syn-type-chip">{r.type}</span> <span aria-hidden="true">→</span> {r.action} <span className="syn-settle-ids">(<WithDisputeRefs text={r.ids.join(', ')} />)</span></li>
             ))}
           </ul>
         </div>
@@ -277,7 +321,7 @@ function NextMoves({ moves }: { moves: SynthesisView['nextMoves'] }) {
         {moves.map((m, i) => (
           <div key={m.kind} className="syn-move">
             <div className="syn-move-title"><Hl k={`move${i}.title`} text={m.title} /></div>
-            <span className="syn-move-chip">{m.chip}</span>
+            <span className="syn-move-chip"><WithDisputeRefs text={m.chip} /></span>
             {m.context && <p className="syn-move-ctx"><Hl k={`move${i}.ctx`} text={m.context} /></p>}
             {m.body && <p><Hl k={`move${i}.body`} text={m.body} /></p>}
           </div>
@@ -321,6 +365,7 @@ function Cruxes({ cruxes, id }: { cruxes: SynthesisView['cruxes']; id: string })
             <span className="syn-crux-n">{c.n}</span>
             {c.typeLabel && <span className="syn-type-chip" data-type={c.rawType ?? undefined}>{c.typeLabel}</span>}
             <p><Hl k={c.n} text={c.question} /></p>
+            <DebateThisQuestion text={c.question} />
           </div>
         )}
       />
@@ -366,9 +411,11 @@ export interface SynthesisPanelViewProps {
   onSkip?: () => void;
   /** Exports the debate's Markdown brief; "Export brief" is hidden when there is no handler. */
   onExportBrief?: () => void;
+  /** Opens the New Debate dialog on a question; the "Debate this question" buttons are hidden without it. */
+  onDebateTopic?: (topic: string) => void;
 }
 
-export function SynthesisPanelView({ view, debateId, find = null, collapsed = false, onToggleCollapsed, onSkip, onExportBrief }: SynthesisPanelViewProps) {
+export function SynthesisPanelView({ view, debateId, find = null, collapsed = false, onToggleCollapsed, onSkip, onExportBrief, onDebateTopic }: SynthesisPanelViewProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyId = useId();
   const ids: Record<SectionKey, string> = {
@@ -384,9 +431,20 @@ export function SynthesisPanelView({ view, debateId, find = null, collapsed = fa
     h.focus({ preventScroll: true });
   }, []);
 
+  const disputeLinks = useMemo<DisputeLinks>(() => ({
+    points: new Map(view.disputes.map(d => [d.n, d.point])),
+    jump: (n: string) => {
+      const h = rootRef.current?.querySelector<HTMLElement>(`[data-dispute-heading="${n}"]`);
+      if (!h) return;
+      h.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+      h.focus({ preventScroll: true });
+    },
+  }), [view.disputes]);
   const hasBottomLine = !!(view.bottomLine.paragraph || view.strip || view.bottomLine.settle.length);
   return (
     <FindContext.Provider value={find}>
+     <DisputeLinksContext.Provider value={disputeLinks}>
+     <DebateTopicContext.Provider value={onDebateTopic ?? null}>
       <div className="syn-panel" ref={rootRef} data-testid="synthesis-v2" data-collapsed={isCollapsed || undefined}>
         <PanelHeader view={view} ids={ids} collapsed={isCollapsed} bodyId={bodyId} onJump={jump} onSkip={onSkip} onToggle={onToggleCollapsed} onExportBrief={onExportBrief} />
         <div id={bodyId} className="syn-body">
@@ -394,6 +452,8 @@ export function SynthesisPanelView({ view, debateId, find = null, collapsed = fa
           {!isCollapsed && <ExpandedSections view={view} ids={ids} debateId={debateId} onExportBrief={onExportBrief} />}
         </div>
       </div>
+     </DebateTopicContext.Provider>
+     </DisputeLinksContext.Provider>
     </FindContext.Provider>
   );
 }

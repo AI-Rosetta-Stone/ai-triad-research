@@ -53,7 +53,7 @@ describe('SynthesisPanelView', () => {
   it('the outcome strip names the heading as a model assessment and spells out each outcome', () => {
     mount();
     expect(screen.getByText(/Which camp made the stronger case \(model.s assessment\)/)).toBeTruthy();
-    expect(screen.getByRole('img').getAttribute('aria-label')).toBe('D1: Skeptic stronger. D2: no verdict.');
+    expect(screen.getByRole('group', { name: 'D1: Skeptic stronger. D2: no verdict.' })).toBeTruthy();
   });
 
   it('does not render Share, Run another round or Debate this (no backing action), nor Export brief without a handler', () => {
@@ -192,6 +192,53 @@ describe('outline link (spec §12)', () => {
     HTMLElement.prototype.scrollIntoView = function () { scroll(this.id); };
     fireEvent.click(screen.getByText('Synthesis'));
     expect(scroll).toHaveBeenCalledWith('synthesis-v2-top');
+  });
+});
+
+describe('D# links (spec §13.1, t/823)', () => {
+  it('each strip segment is a link to its dispute, with the full question as its tooltip', () => {
+    mount();
+    const nav = screen.getByRole('group', { name: /D1:/ });
+    const link = within(nav).getByRole('link', { name: 'D1' });
+    expect(link.getAttribute('href')).toBe('#syn-dispute-D1');
+    const tip = document.getElementById(link.getAttribute('aria-describedby') as string) as HTMLElement;
+    expect(tip.getAttribute('role')).toBe('tooltip');
+    expect(tip.textContent).toBe('Does it work?');
+  });
+
+  it('clicking a D# scrolls to the dispute card and focuses its heading', () => {
+    mount();
+    const scroll = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scroll;
+    fireEvent.click(within(screen.getByRole('group', { name: /D1:/ })).getByRole('link', { name: 'D2' }));
+    expect(document.activeElement?.id).toBe('syn-dispute-D2');
+    expect(document.activeElement?.textContent).toBe('Is it fair?');
+    expect(scroll).toHaveBeenCalled();
+  });
+
+  it('the D# references in settle rows and next-move chips are links too', () => {
+    mount();
+    expect(screen.getAllByRole('link', { name: 'D1' }).length).toBeGreaterThanOrEqual(3); // strip, settle row, Answers D1
+    expect(screen.getAllByRole('link', { name: 'D2' }).length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('Debate this question (spec §13.2, t/824)', () => {
+  it('is not rendered without a handler', () => {
+    mount();
+    expect(screen.queryByRole('button', { name: /Debate this question/ })).toBeNull();
+  });
+
+  it('every open question and crux gets the button, which only opens the dialog with that question as the topic', () => {
+    const onDebateTopic = vi.fn();
+    mount(synthesis(), { onDebateTopic });
+    fireEvent.click(screen.getByRole('button', { name: 'Show 1 more cruxes' }));
+    expect(screen.getAllByRole('button', { name: /^Debate this question:/ })).toHaveLength(4 + 2); // 4 cruxes, 2 open questions
+    fireEvent.click(screen.getByRole('button', { name: 'Debate this question: Who pays?' }));
+    expect(onDebateTopic).toHaveBeenCalledOnce();
+    expect(onDebateTopic).toHaveBeenCalledWith('Who pays?');
+    fireEvent.click(screen.getByRole('button', { name: 'Debate this question: c2' }));
+    expect(onDebateTopic).toHaveBeenLastCalledWith('c2');
   });
 });
 
