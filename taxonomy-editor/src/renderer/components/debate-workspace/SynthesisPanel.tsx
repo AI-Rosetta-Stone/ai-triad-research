@@ -8,7 +8,7 @@
 
 import { createContext, useCallback, useContext, useId, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
-import type { CampRef, DisputeCardView, StripLegendItem, StripSegment, SynthesisView } from './synthesisView';
+import type { CampRef, DisputeCardView, StripLegendItem, StripSegment, SynthesisView } from '@lib/debate/synthesisView';
 import { readCheckedQuestions, writeCheckedQuestions } from './synthesisStorage';
 import { HighlightedText } from './StatementCard';
 import './SynthesisPanel.css';

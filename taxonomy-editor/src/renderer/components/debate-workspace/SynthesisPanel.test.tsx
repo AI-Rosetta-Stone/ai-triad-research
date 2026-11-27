@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, renderHook } from '@testing-library/react';
 import { SynthesisPanelView, type PanelFind } from './SynthesisPanel';
 import { SynthesisTop, SynthesisPointerRow, useSynthesisTop, findSynthesisEntry, panelFindOffsets } from './SynthesisTop';
-import { buildSynthesisView } from './synthesisView';
+import { buildSynthesisView } from '@lib/debate/synthesisView';
 import { synthesisFindOffsets } from './synthesisFind';
 import { isSynthesisV2On } from './synthesisStorage';
 
