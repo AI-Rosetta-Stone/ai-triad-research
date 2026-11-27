@@ -35,7 +35,7 @@ export function checkoutRefs(file, text) {
 
 /** PURE. The refs that name a PR's head by branch name (or its pull ref): a tip that moves. */
 export function movingPrRefs(refs) {
-  return refs.filter(({ ref }) => /github\.head_ref|pull_request\.head\.ref|pull_request\.head\.label|refs\/pull\/|github\.ref_name|github\.ref\b/.test(ref));
+  return refs.filter(({ ref }) => /github\.head_ref|pull_request\.head\.ref|pull_request\.head\.label|workflow_run\.head_branch|refs\/pull\/|github\.ref_name|github\.ref\b/.test(ref));
 }
 
 test('t/799: no workflow checks out a PR by branch name or pull ref; every PR-content checkout is the event\'s head.sha', () => {
@@ -45,16 +45,18 @@ test('t/799: no workflow checks out a PR by branch name or pull ref; every PR-co
 });
 
 test('t/799: dependabot-lockfile-heal.yml and stray-file-guard.yml check the PR out by github.event.pull_request.head.sha', () => {
-  for (const f of ['dependabot-lockfile-heal.yml', 'stray-file-guard.yml']) {
-    const refs = checkoutRefs(f, fs.readFileSync(path.join(WF_DIR, f), 'utf8'));
-    assert.equal(refs.length, 1, `${f}: one checkout with a ref`);
-    assert.equal(refs[0].ref, '${{ github.event.pull_request.head.sha }}', f);
-  }
+  const SHA = '${{ github.event.pull_request.head.sha }}';
+  const DEFAULT = '${{ github.event.repository.default_branch }}';
+  const heal = checkoutRefs('dependabot-lockfile-heal.yml', fs.readFileSync(path.join(WF_DIR, 'dependabot-lockfile-heal.yml'), 'utf8')).map((r) => r.ref);
+  // the prepare job checks the PR out by SHA; the push job checks out only the default branch's classifier (t/799 fix 2)
+  assert.deepEqual(heal.sort(), [DEFAULT, SHA].sort());
+  const stray = checkoutRefs('stray-file-guard.yml', fs.readFileSync(path.join(WF_DIR, 'stray-file-guard.yml'), 'utf8')).map((r) => r.ref);
+  assert.deepEqual(stray, [SHA]);
 });
 
 test('t/799 arms: the scan catches a branch-name ref, a pull ref and a ref_name ref, and passes head.sha, the base branch and no ref', () => {
   const wf = (ref) => `jobs:\n  a:\n    steps:\n      - uses: actions/checkout@abc  # v6\n        with:\n${ref ? `          ref: ${ref}\n` : ''}          fetch-depth: 0\n      - run: echo hi\n`;
-  for (const bad of ['${{ github.head_ref }}', '${{ github.event.pull_request.head.ref }}', 'refs/pull/${{ github.event.number }}/head', '${{ github.ref_name }}']) {
+  for (const bad of ['${{ github.head_ref }}', '${{ github.event.pull_request.head.ref }}', 'refs/pull/${{ github.event.number }}/head', '${{ github.ref_name }}', '${{ github.event.workflow_run.head_branch }}']) {
     assert.equal(movingPrRefs(checkoutRefs('x.yml', wf(bad))).length, 1, bad);
   }
   for (const ok of ['${{ github.event.pull_request.head.sha }}', '${{ github.event.repository.default_branch }}', 'main', null]) {
