@@ -14,52 +14,44 @@
 #             only when the PR diff actually touches taxonomy-editor/package.json
 #             (the "Scope guard" step). An unrelated PR produces ZERO commits —
 #             this is the GV arm-2 property the prior version failed.
-#          2. CREDENTIAL GUARD: if the DEPENDABOT_HEAL_PAT secret is absent the
-#             job SUCCEEDS as a no-op (drift detected but push skipped, never red).
+#          2. CREDENTIAL GUARD: if the heal App's secrets (HEAL_APP_CLIENT_ID,
+#             HEAL_APP_PRIVATE_KEY) are absent the job SUCCEEDS as a no-op (drift
+#             detected but push skipped, never red).
 #
 # SECURITY (do not refactor without re-reading e/127#2 and t/799#2):
 #   * t/799: TWO JOBS. `prepare` checks the PR out by SHA and runs PR-controlled code (the lockfile sync, pnpm, the licenses
 #     script) with NO secret; `push` holds the credential and checks out NO PR content and runs NO PR code (the commit is built
-#     from git objects, an index, never a working tree). The PAT is referenced in exactly one step of `push`.
+#     from git objects, an index, never a working tree). The App secrets are referenced in exactly one step of `push` (the mint).
 #     operations/devops/heal-job-isolation-workflow.test.mjs fails if one job ever has both.
-#   * The PAT is referenced ONLY by the push step, AFTER every dependency-touching
-#     step (step ordering IS the security boundary — see marked step). No mint step
-#     is needed for a static secret, but the ordering discipline is unchanged.
+#   * t/799 step 3: the write credential is a SHORT-LIVED GitHub App installation token, minted in `push` after the validate step and
+#     right before the push step (actions/create-github-app-token, narrowed to this repository and contents: write), passed to the push
+#     step by env and revoked by the action's post step when the job ends. `prepare` references neither secret. It replaced a classic,
+#     repo-wide personal access token (Security t/799#1, #8; PI decision via the TL, p/9#797).
 #   * `--lockfile-only` (inside sync-standalone-lockfile.mjs) + `--ignore-scripts`
 #     belt → no registry lifecycle script executes during a resolve.
 #   * Guard requires actor == dependabot[bot] AND same-repo head → forks excluded.
-#   * The PAT push (unlike GITHUB_TOKEN) DOES retrigger CI so the heal commit gets
+#   * An installation-token push (unlike GITHUB_TOKEN) DOES retrigger CI so the heal commit gets
 #     fresh checks. Do not "simplify" to the default token.
 #   * Auth is passed via http.extraheader (not the remote URL) so the token is
 #     never materialized in a URL or log line.
 #
-# CREDENTIAL (owner/admin): a fine-grained Personal Access Token scoped to THIS repo
-#   only, with Contents: read+write, stored as a DEPENDABOT secret named
-#   DEPENDABOT_HEAL_PAT (Dependabot-triggered runs read the Dependabot secret store,
-#   not the Actions store). Owner chose the PAT over the GitHub App (jsnover via
-#   PM p/33#79); the PAT was the e/127#2-documented acceptable fallback. NOTE:
-#   GitHub reserves the `GITHUB_` prefix for secret names, so the secret CANNOT be
-#   named GITHUB_PAT — DEPENDABOT_HEAL_PAT is the valid name. Rotate on the PAT's
-#   90-day expiry (a longer-lived credential than the App's per-run token — the
-#   tradeoff of choosing the PAT).
-#   DEVIATION (owner choice, p/331#920): the PROVISIONED token is a CLASSIC PAT, not
-#   the fine-grained single-repo token this comment specifies — so a leak of this
-#   secret is REPO-WIDE (every repo the owner can write), NOT single-repo. Migrate to
-#   a fine-grained repo-scoped Contents:read+write PAT when feasible (r/16 rotation).
+# CREDENTIAL (PI / org owner, Security t/799#8): the GitHub App `ai-triad-dependabot-heal`, created under the org, Repository
+#   permissions contents: write and metadata: read only, no webhook, installed on this repository only. Its Client ID and one private key
+#   are stored as DEPENDABOT secrets (Dependabot-triggered runs read the Dependabot secret store, not the Actions store) named
+#   HEAL_APP_CLIENT_ID and HEAL_APP_PRIVATE_KEY. Until both exist this workflow heals nothing: it prints a notice and stays green.
+#   The pusher is `ai-triad-dependabot-heal[bot]` and a healed PR still needs a T1 review (t/773 option A).
 #
 # NOTE: lib/debate is NOT healed here — its root-workspace importer is empty (the
 #   root entry never bumps it); its standalone lockfile is managed by the
 #   /lib/debate Dependabot entry. Extend sync-standalone-lockfile.mjs + this scope
 #   guard if that ever changes.
 #
-# POST-MERGE WATCH-ITEM (GV condition, t/3134): the PAT push retriggering CI is
+# POST-MERGE WATCH-ITEM (GV condition, t/3134; t/799 step 5): the installation-token push retriggering CI is
 #   only observable once this workflow is on main (a pull_request workflow runs
-#   from the BASE branch). VERIFY on the FIRST taxonomy-editor-touching Dependabot
-#   npm PR after merge: the heal commits → the PAT push retriggers CI → the PR goes
-#   GREEN including this heal job. If instead it loops/reds (e.g. the push fails to
-#   retrigger, or an empty commit), REVERT immediately per #1674 and re-open t/3134.
-#   Offline both-arms were proven at GV (#1676 evidence); the PAT-push retrigger is
-#   the one arm only main can exercise (identical retrigger property to the App token).
+#   from the BASE branch) AND the App secrets exist. VERIFY on the FIRST taxonomy-editor-touching Dependabot
+#   npm PR after that: the heal commits as `ai-triad-dependabot-heal[bot]` → checks start on the heal commit → the
+#   token is masked and revoked → no file other than the three allowed ones changed. If it loops/reds (e.g. the push fails to
+#   retrigger, or an empty commit), REVERT per #1674 and re-open t/3134.
 
 name: Dependabot Lockfile Heal
 
@@ -203,6 +195,9 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
       HEAD_REF: ${{ github.head_ref }}
+      # 'true' only when BOTH App secrets are set. A step `if` cannot read `secrets.*`, so this job-level boolean (it carries no
+      # secret, only whether they exist) gates the mint and the push; absent secrets are a notice and a green no-op.
+      HEAL_APP_CONFIGURED: ${{ secrets.HEAL_APP_CLIENT_ID != '' && secrets.HEAL_APP_PRIVATE_KEY != '' }}
     steps:
       # The classifier and nothing else, from the DEFAULT branch (never the PR). No PR content is checked out in this job.
       - name: Check out the push-failure classifier from the default branch
@@ -252,20 +247,40 @@ jobs:
           fi
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
-      # ── SECURITY BOUNDARY ─────────────────────────────────────────────────
-      # The write credential (a PAT: contents:write) is materialized in EXACTLY ONE step of this job, and this job holds NO
-      # PR checkout and runs NO PR code: the commit is built from git objects (an index, never a working tree of the PR).
-      # Like the GitHub App token and UNLIKE the default GITHUB_TOKEN, a PAT push RETRIGGERS CI on the heal commit
-      # (load-bearing — do NOT "simplify" to the default token).
-      - name: Commit and push heal
-        if: steps.validate.outputs.ok == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.DEPENDABOT_HEAL_PAT }}
+      # Absent App secrets: this job only runs when the prepare job DETECTED DRIFT, so a missing or misnamed secret means a PR that needed
+      # healing was NOT healed. That is a WARNING and a step-summary line (visible on the run page), not a notice, and the job stays green
+      # (the heal is skipped, never red). Nothing below runs. A configured run emits neither.
+      - name: Heal App not configured (warning, no-op)
+        if: env.HEAL_APP_CONFIGURED != 'true'
         run: |
-          # Credential guard: no-op success when the PAT secret is absent — never red.
+          echo "::warning::t/799: the heal found drift on PR #$PR_NUMBER but did NOT heal it: HEAL_APP_CLIENT_ID and HEAL_APP_PRIVATE_KEY are not both set as Dependabot secrets. Set them (or fix the names in dependabot-lockfile-heal.yml) and re-run."
+          echo "**Heal skipped on PR #$PR_NUMBER:** drift was detected but HEAL_APP_CLIENT_ID / HEAL_APP_PRIVATE_KEY are not both set, so nothing was healed. The PR needs the secrets or a manual heal (t/799)." >> "$GITHUB_STEP_SUMMARY"
+
+      # ── SECURITY BOUNDARY ─────────────────────────────────────────────────
+      # The write credential is MINTED here, after the validate step and right before the push step: a short-lived installation token
+      # of the heal App, narrowed to this repository and contents: write. This job holds NO PR checkout and runs NO PR code: the commit
+      # is built from git objects (an index, never a working tree of the PR). The token goes to the push step by env (it is masked)
+      # and is revoked by the action's post step when the job ends. Like any App token and UNLIKE the default GITHUB_TOKEN, a push with
+      # it RETRIGGERS CI on the heal commit (load-bearing — do NOT "simplify" to the default token).
+      - name: Mint the heal App token
+        id: app
+        if: steps.validate.outputs.ok == 'true' && env.HEAL_APP_CONFIGURED == 'true'
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc  # v3.4.0
+        with:
+          client-id: ${{ secrets.HEAL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HEAL_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Commit and push heal
+        if: steps.validate.outputs.ok == 'true' && env.HEAL_APP_CONFIGURED == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          # A configured App whose token came back empty is an error, never a silent skip.
           if [ -z "$GH_TOKEN" ]; then
-            echo "::notice::DEPENDABOT_HEAL_PAT not set — drift detected but heal skipped (no-op)."
-            exit 0
+            echo "::error::the minted heal App token is empty although HEAL_APP_CONFIGURED is true."
+            exit 1
           fi
           HEAL="$RUNNER_TEMP/heal"
           WORK="$RUNNER_TEMP/healrepo"
@@ -308,7 +323,7 @@ jobs:
             echo "$PUSH_OUTPUT"
             CLASS=$(printf '%s' "$PUSH_OUTPUT" | (cd "$GITHUB_WORKSPACE" && node operations/devops/classify-heal-push-failure.mjs))
             if [ "$CLASS" = "credential_rejected" ]; then
-              echo "::error::heal credential rejected — refresh DEPENDABOT_HEAL_PAT (or the heal App installation/key)"
+              echo "::error::heal credential rejected — check the heal App: its installation on this repository, contents: write, and the HEAL_APP_CLIENT_ID / HEAL_APP_PRIVATE_KEY secrets"
             else
               echo "::error::heal push failed (exit $PUSH_EXIT) — see output above"
             fi
