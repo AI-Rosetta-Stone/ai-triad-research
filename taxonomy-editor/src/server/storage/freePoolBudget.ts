@@ -738,12 +738,12 @@ let globalFreePoolBudget: FreePoolBudget | null = null;
 
 /** t/4733: what the wired store was configured with — surfaced on `/health` so a staging/prod
  *  container share or a wrong cap is visible by curl, not inferred. Null while unwired. */
-export interface FreePoolBudgetConfig { container: string; callsCap: number }
+export interface FreePoolBudgetConfig { container: string; callsCap: number; tokensCap: number | null }
 let globalFreePoolBudgetConfig: FreePoolBudgetConfig | null = null;
 
 export function initFreePoolBudget(opts: BlobFreePoolBudgetOptions): FreePoolBudget {
   globalFreePoolBudget = new BlobFreePoolBudget(opts);
-  globalFreePoolBudgetConfig = { container: opts.container ?? userContentContainer(), callsCap: opts.callsCap };
+  globalFreePoolBudgetConfig = { container: opts.container ?? userContentContainer(), callsCap: opts.callsCap, tokensCap: opts.tokensCap ?? null };
   return globalFreePoolBudget;
 }
 
@@ -754,7 +754,25 @@ export function getFreePoolBudgetConfig(): FreePoolBudgetConfig | null {
 // t/4677: Boot-time initialization guard. Extract env vars, validate cap, and call initFreePoolBudget.
 // Logs WARN if unset (local/Electron mode); validates cap and falls back to 1500 if NaN or ≤0.
 // init parameter is injectable for testing (allows injecting a throwing init).
-type BootLogger = { server: { warn(obj: object, msg: string): void; error(obj: object, msg: string): void } };
+// t/812: admission (overCap) compares against THIS process's configured caps, never the caps stored in the day's
+// document (t/4733; those are forensics only). So a changed FREE_POOL_DAILY_CALLS_CAP / FREE_POOL_DAILY_TOKENS_CAP
+// applies as soon as the new revision serves, mid-day included, and two replicas can briefly differ during a swap.
+// info is optional so existing injected loggers keep working (t/812).
+type BootLogger = { server: { warn(obj: object, msg: string): void; error(obj: object, msg: string): void; info?(obj: object, msg: string): void } };
+
+/** t/812: FREE_POOL_DAILY_TOKENS_CAP. A positive integer; unset = no token cap (null). An invalid value
+ *  logs an ERROR (a rollout typo must be loud) and also means no cap, never a made-up default, so an infra typo can't silently set or remove a limit. */
+function parseTokensCap(log: BootLogger): number | null {
+  const raw = process.env.FREE_POOL_DAILY_TOKENS_CAP;
+  if (raw === undefined || raw.trim() === '') return null;
+  const trimmed = raw.trim();
+  const n = /^[0-9]+$/.test(trimmed) ? Number(trimmed) : NaN;
+  if (!Number.isSafeInteger(n) || n <= 0) {
+    log.server.error({ scope: 'free-pool-budget', givenCap: raw }, 'FREE_POOL_DAILY_TOKENS_CAP invalid (need a positive integer); no token cap applied');
+    return null;
+  }
+  return n;
+}
 
 export function ensureFreePoolBudgetBooted(log: BootLogger, init:(opts: BlobFreePoolBudgetOptions) => FreePoolBudget = initFreePoolBudget): void {
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
@@ -769,6 +787,9 @@ export function ensureFreePoolBudgetBooted(log: BootLogger, init:(opts: BlobFree
     callsCap = 1500;
   }
 
+  const tokensCap = parseTokensCap(log);
+  log.server.info?.({ scope: 'free-pool-budget', callsCap, tokensCap }, 'free-pool budget effective daily caps (tokensCap null = no token cap)');
+
   // t/4733: the same env-resolved container as every other user-content store (staging isolation).
   const containerName = userContentContainer();
   if (!isUserContentContainerConfigured()) {
@@ -776,7 +797,7 @@ export function ensureFreePoolBudgetBooted(log: BootLogger, init:(opts: BlobFree
   }
 
   try {
-    init({ accountUrl, container: containerName, callsCap });
+    init({ accountUrl, container: containerName, callsCap, tokensCap });
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'free-pool-budget', level: 'error',

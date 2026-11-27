@@ -92,6 +92,14 @@ export function assumedOutputCapTokens(requested?: number): number {
   return getConfig().sessions.dailyTokenDefaultOutputCapTokens;
 }
 
+/** t/811: the same worst-case token estimate the daily gate holds for a call (prompt bytes / the configured ratio, plus the
+ *  output cap, read live), for the free pool's token-weighted daily cap: a pool reservation of this size, not a flat 2,000,
+ *  stops calls in flight from overshooting the cap by their real size (a chat turn is about 150,000 tokens). */
+export function estimateCallTokens(promptBytes: number, outputCapTokens: number = assumedOutputCapTokens()): number {
+  const { bytesPerToken } = enforcedBudgetSettings();
+  return Math.ceil(Math.max(0, promptBytes) / bytesPerToken) + Math.ceil(Math.max(0, outputCapTokens));
+}
+
 /** Reserves a call's worst case: its prompt BYTES converted to tokens at the configured ratio (an estimate, see
  *  the header), plus its output cap. The per-call ceiling is checked here against the live config; the budget is then handed
  *  the already-converted token count (1 'byte' per token) so it adds nothing of its own. */
@@ -148,6 +156,42 @@ export async function bookDailyTokens(limitKey: string, limit: number, usage: { 
     log.server.warn({ component: 'daily-token-gate', err: String(err) }, 'Daily token booking failed (t/746)');
   }
 }
+
+/** The limit key of the ONE shared document that counts paid-key fallback tokens for the UTC day (t/811). */
+export const PAID_FALLBACK_LIMIT_KEY = '_system:paid-fallback';
+let paidCapUnsetWarned = false;
+let paidCapDefaultWarned = false;
+/** The code default of sessions.paidFallbackDailyTokens (about $2 a day). Pinned by a test. */
+export const PAID_FALLBACK_DEFAULT_DAILY_TOKENS = 4_300_000;
+
+/** t/811: the paid Gemini key may serve a free-tier caller's retry after a pool 429 (routes/ai.ts). This reserves that
+ *  retry against the day's paid-fallback token cap BEFORE the paid call, on the same durable reserve/settle path.
+ *  `sessions.paidFallbackDailyTokens` defaults to 4,300,000 in code (TL p/16#501), so a missing config FAILS CLOSED on this
+ *  real-money path; one WARN per process when the cap equals that default, asking for an explicit value (an explicit
+ *  0 means no cap, with its own WARN). Over the cap, the budget's per-call ceiling, or a store outage: `proceed: false`
+ *  (the paid key is NOT called and the caller's original 429 stands). Settle the returned hold with the real usage. */
+export async function reservePaidFallback(promptBytes: number): Promise<{ proceed: true; hold: TokenHold | null } | { proceed: false; reason: string }> {
+  const cap = getConfig().sessions.paidFallbackDailyTokens;
+  if (!(cap > 0)) {
+    if (!paidCapUnsetWarned) {
+      paidCapUnsetWarned = true;
+      log.server.warn({ component: 'daily-token-gate', setting: 'sessions.paidFallbackDailyTokens' }, 'The paid-key fallback has NO daily cap (sessions.paidFallbackDailyTokens is explicitly 0); this is a real-money path (t/811)');
+    }
+    return { proceed: true, hold: null };
+  }
+  if (cap === PAID_FALLBACK_DEFAULT_DAILY_TOKENS && !paidCapDefaultWarned) {
+    paidCapDefaultWarned = true;
+    log.server.warn({ component: 'daily-token-gate', setting: 'sessions.paidFallbackDailyTokens', cap }, 'The paid-key fallback daily cap is at its code default (4,300,000 tokens, about $2 a day); set sessions.paidFallbackDailyTokens explicitly in runtime-config (t/811)');
+  }
+  const r = await reserveDailyTokens(PAID_FALLBACK_LIMIT_KEY, cap, { promptBytes, outputCapTokens: assumedOutputCapTokens(), poolFunded: true });
+  if (r.ok) return { proceed: true, hold: r.hold };
+  log.server.warn({ component: 'daily-token-gate', reason: r.reason, cap }, 'Paid-key fallback refused: the day\'s paid-fallback token cap is reached (or its store is unavailable); the original 429 stands (t/811)');
+  getGlobalRecorder()?.record({ type: 'ai.fallback', component: 'ai-generate', level: 'warn', message: 'Paid fallback refused by the daily cap', data: { reason: r.reason, cap } });
+  return { proceed: false, reason: r.reason };
+}
+
+/** Test seam: forget which paid-cap WARNs were shown. */
+export function _resetPaidCapWarnForTest(): void { paidCapUnsetWarned = false; paidCapDefaultWarned = false; }
 
 /** Estimated usage for a call whose provider reported none, so a success is never counted as zero: about 4 bytes a token. */
 export function estimateUsage(promptBytes: number, outputText: string | undefined): { inputTokens: number; outputTokens: number } {

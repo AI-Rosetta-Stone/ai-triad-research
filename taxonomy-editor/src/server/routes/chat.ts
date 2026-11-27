@@ -22,7 +22,7 @@ import { extractHttpUrls } from '../../../../lib/url-fetch/extractHttpUrls.js';
 import type { UrlFetchOptions, UrlFetchResult } from '../../../../lib/url-fetch/types.js';
 import * as proxyTiers from '../ai/proxyTiers.js';
 import * as rateLimiter from '../security/rateLimiter.js';
-import { reserveDailyTokens, refuseDailyReserve, settleDailyTokens, assumedOutputCapTokens } from './dailyTokenGate.js';
+import { reserveDailyTokens, refuseDailyReserve, settleDailyTokens, assumedOutputCapTokens, estimateCallTokens } from './dailyTokenGate.js';
 import type { TokenHold } from '../security/dailyTokenBudget.js';
 import * as ai from '../ai/aiBackends.js';
 import { resolveGenerationContext } from './generationContext.js';
@@ -187,9 +187,9 @@ type AdmitFreePoolCallResult =
   | { ok: false };
 
 /** t/4485 phase 2: pure mirror of routes/ai.ts's admitFreePoolCall. */
-async function admitFreePoolCall(req: http.IncomingMessage, res: http.ServerResponse, budgetKey: string, debateId: string | undefined): Promise<AdmitFreePoolCallResult> {
+async function admitFreePoolCall(req: http.IncomingMessage, res: http.ServerResponse, budgetKey: string, debateId: string | undefined, estimateTokens?: number): Promise<AdmitFreePoolCallResult> {
   if (!debateId) {
-    const result = await reserveFreePoolCall(res, budgetKey);
+    const result = await reserveFreePoolCall(res, budgetKey, estimateTokens);
     if (!result.ok) return { ok: false };
     return { ok: true, reservationId: result.reservationId, debateReservationId: null };
   }
@@ -231,7 +231,7 @@ export function enforceChatAccess(res: http.ServerResponse, tier: ReturnType<typ
  *  reader of the pool; t/4486#4 TL review found the fallback was a fourth bypass), and the
  *  t/4485 budget gate (including phase 2 debate admission) on both of those same branches. */
 async function resolveExplicitAiKey(
-  req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend, debateId: string | undefined,
+  req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend, debateId: string | undefined, estimateTokens?: number,
 ): Promise<{ ok: true; key: string | string[] | undefined; reservationId: string | null; debateReservationId: string | null } | { ok: false }> {
   const budgetKey = debateId ?? 'chat-stream';
   if (tier.serverProvidedKey) {
@@ -239,7 +239,7 @@ async function resolveExplicitAiKey(
     if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
     const freeKeys = poolResult.keys;
     if (freeKeys.length === 0) { res.writeHead(503); res.end(JSON.stringify({ error: 'Free tier is not available' })); return { ok: false }; }
-    const budgetResult = await admitFreePoolCall(req, res, budgetKey, debateId); // t/4485: 429/503 already written on refusal
+    const budgetResult = await admitFreePoolCall(req, res, budgetKey, debateId, estimateTokens); // t/4485: 429/503 already written on refusal
     if (!budgetResult.ok) return { ok: false };
     return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys, reservationId: budgetResult.reservationId, debateReservationId: budgetResult.debateReservationId };
   }
@@ -252,7 +252,7 @@ async function resolveExplicitAiKey(
     if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
     if (poolResult.keys.length > 0) {
       explicitKey = poolResult.keys.length === 1 ? poolResult.keys[0] : poolResult.keys;
-      const budgetResult = await admitFreePoolCall(req, res, budgetKey, debateId);
+      const budgetResult = await admitFreePoolCall(req, res, budgetKey, debateId, estimateTokens);
       if (!budgetResult.ok) return { ok: false };
       return { ok: true, key: explicitKey, reservationId: budgetResult.reservationId, debateReservationId: budgetResult.debateReservationId };
     }
@@ -417,7 +417,9 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
       // Enforce backend allowlist and rate limits (RPM + daily token budget).
       if (enforceChatAccess(res, tier, backend, isFree, limitKey)) return;
 
-      const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend, linkedDebateId);
+      // t/811: the pool reservation holds this turn's worst case (prompt bytes / ratio + output cap), not a flat 2,000.
+      const chatPromptBytes = Buffer.byteLength(JSON.stringify(messages) + String(systemInstruction ?? ''), 'utf8');
+      const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend, linkedDebateId, estimateCallTokens(chatPromptBytes));
       if (!keyResult.ok) return;
       const explicitKey = keyResult.key;
       freePoolBudget = trackFreePoolReservation(keyResult.reservationId, keyResult.debateReservationId);
@@ -444,7 +446,7 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
       // t/746: reserve the turn's worst case against the caller's durable daily allowance BEFORE the SSE head is
       // written, so a refusal is still a JSON status (429 daily limit, 413 per-call ceiling, 503 store down).
       const reservedDaily = await reserveDailyTokens(limitKey, tier.limits.tokensPerDay, {
-        promptBytes: Buffer.byteLength(JSON.stringify(messages) + String(systemInstruction ?? ''), 'utf8'),
+        promptBytes: chatPromptBytes,
         outputCapTokens: assumedOutputCapTokens(),
         poolFunded: isFree || tier.level === 'platform',
       });

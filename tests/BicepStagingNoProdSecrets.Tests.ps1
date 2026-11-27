@@ -199,8 +199,8 @@ BeforeAll {
     # Staging's env: the vars it is built from, the other identifiers allowed outside an entry (the functions
     # and lambda words of stagingBaseEnv, and the one switch), the only secretRef it may carry, and the env
     # names that only prod may set.
-    $script:EnvVars = @('stagingBaseEnv', 'stagingExtraFreeTier', 'baseEnv', 'stagingEnvOverrides', 'stagingOverriddenKeys')
-    $script:EnvIdentifiers = @('concat', 'filter', 'map', 'contains', 'e', 'name', 'freeTierStagingKeyProvided')
+    $script:EnvVars = @('stagingBaseEnv', 'stagingExtraFreeTier', 'stagingExtraFreePoolTokensCap', 'baseEnv', 'stagingEnvOverrides', 'stagingOverriddenKeys')
+    $script:EnvIdentifiers = @('concat', 'filter', 'map', 'contains', 'e', 'name', 'freeTierStagingKeyProvided', 'empty', 'freePoolDailyTokensCapStaging')
     $script:AllowedEnvSecretRefs = @{ "'FREE_TIER_GEMINI_KEY'" = 'freeTierStagingSecretName' }
     $script:ProdOnlyEnvNames = @("'GEMINI_PAID_KEY'", "'GITHUB_TOKEN'", "'GITHUB_WEBHOOK_SECRET'")
 
@@ -318,7 +318,8 @@ Describe 'staging holds no prod secret except the accepted OAuth three (t/654)' 
 
     It 'staging''s env references no prod secret: no GEMINI_PAID_KEY, GITHUB_TOKEN or GITHUB_WEBHOOK_SECRET' {
         $env = Get-BicepVarExpr $script:Bicep 'stagingContainerEnv'
-        $env | Should -Be 'concat(stagingBaseEnv, stagingExtraFreeTier)'
+        # t/813: stagingExtraFreePoolTokensCap adds one literal-named, parameter-valued, non-secret entry (FREE_POOL_DAILY_TOKENS_CAP).
+        $env | Should -Be 'concat(stagingBaseEnv, stagingExtraFreeTier, stagingExtraFreePoolTokensCap)'
         $env | Should -Not -Match '\b(extraPaidTier|extraGithubToken|extraGithubWebhook|extraFreeTier)\b'
     }
 

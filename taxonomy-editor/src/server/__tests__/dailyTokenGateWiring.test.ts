@@ -156,7 +156,7 @@ import { registerAiRoutes } from '../routes/ai.js';
 import { registerChatRoutes } from '../routes/chat.js';
 import { _setDailyTokenBudgetForTest } from '../routes/dailyTokenGate.js';
 import { getConfig, getDefaults, validateAndMerge } from '../runtimeConfig.js';
-import { getDailyTokenBudget, dailyTokenBudgetHealth, reserveDailyTokens } from '../routes/dailyTokenGate.js';
+import { getDailyTokenBudget, dailyTokenBudgetHealth, reserveDailyTokens, estimateCallTokens } from '../routes/dailyTokenGate.js';
 import { log } from '../logger.js';
 
 type Handler = (req: IncomingMessage, res: ServerResponse, body?: unknown) => Promise<void> | void;
@@ -430,6 +430,42 @@ describe('durable daily token allowance wiring on generate and chat-stream (t/74
     expect(over.config.sessions.dailyTokenBytesPerToken).toBe(4);
     expect(over.errors.some((e) => e.includes('dailyTokenBytesPerToken') && e.includes('above max 4'))).toBe(true);
     expect(validateAndMerge({ sessions: { dailyTokenBytesPerToken: 0.5 } }, defaults).config.sessions.dailyTokenBytesPerToken).toBe(1);
+  });
+
+  // t/811 (child t/814): the free pool's reservation holds the call's worst case, not a flat 2,000, so calls in flight can't
+  // overshoot a token-weighted pool cap by their real size.
+  it('generate: the free-pool reservation carries the call\'s worst-case estimate (bytes / ratio + output cap)', async () => {
+    const c = getConfig().sessions; c.dailyTokenBytesPerToken = 3.5; c.dailyTokenDefaultOutputCapTokens = 16_384;
+    const handlers = registerAll();
+    await handlers['POST /api/ai/generate'](fakeReq(), fakeRes(), { prompt: 'x'.repeat(35_000) });
+    expect(reserveFreePoolCall).toHaveBeenCalledTimes(1);
+    const tokens = reserveFreePoolCall.mock.calls[0][2];
+    expect(tokens).toBe(10_000 + 16_384); // ceil(35,000 / 3.5) + 16,384
+    expect(tokens).toBe(estimateCallTokens(35_000));
+    expect(tokens).not.toBe(2_000); // the old flat estimate
+  });
+
+  it('chat-stream: a 695,000-character turn reserves its real size (about 215,000), not 2,000', async () => {
+    const c = getConfig().sessions; c.dailyTokenBytesPerToken = 3.5; c.dailyTokenDefaultOutputCapTokens = 16_384; c.dailyTokenPerCallCeilingTokens = 250_000;
+    FREE_TIER.limits.tokensPerDay = 1_500_000;
+    const messages = [{ role: 'user', content: 'x'.repeat(695_000) }];
+    const handlers = registerAll();
+    try {
+      await handlers['POST /api/ai/chat-stream'](fakeReq(), fakeRes(), { messages });
+      expect(reserveFreePoolCall).toHaveBeenCalledTimes(1);
+      const tokens = reserveFreePoolCall.mock.calls[0][2];
+      expect(tokens).toBe(estimateCallTokens(Buffer.byteLength(JSON.stringify(messages), 'utf8')));
+      expect(tokens).toBeGreaterThan(200_000);
+      expect(tokens).toBeLessThan(250_000);
+    } finally { FREE_TIER.limits.tokensPerDay = 100_000; }
+  });
+
+  it('a debate call (debateId) still goes through debate admission, not the per-call estimate', async () => {
+    admitOrDrawDownDebateCall.mockResolvedValue({ ok: true, fallbackReservationId: null, debateReservationId: null });
+    const handlers = registerAll();
+    await handlers['POST /api/ai/generate'](fakeReq(), fakeRes(), { prompt: 'hi', debateId: 'deb-1' });
+    expect(reserveFreePoolCall).not.toHaveBeenCalled();
+    expect(admitOrDrawDownDebateCall).toHaveBeenCalledTimes(1);
   });
 
   // Security p/93#150: 'hosted' means NOT single-operator local mode (AUTH_DISABLED=1 outside production).

@@ -33,14 +33,15 @@ import { areBlobBackendsWired } from '../storage/blobBackendBoot.js';
 
 /** `/health`'s free-pool block (t/4677, t/4733): wiring and enforcement, plus the container and
  *  daily cap this process actually uses, so a staging/prod store share or a wrong cap is visible
- *  by curl. `container`/`callsCap` are null while the store is unwired. */
-export function freePoolBudgetHealth(): { wired: boolean; enforced: boolean; container: string | null; callsCap: number | null } {
+ *  by curl. `container`/`callsCap` are null while the store is unwired; `tokensCap` is null when no token cap is set. */
+export function freePoolBudgetHealth(): { wired: boolean; enforced: boolean; container: string | null; callsCap: number | null; tokensCap: number | null } {
   const cfg = getFreePoolBudgetConfig();
   return {
     wired: getFreePoolBudget() !== null,
     enforced: isFreePoolBudgetEnforced(),
     container: cfg?.container ?? null,
     callsCap: cfg?.callsCap ?? null,
+    tokensCap: cfg?.tokensCap ?? null, // t/811: the token-weighted daily cap (null = none), so a rollout is checkable by curl
   };
 }
 
