@@ -137,11 +137,33 @@ param azureUserContentContainerStaging string = 'staging-user-content'
 ])
 param anonOpEdLifecyclePrefix string = 'anon-oped/'
 @description('Apply the anonymous op-ed delete rule to staging-user-content. Staging first.')
-param anonOpEdLifecycleStagingEnabled bool = false
+// ARMED (t/671, 2026-11-26): the dry listing after a real anonymous op-ed on staging showed both
+// blobs under staging-user-content/anon-oped/<session id>/ and nothing of that run elsewhere (t/671#12).
+// It takes effect on the next main.bicep apply (deploy-azure.yml; the staging auto-deploy applies no Bicep).
+param anonOpEdLifecycleStagingEnabled bool = true
 @description('Apply the anonymous op-ed delete rule to user-content (prod). Only after staging has run clean and the PI is told.')
 param anonOpEdLifecycleProdEnabled bool = false
 @description('Age in days after last modification before an anonymous op-ed blob is deleted. Two days: the stamp rewrites at most hourly, and the policy runs daily.')
 param anonOpEdLifecycleAgeDays int = 2
+
+// ── Anonymous debate counter retention backstop (t/817, t/802, t/724 check C) ──
+// The counter writes one small record per anonymous visitor per UTC day at anon-debate-counter/<YYYY-MM-DD>/<anon-uuid>.json in the
+// user-content container (staging's own container on staging). Nothing in code deletes old records and a day's record is useless after
+// that UTC day, so one rule deletes them 2 days after last modification. Same shape and safety as the anon-oped/ rule above: a literal
+// top-level prefix ending in '/' (so anon-debate-counter-x/ never matches), and the container name in front (so no other container does).
+// Blob soft delete (30 days) and versioning apply to what this rule deletes: it is a 24-hour promise for the app's view only.
+// Staging's rule is applied only by the prod apply (the staging auto-deploy applies no Bicep), as with anon-oped/ (t/671#13).
+@description('Blob name prefix (inside the container) for the anonymous debate counter records (t/802). Must end in a slash. Empty adds no rule.')
+@allowed([
+  'anon-debate-counter/'
+])
+param anonDebateCounterLifecyclePrefix string = 'anon-debate-counter/'
+@description('Apply the anonymous debate counter delete rule to staging-user-content. Staging first.')
+param anonDebateCounterLifecycleStagingEnabled bool = true
+@description('Apply the anonymous debate counter delete rule to user-content (prod). Off until staging has been seen deleting a record and SO clears it.')
+param anonDebateCounterLifecycleProdEnabled bool = false
+@description('Age in days after last modification before a counter record is deleted. Two days: a record is useless after its UTC day, and the policy runs daily.')
+param anonDebateCounterLifecycleAgeDays int = 2
 
 @description('AZURE_COMMUNITY_CONTAINER override for staging only (t/4738). Isolates staging community submissions from prod — without this, a staging test item could be approved and published on the public prod site.')
 param azureCommunityContainerStaging string = 'staging-community'
@@ -698,6 +720,49 @@ var anonOpEdLifecycleRules = concat(
     : []
 )
 
+// t/817: same fail-safe as anonOpEdPrefixSafe: no users/ prefix, never empty, always a trailing slash.
+var anonDebateCounterPrefixSafe = !empty(anonDebateCounterLifecyclePrefix) && !startsWith(anonDebateCounterLifecyclePrefix, 'users/') && endsWith(anonDebateCounterLifecyclePrefix, '/')
+var anonDebateCounterLifecycleRules = concat(
+  (anonDebateCounterLifecycleStagingEnabled && anonDebateCounterPrefixSafe)
+    ? [
+        {
+          name: 'delete-anon-debate-counter-staging'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            actions: {
+              baseBlob: { delete: { daysAfterModificationGreaterThan: anonDebateCounterLifecycleAgeDays } }
+              version: { delete: { daysAfterCreationGreaterThan: anonDebateCounterLifecycleAgeDays } }
+            }
+            filters: {
+              blobTypes: ['blockBlob']
+              prefixMatch: ['${azureUserContentContainerStaging}/${anonDebateCounterLifecyclePrefix}']
+            }
+          }
+        }
+      ]
+    : [],
+  (anonDebateCounterLifecycleProdEnabled && anonDebateCounterPrefixSafe)
+    ? [
+        {
+          name: 'delete-anon-debate-counter-prod'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            actions: {
+              baseBlob: { delete: { daysAfterModificationGreaterThan: anonDebateCounterLifecycleAgeDays } }
+              version: { delete: { daysAfterCreationGreaterThan: anonDebateCounterLifecycleAgeDays } }
+            }
+            filters: {
+              blobTypes: ['blockBlob']
+              prefixMatch: ['user-content/${anonDebateCounterLifecyclePrefix}']
+            }
+          }
+        }
+      ]
+    : []
+)
+
 resource briefExportsLifecyclePolicy 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = {
   parent: storageAccount
   name: 'default'
@@ -725,7 +790,7 @@ resource briefExportsLifecyclePolicy 'Microsoft.Storage/storageAccounts/manageme
             }
           }
         }
-      ], anonOpEdLifecycleRules)
+      ], anonOpEdLifecycleRules, anonDebateCounterLifecycleRules)
     }
   }
 }
