@@ -54,8 +54,8 @@ describe('t/785 saved model validated against ai-models.json', () => {
   });
 
   it('a saved id the registry lists is used as-is, with no WARN', async () => {
-    const mod = await loadModule({ backend: 'gemini', model: 'gemini-3.5-flash' });
-    expect(mod.getStoredModel()).toBe('gemini-3.5-flash');
+    const mod = await loadModule({ backend: 'gemini', model: 'gemini-3.6-flash' });
+    expect(mod.getStoredModel()).toBe('gemini-3.6-flash');
     expect(warnSpy).not.toHaveBeenCalled();
   });
 

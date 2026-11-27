@@ -64,7 +64,7 @@ Respond ONLY with a JSON object (no markdown, no code fences):
   "cruxes": [
     {"question": "the factual or value question that would change minds", "decisive": false, "if_yes": "which debater's position weakens — who must concede or revise, and what they must give up", "if_no": "which debater's position weakens — who must concede or revise, and what they must give up", "type": "EMPIRICAL or VALUES", "counterfactual_type": "interventional, backtracking, normative, or none if the crux is not counterfactual in form", "resolution_status": "resolved or irreducible or active or undecided", "resolution_evidence": "what resolved it, if applicable"}
   ],
-  "unresolved_questions": ["..."]
+  "unresolved_questions": [{"question": "...", "theme": "2-5 words in plain language naming the topic; not a camp name; related questions reuse the exact same label; at most 5 distinct themes across the list; empty string when the question fits none"}]
 }`;
 }
 
@@ -164,7 +164,7 @@ ${argumentMap}
 
 Tasks:
 0. **TOPIC RESOLUTION (required).** The reader's first question is "what did the debate conclude about what I actually asked?" Restate the original debate question — "${topic}" — as one sentence, then answer it directly across all three perspectives: name where they converged, where they remain genuinely split, and the one crux that would most move the outcome. This is a direct answer to the original question, not a summary of the agreement/disagreement lists.
-1. For each disagreement, evaluate which position is STRONGER and why.
+1. For each disagreement, evaluate which position is STRONGER and why. Give each disagreement its own entry in "preferences" and set "disagreement_id" to that disagreement's "id".
    Apply these preference criteria (in order of priority):
    a. "empirical_evidence" — which position cites more or better evidence?
    b. "logical_validity" — which position has fewer logical gaps or fallacies?
@@ -194,7 +194,7 @@ Respond ONLY with a JSON object (no markdown, no code fences):
     "what_would_resolve_it": "<the single most decisive crux whose resolution would most change positions>"
   },
   "preferences": [
-    {"conflict": "description of disagreement", "claim_ids": ["C1", "C2"], "prevails": "C2 or undecidable", "criterion": "empirical_evidence or logical_validity or source_authority or specificity or scope", "rationale": "2-3 sentences explaining why", "what_would_change_this": "what evidence would flip the verdict"}
+    {"conflict": "description of disagreement", "disagreement_id": "the id of the disagreement above this evaluates, copied exactly (e.g. d1)", "claim_ids": ["C1", "C2"], "prevails": "C2 or undecidable", "criterion": "empirical_evidence or logical_validity or source_authority or specificity or scope", "rationale": "2-3 sentences explaining why", "what_would_change_this": "what evidence would flip the verdict"}
   ],
   "policy_implications": [
     {"disagreement": "the policy-relevant disagreement", ${policyContext ? '"policy_refs": ["pol-NNN"], ' : ''}"positions": [{"pover": "accelerationist", "stance": "supports/opposes/modifies and why"}], "implication": "how this affects what policy should be adopted"}

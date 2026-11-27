@@ -95,6 +95,8 @@ export interface ArgumentClaim {
 export interface SynthesisResult {
   areas_of_agreement: { point: string; povers: SpeakerId[] }[];
   areas_of_disagreement: {
+    /** Stable id within this synthesis (`d1`, `d2`, ...), assigned in code (t/808). Absent in debates saved before t/808. */
+    id?: string;
     point: string;
     positions: { pover: SpeakerId; stance: string }[];
     /** BDI layer classification — added in dolce-phase-1. Absent in older debates. */
@@ -103,6 +105,8 @@ export interface SynthesisResult {
     resolvability?: 'resolvable_by_evidence' | 'negotiable_via_tradeoffs' | 'requires_term_clarification';
   }[];
   unresolved_questions: string[];
+  /** Optional topic per unresolved question, same length and order as `unresolved_questions`, '' for none (t/808). Absent when no question has one. */
+  unresolved_question_themes?: string[];
   taxonomy_coverage: { node_id: string; how_used: string }[];
   /** AIF argument map — added in dolce-phase-3. Absent in older debates. */
   argument_map?: ArgumentClaim[];
@@ -177,6 +181,8 @@ export interface AggregatedCrux {
 
 export interface PreferenceEntry {
   conflict: string;
+  /** `id` of the disagreement this preference resolves (t/808). Absent on old debates and when no disagreement matched. */
+  disagreement_id?: string;
   claim_ids?: string[];
   prevails: string;
   criterion: string;

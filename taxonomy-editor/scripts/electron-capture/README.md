@@ -15,6 +15,8 @@ itself with Playwright's Electron mode, runs a scenario, and writes PNGs to a fo
 - **`--data-root` is required and must be a scratch copy.** It is refused if it overlaps the real data
   tree (`.aitriad.json` `data_root` or your `AI_TRIAD_DATA_ROOT`) or sits inside any git checkout,
   because the full-tree push publishes the data tree.
+- **A scenario must not drive the app's data-root controls.** "Set data root" writes `.aitriad.json` in the
+  checkout, and "clone-data-repo" clones into the home folder; neither belongs in a capture (Security, t/743).
 - **`--out` must be outside any git checkout**, so shots never land in a commit.
 - **Stubs stay in the harness.** A scenario may stub `dialog.showOpenDialog` or override an `ipcMain`
   handler at run time (`h.stubOpenDialog`, `h.overrideHandler`). Nothing is added to the product, and
