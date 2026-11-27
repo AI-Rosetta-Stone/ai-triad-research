@@ -285,3 +285,77 @@ test('t/559: the enqueue reader carries each file\'s status (fetchChangedFiles e
   assert.deepEqual(r.entries, [{ filename: 'package.json', previous_filename: undefined, status: 'added' }, { filename: 'b/new.json', previous_filename: 'a/old.json', status: 'renamed' }]);
   assert.deepEqual(r.paths, ['package.json', 'b/new.json', 'a/old.json']);
 });
+
+// ── t/559 follow-up (Security p/131#116): .npmrc / .pnpmfile.cjs at any depth; pnpm-workspace.yaml INVERTED ──
+
+test('t/559 follow-up (a): .npmrc, .pnpmfile.cjs and pnpmfile.cjs are gate files at ANY depth; lookalikes are not', async () => {
+  const { isGateFile, CODE_UNDER_TEST, INSTALL_BEHAVIOUR_BASENAMES } = await import('./gate-file-change.mjs');
+  assert.deepEqual([...INSTALL_BEHAVIOUR_BASENAMES], ['.npmrc', '.pnpmfile.cjs', 'pnpmfile.cjs']);
+  for (const p of ['.npmrc', '.pnpmfile.cjs', 'pnpmfile.cjs', 'taxonomy-editor/.npmrc', 'lib/debate/.pnpmfile.cjs', 'a/b/c/pnpmfile.cjs', './.npmrc']) assert.equal(isGateFile(p), true, p);
+  for (const p of ['npmrc', '.npmrc.bak', 'docs/npmrc.md', '.pnpmfile.cjs.txt', 'pnpmfile.js', 'src/.npmrcx', '.npmrc/readme.md']) assert.equal(isGateFile(p), false, p);
+  assert.ok(!CODE_UNDER_TEST.includes('.npmrc'), '.npmrc left CODE_UNDER_TEST (a path cannot be both)');
+  // and it releases like any other gate file: refused without a review
+  const v = gateFileChangeVerdict({ files: { paths: ['taxonomy-editor/.npmrc'], listedCount: 1, expectedCount: 1 }, headSha: 'a'.repeat(40), override: null });
+  assert.equal(v.allow, false);
+  assert.equal(v.reason, 'gate_files_no_override');
+  assert.deepEqual(v.gateFiles, ['taxonomy-editor/.npmrc']);
+});
+
+const W2 = 'pnpm-workspace.yaml';
+const wsd = (b, h, status = 'modified') => decide([E(W2, undefined, status)], { [W2]: { text: b } }, { [W2]: { text: h } });
+const BASE_WS = "packages:\n  - 'taxonomy-editor'\n\noverrides:\n  x: 1.0.0\n\ncatalog:\n  react: 18.0.0\n";
+
+test('t/559 follow-up (b): a change to ANY top-level key other than overrides, catalog and catalogs is a gate change', () => {
+  const keys = [
+    ['patchedDependencies', 'patchedDependencies:\n  a@1.0.0: patches/a.patch\n', 'patchedDependencies:\n  a@1.0.0: patches/evil.patch\n'],
+    ['packageExtensions', 'packageExtensions:\n  a:\n    dependencies:\n      b: 1\n', 'packageExtensions:\n  a:\n    dependencies:\n      evil: 1\n'],
+    ['dangerouslyAllowAllBuilds', 'dangerouslyAllowAllBuilds: false\n', 'dangerouslyAllowAllBuilds: true\n'],
+    ['verifyDepsBeforeRun', 'verifyDepsBeforeRun: install\n', 'verifyDepsBeforeRun: false\n'],
+    ['registry', 'registry: https://registry.npmjs.org/\n', 'registry: https://evil.example/\n'],
+    ['ignoreScripts', 'ignoreScripts: true\n', 'ignoreScripts: false\n'],
+    ['allowBuilds', 'allowBuilds:\n  esbuild: true\n', 'allowBuilds:\n  esbuild: true\n  evil-pkg: true\n'],
+    ['onlyBuiltDependencies', 'onlyBuiltDependencies:\n  - esbuild\n', 'onlyBuiltDependencies:\n  - esbuild\n  - evil-pkg\n'],
+    ['pnpmfile', 'pnpmfile: .pnpmfile.cjs\n', 'pnpmfile: tools/hooks.cjs\n'],
+    ['hooks', 'hooks:\n  readPackage: a\n', 'hooks:\n  readPackage: b\n'],
+  ];
+  for (const [name, before, after] of keys) {
+    assert.deepEqual(wsd(BASE_WS + before, BASE_WS + after), [W2], `${name} changed`);
+  }
+});
+
+test('t/559 follow-up (b): a NEW top-level key, or a removed one, is a gate change (the next key pnpm adds is covered unnamed)', () => {
+  assert.deepEqual(wsd(BASE_WS, BASE_WS + 'someFutureSetting: true\n'), [W2], 'a new key');
+  assert.deepEqual(wsd(BASE_WS + 'ignoreScripts: true\n', BASE_WS), [W2], 'a removed key');
+  assert.deepEqual(wsd(BASE_WS, BASE_WS + 'allowBuilds:\n  x: true\n'), [W2], 'a new block key');
+});
+
+test('t/559 follow-up (b): changes confined to overrides, catalog and catalogs pass; comments and blank lines are not changes', () => {
+  assert.deepEqual(wsd(BASE_WS, BASE_WS.replace('x: 1.0.0', 'x: 2.0.0\n  y: 3.0.0')), [], 'overrides');
+  assert.deepEqual(wsd(BASE_WS, BASE_WS.replace('react: 18.0.0', 'react: 19.0.0')), [], 'catalog');
+  assert.deepEqual(wsd(BASE_WS, BASE_WS + 'catalogs:\n  legacy:\n    react: 17.0.0\n'), [], 'a new catalogs key');
+  assert.deepEqual(wsd(BASE_WS + 'catalogs:\n  a:\n    x: 1\n', BASE_WS), [], 'catalogs removed');
+  assert.deepEqual(wsd(BASE_WS, '# a new comment\n' + BASE_WS.replace('overrides:', '\n\n# note\noverrides:')), [], 'comments and blank lines');
+  assert.deepEqual(wsd(BASE_WS + 'ignoreScripts: true\n', BASE_WS.replace('x: 1.0.0', 'x: 9.9.9') + 'ignoreScripts: true\n'), [], 'a gated key unchanged beside an override change');
+  // the packages: check stays: order and quotes are not changes, a new member is
+  assert.deepEqual(wsd("packages:\n  - 'a'\n  - 'b'\n", 'packages:\n  - b\n  - "a"\n'), []);
+  assert.deepEqual(wsd("packages:\n  - 'a'\n", "packages:\n  - 'a'\n  - 'evil/*'\n"), [W2]);
+});
+
+test('t/559 follow-up (b): an unreadable or unrecognised file is a change (fail closed)', () => {
+  for (const bad of ['---\npackages:\n  - a\n', 'packages:\n  - a\n- stray\n', '  indented: first\npackages:\n  - a\n', 'packages:\n  - a\npackages:\n  - b\n', 'just text\n', 'packages: [a\n', 'key with spaces: 1\n']) {
+    assert.deepEqual(wsd(BASE_WS, bad), [W2], JSON.stringify(bad.slice(0, 30)));
+    assert.deepEqual(wsd(bad, BASE_WS), [W2], `base ${JSON.stringify(bad.slice(0, 30))}`);
+  }
+  assert.deepEqual(decide([E(W2, undefined, 'modified')], { [W2]: { error: new Error('502') } }, { [W2]: { text: BASE_WS } }), [W2]);
+  assert.deepEqual(decide([E(W2, undefined, 'modified')], { [W2]: { text: BASE_WS } }, { [W2]: { text: undefined } }), [W2]);
+});
+
+test('t/559 follow-up: workspaceFactsOf on its own', async () => {
+  const { workspaceFactsOf, WORKSPACE_FREE_KEYS } = await import('./gate-file-change.mjs');
+  assert.deepEqual([...WORKSPACE_FREE_KEYS], ['overrides', 'catalog', 'catalogs']);
+  assert.deepEqual(workspaceFactsOf(BASE_WS), { ok: true, fact: { packages: ['taxonomy-editor'] } });
+  assert.deepEqual(workspaceFactsOf('ignoreScripts: true\n').fact, { ignoreScripts: 'ignoreScripts: true' });
+  assert.deepEqual(workspaceFactsOf('overrides:\n  a: 1\n'), { ok: true, fact: {} });
+  assert.equal(workspaceFactsOf(undefined).ok, false);
+  assert.equal(workspaceFactsOf(5).ok, false);
+});

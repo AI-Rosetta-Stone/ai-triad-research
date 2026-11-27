@@ -194,12 +194,17 @@ test('t/799: across every workflow, the jobs that check out PR content and hold 
   assert.deepEqual(offenders, KNOWN_BASELINE, 'a job that mixes a PR checkout and a secret was added (or one was fixed: remove it from KNOWN_BASELINE)');
 });
 
-// continuous-deploy.yml:evaluate checks out workflow_run.head_sha with `issues: write` on its GITHUB_TOKEN. Its trigger is
-// `workflow_run` of CI with `branches: [main]` (so the SHA is a commit on main, never a PR head) and it is log-only; it is a
-// known, reviewed exception, not PR content. Remove it from this list if that trigger ever widens (the test below pins it).
+// continuous-deploy.yml:evaluate checks out workflow_run.head_sha with `issues: write` on its GITHUB_TOKEN. `branches: [main]` matches
+// the head branch NAME, so a fork PR from a fork's own `main` also triggers it (t/801): that alone does NOT make the SHA a commit on
+// main. What keeps PR content out is the job's own `if:` (an allowlist of workflow_run events plus head repository == this
+// repository), pinned in continuous-deploy-workflow.test.mjs and re-pinned below. It is log-only; a known, reviewed exception.
+// Remove it from this list if the job stops checking out the head SHA.
 const KNOWN_BASELINE = ['continuous-deploy.yml:evaluate'];
 
-test('t/799: the one baseline exception (continuous-deploy.yml) stays limited to main: its workflow_run trigger names branches: [main]', () => {
-  const { head } = splitWorkflow(read('continuous-deploy.yml'));
+test('t/799, t/801: the baseline exception (continuous-deploy.yml) keeps its trigger AND the if: that excludes forks and pull_request runs', () => {
+  const text = read('continuous-deploy.yml');
+  const { head } = splitWorkflow(text);
   assert.match(head, /workflow_run:\s*\n\s+workflows: \["CI"\]\s*\n\s+types: \[completed\]\s*\n\s+branches: \[main\]/);
+  assert.match(text, /contains\(fromJSON\('\["push","schedule","workflow_dispatch"\]'\), github\.event\.workflow_run\.event\)/);
+  assert.match(text, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/);
 });

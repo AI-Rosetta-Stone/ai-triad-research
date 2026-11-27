@@ -39,8 +39,9 @@ test('evaluate refuses a pull_request run and a head in another repository', () 
   const expr = jobIf(text, 'evaluate');
   assert.ok(expr, 'the evaluate job has an if:');
   assert.match(expr, /github\.event\.workflow_run\.conclusion == 'success'/);
-  assert.match(expr, /github\.event\.workflow_run\.event != 'pull_request'/);
-  assert.match(expr, /github\.event\.workflow_run\.event != 'pull_request_target'/);
+  // An allowlist of the events that can carry a commit already on this repository, not a denylist of pull_request events.
+  assert.match(expr, /contains\(fromJSON\('\["push","schedule","workflow_dispatch"\]'\), github\.event\.workflow_run\.event\)/);
+  assert.doesNotMatch(expr, /pull_request/);
   assert.match(expr, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/);
 });
 
@@ -55,7 +56,7 @@ test('red arm: the pre-t/801 condition (conclusion only) fails the guard check',
   const expr = jobIf(old, 'evaluate');
   assert.equal(expr, "github.event.workflow_run.conclusion == 'success'");
   assert.doesNotMatch(expr, /head_repository/);
-  assert.doesNotMatch(expr, /!= 'pull_request'/);
+  assert.doesNotMatch(expr, /fromJSON/);
 });
 
 test('jobIf reads a folded and a one-line if', () => {
